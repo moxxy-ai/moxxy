@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { discoverSkills } from './loader.js';
+import { defaultUserSkillsDir, discoverSkills } from './loader.js';
 import { silentLogger } from '../logger.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
@@ -118,5 +118,20 @@ describe('discoverSkills', () => {
     const names = skills.map((s) => s.frontmatter.name);
     expect(names).toContain('shallow');
     expect(names).not.toContain('too-deep');
+  });
+});
+
+describe('defaultUserSkillsDir', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('lives in MOXXY_HOME when it is set', () => {
+    vi.stubEnv('MOXXY_HOME', path.join(os.tmpdir(), 'moxxy-home-elsewhere'));
+    expect(defaultUserSkillsDir()).toBe(path.join(os.tmpdir(), 'moxxy-home-elsewhere', 'skills'));
+  });
+
+  it('falls back to ~/.moxxy', () => {
+    expect(defaultUserSkillsDir()).toBe(path.join(os.homedir(), '.moxxy', 'skills'));
   });
 });

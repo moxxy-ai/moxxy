@@ -38,6 +38,22 @@ async function drain(
 }
 
 describe('consumeResponsesSse', () => {
+  it('preserves the completed reasoning item for replay even when visible summaries are off', async () => {
+    const completed = {
+      type: 'reasoning', id: 'rs_complete', encrypted_content: 'completed-state',
+      summary: [{ type: 'summary_text', text: 'Checking the editor' }], status: 'completed',
+    };
+    const events = await drain(streamOf([
+      frame({ type: 'response.output_item.added', item: { ...completed, encrypted_content: 'partial-state', status: 'in_progress' } }),
+      frame({ type: 'response.output_item.done', item: completed }),
+      frame({ type: 'response.completed', response: {} }),
+    ]));
+
+    expect(events.filter(event => event.type === 'reasoning_signature')).toEqual([
+      { type: 'reasoning_signature', replayItem: { provider: 'openai-codex', item: completed } },
+    ]);
+  });
+
   it('assembles a tool call (added → arguments.delta → arguments.done) and upgrades stopReason to tool_use', async () => {
     const events = await drain(
       streamOf([

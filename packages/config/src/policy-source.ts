@@ -1,8 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { writeSignedNetworkCacheAtomic } from '@moxxy/sdk/server';
+import { moxxyPath, writeSignedNetworkCacheAtomic } from '@moxxy/sdk/server';
 import type { PolicyBundle, PolicyBundleRule } from './policy-bundle.js';
 import { verifyPolicyBundle } from './policy-bundle.js';
 import type { PolicyBundleRef } from './schema.js';
@@ -83,7 +82,7 @@ export async function loadPolicyBundles(
   const sources: PolicySourceRecord[] = [];
   if (refs.length === 0) return { allow, deny, sources };
 
-  const cacheDir = opts.cacheDir ?? path.join(os.homedir(), '.moxxy', 'policy');
+  const cacheDir = opts.cacheDir ?? moxxyPath('policy');
   await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
 
   for (const ref of refs) {

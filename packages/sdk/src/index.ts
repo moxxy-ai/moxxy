@@ -22,6 +22,7 @@ export type {
   AssistantMessageEvent,
   ReasoningChunkEvent,
   ReasoningMessageEvent,
+  ReasoningReplayItem,
   ToolCallRequestedEvent,
   ToolCallApprovedEvent,
   ToolCallDeniedEvent,
@@ -423,6 +424,7 @@ export {
   unfinishedWorkNudge,
   type Progress,
 } from './progress.js';
+export { openShortfall, shortfallNudge, shortfallOf, unfinishedStepCheckpoint, type Shortfall } from './shortfall.js';
 export { AGENT_CONDUCT, SELF_REFERENCE_NOTE, withAgentConduct } from './conduct.js';
 export {
   applyLazyTools,

@@ -52,6 +52,7 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
   liveState?: boolean;
   alwaysLoaded?: boolean;
   modes?: ReadonlyArray<string>;
+  refusalEndsTurn?: string;
 }): ToolDef {
   return Object.freeze({
     name: spec.name,
@@ -67,6 +68,7 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
     isolation: spec.isolation,
     ...(spec.liveState ? { liveState: true } : {}),
     ...(spec.alwaysLoaded ? { alwaysLoaded: true } : {}),
+    ...(spec.refusalEndsTurn !== undefined ? { refusalEndsTurn: spec.refusalEndsTurn } : {}),
     ...(spec.modes ? { modes: Object.freeze([...spec.modes]) } : {}),
   });
 }

@@ -154,6 +154,38 @@ describe('shipped builtin skills', () => {
   });
 });
 
+describe('the self-heal skill', () => {
+  const read = async () => parseFrontmatterFile(await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'self-heal.md'), 'utf8'));
+
+  // The description is in every request's skill index. When it covered any
+  // failed tool call, the agent answered an ordinary error in the task with a
+  // proposal and a wait for approval instead of trying another way.
+  it('is for Moxxy itself being broken, not for an ordinary error in the task', async () => {
+    const frontmatter = skillFrontmatterSchema.parse((await read()).frontmatter);
+
+    expect(frontmatter.description).toMatch(/^When Moxxy itself is broken/);
+    expect(frontmatter.description).toMatch(/Not for ordinary task errors; work through those yourself\.$/);
+    expect(frontmatter.description).not.toMatch(/When a tool call fails/);
+  });
+
+  it('is not triggered by the words of an everyday failure', async () => {
+    const frontmatter = skillFrontmatterSchema.parse((await read()).frontmatter);
+    const everyday = ['tool failed', 'permission denied', 'not found', "doesn't work", 'broken', 'fix this', 'fix it', "can't run", 'is hanging', 'is stuck', 'is failing', "what's wrong", 'diagnose', 'repair'];
+
+    expect((frontmatter.triggers ?? []).filter((trigger) => everyday.includes(trigger))).toEqual([]);
+    expect(frontmatter.triggers).toContain('self-heal');
+    expect(frontmatter.triggers).toContain('plugin failed to load');
+  });
+
+  it('says in its body when it applies and that task errors are worked through', async () => {
+    const { body } = await read();
+
+    expect(body).toMatch(/## When this applies/);
+    expect(body).toMatch(/Only when \*\*Moxxy itself\*\* is at fault/);
+    expect(body).toMatch(/try\s+another way and carry on, without asking the user to approve each step/);
+  });
+});
+
 describe('the browser skill in the chat @ menu', () => {
   it('shows as the Moxxy Browser, answers @moxxy_browser and keeps Computer Use out of that request', async () => {
     const raw = await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'browser.md'), 'utf8');
@@ -168,6 +200,16 @@ describe('the browser skill in the chat @ menu', () => {
 describe('the browser skill', () => {
   const body = async () => parseFrontmatterFile(await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'browser.md'), 'utf8')).body;
 
+  it('produces requested screenshots by reading rather than clicking their target', async () => {
+    const text = await body();
+    expect(text).toMatch(/For a requested picture, use `browser_capture`/);
+    expect(text).toMatch(/never click to select an element for its picture/);
+  });
+
+  it('restores the actual viewport through reset rather than an assumed desktop size', async () => {
+    expect(await body()).toContain('restore normal size with `reset: true`');
+  });
+
   it('offers runs of steps only where they exist, and says to carry on from the page they return', async () => {
     const text = await body();
     expect(text).toMatch(/When `browser_run` is among your tools/);
@@ -180,6 +222,14 @@ describe('the browser skill', () => {
     expect(text).toMatch(/guess once/);
     expect(text).toMatch(/Never open the page you are already on/);
     expect(text).toMatch(/Trust one clear signal/);
+  });
+
+  it('lets it decline a cookie banner itself, and never accept one', async () => {
+    const text = await body();
+    expect(text).toMatch(/is the one you answer\s+yourself/);
+    expect(text).toMatch(/under \*\*Cookie banner\*\*; press it\s+and carry on, without asking/);
+    expect(text).toMatch(/Never press a control that accepts or agrees/);
+    expect(text).toMatch(/hand over a banner that shows no way to decline/);
   });
 
   it('tells it to stop, not work around, when the user takes the browser', async () => {

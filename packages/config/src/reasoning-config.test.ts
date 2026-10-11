@@ -10,3 +10,11 @@ describe('context.reasoning effort', () => {
     expect(() => contextConfigSchema.parse({ reasoning: { effort: 'extreme' } })).toThrow();
   });
 });
+
+describe('context.unfinishedStepCheck', () => {
+  it('is a switch, unset by default', () => {
+    expect(contextConfigSchema.parse({ unfinishedStepCheck: false }).unfinishedStepCheck).toBe(false);
+    expect(contextConfigSchema.parse({}).unfinishedStepCheck).toBeUndefined();
+    expect(() => contextConfigSchema.parse({ unfinishedStepCheck: 'no' })).toThrow();
+  });
+});

@@ -108,11 +108,11 @@ export function handleSseEvent(
     return { events: [{ type: 'reasoning_delta', delta: ev.delta }] };
   }
 
-  // A `reasoning` output item carries the encrypted_content we must replay
-  // verbatim on the next request (Codex requests `include: ['reasoning.encrypted_content']`).
-  if (emitReasoning && type === 'response.output_item.added' && ev.item?.type === 'reasoning') {
-    return ev.item.encrypted_content
-      ? { events: [{ type: 'reasoning_signature', encrypted: ev.item.encrypted_content }] }
+  // Only the completed item carries final state. Replay is independent of
+  // the visible-summary toggle: stateless requests still need this state.
+  if (type === 'response.output_item.done' && ev.item?.type === 'reasoning') {
+    return ev.item.id && ev.item.encrypted_content && Array.isArray(ev.item.summary)
+      ? { events: [{ type: 'reasoning_signature', replayItem: { provider: 'openai-codex', item: ev.item } }] }
       : {};
   }
 

@@ -15,7 +15,8 @@ import {
 type ResponsesInputItem =
   | { type: 'message'; role: 'user' | 'assistant' | 'system'; content: ReadonlyArray<ResponsesContent> }
   | { type: 'function_call'; call_id: string; name: string; arguments: string }
-  | { type: 'function_call_output'; call_id: string; output: string };
+  | { type: 'function_call_output'; call_id: string; output: string }
+  | { type: 'reasoning'; id: string; summary: ReadonlyArray<unknown>; encrypted_content: string };
 
 type ResponsesContent =
   | { type: 'input_text'; text: string }
@@ -120,6 +121,16 @@ export function toResponsesInput(messages: ReadonlyArray<ProviderMessage>): Resp
       continue;
     }
     if (msg.role === 'assistant') {
+      for (const block of msg.content) {
+        if (block.type !== 'reasoning') continue;
+        for (const replay of block.replayItems ?? []) {
+          if (replay.provider !== 'openai-codex') continue;
+          const item = replay.item;
+          if (item.type !== 'reasoning' || typeof item.id !== 'string' ||
+              typeof item.encrypted_content !== 'string' || !Array.isArray(item.summary)) continue;
+          out.push({ ...item, type: 'reasoning', id: item.id, summary: item.summary, encrypted_content: item.encrypted_content });
+        }
+      }
       const text = msg.content
         .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
         .map((c) => c.text)

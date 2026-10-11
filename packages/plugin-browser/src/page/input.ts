@@ -288,25 +288,42 @@ export async function armPressCheck(cdp: Cdp, backendNodeId: number, timeoutMs: 
   }
 }
 
-/** What a field shows: its value, or the text of an editable element. Null if it is neither. */
-export async function valueOf(cdp: Cdp, backendNodeId: number): Promise<string | null> {
+/** Read value and editability together, without another round trip before typing. */
+export async function fieldStateOf(cdp: Cdp, backendNodeId: number, maskValue = false): Promise<{ readonly value: string | null; readonly readOnly: boolean; readonly editable: boolean | null }> {
+  const unknown = { value: null, readOnly: false, editable: null };
   try {
     const objectId = await objectOf(cdp, backendNodeId);
-    if (!objectId) return null;
+    if (!objectId) return unknown;
     const reply = (await cdp.send('Runtime.callFunctionOn', {
       objectId,
       returnByValue: true,
       functionDeclaration: `function () {
-        if ('value' in this && typeof this.value === 'string') return this.value;
-        if (this.isContentEditable) return (this.innerText || '').replace(/\n$/, '');
-        return null;
+        const tag = this.tagName;
+        const type = this.type;
+        const role = typeof this.getAttribute === 'function' ? this.getAttribute('role') : '';
+        const unsupported = tag === 'BUTTON' || tag === 'SELECT' ||
+          (tag === 'INPUT' && ['checkbox','radio','file','button','submit','reset','image','hidden','color','range'].includes(type));
+        const editable = !unsupported && (this.isContentEditable === true || tag === 'TEXTAREA' || tag === 'INPUT' ||
+          ['textbox','searchbox','combobox','spinbutton'].includes(role));
+        const masked = ${maskValue} || type === 'password';
+        const value = masked ? null : 'value' in this && typeof this.value === 'string' ? this.value
+          : this.isContentEditable ? (this.innerText || '').replace(/\\n$/, '') : null;
+        return { value, readOnly: this.readOnly === true ||
+          (typeof this.getAttribute === 'function' && this.getAttribute('aria-readonly') === 'true'), editable };
       }`,
-    })) as { result?: { value?: unknown } };
-    const value = reply?.result?.value;
-    return typeof value === 'string' ? value : null;
+    })) as { result?: { value?: { value?: unknown; readOnly?: unknown; editable?: unknown } } };
+    const state = reply.result?.value;
+    if (!state || typeof state !== 'object') return unknown;
+    return { value: typeof state.value === 'string' ? state.value : null, readOnly: state.readOnly === true,
+      editable: typeof state.editable === 'boolean' ? state.editable : null };
   } catch {
-    return null;
+    return unknown;
   }
+}
+
+/** What a field shows: its value, or editable text. Null when it cannot be read. */
+export async function valueOf(cdp: Cdp, backendNodeId: number, maskValue = false): Promise<string | null> {
+  return (await fieldStateOf(cdp, backendNodeId, maskValue)).value;
 }
 
 /** Select everything in a field, so what is typed next replaces it. */
@@ -426,7 +443,10 @@ export function keyEvents(spec: string): { down: Record<string, unknown>; up: Re
 
   // Modified letters do not reach the editing pipeline on their own; the
   // command does, and is what a real Cmd+A produces. Chromium takes both.
-  const command = modifiers & (MOD_CONTROL | MOD_META) ? EDITING[name.toLowerCase()] : undefined;
+  const editing = EDITING[name.toLowerCase()];
+  const command = modifiers & (MOD_CONTROL | MOD_META)
+    ? editing === 'undo' && modifiers & MOD_SHIFT ? 'redo' : editing
+    : undefined;
   // A key with Control or Meta held types nothing, whatever it would alone.
   const plain = modifiers & (MOD_CONTROL | MOD_META | MOD_ALT) ? undefined : spelled.text;
   const text = plain && modifiers & MOD_SHIFT ? plain.toUpperCase() : plain;

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs the Codex live check when a push changes the provider request path.
+# Enable once per clone: git config core.hooksPath .githooks
+exec node scripts/live-check.mjs

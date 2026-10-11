@@ -1,5 +1,3 @@
-import * as os from 'node:os';
-import * as path from 'node:path';
 import {
   asPluginId,
   definePlugin,
@@ -11,6 +9,7 @@ import {
   type ToolContext,
   type ToolDef,
 } from '@moxxy/sdk';
+import { moxxyHome } from '@moxxy/sdk/server';
 import {
   MAX_FAILED_ATTEMPTS,
   beginTransaction,
@@ -93,7 +92,7 @@ export const selfUpdatePlugin: Plugin = (() => {
   let options: Record<string, unknown> = {};
 
   const deps: SelfUpdateDeps = {
-    moxxyDir: path.join(os.homedir(), '.moxxy'),
+    moxxyDir: moxxyHome(),
     reload: () => host?.reload() ?? Promise.resolve(),
     unload: (name) => host?.unload(name) ?? Promise.resolve(),
     snapshot: () => (snapshotFn ? snapshotFn() : {}),

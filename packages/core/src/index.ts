@@ -4,6 +4,7 @@ export { WorkflowApprovals, approvalFingerprint } from './permissions/workflow-a
 export { withPermissionScope } from './permissions/scope.js';
 export { claimWorkflowLease } from './permissions/workflow-lease.js';
 export { runTurn, collectTurn, type RunTurnOptions } from './run-turn.js';
+export { resolveTurnModel, type TurnModelSource } from './turn-model.js';
 export {
   setupAgent,
   type Agent,

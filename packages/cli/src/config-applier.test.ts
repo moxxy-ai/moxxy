@@ -227,6 +227,30 @@ describe('buildSessionConfigApplier', () => {
     expect(session.fast).toBe(false);
   });
 
+  it('switches the reminder about a step that did not get done off and back on while the session runs', async () => {
+    const session = makeSession();
+    const apply = buildSessionConfigApplier(session, {});
+    expect((await apply({ context: { unfinishedStepCheck: false } })).applied).toContain('unfinishedStepCheck');
+    expect(session.unfinishedStepCheck).toBe(false);
+    await apply({});
+    expect(session.unfinishedStepCheck).toBeUndefined();
+  });
+
+  it("follows the model set as a provider's default while the session runs", async () => {
+    const session = makeSession();
+    const apply = buildSessionConfigApplier(session, {});
+
+    const set = await apply({ plugins: { provider: { items: { 'openai-codex': { model: 'gpt-6-luna' } } } } });
+    expect(set.applied).toContain('defaultModel');
+    expect(session.defaultModels).toEqual({ 'openai-codex': 'gpt-6-luna' });
+
+    const same = await apply({ plugins: { provider: { items: { 'openai-codex': { model: 'gpt-6-luna' } } } } });
+    expect(same.applied).not.toContain('defaultModel');
+
+    await apply({});
+    expect(session.defaultModels).toEqual({});
+  });
+
   it('a genuine change to a context object IS applied', async () => {
     const apply = buildSessionConfigApplier(makeSession(), {
       context: { elision: { enabled: true, keepRecentTurns: 4 } },

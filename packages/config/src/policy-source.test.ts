@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadPolicyBundles, PolicyLoadError } from './policy-source.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
@@ -59,6 +59,17 @@ describe('loadPolicyBundles', () => {
 
     expect(loaded.deny).toEqual([]);
     expect(loaded.sources).toEqual([]);
+  });
+
+  it('caches a fetched bundle in MOXXY_HOME when no cache dir is given', async () => {
+    vi.stubEnv('MOXXY_HOME', cacheDir);
+    try {
+      const bytes = body('r1');
+      await loadPolicyBundles([ref], { fetch: serving({ [URL_A]: { bytes, sig: k.sign(bytes) } }) });
+      expect(await fs.readdir(path.join(cacheDir, 'policy'))).not.toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('fetches, verifies and reports the revision in force', async () => {

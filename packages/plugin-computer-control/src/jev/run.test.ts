@@ -5,7 +5,7 @@ import type { ComputerAction, RunStep } from '../contract/tools.js';
 import type { AppElement } from '@moxxy/jev';
 import { JevError, type AskJev, type JevAnswers, type JevQuestion } from '@moxxy/jev';
 import { STATE_CHARS } from '@moxxy/jev';
-import { describeRun, runSteps, type RunDeps } from './run.js';
+import { describeRun, runShortfall, runSteps, type RunDeps } from './run.js';
 
 const button = (index: number, title: string, extra: Partial<AppElement> = {}): AppElement =>
   ({ key: `w/${index}`, index, depth: 1, role: 'button', title, frame: { x: index * 100, y: 10, width: 80, height: 20 }, ...extra });
@@ -46,6 +46,20 @@ const deps = (window: ReturnType<typeof app>, ask: AskJev): RunDeps =>
   ({ ask, observe: window.observe, act: window.act, selectAll: 'super+a', signal: new AbortController().signal });
 
 describe('runSteps', () => {
+  it('stops the remaining actions of a remembered way after a partial delivery with a human block', async () => {
+    // The OS boundary can report delivery with a block; the runner must honor both.
+    const field = button(1, 'Address', { role: 'text field', value: '' });
+    const window = app([field], () => ({ outcome: 'delivered', code: 'user_intervened' }));
+    const noJev: AskJev = async () => { throw new Error('A remembered exact target needs no external decision'); };
+    const steps: RunStep[] = [{ do: 'fill', target: 'Address', text: 'new address' }];
+    const report = await runSteps('Replace the address', steps, window.state(), {
+      ...deps(window, noJev), known: () => ({ element: field, way: 1 }),
+    });
+    expect(window.acted).toEqual([{ action: 'click', element_index: 1, mouse_button: 'left', click_count: 1 }]);
+    expect(report.outcomes).toMatchObject([{ status: 'failed', code: 'user_intervened', unverified: true }]);
+    expect(runShortfall(report, steps)).toBeUndefined();
+  });
+
   it('finds each element on the live window and acts on it, one decision per step', async () => {
     const window = app([button(1, 'Export'), button(2, 'Cancel')], (action, elements) => {
       if (action.action === 'click' && action.element_index === 1) elements.push(button(3, 'Save'));
@@ -698,3 +712,22 @@ describe('describeRun', () => {
     expect(text).toContain('2. done — key Return');
   });
 });
+
+describe('runShortfall — what a run tells the loop it did not get done', () => {
+  it('names the step that failed and why, and is nothing for a run that did every step', async () => {
+    const stuck = app([button(1, 'Export')]);
+    const { ask: none } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
+    const steps: RunStep[] = [{ do: 'click', target: 'Export' }, { do: 'key', key: 'Return' }];
+    const failed = await runSteps('Export', steps, stuck.state(), deps(stuck, none));
+
+    expect(failed.outcomes.at(-1)).toMatchObject({ status: 'failed', why: 'nothing changed' });
+    expect(runShortfall(failed, steps)).toEqual({ what: 'step 1 of 2, click "Export": nothing changed', unverified: true });
+
+    const open = app([button(1, 'Export')], (_action, elements) => { elements.push(button(2, 'Dialog')); });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.9) : undefined));
+    const whole: RunStep[] = [{ do: 'click', target: 'Export', expect: 'a dialog is open' }];
+
+    expect(runShortfall(await runSteps('Export', whole, open.state(), deps(open, ask)), whole)).toBeUndefined();
+  });
+});
+

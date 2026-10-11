@@ -1,7 +1,8 @@
 import type { AppElement, AppTree } from '@moxxy/jev';
 import { MAX_LABEL_CHARS, unnamedTitle } from './format.js';
 import { isSecret } from './snapshot.js';
-import type { AxNode } from './tree.js';
+import { TAKES_TEXT, type AxNode, type AxState } from './tree.js';
+import { AX_SECTIONS as SECTIONS, rowLabelOf } from './row-context.js';
 
 /**
  * A page as Jev reads it: the elements one can act on, each under the uid the
@@ -31,9 +32,6 @@ const ACTIONABLE: ReadonlySet<string> = new Set([
   'treeitem',
   'DisclosureTriangle',
 ]);
-
-/** Roles that take text; each carries a value, empty or not, so grounding can tell them from the rest. */
-const TAKES_TEXT: ReadonlySet<string> = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton']);
 
 /** What `appTreeSchema` takes. */
 const MAX_ELEMENTS = 5_000;
@@ -86,6 +84,17 @@ export function appTreeOf(
     opts.clickable?.has(node.backendNodeId) === true;
   const elements: AppElement[] = [];
   let truncated = false;
+  const names = new Map<string, number>();
+  const pending = [root];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (!node) continue;
+    if (ACTIONABLE.has(node.role) && node.name) {
+      const name = `${node.role}:${node.name}`;
+      names.set(name, (names.get(name) ?? 0) + 1);
+    }
+    pending.push(...node.children);
+  }
 
   /**
    * The text of the last `<label>` read since the previous control. A label tied
@@ -95,26 +104,37 @@ export function appTreeOf(
   let label: string | undefined;
 
   /** `place` is the key of the nearest listed container; `kinds` counts each role under it. */
-  const walk = (node: AxNode, depth: number, place: string, kinds: Map<string, number>): void => {
+  const walk = (node: AxNode, depth: number, place: string, kinds: Map<string, number>, inherited?: string, inheritedRow?: string): string | undefined => {
+    let section = SECTIONS.has(node.role) ? undefined : inherited;
+    let row = inheritedRow;
+    if (node.role === 'listitem') row = rowLabelOf(node, MAX_LABEL_CHARS);
+    else if (SECTIONS.has(node.role)) row = undefined;
+    if (node.role === 'heading') section = (node.name || linesOf(node).join(' ')).trim() || section;
     let inside = { depth, place, kinds };
     const index = Number(node.uid);
     if (node.role === 'LabelText') label = (node.name || linesOf(node).join(' ')).trim() || label;
-    const shown = answersClicks(node) ? shownAs(node) : undefined;
-    const nameless = !shown && !node.name && !node.hint && node.value === undefined && !TAKES_TEXT.has(node.role);
+    // Row labels can be hovered or double-clicked even when a framework
+    // delegates their input handlers to the document instead of the node.
+    const shown = answersClicks(node) || (node.role === 'LabelText' && row !== undefined) ? shownAs(node) : undefined;
+    const nameless = !shown && !node.name && !node.hint && node.value === undefined && !TAKES_TEXT.has(node.role) && row === undefined;
     if ((ACTIONABLE.has(node.role) || shown) && !nameless && Number.isSafeInteger(index)) {
       if (elements.length >= MAX_ELEMENTS) {
         truncated = true;
-        return;
+        return inherited;
       }
       const ordinal = (kinds.get(node.role) ?? 0) + 1;
       kinds.set(node.role, ordinal);
       const key = `${place}/${node.role}[${ordinal}]`;
       const labelled = TAKES_TEXT.has(node.role) && label !== undefined && label !== node.name ? labelledAs(node, label) : undefined;
-      elements.push({ ...elementOf(node, index, key, depth), ...(shown ?? labelled ?? {}) });
+      let contextName = row && row !== (shown?.title ?? node.name) ? row : undefined;
+      if (!contextName && section && (names.get(`${node.role}:${node.name}`) ?? 0) > 1) contextName = section;
+      const context = contextName ? { description: clip(`Section: ${contextName}`) } : {};
+      elements.push({ ...elementOf(node, index, key, depth), ...context, ...(shown ?? labelled ?? {}) });
       label = undefined;
       inside = { depth: Math.min(depth + 1, MAX_DEPTH), place: key, kinds: new Map() };
     }
-    for (const child of node.children) walk(child, inside.depth, inside.place, inside.kinds);
+    for (const child of node.children) section = walk(child, inside.depth, inside.place, inside.kinds, section, row);
+    return SECTIONS.has(node.role) ? inherited : section;
   };
 
   walk(root, 1, '', new Map());
@@ -126,9 +146,30 @@ export function appTreeOf(
   };
 }
 
+type JevState = NonNullable<AppElement['states']>[number];
+
+/** Jev's word for each state. Mixed stays distinct from both on and off. */
+const JEV_STATE: Partial<Record<AxState, JevState>> = {
+  checked: 'checked',
+  mixed: 'mixed',
+  pressed: 'selected',
+  'not pressed': 'not selected',
+  selected: 'selected',
+  expanded: 'expanded',
+  collapsed: 'collapsed',
+  disabled: 'disabled',
+  'read-only': 'read-only',
+};
+
+function statesOf(node: AxNode): JevState[] {
+  const said = (node.states ?? []).flatMap((state) => JEV_STATE[state] ?? []);
+  return [...new Set<JevState>([...(node.focused ? (['focused'] as const) : []), ...said])];
+}
+
 function elementOf(node: AxNode, index: number, key: string, depth: number): AppElement {
   const secret = isSecret(node);
   const value = TAKES_TEXT.has(node.role) ? (node.value ?? '') : node.value;
+  const states = statesOf(node);
   return {
     key: key.slice(-512),
     index,
@@ -136,6 +177,6 @@ function elementOf(node: AxNode, index: number, key: string, depth: number): App
     role: node.role.slice(0, 128),
     ...(node.name ? { title: clip(node.name) } : node.hint ? { title: clip(unnamedTitle(node.hint)) } : {}),
     ...(secret ? { secure: true } : value === undefined ? {} : { value: clip(value) }),
-    ...(node.focused ? { states: ['focused' as const] } : {}),
+    ...(states.length > 0 ? { states } : {}),
   };
 }

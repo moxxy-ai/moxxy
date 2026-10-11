@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { defaultProjectSkillsDir, defaultUserSkillsDir } from './loader.js';
 import { draftSkill } from './synthesize-draft.js';
 import type { Session } from '../session.js';
+import { resolveTurnModel } from '../turn-model.js';
 
 export interface SynthesizeOptions {
   readonly userDir?: string;
@@ -56,8 +57,7 @@ export async function synthesizeSkill(
   // Prefer the model the conversation last ran on over the provider's first
   // descriptor; 'default' matches run-turn's terminal fallback (never a
   // hardcoded vendor id that goes stale).
-  const model =
-    opts.model ?? session.lastResolvedModel ?? provider.models[0]?.id ?? 'default';
+  const model = resolveTurnModel(session, provider, opts.model) ?? 'default';
   const draft = await draftSkill(provider, model, intent, session.signal);
 
   const baseDir =

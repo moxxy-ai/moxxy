@@ -43,6 +43,8 @@ const FORWARDED = [
   'Page.frameStartedLoading',
   'Page.frameNavigated',
   'Page.loadEventFired',
+  'Runtime.consoleAPICalled', 'Runtime.exceptionThrown',
+  'Network.requestWillBeSent', 'Network.responseReceived', 'Network.loadingFinished', 'Network.loadingFailed',
 ];
 
 export interface ChromiumTab {
@@ -51,6 +53,14 @@ export interface ChromiumTab {
   show(html: string): Promise<void>;
   /** Read something back from the page. */
   read<T>(expression: string): Promise<T>;
+  /**
+   * Put the tab behind another, as the desktop does with a background tab.
+   * Electron draws no frames for a hidden `<webview>` while its background
+   * throttling is on, and lifting the throttle starts them again. Headless
+   * Chromium never hides a tab, so this holds the page's animation frames the
+   * same way until `setBackgroundThrottling(false)`.
+   */
+  hide(): Promise<void>;
   /** Pages the tab opened (window.open, target=_blank), by URL. */
   readonly popups: string[];
   close(): Promise<void>;
@@ -59,7 +69,10 @@ export interface ChromiumTab {
 let launched: Promise<{ newContext(): Promise<{ newPage(): Promise<unknown>; newCDPSession(page: unknown): Promise<unknown> }>; close(): Promise<void> }> | null = null;
 
 async function browser(): Promise<NonNullable<Awaited<typeof launched>>> {
-  launched ??= import('playwright').then(({ chromium }) => chromium.launch({ headless: true })) as typeof launched;
+  // `*.example` resolves to this machine, so a test can serve a page under a
+  // name that is not local (a site the user has to allow) without a network.
+  launched ??= import('playwright').then(({ chromium }) =>
+    chromium.launch({ headless: true, args: ['--host-resolver-rules=MAP *.example 127.0.0.1'] })) as typeof launched;
   const b = await launched;
   if (!b) throw new Error('chromium did not launch');
   return b;
@@ -105,6 +118,7 @@ export async function openChromiumTab(id = 1): Promise<ChromiumTab> {
   const page = (await context.newPage()) as PlaywrightPage;
   const session = (await context.newCDPSession(page)) as CdpSession;
   let attached = false;
+  let throttled = true;
   let title = '';
   const popups: string[] = [];
   const messageListeners = new Set<Listener>();
@@ -186,6 +200,12 @@ export async function openChromiumTab(id = 1): Promise<ChromiumTab> {
       (page as unknown as { off(e: string, f: Listener): void }).off(translate(event, fn)?.[0] ?? event, mapped);
     },
     focus: () => void page.bringToFront(),
+    getBackgroundThrottling: () => throttled,
+    setBackgroundThrottling: (allowed) => {
+      throttled = allowed;
+      // Through the host's own CDP session, so it lands before the host's next command.
+      void session.send('Runtime.evaluate', { expression: `window.__moxxyHidden?.throttle(${allowed})` });
+    },
   };
 
   return {
@@ -196,6 +216,24 @@ export async function openChromiumTab(id = 1): Promise<ChromiumTab> {
       title = await page.title();
     },
     read: (expression) => page.evaluate(expression),
+    hide: () => page.evaluate(`(() => {
+      const draw = requestAnimationFrame.bind(window);
+      let held = [];
+      let paused = ${throttled};
+      window.requestAnimationFrame = (fn) => {
+        if (!paused) return draw(fn);
+        held.push(fn);
+        return -held.length;
+      };
+      window.__moxxyHidden = {
+        throttle(allowed) {
+          paused = allowed;
+          if (allowed) return;
+          for (const fn of held) draw(fn);
+          held = [];
+        },
+      };
+    })()`),
     close: async () => {
       await session.detach().catch(() => {});
       await page.close();

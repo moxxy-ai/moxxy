@@ -7,6 +7,11 @@ import { createInterface } from 'node:readline';
 const VERSION = 5;
 const logIndex = process.argv.indexOf('--log');
 const logFile = logIndex > 0 ? process.argv[logIndex + 1] : undefined;
+// External OS boundary: reproduce blocked and unknown-delivery replies without
+// revoking the developer's real permissions or taking over their desktop.
+const actionResultIndex = process.argv.indexOf('--action-result');
+const actionResult = actionResultIndex > 0 ? JSON.parse(process.argv[actionResultIndex + 1]) : undefined;
+const incompleteBatch = process.argv.includes('--incomplete-batch');
 const PNG = 'iVBORw0KGgo=';
 
 const apps = [
@@ -50,10 +55,12 @@ class Refusal extends Error {
 let stubborn = 0;
 
 function perform(app, step) {
+  if (actionResult && !['timeout', 'helper_failed'].includes(actionResult.code)) return actionResult;
   if (step.action === 'click' && step.element_index === 3) return { outcome: 'blocked', code: 'target_blocked' };
   // A control the helper itself gives up on once it is asked for it a second time.
   if (step.action === 'click' && step.element_index === 4) return (stubborn += 1) > 1 ? { outcome: 'ineffective', hint: 'A real click changed nothing either.' } : { outcome: 'delivered', method: 'ax' };
   if (step.action === 'type_text') documents.set(app, documents.get(app) + step.text);
+  if (actionResult) return actionResult;
   if (step.action === 'click' && step.element_index === 2 && documents.get(app).includes('<hover>')) highlights += 1;
   return { outcome: 'delivered', method: 'ax' };
 }
@@ -110,7 +117,7 @@ const methods = {
       results.push(result);
       if (result.outcome !== 'delivered') break;
     }
-    return { results, state: state(params.app, params.screenshot !== false) };
+    return { results: incompleteBatch ? results.slice(0, 1) : results, state: state(params.app, params.screenshot !== false) };
   },
   screenshot: () => ({ mediaType: 'image/png', base64: PNG, width: 1440, height: 900 }),
   zoom: () => ({ mediaType: 'image/png', base64: PNG, width: 400, height: 200 }),

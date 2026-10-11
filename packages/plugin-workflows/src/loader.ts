@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
+import { moxxyPath } from '@moxxy/sdk/server';
 import type { Workflow } from '@moxxy/sdk';
 import { parseWorkflowYaml } from './schema.js';
 
@@ -43,7 +43,7 @@ export interface WorkflowLoadOptions {
 export const MAX_WORKFLOW_FILE_BYTES = 1024 * 1024;
 
 export function defaultUserWorkflowsDir(): string {
-  return path.join(os.homedir(), '.moxxy', 'workflows');
+  return moxxyPath('workflows');
 }
 
 export function defaultProjectWorkflowsDir(cwd: string): string {

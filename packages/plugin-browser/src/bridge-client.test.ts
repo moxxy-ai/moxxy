@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 /** A stand-in bridge: checks the token, then answers from `handler`. */
-function fakeBridge(opts: { token: string; handler?: (method: string) => unknown; dropAfterHello?: boolean; hold?: string }) {
+function fakeBridge(opts: { token: string; handler?: (method: string) => unknown; dropAfterHello?: boolean; hold?: string; onRequest?: (req: { id: string; method: string; params?: Record<string, unknown> }) => void }) {
   const dir = mkdtempSync(join(tmpdir(), 'moxxy-bridge-test-'));
   const socketPath = socketIn(dir);
   const server = createServer((socket) => {
@@ -52,6 +52,7 @@ function fakeBridge(opts: { token: string; handler?: (method: string) => unknown
           if (opts.dropAfterHello) socket.destroy();
           continue;
         }
+        opts.onRequest?.(req);
         if (req.method === opts.hold) continue;
         socket.write(JSON.stringify({ id: req.id, ok: true, result: opts.handler?.(req.method) ?? {} }) + '\n');
       }
@@ -81,6 +82,28 @@ describe('bridgeAddressFromEnv', () => {
 });
 
 describe('BridgeClient', () => {
+  it('sends cancellation for the in-flight request without closing the shared connection', async () => {
+    const requests: Array<{ id: string; method: string; params?: Record<string, unknown> }> = [];
+    let started: (() => void) | undefined;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const path = await fakeBridge({ token: 'test', hold: 'wait', onRequest: (req) => {
+      requests.push(req);
+      if (req.method === 'wait') started?.();
+    } });
+    const client = makeClient(path, 'test');
+    const abort = new AbortController();
+    const running = client.call('wait', {}, abort.signal);
+    await entered;
+    abort.abort();
+    await expect(running).rejects.toThrow(/abort/i);
+    await expect(client.call('snapshot')).resolves.toEqual({});
+    const request = requests.find((req) => req.method === 'wait');
+    expect(request).toBeDefined();
+    expect(requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ method: 'cancel', params: { call_id: request?.id } }),
+    ]));
+  });
+
   it('handshakes once, then serves calls', async () => {
     const path = await fakeBridge({ token: 'sekret', handler: (m) => ({ echoed: m }) });
     const client = makeClient(path, 'sekret');

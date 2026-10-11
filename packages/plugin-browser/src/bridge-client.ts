@@ -119,13 +119,23 @@ export class BridgeClient {
     if (!socket || socket.destroyed) return Promise.reject(new Error('browser bridge is not connected'));
     const id = `c${++this.seq}`;
     return new Promise<unknown>((resolve, reject) => {
+      let onAbort: (() => void) | undefined;
       const limit = method === 'await_human' ? HANDOFF_TIMEOUT_MS : CALL_TIMEOUT_MS;
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        cleanup();
         reject(new Error(`browser bridge call timed out after ${limit}ms: ${method}`));
       }, limit);
+      const cleanup = (): void => {
+        clearTimeout(timer);
+        if (onAbort) signal?.removeEventListener('abort', onAbort);
+      };
       timer.unref?.();
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, {
+        resolve: (value) => { cleanup(); resolve(value); },
+        reject: (error) => { cleanup(); reject(error); },
+        timer,
+      });
 
       if (signal) {
         if (signal.aborted) {
@@ -134,19 +144,18 @@ export class BridgeClient {
           reject(new Error('aborted'));
           return;
         }
-        // Per-call abort: drops THIS request, leaves the connection and any
-        // concurrent calls alone.
-        signal.addEventListener(
-          'abort',
-          () => {
-            const entry = this.pending.get(id);
-            if (!entry) return;
-            this.pending.delete(id);
-            clearTimeout(entry.timer);
-            entry.reject(new Error('aborted'));
-          },
-          { once: true },
-        );
+        // Ask the backend to stop this operation, without closing the browser.
+        onAbort = () => {
+          const entry = this.pending.get(id);
+          if (!entry) return;
+          this.pending.delete(id);
+          clearTimeout(entry.timer);
+          if (!socket.destroyed) {
+            socket.write(JSON.stringify({ id: `${id}-cancel`, method: 'cancel', params: { call_id: id } }) + '\n');
+          }
+          entry.reject(new Error('aborted'));
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
       }
       socket.write(JSON.stringify({ id, method, params }) + '\n');
     });

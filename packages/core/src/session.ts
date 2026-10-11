@@ -18,6 +18,7 @@ import type {
 import { newSessionId, newTurnId } from './events/factory.js';
 import { runTurn as runTurnImpl } from './run-turn.js';
 import type { SessionRuntime } from './session-runtime.js';
+import { resolveTurnModel } from './turn-model.js';
 import { EventLog } from './events/log.js';
 import { HookDispatcherImpl } from './plugins/lifecycle.js';
 import { PluginHost, type PluginLoader } from './plugins/host.js';
@@ -200,6 +201,8 @@ export class Session implements ClientSession, SessionRuntime {
   elisionSettings: ElisionSettings | null = null;
   /** Lazy tool loading, from `config.context.lazyTools`. Unset = automatic (on for a long tool list). */
   lazyTools: boolean | undefined = undefined;
+  /** The end-of-turn reminder about a step that did not get done, from `config.context.unfinishedStepCheck`. Unset = on. */
+  unfinishedStepCheck: boolean | undefined = undefined;
   /**
    * Reasoning/thinking preference, from `config.context.reasoning`. Forwarded
    * to each turn's ModeContext and on to the provider, which honors it only
@@ -219,6 +222,8 @@ export class Session implements ClientSession, SessionRuntime {
    * Last-writer-wins for concurrent turns; null until the first turn runs.
    */
   lastResolvedModel: string | null = null;
+  /** The model each provider is set to run when a turn names none, from `plugins.provider.items.<name>.model`. */
+  defaultModels: Readonly<Record<string, string>> = {};
   /**
    * Live runtime capabilities the host installs on a local Session (see
    * SessionLike). A RemoteSession leaves them undefined. Declared here — rather
@@ -629,6 +634,10 @@ export class Session implements ClientSession, SessionRuntime {
         // instance. Fall back to its declared catalog until activation lands.
       }
     }
+    const declared = this.providers.list().find((p) => p.name === active);
+    const defaultModel = active
+      ? resolveTurnModel(this, { name: active, models: activeProviderModels ?? (declared ? declared.models : []) })
+      : undefined;
     const ready = this.readyProviders;
     return {
       sessionId: this.id,
@@ -680,6 +689,7 @@ export class Session implements ClientSession, SessionRuntime {
       autoApprove: this.autoApprove,
       reasoningEffort: reasoningEffortOf(this.reasoning),
       fast: this.fast,
+      ...(defaultModel !== undefined ? { defaultModel } : {}),
     };
   }
 }

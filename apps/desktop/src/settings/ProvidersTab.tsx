@@ -39,6 +39,7 @@ export function ProvidersTab({
   onActivate,
   onRefresh,
   search,
+  defaultModel,
 }: {
   readonly providers: ReturnType<typeof useSettings>['providers'];
   readonly onToggle: (name: string, enabled: boolean) => Promise<void>;
@@ -50,6 +51,8 @@ export function ProvidersTab({
   readonly onActivate: (name: string) => Promise<void>;
   readonly onRefresh: () => Promise<void>;
   readonly search?: React.ReactNode;
+  /** The "Default model" card, placed above the list. */
+  readonly defaultModel?: React.ReactNode;
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderRow | null>(null);
@@ -81,6 +84,7 @@ export function ProvidersTab({
         </Button>
       }
     >
+      {defaultModel}
       {providers.length === 0 ? (
         <EmptyState icon="spark" text="No providers known to the connected runner." />
       ) : (

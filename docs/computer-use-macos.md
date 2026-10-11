@@ -26,7 +26,9 @@ helper, so the model sees one set of tools on both systems (see
   `element_index`, and a JPEG of the window. An index stays with its element for
   as long as the element lives. Password fields are listed without a value.
 - An app with no open window returns an empty state and says so. Keys still
-  reach it, so `super+n` or `super+o` can open a window.
+  reach it, so `super+n` or `super+o` can open a window. The working rules tell
+  the model that this is not a block: it opens a window and carries on, instead
+  of ending the turn and asking the user to open the app.
 - Actions take an `element_index` or a point of the latest screenshot. When a
   call names both, a real point is the target and a `0,0` point is ignored.
   Element actions go through accessibility and work while the app is in the
@@ -251,6 +253,21 @@ Measured on System Settings (Polish), three clicks with `expect`: 3 of 3
 verified, 4 Jev requests, 7.5 s; before the helper changes below it was 24.1 s.
 The same plan again, from memory: 0 Jev requests, 4.0 s (two clicks; the third
 step's result already showed).
+
+### Stops and unconfirmed effects
+
+`computer_run` carries the helper's error `code` into its step outcome, rather
+than inferring a stop from the wording of `why`. User Stop or takeover, locked
+screens and access blocks do not produce pending work for the end-of-turn
+reminder. The report gives the code's existing guidance instead of suggesting
+another route around the block.
+
+An action delivered without its effect being confirmed carries `unverified`.
+Timeouts, helper failures and missing batch answers are also uncertain: the
+action may have applied. The runner does not automatically resend them; the
+report and reminder ask to observe first. A human block takes precedence even
+if an earlier part of the step was delivered. Ordinary recoverable failures
+still permit the existing single reminder per turn.
 
 ### Time per action
 
@@ -481,3 +498,21 @@ the workspace, so an older installed copy hides local changes.
 
 Results of the trials and the benchmark are in
 [`computer-use-rebuild/benchmark.md`](computer-use-rebuild/benchmark.md).
+
+### Permission refusal ends the current turn
+
+If the user refuses a Computer Use tool, the shared tool executor ends that
+turn with an explanation. It cancels remaining calls in the same batch without
+asking for permission or executing them, and does not request another model
+response or run continuation checkpoints. This prevents retrying with different
+arguments or switching to another tool after a refusal.
+
+Every Computer Use tool declares this itself with `refusalEndsTurn` (its text is
+the turn's last message), so the SDK knows no tool names. Only the user's answer
+counts: a standing rule in `permissions.json` or a plugin hook refusing the tool
+is recorded as `policy` or `hook` and comes back to the model as a failed step,
+which it may route around within what the rules allow.
+
+The session remains available. A subsequent user message starts a new turn with
+normal permission checks; the message itself does not grant permission. Ordinary
+tool failures still allow recovery. Stop and takeover keep their existing behavior.

@@ -118,6 +118,9 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
         if (method === 'Runtime.callFunctionOn') {
           const fn = String((params as { functionDeclaration?: string })?.functionDeclaration ?? '');
           if (fn.includes('getBoundingClientRect')) return { result: { value: onScreen } };
+          // The external CDP reply now states editability. Real field values,
+          // activation and protected inputs are verified in the Chromium suites.
+          if (fn.includes('const editable =')) return { result: { value: { value: null, readOnly: false, editable: true } } };
           if (fn.includes('input[type=file]')) {
             return fileInput
               ? { result: { type: 'object', subtype: 'node', objectId: 'file-input' } }
@@ -1376,6 +1379,40 @@ describe('BrowserHost — a wall only counts when it is on screen', () => {
     const text = String(((await host.snapshot()).result as { text: string }).text);
 
     expect(text).not.toContain('### Needs you');
+  });
+
+  const DECLINABLE_PAGE = [
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Sklep' }, childIds: ['d'] },
+    { nodeId: 'd', role: { value: 'dialog' }, name: { value: 'Pliki cookie' }, childIds: ['b', 'c'] },
+    { nodeId: 'b', role: { value: 'button' }, name: { value: 'Zaakceptuj wszystkie' }, backendDOMNodeId: 55 },
+    { nodeId: 'c', role: { value: 'button' }, name: { value: 'Tylko niezbędne' }, backendDOMNodeId: 56 },
+  ];
+
+  it('tells the agent to decline a cookie banner itself when the declining control is really there', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(DECLINABLE_PAGE);
+
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).toContain('### Cookie banner');
+    expect(text).toContain('"Tylko niezbędne"');
+    expect(text).toContain('browser_click with uid="4"');
+    expect(text).not.toContain('### Needs you');
+  });
+
+  it('hands the banner over when the declining control is in the tree but not drawn', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(DECLINABLE_PAGE);
+    a.setBox(56, null);
+
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).toContain('### Needs you');
+    expect(text).not.toContain('### Cookie banner');
   });
 });
 

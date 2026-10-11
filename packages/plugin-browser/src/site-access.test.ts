@@ -1,6 +1,6 @@
 import type { EventLogReader, MoxxyEvent } from '@moxxy/sdk';
 import { describe, expect, it } from 'vitest';
-import { ALLOW_SITE_TOOL, siteAllows, siteOf, siteRefusal, sitesFromLog } from './site-access.js';
+import { ALLOW_SITE_TOOL, isLocalDevSite, siteAllows, siteOf, siteRefusal, sitesFromLog } from './site-access.js';
 
 function memoryLog(events: MoxxyEvent[]): EventLogReader {
   return {
@@ -75,6 +75,22 @@ describe('siteAllows', () => {
     expect(siteAllows(['canva.com'], 'about:blank')).toBe(false);
     expect(siteAllows([], 'https://canva.com/')).toBe(false);
   });
+});
+
+describe('isLocalDevSite', () => {
+  it.each(['http://localhost:3000/', 'http://app.localhost/', 'http://127.0.0.1:5173/', 'http://127.4.0.9/', 'http://[::1]:8080/'])(
+    'treats %s as the developer\'s own machine',
+    (url) => {
+      expect(isLocalDevSite(url)).toBe(true);
+    },
+  );
+
+  it.each(['https://bank.example.com/', 'http://192.168.1.10/', 'http://10.0.0.1/', 'http://localhost.evil.com/', 'about:blank', 'data:text/html,x'])(
+    'does not treat %s as the developer\'s own machine',
+    (url) => {
+      expect(isLocalDevSite(url)).toBe(false);
+    },
+  );
 });
 
 describe('sitesFromLog', () => {

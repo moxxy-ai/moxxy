@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { asSkillId, definePlugin, defineTool, type ProviderEvent } from '@moxxy/sdk';
-import { Session, autoAllowResolver, collectTurn, silentLogger } from '@moxxy/core';
+import { asSkillId, assertDefined, definePlugin, defineTool, type ProviderEvent } from '@moxxy/sdk';
+import { PermissionEngine, Session, autoAllowResolver, collectTurn, silentLogger } from '@moxxy/core';
 import { FakeProvider, textReply, toolUseReply, createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from './index.js';
 import { MAX_CONSECUTIVE_RETRIES, __setRetrySleepForTests } from './turn-iterator.js';
@@ -30,6 +30,8 @@ const emptyMaxTokensReply = (): ReadonlyArray<ProviderEvent> => [
   { type: 'message_end', stopReason: 'max_tokens' },
 ];
 
+const REFUSAL_TEXT = 'The tool was refused, so this turn stopped.';
+
 const sessionWith = (provider: FakeProvider): Session => {
   const session = createFakeSession({ provider });
   session.pluginHost.registerStatic(defaultModePlugin);
@@ -37,6 +39,39 @@ const sessionWith = (provider: FakeProvider): Session => {
 };
 
 describe('defaultMode end-to-end', () => {
+  it('persists all provider-owned reasoning items and replays them before the next tool continuation', async () => {
+    const replayItems = [
+      { provider: 'openai-codex', item: { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'opaque-one' } },
+      { provider: 'openai-codex', item: { type: 'reasoning', id: 'rs_2', summary: [], encrypted_content: 'opaque-two' } },
+    ];
+    const provider = new FakeProvider({ script: [
+      [
+        ...replayItems.map(replayItem => ({ type: 'reasoning_signature' as const, replayItem })),
+        ...toolUseReply('ReadTitle', {}, 'read-title'),
+      ],
+      textReply('The title is CodeMirror.'),
+    ] });
+    const session = sessionWith(provider);
+    session.tools.register(defineTool({
+      name: 'ReadTitle', description: 'Read the title', inputSchema: z.object({}),
+      handler: () => ({ title: 'CodeMirror' }),
+    }));
+
+    try {
+      const events = await collectTurn(session, 'Read the title');
+      expect(events.find(event => event.type === 'reasoning_message')).toMatchObject({ replayItems });
+      const continuation = provider.received[1];
+      assertDefined(continuation, 'the tool result must trigger a second provider request');
+      const assistant = continuation.messages.find(message => message.role === 'assistant');
+      assertDefined(assistant, 'the next request must contain the reasoning and tool call');
+      expect(assistant.content[0]).toEqual({
+        type: 'reasoning', text: '', replayItems,
+      });
+    } finally {
+      await session.close();
+    }
+  });
+
   it('runs a plain text turn and emits the expected event sequence', async () => {
     const provider = new FakeProvider({ script: [textReply('hello there')] });
     const session = sessionWith(provider);
@@ -170,6 +205,133 @@ describe('defaultMode end-to-end', () => {
     if (result?.type !== 'tool_result') throw new Error('expected tool_result');
     expect(result.ok).toBe(false);
     expect(result.error?.kind).toBe('denied');
+  });
+
+  it('ends the turn with the refused tool\'s own words, whatever the tool is called', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('remote_click', {}, 'denied'), textReply('done')] });
+    const session = sessionWith(provider);
+    session.setPermissionResolver({ name: 'operator', check: async () => ({ mode: 'deny' }) });
+    session.tools.register(defineTool({ name: 'remote_click', description: '', inputSchema: z.object({}),
+      refusalEndsTurn: REFUSAL_TEXT, handler: () => 'clicked' }));
+    const events = await collectTurn(session, 'click it');
+    expect(provider.received).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', stopReason: 'end_turn', content: REFUSAL_TEXT });
+  });
+
+  it('lets the model go on after refusing a tool that did not ask to end the turn, even one named computer_', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('computer_lookalike', {}, 'denied'), textReply('done another way')] });
+    const session = sessionWith(provider);
+    session.setPermissionResolver({ name: 'operator', check: async () => ({ mode: 'deny' }) });
+    session.tools.register(defineTool({ name: 'computer_lookalike', description: '', inputSchema: z.object({}), handler: () => 'x' }));
+    const events = await collectTurn(session, 'go');
+    expect(provider.received).toHaveLength(2);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'done another way' });
+  });
+
+  it('lets the model go on when a standing rule, not the user, refuses such a tool', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('remote_click', {}, 'denied'), textReply('done another way')] });
+    const session = new Session({
+      cwd: '/tmp', logger: silentLogger, permissionResolver: autoAllowResolver,
+      permissionEngine: new PermissionEngine({ allow: [], deny: [{ name: 'remote_click', reason: 'org policy' }] }),
+    });
+    session.pluginHost.registerStatic(definePlugin({ name: 'shim', providers: [{ name: provider.name, models: [...provider.models], createClient: () => provider }] }));
+    session.providers.setActive(provider.name);
+    session.pluginHost.registerStatic(defaultModePlugin);
+    session.tools.register(defineTool({ name: 'remote_click', description: '', inputSchema: z.object({}),
+      refusalEndsTurn: REFUSAL_TEXT, handler: () => 'clicked' }));
+    const events = await collectTurn(session, 'click it');
+    expect(events.find((e) => e.type === 'tool_call_denied')).toMatchObject({ decidedBy: 'policy' });
+    expect(provider.received).toHaveLength(2);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'done another way' });
+  });
+
+  it('lets the model go on when a plugin hook, not the user, refuses such a tool', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('remote_click', {}, 'denied'), textReply('done another way')] });
+    const session = sessionWith(provider);
+    session.pluginHost.registerStatic(definePlugin({ name: 'guard', hooks: {
+      onToolCall: ({ call }) => (call.name === 'remote_click' ? { action: 'deny', reason: 'hook says no' } : undefined),
+    } }));
+    session.tools.register(defineTool({ name: 'remote_click', description: '', inputSchema: z.object({}),
+      refusalEndsTurn: REFUSAL_TEXT, handler: () => 'clicked' }));
+    const events = await collectTurn(session, 'click it');
+    expect(events.find((e) => e.type === 'tool_call_denied')).toMatchObject({ decidedBy: 'hook' });
+    expect(provider.received).toHaveLength(2);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'done another way' });
+  });
+
+  it('ends the turn after Computer Use denial without asking again or bypassing it', async () => {
+    const provider = new FakeProvider({ script: [
+      toolUseReply('computer_run', { goal: 'type a name' }, 'denied'),
+      toolUseReply('Bash', { command: 'bypass' }, 'bypass'),
+      textReply('done'),
+    ] });
+    const session = sessionWith(provider);
+    const asked: string[] = [];
+    const executed: string[] = [];
+    session.setPermissionResolver({ name: 'operator', async check(call) {
+      asked.push(call.name);
+      return call.name === 'computer_run' ? { mode: 'deny' } : { mode: 'allow' };
+    } });
+    for (const name of ['computer_run', 'Bash']) {
+      session.tools.register(defineTool({ name, description: '', inputSchema: z.object({}).passthrough(),
+        ...(name === 'computer_run' ? { refusalEndsTurn: REFUSAL_TEXT } : {}),
+        handler: () => { executed.push(name); return 'done'; },
+      }));
+    }
+    const events = await collectTurn(session, 'type a name');
+    expect(asked).toEqual(['computer_run']);
+    expect(executed).toEqual([]);
+    expect(provider.received).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', stopReason: 'end_turn' });
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'checkpoint_injected')).toBe(false);
+  });
+
+  it('cancels the rest of a denied Computer Use batch but permits a new user turn', async () => {
+    const batch = [
+      { type: 'message_start' as const, model: 'fake' },
+      ...toolUseReply('computer_run', {}, 'first').slice(1, -1),
+      ...toolUseReply('Bash', {}, 'second').slice(1, -1),
+      { type: 'message_end' as const, stopReason: 'tool_use' as const },
+    ];
+    const provider = new FakeProvider({ script: [batch, toolUseReply('computer_run', {}, 'retry'), textReply('done')] });
+    const session = sessionWith(provider);
+    const asked: string[] = [];
+    const executed: string[] = [];
+    let permitted = false;
+    session.setPermissionResolver({ name: 'operator', async check(call) {
+      asked.push(call.name);
+      return { mode: permitted ? 'allow' : 'deny' };
+    } });
+    for (const name of ['computer_run', 'Bash']) {
+      session.tools.register(defineTool({ name, description: '', inputSchema: z.object({}),
+        ...(name === 'computer_run' ? { refusalEndsTurn: REFUSAL_TEXT } : {}),
+        handler: () => { executed.push(name); return 'done'; },
+      }));
+    }
+    const first = await collectTurn(session, 'go');
+    expect(asked).toEqual(['computer_run']);
+    expect(executed).toEqual([]);
+    expect(first.filter((e) => e.type === 'tool_result')).toHaveLength(2);
+    permitted = true;
+    const next = await collectTurn(session, 'I now permit it; retry');
+    expect(asked).toEqual(['computer_run', 'computer_run']);
+    expect(executed).toEqual(['computer_run']);
+    expect(next.at(-1)).toMatchObject({ type: 'assistant_message', content: 'done' });
+  });
+
+  it('retries an ordinary Computer Use failure instead of treating it as a refusal', async () => {
+    const provider = new FakeProvider({ script: [
+      toolUseReply('computer_run', {}, 'fail'), toolUseReply('computer_run', {}, 'retry'), textReply('done'),
+    ] });
+    const session = sessionWith(provider);
+    let attempts = 0;
+    session.tools.register(defineTool({ name: 'computer_run', description: '', inputSchema: z.object({}),
+      refusalEndsTurn: REFUSAL_TEXT,
+      handler: () => { attempts += 1; if (attempts === 1) throw new Error('503'); return 'done'; },
+    }));
+    const events = await collectTurn(session, 'go');
+    expect(attempts).toBe(2);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'done' });
   });
 
   it('handles tool handler throws as failure result', async () => {
@@ -563,3 +725,131 @@ describe('defaultMode — reporting on work that had not finished', () => {
     expect(provider.received).toHaveLength(2);
   });
 });
+
+describe('defaultMode — ending the turn on a step that did not get done', () => {
+  /** A tool that carries out steps and says which of them it did not get done. */
+  const runTool = (outputs: ReadonlyArray<unknown>) => {
+    let call = 0;
+    return defineTool({
+      name: 'run',
+      description: 'carries out steps',
+      inputSchema: z.object({}),
+      handler: () => outputs[Math.min(call++, outputs.length - 1)],
+    });
+  };
+  const SHORT = { text: '0 of 1 steps done', shortfall: { what: 'step 1, click "Send": the page answered 503, try again' } };
+  const DONE = { text: '1 of 1 steps done' };
+
+  const sentTexts = (provider: FakeProvider, call: number): string =>
+    (provider.received[call]?.messages ?? [])
+      .flatMap((message) => message.content)
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n');
+
+  it('asks once to take another way or name the block, and the agent sends it again', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('run', {}, 'c1'), textReply('could not send it'), toolUseReply('run', {}, 'c2'), textReply('sent: ZGL-1')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT, DONE]));
+
+    const events = await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(4);
+    expect(sentTexts(provider, 2)).toContain('step 1, click "Send": the page answered 503, try again');
+    expect(sentTexts(provider, 2)).toContain('did not get done');
+    // The reminder rode one request and is gone from the next.
+    expect(sentTexts(provider, 3)).not.toContain('did not get done');
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'sent: ZGL-1' });
+  });
+
+  it('asks at most once in a turn, though the next try fails as well', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('run', {}, 'c1'), textReply('could not send it'), toolUseReply('run', {}, 'c2'), textReply('the server keeps answering 503')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT, SHORT]));
+
+    const events = await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(4);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'the server keeps answering 503' });
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('says nothing when a later step got the work done by another route', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), toolUseReply('run', {}, 'c2'), textReply('sent')] });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT, DONE]));
+
+    await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(3);
+  });
+
+  it('says nothing after the agent handed the page over to the user', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), toolUseReply('hand_over', {}, 'c2'), textReply('it needs you')] });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT]));
+    session.tools.register(defineTool({ name: 'hand_over', description: '', inputSchema: z.object({}), handler: () => ({ completed: false }) }));
+
+    await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(3);
+  });
+
+  it('says nothing when the user refused the step', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), toolUseReply('run', {}, 'c2'), textReply('you said no')] });
+    let asked = 0;
+    const session = sessionWith(provider);
+    session.setPermissionResolver({ name: 'second-no', async check() { return ++asked === 1 ? { mode: 'allow' } : { mode: 'deny', reason: 'no' }; } });
+    session.tools.register(runTool([SHORT]));
+
+    const events = await collectTurn(session, 'send the form');
+
+    expect(events.some((e) => e.type === 'tool_call_denied')).toBe(true);
+    expect(provider.received).toHaveLength(3);
+  });
+
+  it('does not carry a step left undone into the next turn', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('run', {}, 'c1'), textReply('could not send it'), textReply('nothing left to try'), textReply('hello')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT]));
+
+    await collectTurn(session, 'send the form');
+    expect(provider.received).toHaveLength(3);
+    await collectTurn(session, 'thanks');
+
+    expect(provider.received).toHaveLength(4);
+  });
+
+  it('does nothing when switched off: the turn ends as it did before', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), textReply('could not send it')] });
+    const session = sessionWith(provider);
+    session.unfinishedStepCheck = false;
+    session.tools.register(runTool([SHORT]));
+
+    const events = await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(2);
+    expect(events.some((e) => e.type === 'plugin_event')).toBe(false);
+  });
+
+  it('sends nothing more once the user stopped the turn at the reminder', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), textReply('could not send it'), textReply('must not be asked for')] });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT]));
+    const controller = new AbortController();
+    session.log.subscribe((e) => {
+      if (e.type === 'plugin_event' && e.subtype === 'checkpoint_injected') controller.abort();
+    });
+
+    await collectTurn(session, 'send the form', { signal: controller.signal });
+
+    expect(provider.received).toHaveLength(2);
+  });
+});
+

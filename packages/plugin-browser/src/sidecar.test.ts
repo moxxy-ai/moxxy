@@ -12,6 +12,21 @@ import type { Reply } from './sidecar/types.js';
  * (and an unknown method, so dispatch never touches Playwright).
  */
 describe('sidecar request queue resilience', () => {
+  it('cancels a queued request before it starts without cancelling the following request', async () => {
+    const writes: Reply[] = [];
+    const out = (reply: Reply): void => { writes.push(reply); };
+    const queued = enqueueLine(JSON.stringify({ id: 'queued-stop', method: 'noop' }), out);
+    const cancel = enqueueLine(JSON.stringify({ id: 'cancel-stop', method: 'cancel', params: { call_id: 'queued-stop' } }), out);
+    await Promise.all([queued, cancel]);
+    await enqueueLine(JSON.stringify({ id: 'after-stop', method: 'noop' }), out);
+    expect(writes.find((reply) => reply.id === 'queued-stop')).toMatchObject({
+      ok: false, error: { message: expect.stringMatching(/abort/i) },
+    });
+    expect(writes.find((reply) => reply.id === 'after-stop')).toMatchObject({
+      ok: false, error: { message: expect.stringMatching(/unknown method/i) },
+    });
+  });
+
   it('keeps serving after the reply sink throws once', async () => {
     const writes: Reply[] = [];
     let firstWriteThrew = false;

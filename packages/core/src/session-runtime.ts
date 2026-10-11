@@ -63,6 +63,7 @@ export interface SessionRuntime {
   readonly approvalResolver: ApprovalResolver | null;
   readonly elisionSettings: ElisionSettings | null;
   readonly lazyTools: boolean | undefined;
+  readonly unfinishedStepCheck: boolean | undefined;
   /** Reasoning/thinking preference (effort), forwarded to each turn's ModeContext. */
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean | undefined;
   readonly fast?: boolean;
@@ -79,6 +80,8 @@ export interface SessionRuntime {
    * the first turn resolves a model.
    */
   lastResolvedModel: string | null;
+  /** The model each provider runs when a turn names none and the conversation has not run yet. */
+  readonly defaultModels?: Readonly<Record<string, string>>;
   startTurn(): { turnId: TurnId };
   appContext(): AppContext;
 }

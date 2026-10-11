@@ -1,4 +1,6 @@
 import type { AxNode } from './tree.js';
+import { assertDefined } from '@moxxy/sdk';
+import { AX_SECTIONS, AX_OPAQUE_ROLES as OPAQUE_ROLES, rowLabelOf } from './row-context.js';
 
 /**
  * Render an accessibility tree as the indented text the model reads.
@@ -28,6 +30,8 @@ export const MAX_TREE_DEPTH = 8;
 /** Accessible names and values are cut to this many characters. */
 export const MAX_LABEL_CHARS = 200;
 
+const ROW_CONTROLS: ReadonlySet<string> = new Set(['button', 'checkbox', 'radio', 'switch', 'textbox', 'searchbox', 'combobox', 'listbox', 'menuitemcheckbox', 'menuitemradio']);
+
 /**
  * Roles that exist for layout only. An unnamed one with a single child is
  * markup rather than content, so it renders as its child (rule 4).
@@ -41,9 +45,6 @@ const WRAPPER_ROLES: ReadonlySet<string> = new Set([
   'group',
   'InlineTextBox',
 ]);
-
-/** Roles whose children are drawing instructions, never content (rule 3). */
-const OPAQUE_ROLES: ReadonlySet<string> = new Set(['SvgRoot', 'graphics-symbol', 'Canvas']);
 
 function clip(text: string): string {
   return text.length <= MAX_LABEL_CHARS ? text : `${text.slice(0, MAX_LABEL_CHARS)}…`;
@@ -78,22 +79,20 @@ function textUnder(node: AxNode): string {
 /** The children this node actually contributes, after rule 3. */
 function visibleChildren(node: AxNode): ReadonlyArray<AxNode> {
   if (OPAQUE_ROLES.has(node.role)) return [];
-  // An image with a subtree is an icon assembled from parts; its name is the
-  // only thing that means anything.
-  if (node.role === 'img' && node.children.length > 0) return [];
   return node.children;
 }
 
-/** `[uid] role: "name" (value: "…") [focused]` */
 /** How a control with no name is called, from what its markup says. */
 export const unnamedTitle = (hint: string): string => `no name; markup: ${hint}`;
 
+/** `[uid] role: "name" (value: "…") [focused] [checked]` */
 export function row(node: AxNode, indent = 0): string {
   let out = `${'  '.repeat(indent)}[${node.uid}] ${node.role}`;
-  if (node.name) out += `: "${clip(node.name)}"`;
+  if (node.name) out += `: ${JSON.stringify(clip(node.name))}`;
   else if (node.hint) out += ` (${unnamedTitle(node.hint)})`;
-  if (node.value) out += ` (value: "${clip(node.value)}")`;
+  if (node.value) out += ` (value: ${JSON.stringify(clip(node.value))})`;
   if (node.focused) out += ' [focused]';
+  for (const state of node.states ?? []) out += ` [${state === 'mixed' ? 'partly checked' : state}]`;
   if (node.inProgress) out += ' [in progress]';
   return out;
 }
@@ -107,22 +106,33 @@ export function row(node: AxNode, indent = 0): string {
  * place, so a deeply-nested-but-meaningless chain costs nothing.
  */
 export function formatAxTree(node: AxNode, indent = 0, depth = 0): string {
+  return render(node, indent, depth);
+}
+
+function render(node: AxNode, indent: number, depth: number, inheritedRow?: string): string {
   const children = visibleChildren(node);
+  const context = node.role === 'listitem' ? rowLabelOf(node, MAX_LABEL_CHARS)
+    : AX_SECTIONS.has(node.role) ? undefined : inheritedRow;
 
   // Rule 4: an unnamed, valueless, single-child wrapper renders as its child.
   if (!node.name && !node.value && children.length === 1 && WRAPPER_ROLES.has(node.role)) {
-    return formatAxTree(children[0]!, indent, depth);
+    const child = children[0];
+    assertDefined(child, 'a single-child accessibility wrapper has its child');
+    return render(child, indent, depth, context);
   }
+
+  const rendered = row(node, indent) + (context && context !== clip(node.name) && ROW_CONTROLS.has(node.role)
+    ? ` (row ${JSON.stringify(context)})` : '');
 
   // Rule 1: past the cap, one row that still reports what it hides.
   if (depth >= MAX_TREE_DEPTH) {
     const hidden = countDescendants(node);
-    if (hidden === 0) return row(node, indent);
+    if (hidden === 0) return rendered;
     const text = node.name ? '' : textUnder(node);
-    return `${row(node, indent)} ... (${hidden} descendants)${text ? ` text: "${clip(text)}"` : ''}`;
+    return `${rendered} ... (${hidden} descendants)${text ? ` text: "${clip(text)}"` : ''}`;
   }
 
-  const lines = [row(node, indent)];
-  for (const child of children) lines.push(formatAxTree(child, indent + 1, depth + 1));
+  const lines = [rendered];
+  for (const child of children) lines.push(render(child, indent + 1, depth + 1, context));
   return lines.join('\n');
 }

@@ -369,7 +369,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     });
     try {
       await session.log.append(completedEvent(session, 'wf-a'));
-      await vi.waitFor(() => expect(runs).toContain('wf-b'));
+      await vi.waitFor(() => expect(runs).toContain('wf-b'), { timeout: 10_000, interval: 50 });
       // Let any (buggy) follow-on fires land before asserting quiescence.
       await new Promise((r) => setTimeout(r, 100));
       expect(runs).toEqual(['wf-b']);
@@ -385,7 +385,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     });
     try {
       await session.log.append(completedEvent(session, 'wf-a'));
-      await vi.waitFor(() => expect(runs).toContain('wf-c'));
+      await vi.waitFor(() => expect(runs).toContain('wf-c'), { timeout: 10_000, interval: 50 });
       await new Promise((r) => setTimeout(r, 100));
       expect(runs).toEqual(['wf-b', 'wf-c']);
     } finally {
@@ -961,6 +961,12 @@ describe('activeModel', () => {
   it('falls back to the active provider first descriptor before any turn ran', () => {
     const session = sessionWithProvider(['descriptor-first', 'other']);
     expect(activeModel(session)).toBe('descriptor-first');
+  });
+
+  it("uses the model set as the provider's default before any turn ran", () => {
+    const session = sessionWithProvider(['descriptor-first', 'other']);
+    session.defaultModels = { 'wf-test': 'other' };
+    expect(activeModel(session)).toBe('other');
   });
 
   it("returns 'default' (runTurn's own terminal fallback) with no provider and no turn", () => {

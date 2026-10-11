@@ -63,6 +63,8 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       // the runner's generation config.
       'settings.setReasoning',
       'settings.setFast',
+      // What new conversations start with is the computer owner's choice.
+      'settings.setModelDefaults',
       // Pause, resume and take over belong to the person at the computer; a
       // phone stops a turn with `session.abortTurn`.
       'computer.control',

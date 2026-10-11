@@ -43,10 +43,10 @@ export class SidecarBrowser {
     return browser;
   }
 
-  async call(method: string, params: Record<string, unknown>): Promise<HostReply> {
+  async call(method: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<HostReply> {
     if (method === 'await_human') return { ok: false, error: { message: NO_WINDOW } };
     await Promise.all([...this.contents.values()].map((wc) => wc.refreshTitle()));
-    return dispatchToHost(this.host, method, params, { closeTab: (tabId) => this.close(tabId) });
+    return dispatchToHost(this.host, method, params, { closeTab: (tabId) => this.close(tabId), ...(signal ? { signal } : {}) });
   }
 
   private async adopt(page: PlaywrightPage, requestId?: string): Promise<string> {

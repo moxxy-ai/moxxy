@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { JevError, RunMemory, type AppTree, type AskJev, type JevAnswers, type JevQuestion } from '@moxxy/jev';
 import { describe, expect, it } from 'vitest';
-import { formatRunReport, runBrowserSteps, shownText, type PageRead, type RunPort, type RunStep } from './browser-run.js';
+import { formatRunReport, runBrowserSteps, runShortfall, shownText, stepProblem, type PageRead, type RunPort, type RunStep } from './browser-run.js';
 
 /**
  * A small shop as the desktop's bridge would serve it: pages of elements under
@@ -11,7 +11,7 @@ import { formatRunReport, runBrowserSteps, shownText, type PageRead, type RunPor
  * remote service it is: it answers from what each test says the page means.
  */
 
-interface Element { readonly uid: number; readonly role: string; readonly title: string; readonly focused?: boolean; readonly value?: string }
+interface Element { readonly uid: number; readonly role: string; readonly title: string; readonly focused?: boolean; readonly value?: string; readonly readOnly?: boolean; readonly on?: boolean; readonly stuck?: boolean }
 interface Page { readonly title: string; readonly elements: readonly Element[]; readonly text: string }
 
 const PAGES: Record<string, Page> = {
@@ -43,6 +43,26 @@ const PAGES: Record<string, Page> = {
     text: 'heading "It\'s Only the Himalayas"\n£45.17\nIn stock',
   },
   basket: { title: 'Basket', elements: [], text: 'heading "Basket"\n1 item' },
+  settings: {
+    title: 'Settings',
+    elements: [
+      { uid: 60, role: 'checkbox', title: 'E-mail', on: true },
+      { uid: 61, role: 'checkbox', title: 'SMS', on: false },
+      { uid: 62, role: 'button', title: 'Public profile', on: true },
+      { uid: 63, role: 'button', title: 'Save' },
+      // A box the page will not let go of: a click is delivered and changes nothing.
+      { uid: 64, role: 'checkbox', title: 'Terms', on: false, stuck: true },
+    ],
+    text: 'heading "Settings"\ncheckbox "E-mail"\ncheckbox "SMS"\nbutton "Public profile"\nbutton "Save"',
+  },
+  account: {
+    title: 'Account',
+    elements: [
+      { uid: 46, role: 'textbox', title: 'Display name', value: 'kamil123', readOnly: true },
+      { uid: 50, role: 'button', title: 'Edit name' },
+    ],
+    text: 'heading "Account"\ntextbox "Display name"\nbutton "Edit name"',
+  },
 };
 
 type Effect = string | Error | { readonly page?: string; readonly result: Record<string, unknown> };
@@ -52,6 +72,13 @@ function shop(links: Record<number, Effect>, start = 'home', drops: readonly num
   let at = start;
   const acted: Array<{ do: string; uid?: string; text?: string; option?: string; key?: string }> = [];
   const typed = new Map<number, string>();
+  const flipped = new Set<number>();
+  /** On, off, or neither: a box says "checked" or nothing, a toggle says which way it is, a plain button says nothing. */
+  const onOff = (element: Element) => {
+    if (element.on === undefined) return [];
+    const on = element.on !== flipped.has(element.uid);
+    return element.role === 'button' ? [on ? ('selected' as const) : ('not selected' as const)] : on ? ['checked' as const] : [];
+  };
   const port: RunPort = {
     read: async () => {
       const page = PAGES[at] as Page;
@@ -65,14 +92,17 @@ function shop(links: Record<number, Effect>, start = 'home', drops: readonly num
           role: element.role,
           title: element.title,
           ...(element.value !== undefined ? { value: typed.get(element.uid) ?? element.value } : {}),
-          ...(element.focused ? { states: ['focused' as const] } : {}),
+          ...(element.focused ? { states: ['focused' as const] } : element.readOnly ? { states: ['read-only' as const] } : onOff(element).length ? { states: onOff(element) } : {}),
         })),
       };
       return { tabId: 't1', url: `https://books.toscrape.com/${at}`, title: page.title, tree, page: page.text } satisfies PageRead;
     },
     act: async (step, uid) => {
       acted.push({ do: step.do, ...(uid ? { uid } : {}), ...(step.text ? { text: step.text } : {}), ...(step.key ? { key: step.key } : {}) });
-      if (step.do === 'type' && uid && !drops.includes(Number(uid))) typed.set(Number(uid), step.text ?? '');
+      const locked = (PAGES[at] as Page).elements.some((element) => element.uid === Number(uid) && element.readOnly);
+      if (step.do === 'type' && uid && !locked && !drops.includes(Number(uid))) typed.set(Number(uid), step.text ?? '');
+      const pressed = (PAGES[at] as Page).elements.find((element) => element.uid === Number(uid));
+      if (step.do === 'click' && pressed?.on !== undefined && !pressed.stuck && !flipped.delete(pressed.uid)) flipped.add(pressed.uid);
       const effect = uid ? links[Number(uid)] : undefined;
       if (effect instanceof Error) throw effect;
       if (typeof effect === 'string') at = effect;
@@ -271,7 +301,7 @@ describe('runBrowserSteps', () => {
     const site = shop({});
     const typed = await runBrowserSteps({ goal: 'g', steps: [{ do: 'type', text: 'himalayas', submit: true }] }, { port: site.port, ask: jev({}).ask, memory: memory(), signal });
     expect(typed.outcomes[0]).toMatchObject({ status: 'done', found: 'focus' });
-    expect(site.acted).toEqual([{ do: 'type', uid: '5', text: 'himalayas' }]);
+    expect(site.acted).toEqual([{ do: 'type', uid: '5', text: 'himalayas' }, { do: 'key', uid: '5', key: 'Enter' }]);
 
     const nowhere = await runBrowserSteps({ goal: 'g', steps: [{ do: 'type', text: 'x' }] }, { port: shop({}, 'travel').port, ask: jev({}).ask, memory: memory(), signal });
     expect(nowhere.outcomes[0]?.why).toMatch(/nothing on the page has focus/i);
@@ -384,6 +414,129 @@ describe('shownText — a value quoted back to the agent', () => {
     // mark would read as the field holding only that much.
     expect(shownText('https://moxxy.example:5678')).toBe('"https://moxxy.example:5678"');
     expect(shownText('y'.repeat(300))).toMatch(/^"y{200}"… \(300 characters\)$/);
+  });
+});
+
+/**
+ * In a settings trial the agent sent `click "checkbox E-mail"` expecting
+ * "E-mail stays on": the box was on already, so the click switched it off, and
+ * the settings were saved without e-mail. A step that names the state wanted —
+ * on or off — reads the element first and clicks only when it is the other way.
+ */
+describe('setting a box, a switch or a toggle on or off', () => {
+  const run = (steps: RunStep[], site = shop({}, 'settings')) =>
+    runBrowserSteps({ goal: 'settings', steps }, { port: site.port, ask: jev({}).ask, memory: memory(), signal }).then((report) => ({ report, site }));
+
+  it('does not touch a box that is already the way it was asked for', async () => {
+    const { report, site } = await run([{ do: 'check', target: 'E-mail' }, { do: 'uncheck', target: 'SMS' }]);
+
+    expect(site.acted).toEqual([]);
+    expect(report.outcomes).toMatchObject([
+      { status: 'done', element: 'checkbox "E-mail"', checked: true, state: 'already on' },
+      { status: 'done', element: 'checkbox "SMS"', checked: true, state: 'already off' },
+    ]);
+    expect(formatRunReport(report)).toContain('1. check "E-mail" — done (checkbox "E-mail", by its name; already on)');
+  });
+
+  it('clicks once when it is the other way, and reads that it changed', async () => {
+    const { report, site } = await run([{ do: 'check', target: 'SMS' }, { do: 'uncheck', target: 'E-mail' }, { do: 'uncheck', target: 'Public profile' }]);
+
+    expect(site.acted).toEqual([{ do: 'click', uid: '61' }, { do: 'click', uid: '60' }, { do: 'click', uid: '62' }]);
+    expect(report.outcomes.map((outcome) => [outcome.status, outcome.checked])).toEqual([['done', true], ['done', true], ['done', true]]);
+    expect(formatRunReport(report)).toContain('1. check "SMS" — done (checkbox "SMS", by its name; now on)');
+  });
+
+  it('takes the element as its own proof: what the step expects is not put to Jev, which could not see it better', async () => {
+    const site = shop({}, 'settings');
+    const { ask, requests } = jev({ shows: () => false });
+
+    const report = await runBrowserSteps(
+      { goal: 'settings', steps: [{ do: 'check', target: 'SMS', expect: 'SMS is on' }, { do: 'uncheck', target: 'SMS', expect: 'SMS is off' }] },
+      { port: site.port, ask, memory: memory(), signal },
+    );
+
+    expect(requests).toEqual([]);
+    expect(report.outcomes.map((outcome) => [outcome.status, outcome.state])).toEqual([['done', 'now on'], ['done', 'now off']]);
+  });
+
+  it('fails when the click did not change it, saying which way it still is', async () => {
+    const { report, site } = await run([{ do: 'check', target: 'Terms' }, { do: 'click', target: 'Save' }]);
+
+    expect(site.acted).toEqual([{ do: 'click', uid: '64' }]);
+    expect(report.outcomes.map((outcome) => outcome.status)).toEqual(['failed', 'not_run']);
+    expect(report.outcomes[0]?.why).toBe('checkbox "Terms" is still off after the click');
+  });
+
+  it('refuses an element that does not say whether it is on or off, before clicking it', async () => {
+    const { report, site } = await run([{ do: 'check', target: 'Save' }]);
+
+    expect(site.acted).toEqual([]);
+    expect(report.outcomes[0]).toMatchObject({ status: 'failed' });
+    expect(report.outcomes[0]?.why).toMatch(/button "Save" does not say whether it is on or off/);
+  });
+
+  it('needs a target', () => {
+    expect(stepProblem({ do: 'check' })).toBe('a check step needs a target');
+    expect(stepProblem({ do: 'uncheck' })).toBe('an uncheck step needs a target');
+  });
+});
+
+describe('typing into a field the page keeps locked', () => {
+  it('says the field is read-only and that the page has to unlock it, not only that the text did not land', async () => {
+    const site = shop({}, 'account');
+
+    const report = await runBrowserSteps(
+      { goal: 'rename', steps: [{ do: 'type', target: 'Display name', text: 'Kamil M.' }] },
+      { port: site.port, ask: jev({}).ask, memory: memory(), signal },
+    );
+
+    expect(report.outcomes[0]).toMatchObject({ status: 'failed' });
+    expect(report.outcomes[0]?.why).toMatch(/textbox "Display name" holds "kamil123", not what was typed/);
+    expect(report.outcomes[0]?.why).toMatch(/it is read-only: use what the page offers to unlock it \(an Edit button beside it\), then type/);
+  });
+});
+
+describe('runShortfall — what a run tells the loop it did not get done', () => {
+  const send: RunStep = { do: 'click', target: 'Send', expect: 'a ticket number' };
+  const base = { site: 'forms.example', tabId: 't1' };
+
+  it('is nothing for a run that did every step', () => {
+    expect(runShortfall({ ...base, outcomes: [{ step: send, status: 'done', checked: true }] })).toBeUndefined();
+  });
+
+  it('names the step that failed and why', () => {
+    const shortfall = runShortfall({
+      ...base,
+      outcomes: [
+        { step: { do: 'type', target: 'Name', text: 'Jan' }, status: 'done' },
+        { step: send, status: 'failed', why: 'no element on the page reads like "Send"' },
+        { step: { do: 'click', target: 'Close' }, status: 'not_run' },
+      ],
+    });
+
+    expect(shortfall).toEqual({ what: 'step 2 of 3, click "Send": no element on the page reads like "Send"' });
+  });
+
+  it('marks a step that was delivered though its effect was not seen, so it is checked before it is sent again', () => {
+    const shortfall = runShortfall({ ...base, outcomes: [{ step: send, status: 'unverified', why: 'delivered, but "a ticket number" was not seen' }] });
+
+    expect(shortfall).toEqual({ what: 'step 1 of 1, click "Send": delivered, but "a ticket number" was not seen', unverified: true });
+  });
+
+  it('gives the reason the run stopped for a step that never ran', () => {
+    const shortfall = runShortfall({ ...base, outcomes: [{ step: send, status: 'not_run' }], stopped: 'Jev could not be reached' });
+
+    expect(shortfall).toEqual({ what: 'step 1 of 1, click "Send": Jev could not be reached' });
+  });
+
+  it('is nothing when the user is why it stopped: the site is not allowed, or they took the browser over', () => {
+    const notAllowed = 'The user has not allowed forms.example in this conversation yet, so nothing was done. Call browser_allow_site …';
+    const takenOver = 'The user has taken over the browser.';
+
+    for (const stopped of [notAllowed, takenOver]) {
+      expect(runShortfall({ ...base, outcomes: [{ step: send, status: 'failed', why: stopped }], stopped })).toBeUndefined();
+      expect(runShortfall({ ...base, outcomes: [{ step: send, status: 'not_run' }], stopped })).toBeUndefined();
+    }
   });
 });
 

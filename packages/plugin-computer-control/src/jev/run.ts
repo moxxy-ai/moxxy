@@ -1,12 +1,12 @@
 import type { AppState, ShownText } from '../backend/rpc.js';
-import { invariant } from '@moxxy/sdk';
-import { ComputerUseError, type ActionResult } from '../contract/outcome.js';
+import { invariant, type Shortfall } from '@moxxy/sdk';
+import { ComputerUseError, hintFor, type ActionResult, type ErrorCode } from '../contract/outcome.js';
 import { looksDifferent } from '../contract/progress.js';
 import type { ComputerAction, RunStep } from '../contract/tools.js';
 import { diffTrees, formatElements, sameElements, sameWindow, type AppElement, type AppTree } from '@moxxy/jev';
 import { JevError, type AskJev, type JevAnswers, type JevQuestion } from '@moxxy/jev';
 import { STATE_CHARS, byName, byText, readTarget, targetQuestions, windowState, type Grounding } from '@moxxy/jev';
-import { judge, rungs } from './ladder.js';
+import { isFinalBlock, judge, rungs, unverifiedResult } from './ladder.js';
 import { labelOf } from './memory.js';
 
 /** Ways tried on one step before the main model gets it back. */
@@ -72,6 +72,9 @@ export interface StepOutcome {
   readonly element?: string;
   readonly attempts: number;
   readonly why?: string;
+  readonly code?: ErrorCode;
+  /** The action was delivered, or its delivery is unknown, without a confirmed effect. */
+  readonly unverified?: true;
   /** When no element matched: the lines that came closest. */
   readonly closest?: readonly string[];
   /** What a verified step worked on and which of its ways did it: worth remembering. */
@@ -172,6 +175,13 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
   const outcomes: StepOutcome[] = [];
   let state = initial;
   let asks = 0;
+  let failure: Pick<StepOutcome, 'code' | 'unverified'> = {};
+  const noteResult = (result: ActionResult) => {
+    failure = {
+      ...(result.code ? { code: result.code } : {}),
+      ...(failure.unverified || unverifiedResult(result) ? { unverified: true } : {}),
+    };
+  };
   /** Answers about `state` for the step that comes next, asked together with the check of the step before. */
   let ahead: JevAnswers | undefined;
   const time = { jev: 0, act: 0, look: 0 };
@@ -202,13 +212,15 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       try {
         const acted = await timed('act', () => deps.act(action, { ...(index === actions.length - 1 ? last : {}), picture }));
         result = acted.result;
+        noteResult(result);
         state = acted.state ?? await observe(picture);
       } catch (error) {
         if (!(error instanceof ComputerUseError)) throw error;
         result = { outcome: 'blocked', code: error.code };
+        noteResult(result);
         state = await observe(picture);
       }
-      if (result.outcome !== 'delivered') break;
+      if (result.outcome !== 'delivered' || isFinalBlock(result.code)) break;
     }
     return result;
   };
@@ -271,7 +283,7 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       let element: AppElement | undefined = recalled?.element ?? labelled;
       let spot: ShownText | undefined;
       if (step.target !== undefined && !element) {
-        if (!Object.keys(questions).some((id) => id.startsWith('target'))) return { status: 'failed', attempts, why: 'the window has too many elements to search' };
+        if (!Object.keys(questions).some((id) => id.startsWith('target'))) return { status: 'failed', attempts, why: 'the window has too many elements to search', ...failure };
         grounding = readTarget(state.tree, answers);
         const candidates = grounding.kind === 'element' ? [grounding.element, ...grounding.others] : [];
         element = candidates.find((candidate) => (used.get(candidate.key) ?? 0) < rungs(step, candidate, deps.selectAll).length);
@@ -282,7 +294,7 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
           read = true;
           if (!spot) {
             const closest = grounding.kind === 'none' ? grounding.closest.map((candidate) => lineOf(state.tree, candidate)) : [];
-            return { status: 'failed', attempts, why, ...(closest.length ? { closest } : {}) };
+            return { status: 'failed', attempts, why, ...failure, ...(closest.length ? { closest } : {}) };
           }
         }
       }
@@ -295,7 +307,7 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       const ways = point ? [[{ action: 'click', ...point, mouse_button: 'left', click_count: 1 } as const]] : rungs(step, element, deps.selectAll);
       const way = used.get(key) ?? (recalled && recalled.way < ways.length ? recalled.way : 0);
       const rung = ways[way];
-      if (!rung || attempts >= MAX_ATTEMPTS) return { status: 'failed', attempts, why, ...(stale ? { stale } : {}) };
+      if (!rung || attempts >= MAX_ATTEMPTS) return { status: 'failed', attempts, why, ...failure, ...(stale ? { stale } : {}) };
       used.set(key, way + 1);
       attempts += 1;
       const line = element ? lineOf(state.tree, element) : spot && point ? `text "${spot.text}" in the screenshot at ${point.x},${point.y}` : undefined;
@@ -341,6 +353,7 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
         const kept = effect.length > 0 || fickle ? { effect } : {};
         return {
           status: verdict.verified ? 'verified' : 'done', attempts, ...(line ? { element: line } : {}),
+          ...(step.expect !== undefined && !verdict.verified ? { unverified: true as const } : {}),
           ...(element ? { [verdict.verified ? 'used' : 'tried']: { key: element.key, label: labelOf(element), way, ...kept } } : {}),
           ...(!element && verdict.verified && (effect.length > 0 || fickle) ? { used: { key: '', label: '', way: 0, effect } } : {}),
           ...(recalled ? { recalled: true as const } : {}), ...(stale ? { stale } : {}),
@@ -349,7 +362,7 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       why = verdict.why;
       if (recalled) stale = true;
       if (labelled) unnamed = true;
-      if (verdict.verdict === 'stop') return { status: 'failed', attempts, why, ...(stale ? { stale } : {}) };
+      if (verdict.verdict === 'stop') return { status: 'failed', attempts, why, ...failure, ...(stale ? { stale } : {}) };
     }
   };
 
@@ -377,11 +390,14 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
     for (const [index, step] of segment.entries()) {
       const result = results[index];
       if (!result) {
-        outcomes.push({ status: 'failed', attempts: 1, why: UNREPORTED });
+        outcomes.push({ status: 'failed', attempts: 1, why: UNREPORTED, unverified: true });
         break;
       }
       const verdict = judge({ step, result, changed: true });
-      outcomes.push(verdict.verdict === 'done' ? { status: 'done', attempts: 1 } : { status: 'failed', attempts: 1, why: verdict.why });
+      outcomes.push(verdict.verdict === 'done' ? { status: 'done', attempts: 1 } : {
+        status: 'failed', attempts: 1, why: verdict.why,
+        ...(verdict.code ? { code: verdict.code } : {}), ...(verdict.unverified ? { unverified: true } : {}),
+      });
       if (verdict.verdict !== 'done') break;
     }
     return outcomes;
@@ -392,12 +408,13 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
     while (deps.batch && end < steps.length && blind(steps[end] as RunStep)) end += 1;
     let done: StepOutcome[];
     try {
+      failure = {};
       done = deps.batch && end - index >= 2
         ? await carryOutTogether(steps.slice(index, end), steps[end], deps.batch)
         : [await carryOut(steps[index] as RunStep, steps[index + 1])];
     } catch (error) {
       if (!(error instanceof JevError)) throw error;
-      done = [{ status: 'failed', attempts: 0, why: error.message }];
+      done = [{ status: 'failed', attempts: 0, why: error.message, ...failure }];
     }
     outcomes.push(...done);
     if (done.some((outcome) => outcome.status === 'failed')) break;
@@ -418,6 +435,18 @@ function describeStep(step: RunStep): string {
   return `${step.do}${step.target === undefined ? '' : ` ${JSON.stringify(step.target)}`}${step.do === 'click' || step.do === 'scroll' ? '' : text}`;
 }
 
+/** What the run did not get done, for the loop: the step it failed at, and why. */
+export function runShortfall(report: RunReport, steps: readonly RunStep[]): Shortfall | undefined {
+  const at = report.outcomes.findIndex((outcome) => outcome.status === 'failed');
+  const step = steps[at];
+  const outcome = report.outcomes[at];
+  if (!step || !outcome || isFinalBlock(outcome.code)) return undefined;
+  return {
+    what: `step ${at + 1} of ${steps.length}, ${describeStep(step)}: ${outcome.why ?? 'failed'}`,
+    ...(outcome.unverified ? { unverified: true } : {}),
+  };
+}
+
 /** The run for the main model: what was done to which element, and where it stopped and why. */
 export function describeRun(report: RunReport, steps: readonly RunStep[]): string {
   const finished = report.outcomes.filter((outcome) => outcome.status !== 'failed').length;
@@ -425,7 +454,7 @@ export function describeRun(report: RunReport, steps: readonly RunStep[]): strin
   report.outcomes.forEach((outcome, index) => {
     const step = steps[index];
     if (!step) return;
-    const label = outcome.status === 'failed' ? 'FAILED' : outcome.status;
+    const label = outcome.status === 'failed' ? 'FAILED' : outcome.unverified ? 'unverified' : outcome.status;
     const detail = [
       outcome.element ? ` → ${outcome.element}` : '',
       outcome.status === 'skipped' ? ` (${outcome.why ?? 'what it expects already shows'})` : '',
@@ -437,7 +466,10 @@ export function describeRun(report: RunReport, steps: readonly RunStep[]): strin
   });
   const rest = steps.length - report.outcomes.length;
   if (rest > 0) lines.push(`Not run: step${rest > 1 ? 's' : ''} ${report.outcomes.length + 1}${rest > 1 ? `–${steps.length}` : ''}.`);
-  if (finished < steps.length) lines.push('Read the state below and continue from the failed step by another route: a different element, a keyboard shortcut, the menu, or x and y of the screenshot.');
+  const failed = report.outcomes.find((outcome) => outcome.status === 'failed');
+  if (failed?.code !== undefined && isFinalBlock(failed.code)) lines.push(hintFor(failed.code));
+  else if (report.outcomes.some((outcome) => outcome.unverified)) lines.push('Read the state below to verify the effect before repeating the step. If it may have gone through, do not repeat it blind.');
+  else if (finished < steps.length) lines.push('Read the state below and continue from the failed step by another route: a different element, a keyboard shortcut, the menu, or x and y of the screenshot.');
   else lines.push('Steps without `expect` were delivered, not verified: check the state below.');
   return lines.join('\n');
 }

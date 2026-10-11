@@ -355,13 +355,14 @@ export function projectMessages(
         // Render-only reasoning (no signature/encrypted) is never replayed —
         // it exists only for the live/scrollback "Thinking" view. Replayable
         // reasoning is stashed for content[0] of this turn's assistant message.
-        if (e.signature || e.encrypted) {
+        if (e.signature || e.encrypted || e.replayItems?.length) {
           pendingReasoning = {
             type: 'reasoning',
             text: e.content,
             ...(e.signature ? { signature: e.signature } : {}),
             ...(e.redacted ? { redacted: true } : {}),
             ...(e.encrypted ? { encrypted: e.encrypted } : {}),
+            ...(e.replayItems ? { replayItems: e.replayItems } : {}),
           };
           pendingReasoningSeq = e.seq;
         }

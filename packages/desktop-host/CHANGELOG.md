@@ -1,5 +1,38 @@
 # @moxxy/desktop-host
 
+## 0.14.25
+
+### Patch Changes
+
+- Updated dependencies [7b24827]
+- Updated dependencies [45f501a]
+- Updated dependencies [889810e]
+- Updated dependencies [1c4d5aa]
+- Updated dependencies [889810e]
+- Updated dependencies [bae6e6e]
+- Updated dependencies [889810e]
+- Updated dependencies [3b0fcdf]
+- Updated dependencies [0a44449]
+- Updated dependencies [235ae19]
+- Updated dependencies [a501dbd]
+  - @moxxy/sdk@0.43.0
+  - @moxxy/plugin-browser@0.43.0
+  - @moxxy/config@0.43.0
+  - @moxxy/core@0.43.0
+  - @moxxy/desktop-ipc-contract@0.14.30
+  - @moxxy/mode-collaborative@0.43.0
+  - @moxxy/plugin-computer-control@0.43.0
+  - @moxxy/plugin-provider-local@0.43.0
+  - @moxxy/plugin-provider-openai@0.43.0
+  - @moxxy/plugin-provider-openai-codex@0.43.0
+  - @moxxy/plugin-scheduler@0.43.0
+  - @moxxy/plugin-stt-whisper-codex@0.43.0
+  - @moxxy/plugin-tts-gemini@0.43.0
+  - @moxxy/plugin-vault@0.43.0
+  - @moxxy/plugin-webhooks@0.43.0
+  - @moxxy/runner@0.2.59
+  - @moxxy/workspace-registry@0.2.42
+
 ## 0.14.24
 
 ### Patch Changes

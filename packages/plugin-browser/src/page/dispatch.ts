@@ -1,4 +1,4 @@
-import { siteAllows, siteRefusal } from '../site-access.js';
+import { isLocalDevSite, siteAllows, siteRefusal } from '../site-access.js';
 import type { BrowserHost, HostReply, PointAction, PointParams } from './host.js';
 
 /**
@@ -12,7 +12,7 @@ import type { BrowserHost, HostReply, PointAction, PointParams } from './host.js
 
 /** Methods that change the page or what the pane shows; refused while the person has the browser. */
 const ACTING = new Set([
-  'act', 'dialog', 'select', 'scroll', 'goto', 'back', 'forward', 'reload', 'click', 'fill', 'key', 'eval', 'point', 'upload',
+  'act', 'dialog', 'select', 'scroll', 'goto', 'back', 'forward', 'reload', 'click', 'fill', 'key', 'eval', 'point', 'upload', 'viewport',
 ]);
 
 const POINT_ACTIONS = new Set<PointAction>(['click', 'double_click', 'right_click', 'move', 'drag', 'scroll', 'type', 'key']);
@@ -23,6 +23,7 @@ function isPair(value: unknown): value is [number, number] {
 }
 
 export interface HostDispatchOptions {
+  readonly signal?: AbortSignal;
   /** Close a tab the agent asked to close; the desktop forgets it and the pane tears its view down. */
   readonly closeTab?: (tabId: string) => Promise<void> | void;
 }
@@ -33,6 +34,8 @@ export async function dispatchToHost(
   params: Record<string, unknown>,
   opts: HostDispatchOptions = {},
 ): Promise<HostReply> {
+  const { signal, ...rest } = opts;
+  if (signal) return host.withSignal(signal, () => dispatchToHost(host, method, params, rest));
   // An empty string is a model filling in a field it has nothing for, not a
   // tab named "". Treat it as absent.
   const named = typeof params.tab_id === 'string' && params.tab_id ? params.tab_id : undefined;
@@ -42,7 +45,7 @@ export async function dispatchToHost(
   const tabId = named ?? host.agentTarget();
   if (typeof params.turn_id === 'string' && params.turn_id) host.noteAgentTurn(params.turn_id);
   // While the person has the browser the agent may look, not touch.
-  if (ACTING.has(method) || (method === 'tabs' && String(params.action ?? 'list') !== 'list')) {
+  if (ACTING.has(method) || (method === 'diagnostics' && params.action === 'start') || (method === 'tabs' && String(params.action ?? 'list') !== 'list')) {
     const refusal = host.agentRefusal();
     if (refusal) return { ok: false, error: { message: refusal } };
   }
@@ -51,6 +54,20 @@ export async function dispatchToHost(
   const sel = typeof params.selector === 'string' ? params.selector : '';
   const timeoutMs = typeof params.timeoutMs === 'number' ? params.timeoutMs : undefined;
   switch (method) {
+    case 'diagnostics':
+      return host.diagnostics(String(params.action ?? 'read'), {
+        ...(tabId ? { tabId } : {}),
+        ...(typeof params.request_id === 'string' ? { requestId: params.request_id } : {}),
+        ...(typeof params.limit === 'number' ? { limit: params.limit } : {}),
+        ...(typeof params.query === 'string' ? { query: params.query } : {}),
+      });
+    case 'viewport':
+      return host.viewport({
+        ...(tabId ? { tabId } : {}),
+        ...(typeof params.width === 'number' ? { width: params.width } : {}),
+        ...(typeof params.height === 'number' ? { height: params.height } : {}),
+        ...(params.reset === true ? { reset: true } : {}),
+      });
     case 'snapshot':
       return host.snapshot(tabId, {
         ...(params.full === true ? { full: true } : {}),
@@ -61,11 +78,13 @@ export async function dispatchToHost(
     case 'find':
       return host.find(String(params.query ?? ''), tabId);
     case 'act':
+      if (params.click_count !== undefined && typeof params.click_count !== 'number') return { ok: false, error: { message: 'click_count must be 1 or 2' } };
       return host.act({
         action: String(params.action ?? ''),
         uid: String(params.uid ?? ''),
         ...(typeof params.text === 'string' ? { text: params.text } : {}),
         ...(params.submit === true ? { submit: true } : {}),
+        ...(typeof params.click_count === 'number' ? { click_count: params.click_count } : {}),
         ...(tabId ? { tab_id: tabId } : {}),
       });
     case 'dialog':
@@ -175,7 +194,7 @@ export async function dispatchToHost(
         ...(timeoutMs ? { timeoutMs } : {}),
       });
     case 'key':
-      return host.key(String(params.key ?? ''), tabId);
+      return host.key(String(params.key ?? ''), tabId, undefined, typeof params.uid === 'string' && params.uid ? params.uid : undefined);
     case 'text':
       return host.textOf(sel || undefined, tabId);
     case 'html':
@@ -201,16 +220,20 @@ export async function dispatchToHost(
  * Why this call would land on a site the conversation has not allowed, or
  * null. A navigation is judged by where it goes; any other action by the page
  * it acts on. Reading, scrolling, pointing and waiting decide nothing and go
- * anywhere. A call that carries no `sites` comes from `browser_session`, which
- * the user approves call by call — that approval is its consent.
+ * anywhere. Developer diagnostics record what the page sends and receives, so
+ * starting them or reading a response needs the site too, except on the
+ * developer's own machine. A call that carries no `sites` comes from
+ * `browser_session`, which the user approves call by call — that approval is
+ * its consent.
  */
 function offSiteRefusal(host: BrowserHost, method: string, params: Record<string, unknown>, tabId: string | undefined): string | null {
   if (!Array.isArray(params.sites)) return null;
   const sites = params.sites.filter((site): site is string => typeof site === 'string');
   const destination = (url: unknown): string | null =>
     typeof url === 'string' && url && !siteAllows(sites, url) ? siteRefusal(url) : null;
+  const pageOf = (tab: string | undefined) => host.list().find((t) => (tab ? t.tabId === tab : t.active));
   const here = (tab: string | undefined): string | null => {
-    const page = host.list().find((t) => (tab ? t.tabId === tab : t.active));
+    const page = pageOf(tab);
     // No such tab: let the action report that in its own words.
     return page && !siteAllows(sites, page.url) ? siteRefusal(page.url) : null;
   };
@@ -222,6 +245,12 @@ function offSiteRefusal(host: BrowserHost, method: string, params: Record<string
       return params.action === 'close' ? here(tabId) : null;
     case 'act':
       return params.action === 'hover' ? null : here(tabId);
+    case 'diagnostics': {
+      // Recording and response bodies can carry a signed-in account's data.
+      if (params.action !== 'start' && params.action !== 'response') return null;
+      const page = pageOf(tabId);
+      return page && isLocalDevSite(page.url) ? null : here(tabId);
+    }
     case 'select':
     case 'key':
     case 'point':

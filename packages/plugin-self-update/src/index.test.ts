@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { asSessionId, asTurnId, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { buildSelfUpdatePlugin, type SelfUpdateDeps, type SkipInfo } from './index.js';
 import { readJournal } from './transaction.js';
@@ -296,5 +296,23 @@ describe('rollback', () => {
     await expect(begin.handler({ packages: ['@moxxy/core'] }, makeCtx())).rejects.toThrow(
       /already in progress/,
     );
+  });
+});
+
+describe('the discovery-loaded plugin', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('keeps its transactions in MOXXY_HOME', async () => {
+    const home = await makeMoxxyDir();
+    vi.stubEnv('MOXXY_HOME', home);
+    vi.resetModules();
+    const { selfUpdatePlugin } = await import('./index.js');
+    const begin = (selfUpdatePlugin.tools ?? []).find((t) => t.name === 'self_update_begin');
+    if (!begin) throw new Error('self_update_begin is missing');
+    const { txnId } = (await begin.handler({ kind: 'plugin', name: 'greeter' }, makeCtx())) as { txnId: string };
+    expect((await readJournal(home, txnId)).target.path).toBe(path.join(home, 'plugins', 'greeter'));
   });
 });

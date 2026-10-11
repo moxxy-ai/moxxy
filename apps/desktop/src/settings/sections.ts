@@ -33,7 +33,13 @@ export const SETTINGS_SECTIONS = [
     group: 'Agent',
     view: 'settings',
     keywords: ['model', 'models', 'llm', 'api key', 'openai', 'anthropic', 'claude', 'chatgpt', 'codex'],
-    finds: [{ label: 'Add provider', keywords: ['connect a model', 'new provider', 'sign in'] }],
+    finds: [
+      { label: 'Add provider', keywords: ['connect a model', 'new provider', 'sign in'] },
+      {
+        label: 'Default model',
+        keywords: ['starting model', 'new conversation', 'reasoning effort', 'thinking', 'fast mode', 'fast tier'],
+      },
+    ],
   },
   {
     id: 'voice',

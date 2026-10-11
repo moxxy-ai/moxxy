@@ -6,6 +6,22 @@
  *  `ReasoningEffortLevel`. */
 export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
 
+/** A change to what a new conversation starts with — in the app, the terminal and the channels. Only what is named is saved. */
+export interface ModelDefaultsChange {
+  /** A provider and the model it runs, set together. */
+  model?: { provider: string; model: string };
+  effort?: ReasoningEffort;
+  fast?: boolean;
+}
+
+/** The defaults as the config holds them: nothing may be set yet, and reasoning may be on at the provider's own effort. */
+export interface StoredModelDefaults {
+  provider: string | null;
+  model: string | null;
+  effort: ReasoningEffort | 'default';
+  fast: boolean;
+}
+
 export interface ProviderEntry {
   name: string;
   /** True when the runner has activated this provider (credentials

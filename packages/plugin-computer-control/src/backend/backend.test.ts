@@ -23,7 +23,7 @@ const profile = (extra: Partial<PlatformProfile> = {}): PlatformProfile => ({
   platform: 'darwin',
   protocolVersion: CONTRACT_PROTOCOL_VERSION,
   helperPath: process.execPath,
-  helperArgs: [contractHelperScript, '--log', requestsFile],
+  helperArgs: extra.helperArgs ?? [contractHelperScript, '--log', requestsFile],
   // Artifact verification has its own tests; the fixture is a script, not a signed binary.
   verifyHelper: async () => undefined,
   unavailableMessage: 'Computer Use helper is missing.',
@@ -56,6 +56,52 @@ async function requestAccess(tools: Map<string, ToolDef>, input: Record<string, 
 
 const methods = () => helperRequests(requestsFile).map((request) => request.method);
 const forModel = (output: unknown) => (output as ToolImageResult).forModel ?? String(output);
+
+describe('computer_run — stops and uncertain effects from the OS boundary', () => {
+  const noJev: AskJev = async () => { throw new Error('Exact names and blind steps must not need Jev'); };
+  const fixture = (args: string[], ask: AskJev = noJev) => backend([], { helperArgs: [contractHelperScript, '--log', requestsFile, ...args] }, () => ask);
+
+  it('labels delivered typing as unverified when the external expectation is not confirmed', async () => {
+    // Jev is an external network boundary: pin its uncertain answer, not the runner.
+    const ask: AskJev = async () => ({
+      target: { type: 'choice', choice: '1', confidence: 0.9, probabilities: { '1': 0.9 } },
+      already: { type: 'noul', noul: 0 }, expected: { type: 'noul', noul: 0.1 },
+    });
+    const { tools } = fixture([], ask);
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    const output = await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Type', steps: [{ do: 'type', target: 'the text field', text: 'x', expect: 'Saved is shown' }] }, 'turn', { TYPESAFE_API_KEY: 'external-boundary-test' });
+    expect(forModel(output)).toContain('unverified');
+    expect(forModel(output)).toContain('verify the effect before repeating');
+    expect(methods().filter((method) => method === 'act')).toHaveLength(1);
+    expect(forModel(output)).toContain('hellox');
+  });
+
+  it.each(['user_stopped', 'user_intervened', 'permissions_not_granted', 'permissions_pending', 'screen_locked', 'tier_insufficient', 'app_not_allowed', 'protected_path', 'system_key_combo', 'clipboard_not_granted', 'own_window'] as const)('does not ask the loop to continue after %s without a session abort', async (code) => {
+      const { tools } = fixture(['--action-result', JSON.stringify({ outcome: 'blocked', code })]);
+      await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+      const output = await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Save', steps: [{ do: 'click', target: 'Save' }] }, 'turn', { TYPESAFE_API_KEY: 'external-boundary-test' });
+      expect(output).not.toHaveProperty('shortfall');
+      expect(forModel(output)).toContain(code);
+      expect(methods().filter((method) => method === 'act')).toHaveLength(1);
+    });
+
+  it.each(['timeout', 'helper_failed', 'page_loading'] as const)('requires a look before retrying an uncertain effect (%s)', async (code) => {
+    const { tools } = fixture(['--action-result', JSON.stringify({ outcome: code === 'page_loading' ? 'delivered' : 'blocked', code })]);
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    const output = await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Save', steps: [{ do: 'click', target: 'Save' }] }, 'turn', { TYPESAFE_API_KEY: 'external-boundary-test' });
+    expect(output).toMatchObject({ shortfall: { unverified: true } });
+    expect(methods().filter((method) => method === 'act')).toHaveLength(1);
+  });
+
+  it('does not resend the part of a batch the helper left unreported', async () => {
+    const { tools } = fixture(['--incomplete-batch']);
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    const output = await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Type once', steps: [{ do: 'key', key: 'End' }, { do: 'type', text: 'x' }] }, 'turn', { TYPESAFE_API_KEY: 'external-boundary-test' });
+    expect(output).toMatchObject({ shortfall: { unverified: true } });
+    expect(methods().filter((method) => method === 'batch')).toHaveLength(1);
+    expect(forModel(output)).toContain('hellox');
+  });
+});
 
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), 'moxxy-computer-backend-'));
@@ -287,6 +333,20 @@ describe('a run of steps', () => {
       { action: 'type_text', element_index: 1, text: ' world' },
       { action: 'press_key', key: 'Return', repeat: 1, chord: { modifiers: [], key: 'enter' } },
     ]);
+  });
+
+  it('tells the loop which step it did not get done, and nothing of it when all were done', async () => {
+    const { tools } = backend([], {}, jev([]));
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    const secrets = { TYPESAFE_API_KEY: 'vault-key' };
+
+    const done = await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps }, 'turn', secrets);
+    const stopped = await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Open', steps: [{ do: 'click', target: 'a button that is not there' }] }, 'turn', secrets);
+
+    expect(done).not.toHaveProperty('shortfall');
+    expect((stopped as { shortfall?: { what: string } }).shortfall?.what).toMatch(/^step 1 of 1, click "a button that is not there": /);
+    // The model reads the same result as before: the report and the picture.
+    expect(forModel(stopped)).toMatch(/computer_run: 0 of 1 steps done/);
   });
 
   it('clicks what the screenshot reads as the target when no element is named so', async () => {

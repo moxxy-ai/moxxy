@@ -75,6 +75,13 @@ person's would, and every step that can go wrong says so:
 6. **The result says what happened**: `navigated`, a `dialog`, a tab the page
    `opened`, or what a field `value` now shows.
 
+Repeated action labels keep their observed section heading in the compact tree
+used to choose a target. For example, two “Add to basket” buttons can be
+separated by the bulb's heading and the lamp's heading without changing either
+button's accessible name or UID. Learned targets also compare this description,
+so another product occupying the old button position is not reused. Headings inside a product card or landmark
+stay inside it; an ambiguous target still requires a fresh read or explicit UID.
+
 ## Reading a page
 
 `browser_snapshot` sends the accessibility tree once, then only what changed;
@@ -83,6 +90,20 @@ tree, even for a page that has not moved — that is how the agent finds its
 bearings again. Rows deeper than the depth cap collapse to one, and an
 unnamed collapsed row keeps the text it holds (`paragraph ... (2 descendants)
 text: "£53.74"`), so a price or a date deep in a list is not lost.
+
+A row ends with what the page says the element is in: `[focused]`, `[checked]`
+(`[partly checked]` for a box ticked in part), `[pressed]` or `[not pressed]`,
+`[selected]`, `[expanded]` or `[collapsed]`, `[disabled]`, `[read-only]`. No
+mark means the page does not say it. A switch that is off says `[not pressed]`:
+without it the row read like any button, a run could not see "switched off"
+after the click that did it, and the agent pressed it again and switched it
+back on. A text field the page keeps locked says `[read-only]`, and a run that
+types into one says so too: before, the agent typed twice, saw the old text
+stay, and saved the form without the change — the Edit button beside the field
+was never tried. A change of state alone is a change of the row, so ticking a box shows
+in the next read and in the check of a run's `expect`. Before this, a ticked
+box read exactly like an unticked one: a run reported the tick as not seen, the
+agent clicked again and unticked it.
 
 ### What a page may and may not ask
 
@@ -232,8 +253,25 @@ it reads on the page, with `expect` on the steps that open or change something:
     { "do": "click", "target": "the title link of the second book", "expect": "the page of one book with its price" } ] }
 ```
 
-A step is `click`, `type` (`text`, `submit`), `select` (`option`), `key` or
-`hover`. For each one the backend serves the page as Jev reads it — the
+A run works on the page that is already open; it has no step that opens an
+address. The agent is told so: an address the user names is opened with
+`browser_navigate` first, because a tab left in the pane by an earlier
+conversation is not that page.
+
+A step is `click`, `type` (`text`, `submit`), `select` (`option`), `key`,
+`hover`, or `check` / `uncheck`. The last two name the state wanted for a box,
+a switch or a toggle, not the press that gets there: the step reads the
+element, does nothing when it is already that way (`already on`), and
+otherwise clicks once and reads that it changed (`now on`) — or fails with
+"still off after the click". An element that does not say whether it is on or
+off is refused before it is pressed. Before this, the agent sent a click to a
+box that was already ticked, expecting it to "stay on", and switched it off.
+Partly checked (`mixed`) is a third state, never "already off". A state-setting
+step clicks it once and reads it again; it succeeds only on a definite on/off
+match. A box that stays mixed, changes to the opposite state, or disappears
+does not count as confirmed, and is not clicked a second time in that step.
+
+For each step the backend serves the page as Jev reads it — the
 elements one can act on under the uids the other tools use, and the page as
 text (`tree` on the bridge, which leaves the agent's own reads untouched) — and
 code finds the element, in this order. The elements one can act on are those
@@ -362,7 +400,29 @@ which is how a new request is told apart from the one that was stopped.
 
 A snapshot flags a page that is waiting for the user — a cookie choice, a
 CAPTCHA, a sign-in — and the agent hands over with `browser_await_human`
-instead of answering it. A link to a cookie *policy* is not a cookie choice,
+instead of answering it. One wall the agent answers itself: a cookie banner
+that shows a way to turn down what the site does not need ("Reject all",
+"Only necessary", "Tylko niezbędne", "Akceptuj tylko niezbędne", "Accept only
+necessary cookies", "Odrzuć opcjonalne"). The snapshot names
+that control and its UID under `### Cookie banner` and the agent presses that
+element and carries on. Declining labels must match in full: "Reject all
+invitations" is not "Reject all". A control must explicitly name cookies or
+belong to the same cookie dialog/group/region; another dialog or a policy link
+in the footer cannot supply that context. Disabled controls are not offered.
+An opener such as "Ustawienia plików cookie", "Cookie settings" or "Manage
+cookies" does not itself mean a consent panel is open, even when it is a
+button. Once the panel closes, the footer opener does not keep the page
+blocked. Necessary-only choices decline optional cookies even when their
+label includes "Accept"; they do not authorize accepting optional categories.
+An ambiguous consent choice remains the user's to answer. This exception does
+not authorize declining invitations, requests or other choices outside the task.
+Agreement controls may include the full terms being agreed to ("I agree to the
+terms", "Zgadzam się na regulamin"), including the phrase within a longer label.
+They remain under `### Needs you`, with no automatic decline. Recognizing an
+agreement is separate from the exact-label match that permits cookie rejection.
+It never presses a control that accepts, a banner with no such control is still
+handed over, and "I do not agree" is not taken for one — that also refuses a
+contract. A link to a cookie *policy* is not a cookie choice,
 a form that merely has a password field among others is not a sign-in, and a
 page that only *mentions* a CAPTCHA — Coolify lists a service called "Cap
 Captcha" — is not running one: a CAPTCHA counts only as its widget (a frame, a
@@ -370,6 +430,14 @@ checkbox or an answer field named for it). None of these stops the agent any mor
 The pane waits ten minutes for the user to finish (`HANDOFF_LIMIT_MS`), and
 the call from the runner to the pane waits as long, plus a moment to answer —
 not the 150 s ceiling every other call has.
+
+Browser regression tests use real Chromium, including indeterminate HTML
+checkboxes and cookie controls next to unrelated invitations. Install its
+package-local binary with `PLAYWRIGHT_BROWSERS_PATH=0 pnpm --filter
+@moxxy/plugin-browser exec playwright install chromium`, then run `pnpm
+--filter @moxxy/plugin-browser test`. The browser test configuration preserves
+that binary location while the common preset isolates the test home. CI
+installs Chromium before the Ubuntu and Windows test suites.
 
 ## Frames, dialogs, new tabs
 

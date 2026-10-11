@@ -44,6 +44,8 @@ export interface SessionInfo {
   readonly reasoningEffort?: ReasoningEffort | 'default' | null;
   /** Whether turns ask for the provider's faster tier. Absent from older runners. */
   readonly fast?: boolean;
+  /** The model a turn runs on when none is picked here. Absent from older runners. */
+  readonly defaultModel?: string;
   /** What the composer's @ menu offers. */
   readonly skills?: ReadonlyArray<SkillInfo>;
   /** The run's actions, which its / menu offers beside the modes and the skills. */

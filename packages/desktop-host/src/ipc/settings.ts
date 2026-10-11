@@ -103,6 +103,15 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
   handle('settings.setFast', async ({ workspaceId, enabled }) => {
     await mustRemote(pool, workspaceId).providerAdmin.setFast(enabled);
   });
+  handle('settings.modelDefaults', async () => {
+    const { loadModelDefaults } = await import('@moxxy/config');
+    return loadModelDefaults();
+  });
+  handle('settings.setModelDefaults', async (change) => {
+    // Written to the config, not sent to a runner: a new conversation reads it when it starts.
+    const { setModelDefaults } = await import('@moxxy/config');
+    await setModelDefaults(change);
+  });
   handle('settings.mcpServers', async (args) => {
     const session = mustSession(pool, args?.workspaceId);
     if (!session.mcpAdmin) return [];

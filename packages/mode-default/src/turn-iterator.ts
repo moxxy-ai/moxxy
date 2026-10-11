@@ -1,5 +1,6 @@
 import {
   runReactLoop,
+  unfinishedStepCheckpoint,
   unfinishedWorkCheckpoint,
   type ModeContext,
   type MoxxyEvent,
@@ -14,11 +15,14 @@ export { MAX_CONSECUTIVE_RETRIES, __setRetrySleepForTests } from '@moxxy/sdk';
 
 /**
  * Default ReAct-style loop: model thinks, calls tools, observes results,
- * repeats — and returns the moment the model stops calling tools. The one
- * gate on that: a report made while the last look at something found work
- * still under way is asked, once, to look again (see unfinishedWorkCheckpoint).
+ * repeats — and returns the moment the model stops calling tools. Two gates on
+ * that, each asked once in a turn: a report made while the last look at
+ * something found work still under way is asked to look again (see
+ * unfinishedWorkCheckpoint), and a turn that ended on a step that did not get
+ * done is asked to take another way or name what stops it (see
+ * unfinishedStepCheckpoint).
  */
-const checkpoints = [unfinishedWorkCheckpoint()];
+const checkpoints = [unfinishedWorkCheckpoint(), unfinishedStepCheckpoint()];
 
 export function runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> {
   return runReactLoop(ctx, { strategyName: DEFAULT_MODE_NAME, checkpoints });

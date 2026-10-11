@@ -193,6 +193,81 @@ describe('runTurn turnId filtering', () => {
     });
   });
 
+  describe('the model a turn runs on when it names none', () => {
+    const models = [{ id: 'noop-first' }, { id: 'noop-chosen' }, { id: 'noop-last' }];
+    const modelEcho = (): Session => {
+      const session = new Session({ cwd: '/tmp', silent: true });
+      session.pluginHost.registerStatic(
+        definePlugin({
+          name: 'test-default-model',
+          version: '0.0.0',
+          providers: [
+            defineProvider({
+              name: 'noop',
+              models,
+              createClient: () => ({ name: 'noop', models, stream: async function* () {}, countTokens: async () => 0 }),
+            }),
+          ],
+          modes: [
+            defineMode({
+              name: 'model-echo',
+              run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+                await ctx.emit({
+                  type: 'assistant_message',
+                  sessionId: ctx.sessionId,
+                  turnId: ctx.turnId,
+                  source: 'assistant',
+                  text: ctx.model,
+                });
+              },
+            }),
+          ],
+        }),
+      );
+      session.providers.setActive('noop');
+      session.modes.setActive('model-echo');
+      return session;
+    };
+    const ranOn = async (session: Session, model?: string): Promise<unknown> =>
+      (await collectTurn(session, 'go', model ? { model } : {})).find((e) => e.type === 'assistant_message');
+
+    it("is the one set as the provider's default, not the first the provider lists", async () => {
+      const session = modelEcho();
+      session.defaultModels = { noop: 'noop-chosen' };
+
+      expect(session.getInfo().defaultModel).toBe('noop-chosen');
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-chosen' });
+    });
+
+    it('stays the model the conversation last ran on, whatever the default says', async () => {
+      const session = modelEcho();
+      session.defaultModels = { noop: 'noop-chosen' };
+      session.lastResolvedModel = 'noop-last';
+
+      expect(session.getInfo().defaultModel).toBe('noop-last');
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-last' });
+    });
+
+    it('gives way to the model the turn names', async () => {
+      const session = modelEcho();
+      session.defaultModels = { noop: 'noop-chosen' };
+
+      expect(await ranOn(session, 'noop-first')).toMatchObject({ text: 'noop-first' });
+    });
+
+    it("is the provider's first model when no default is set, and a default for another provider is not used", async () => {
+      const session = modelEcho();
+      session.defaultModels = { other: 'elsewhere' };
+
+      expect(session.getInfo().defaultModel).toBe('noop-first');
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-first' });
+    });
+
+    it('is not reported while no provider is active', () => {
+      expect(new Session({ cwd: '/tmp', silent: true }).getInfo().defaultModel).toBeUndefined();
+    });
+  });
+
   it('a single turn surfaces all of its own events', async () => {
     const session = buildSession();
     const events = await collectTurn(session, 'hi');

@@ -51,6 +51,17 @@ export function siteAllows(sites: readonly string[], url: string): boolean {
   return sites.some((allowed) => site === allowed || site.endsWith(`.${allowed}`));
 }
 
+/**
+ * Whether `url` is served from the developer's own machine: `localhost`, a
+ * `*.localhost` name or a loopback address. Nobody's account lives there, so
+ * developer diagnostics need no site approval on it.
+ */
+export function isLocalDevSite(url: string): boolean {
+  const site = siteOf(url);
+  if (!site) return false;
+  return site === 'localhost' || site.endsWith('.localhost') || /^127(\.\d{1,3}){3}$/.test(site) || site === '[::1]';
+}
+
 /** The sites approved in this conversation, in the order they were allowed. */
 export function sitesFromLog(log: EventLogReader): string[] {
   const requested = new Set(

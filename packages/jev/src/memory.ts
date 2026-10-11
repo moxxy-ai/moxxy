@@ -64,8 +64,9 @@ export function sameWords(target: string): string {
   const telling = words.filter((word) => !ARTICLES.has(word));
   return (telling.length > 0 ? telling : words).join(' ');
 }
-/** A toolbar button often has no title, only a description. */
-export const labelOf = (element: Pick<AppElement, 'role' | 'title' | 'description'>) => `${element.role}\u001f${element.title ?? element.description ?? ''}`;
+/** A description distinguishes same-named controls; a toolbar button may have only a description. */
+export const labelOf = (element: Pick<AppElement, 'role' | 'title' | 'description'>) =>
+  `${element.role}\u001f${element.title ?? element.description ?? ''}${element.title !== undefined && element.description ? `\u001f${element.description}` : ''}`;
 
 /** What a step is remembered under: its target, or for a key what it was pressed for. */
 export const targetOf = (step: MemoryStep): string | undefined =>

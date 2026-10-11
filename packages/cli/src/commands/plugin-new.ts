@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
+import { moxxyPath } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { hasBoolFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
@@ -34,7 +34,7 @@ export async function runPluginNewCommand(argv: ParsedArgv): Promise<number> {
   const force = hasBoolFlag(argv, 'force');
   const root = here
     ? path.join(process.cwd(), name)
-    : path.join(os.homedir(), '.moxxy', 'plugins', name);
+    : moxxyPath('plugins', name);
 
   // Refuse to clobber existing dirs unless --force.
   try {

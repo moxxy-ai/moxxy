@@ -33,6 +33,8 @@ import type {
   GeminiVoiceInfo,
   SkillFile,
   ReasoningEffort,
+  ModelDefaultsChange,
+  StoredModelDefaults,
 } from './settings.js';
 import type { Desk, DeskSession, DesksOverview, SessionsOverview } from './desks.js';
 import type {
@@ -861,6 +863,10 @@ export interface IpcCommands {
    *  mode) on the runner. Read the current value from `session.info().fast`.
    *  Throws a coded error against a pre-v24 runner. */
   'settings.setFast': (args: { workspaceId?: string; enabled: boolean }) => Promise<void>;
+  /** What a new conversation starts with, read from the config every surface shares. */
+  'settings.modelDefaults': () => Promise<StoredModelDefaults>;
+  /** Save it. Conversations already open keep what they run on. */
+  'settings.setModelDefaults': (args: ModelDefaultsChange) => Promise<void>;
   /** Hit the provider's /v1/models endpoint and return the model ids
    *  it advertises. Useful for admin-registered providers whose
    *  stored provider entry didn't enumerate models upfront. */

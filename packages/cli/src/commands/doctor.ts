@@ -1,6 +1,4 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import type { Session } from '@moxxy/core';
 import { pendingExportCount } from '@moxxy/core';
 import type { MoxxyConfig, PolicySourceRecord } from '@moxxy/config';
@@ -9,7 +7,7 @@ import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
 import { formatPrincipal } from '@moxxy/sdk';
-import { hasProxy, redactProxyUrl } from '@moxxy/sdk/server';
+import { hasProxy, moxxyPath, redactProxyUrl } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
 import { closeSession } from '../setup/close-session.js';
@@ -216,36 +214,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   // Plugins
   checks.push(...buildPluginDoctorChecks(pluginRegistration));
 
-  // Memory (slim kernel: the plugin may not be installed — that's a state,
-  // not a failure)
-  if (!memory) {
-    checks.push({
-      id: 'memory',
-      status: 'warn',
-      message: 'memory extension not installed — long-term memory off (moxxy extensions install @moxxy/plugin-memory)',
-    });
-  } else {
-    const memDir = path.join(os.homedir(), '.moxxy', 'memory');
-    const memRes = await tryCatch(async () => {
-      await fs.mkdir(memDir, { recursive: true });
-      await fs.access(memDir, fs.constants.W_OK);
-      const entries = await memory.list();
-      return { count: entries.length };
-    });
-    if (memRes.ok) {
-      checks.push({
-        id: 'memory',
-        status: 'ok',
-        message: `${memDir} writable (${memRes.value.count} entries)`,
-      });
-    } else {
-      checks.push({
-        id: 'memory',
-        status: 'fail',
-        message: `${memDir} not writable: ${memRes.error}`,
-      });
-    }
-  }
+  checks.push(await buildMemoryDoctorCheck(memory));
 
   // Skills
   const allSkills = session.skills.list();
@@ -410,6 +379,28 @@ export function buildEgressDoctorCheck(config: MoxxyConfig): Check {
   const status: Status = ca ? 'ok' : 'warn';
   const hint = ca ? '' : ' (set NODE_EXTRA_CA_CERTS if the proxy terminates TLS)';
   return { id: 'network', status, message: `${via}${bypass}${caNote}${hint}` };
+}
+
+/** Memory (slim kernel: the plugin may not be installed — that's a state, not a failure). */
+export async function buildMemoryDoctorCheck(memory: Pick<MemoryStore, 'list'> | undefined): Promise<Check> {
+  if (!memory) {
+    return {
+      id: 'memory',
+      status: 'warn',
+      message: 'memory extension not installed — long-term memory off (moxxy extensions install @moxxy/plugin-memory)',
+    };
+  }
+  const memDir = moxxyPath('memory');
+  const memRes = await tryCatch(async () => {
+    await fs.mkdir(memDir, { recursive: true });
+    await fs.access(memDir, fs.constants.W_OK);
+    const entries = await memory.list();
+    return { count: entries.length };
+  });
+  if (memRes.ok) {
+    return { id: 'memory', status: 'ok', message: `${memDir} writable (${memRes.value.count} entries)` };
+  }
+  return { id: 'memory', status: 'fail', message: `${memDir} not writable: ${memRes.error}` };
 }
 
 export async function buildSelfUpdateDoctorCheck(session: Session): Promise<Check> {

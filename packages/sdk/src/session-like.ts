@@ -167,6 +167,11 @@ export interface SessionInfo {
   readonly reasoningEffort?: ReasoningEffort | 'default' | null;
   /** Whether turns ask for the provider's faster tier. Absent from older runners. */
   readonly fast?: boolean;
+  /**
+   * The model a turn runs on when it names none: the one the conversation last ran on, else the one set as the
+   * active provider's default, else the first that provider lists. Absent without an active provider, and from older runners.
+   */
+  readonly defaultModel?: string;
   /** Turns running now, whichever client (or in-process channel) started them.
    *  Reported by a runner to its clients; absent from runners that predate it. */
   readonly runningTurns?: ReadonlyArray<string>;

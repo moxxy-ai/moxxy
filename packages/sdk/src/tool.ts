@@ -230,4 +230,12 @@ export interface ToolDef {
    * a task in a mode that never asked for it. See `toolsForMode`.
    */
   readonly modes?: ReadonlyArray<string>;
+  /**
+   * The user's refusal of this tool ends the turn, with this text as its last
+   * message, instead of letting the model try another way round it. For tools
+   * whose refusal means "not like this, not now" (Computer Use). A standing
+   * rule or a hook refusing it stays a failed step. The rest of the batch is
+   * cancelled unrun; the next user turn asks again.
+   */
+  readonly refusalEndsTurn?: string;
 }

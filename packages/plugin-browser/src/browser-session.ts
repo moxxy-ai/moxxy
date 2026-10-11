@@ -293,12 +293,11 @@ class Sidecar {
         }
       }, this.callTimeoutMs);
       timer.unref?.();
-      // Abort cancels ONLY this pending call (rejects its promise); it does
-      // NOT kill the shared singleton sidecar, which other concurrent calls
-      // depend on. A late reply for this id is then ignored (not in `pending`).
+      // Stop this operation on the backend, without killing the shared browser.
       const onAbort = (): void => {
         if (this.pending.delete(id)) {
           cleanup();
+          this.child?.stdin.write(JSON.stringify({ id: `${id}-cancel`, method: 'cancel', params: { call_id: id } }) + '\n');
           reject(new MoxxyError({ code: 'NETWORK_ABORTED', message: 'browser_session aborted' }));
         }
       };
@@ -508,7 +507,7 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
       // rather than calling sidecar.close() which would tear down the shared
       // singleton (and every other concurrent browser_session) on the bus.
       const call = (method: string, params: Record<string, unknown> = {}): Promise<unknown> =>
-        browserSidecarCall(method, params, deps, ctx.signal);
+        browserSidecarCall(method, { ...params, turn_id: ctx.turnId }, deps, ctx.signal);
       try {
         switch (action.kind) {
           case 'goto':

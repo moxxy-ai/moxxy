@@ -1,7 +1,7 @@
 import { JEV_OFF, JEV_SECRET, RunMemory, appTreeSchema, jevClient, tracedFromEnv, type AskJev } from '@moxxy/jev';
 import { MoxxyError, defineTool, z, type ProviderRequest, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { moxxyPath } from '@moxxy/sdk/server';
-import { formatRunReport, runBrowserSteps, runStepSchema, stepProblem, type PageRead, type RunPort, type RunStep } from './browser-run.js';
+import { formatRunReport, runBrowserSteps, runShortfall, runStepSchema, stepProblem, type PageRead, type RunPort, type RunStep } from './browser-run.js';
 
 export const RUN_TOOL = 'browser_run';
 
@@ -27,7 +27,7 @@ export class JevAccess {
 
 const MARKER = '[Moxxy Browser Runs]';
 const GUIDANCE = `${MARKER}
-Act through ${RUN_TOOL} by default — even a single click — instead of browser_click, browser_type, browser_select and browser_batch. Name each element in words as it reads on the page ("Add to basket button of the second book", "Search field"), send every step you already know in one call, and give "expect" to the steps that open or change something. It finds the elements on the live page itself, so once a page is open you can send a run without reading the page first whenever you know what is on it (a search field, a link by its text). It checks every "expect", stops at the first step that does not work, saying why, and its answer ends with the page as it is now — do not read it again. Use the single tools only for what a run reports as not done, for what has no name on the page (a canvas: browser_point), and for a step that depends on reading something first. Allow the site with browser_allow_site before the first run there, in the same response.`;
+Act through ${RUN_TOOL} by default — even a single click — instead of browser_click, browser_type, browser_select and browser_batch. Name each element in words as it reads on the page ("Add to basket button of the second book", "Search field"), send every step you already know in one call, and give "expect" to the steps that open or change something. It finds the elements on the live page itself, so once a page is open you can send a run without reading the page first whenever you know what is on it (a search field, a link by its text). For a box, a switch or a toggle, say the state you want — set it with a check or uncheck step, never a click: the step reads the element, does nothing when it is already that way, and otherwise clicks once and reads that it changed. It works on the page that is already open and cannot open an address. When the user names an address, open it with browser_navigate before anything else — a tab left open from earlier work is not that page. It checks every "expect", stops at the first step that does not work, saying why, and its answer ends with the page as it is now — do not read it again. For a double click use browser_click with click_count: 2 and a snapshot UID; a run click is only a single press. Use browser_history for back, forward and reload; run keys reach the page, not browser navigation controls. Use the single tools only for what a run reports as not done, for what has no name on the page (a canvas: browser_point), and for a step that depends on reading something first. Allow the site with browser_allow_site before the first run there, in the same response.`;
 
 /**
  * Hides browser_run from a session without a key, and tells a session with one
@@ -60,7 +60,7 @@ function portOver(call: Call, ctx: ToolContext): RunPort {
       const reply = (step.do === 'select'
         ? await call('select', { uid, option: step.option, tab_id: tabId }, ctx)
         : step.do === 'key'
-          ? await call('key', { key: step.key, tab_id: tabId }, ctx)
+          ? await call('key', { key: step.key, ...(uid ? { uid } : {}), tab_id: tabId }, ctx)
           : await call(
               'act',
               { action: step.do, uid, ...(step.do === 'type' ? { text: step.text, ...(step.submit ? { submit: true } : {}) } : {}), tab_id: tabId },
@@ -87,7 +87,7 @@ export function buildRunTool(call: Call, opts: RunToolOptions): ToolDef {
     name: RUN_TOOL,
     icon: 'globe',
     description:
-      'The default way to act on a page: carry out one or several steps in one call — click, type, select, key, hover — naming each element ' +
+      'The default way to act on a page: carry out one or several steps in one call — click, type, select, key, hover, check, uncheck — naming each element ' +
       'in words as it reads on the page. Each element is found from its name, from what worked on this site ' +
       'before, or by Jev reading the page; each "expect" is checked the same way, and the run stops at the first ' +
       'step that does not work, saying why. Returns what every step did and the page after the last one.',
@@ -96,7 +96,9 @@ export function buildRunTool(call: Call, opts: RunToolOptions): ToolDef {
       steps: z
         .array(
           runStepSchema.extend({
-            do: runStepSchema.shape.do.describe('click, type (text, submit), select (option), key (key) or hover.'),
+            do: runStepSchema.shape.do.describe(
+              'click, type (text, submit), select (option), key (key), hover, or check / uncheck: set a box, switch or toggle on / off — nothing is clicked when it already is, and the step reads the result itself (no expect).',
+            ),
             target: runStepSchema.shape.target.describe(
               'The element, in words as it reads on the page: "Add to basket button of the second book". ' +
                 'A type step without a target types into the focused field; a key step needs none.',
@@ -131,7 +133,8 @@ export function buildRunTool(call: Call, opts: RunToolOptions): ToolDef {
       );
       const after = (await call('snapshot', { tab_id: report.tabId, brief: true }, ctx)) as { text?: unknown } | undefined;
       const page = typeof after?.text === 'string' ? after.text : '';
-      return { ...(after ?? {}), text: `${formatRunReport(report)}\n\n${page}`.trimEnd() };
+      const shortfall = runShortfall(report);
+      return { ...(after ?? {}), text: `${formatRunReport(report)}\n\n${page}`.trimEnd(), ...(shortfall ? { shortfall } : {}) };
     },
   });
 }

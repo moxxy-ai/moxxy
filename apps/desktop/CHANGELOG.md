@@ -1,5 +1,48 @@
 # @moxxy/desktop
 
+## 0.43.0
+
+### Minor Changes
+
+- e4ad088: Settings → Providers has a **Default model**: the model, reasoning effort and fast tier a new conversation starts with. It is written to the config (`plugins.provider.default`, `plugins.provider.items.<provider>.model`, `context.reasoning`, `context.fast`), so the desktop, the terminal and the channels all start the same way; before, a conversation that named no model ran on the first one its provider lists, whatever the config said. The model control in the chat header now names the model a turn will run on instead of the provider. An effort or fast switch made in a conversation stays with its workspace and no longer carries over to every other one.
+
+### Patch Changes
+
+- Updated dependencies [7b24827]
+- Updated dependencies [45f501a]
+- Updated dependencies [6a2787b]
+- Updated dependencies [889810e]
+- Updated dependencies [0ed530f]
+- Updated dependencies [0ed530f]
+- Updated dependencies [10a851d]
+- Updated dependencies [2171aab]
+- Updated dependencies [1c4d5aa]
+- Updated dependencies [aa1acd4]
+- Updated dependencies [2171aab]
+- Updated dependencies [889810e]
+- Updated dependencies [0ed530f]
+- Updated dependencies [bae6e6e]
+- Updated dependencies [889810e]
+- Updated dependencies [e4ad088]
+- Updated dependencies [3b0fcdf]
+- Updated dependencies [8d56445]
+- Updated dependencies [0a44449]
+- Updated dependencies [235ae19]
+- Updated dependencies [a501dbd]
+  - @moxxy/cli@0.43.0
+  - @moxxy/sdk@0.43.0
+  - @moxxy/chat-model@0.4.16
+  - @moxxy/client-core@0.13.34
+  - @moxxy/client-platform-web@0.1.73
+  - @moxxy/desktop-host@0.14.25
+  - @moxxy/desktop-ipc-contract@0.14.30
+  - @moxxy/ipc-server-ws@0.1.72
+  - @moxxy/plugin-channel-mobile@0.43.0
+  - @moxxy/plugin-stt-whisper-codex@0.43.0
+  - @moxxy/plugin-vault@0.43.0
+  - @moxxy/runner@0.2.59
+  - @moxxy/workflows-builder@0.1.56
+
 ## 0.42.1
 
 ### Patch Changes

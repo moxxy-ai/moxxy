@@ -76,6 +76,12 @@ describe('createComputerControlPlugin', () => {
     });
   });
 
+  it('ends the turn when the user refuses any Computer Use tool, ready or not', () => {
+    for (const plugin of [createComputerControlPlugin('darwin', 'arm64', profile(ready)), createComputerControlPlugin('darwin', 'arm64', profile())]) {
+      for (const tool of plugin.tools ?? []) expect(tool.refusalEndsTurn, tool.name).toMatch(/Computer Use/);
+    }
+  });
+
   it('speaks one protocol on both platforms', () => {
     expect(windowsProfile).toMatchObject({ platform: 'win32', protocolVersion: macosProfile.protocolVersion });
     expect(windowsProfile.helperPath.replaceAll('\\', '/')).toMatch(/bin\/win32-x64\/moxxy-computer\.exe$/);

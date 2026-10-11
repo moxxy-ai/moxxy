@@ -77,6 +77,38 @@ function renderTab(overrides?: Partial<Parameters<typeof ProvidersTab>[0]>): {
 }
 
 describe('ProvidersTab', () => {
+  it('places the default model above the providers, and keeps it when there is none to list', () => {
+    const defaultModel = <div data-testid="default-model-slot" />;
+    const { unmount } = render(
+      <ProvidersTab
+        providers={[anthropic]}
+        onToggle={() => Promise.resolve()}
+        onConfigure={() => Promise.resolve()}
+        onSetKey={() => Promise.resolve()}
+        onActivate={() => Promise.resolve()}
+        onRefresh={() => Promise.resolve()}
+        defaultModel={defaultModel}
+      />,
+    );
+    const slot = screen.getByTestId('default-model-slot');
+    const row = screen.getByTestId('provider-row-anthropic');
+    expect(slot.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    unmount();
+
+    render(
+      <ProvidersTab
+        providers={[]}
+        onToggle={() => Promise.resolve()}
+        onConfigure={() => Promise.resolve()}
+        onSetKey={() => Promise.resolve()}
+        onActivate={() => Promise.resolve()}
+        onRefresh={() => Promise.resolve()}
+        defaultModel={defaultModel}
+      />,
+    );
+    expect(screen.getByTestId('default-model-slot')).toBeInTheDocument();
+  });
+
   it('toggles a provider via the switch; the ACTIVE provider switch is disabled', () => {
     const { onToggle } = renderTab();
 

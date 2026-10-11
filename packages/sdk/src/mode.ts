@@ -110,6 +110,11 @@ export interface ModeContext {
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
   /** Ask for the provider's faster tier; forwarded only to a model with `supportsFast`. */
   readonly fast?: boolean;
+  /**
+   * The reminder at the end of a turn that ended on a step that did not get
+   * done (config `context.unfinishedStepCheck`). Unset means on.
+   */
+  readonly unfinishedStepCheck?: boolean;
   readonly permissions: PermissionResolver;
   /**
    * Optional generic "ask the user a question" gate. Any loop strategy can

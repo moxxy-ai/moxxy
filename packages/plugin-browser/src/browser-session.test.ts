@@ -85,6 +85,37 @@ function makeFakeSpawn(handler: (req: { id: string; method: string; params?: unk
 }
 
 describe('browser_session tool (sidecar protocol)', () => {
+  it('forwards abort to the sidecar operation while keeping subsequent calls usable', async () => {
+    const abort = new AbortController();
+    const { spawn, receivedRequests } = makeFakeSpawn((req) => {
+      if (req.method === 'text') abort.abort();
+      return 'readable';
+    });
+    const deps = { sidecarPath: '/fake.js', spawnFn: spawn };
+    try {
+      await expect(browserSidecarCall('text', {}, deps, abort.signal)).rejects.toThrow(/abort/i);
+      const request = receivedRequests.find((req) => req.method === 'text');
+      assertDefined(request, 'the text operation reached the external sidecar');
+      expect(receivedRequests).toEqual(expect.arrayContaining([
+        expect.objectContaining({ method: 'cancel', params: { call_id: request.id } }),
+      ]));
+      await expect(browserSidecarCall('url', {}, deps)).resolves.toBe('readable');
+    } finally {
+      await closeBrowserSidecar();
+    }
+  });
+
+  it('carries the real caller turn so legacy reads end a previous diagnostic recording', async () => {
+    const { spawn, receivedRequests } = makeFakeSpawn(() => 'https://example.com');
+    const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
+    try {
+      await tool.handler({ action: { kind: 'url' } }, baseCtx());
+      expect(receivedRequests.find((request) => request.method === 'url')).toMatchObject({ params: { turn_id: 't' } });
+    } finally {
+      await closeBrowserSidecar();
+    }
+  });
+
   it('drives `goto` and returns the result', async () => {
     const { spawn, receivedRequests } = makeFakeSpawn((req) => {
       if (req.method === 'goto') return { url: (req.params as { url: string }).url };

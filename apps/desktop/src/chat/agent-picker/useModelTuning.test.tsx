@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
-import { useModelTuning } from './useModelTuning';
+import { forgetSharedTuningChoice, useModelTuning } from './useModelTuning';
 
 const luna = { id: 'gpt-6-luna', supportsReasoning: true, supportsFast: true };
 const plain = { id: 'plain', supportsReasoning: true };
@@ -104,7 +104,43 @@ describe('useModelTuning', () => {
     installApi();
     const { result } = renderHook(() => useModelTuning('ws', infoWith(), 'gpt-6-luna'));
     await act(() => Promise.all([result.current.setEffort('high'), result.current.setFast(true)]));
-    expect(JSON.parse(localStorage.getItem('moxxy.model.tuning') ?? 'null')).toEqual({ effort: 'high', fast: true });
+    expect(JSON.parse(localStorage.getItem('moxxy.model.tuning.v2') ?? 'null')).toEqual({ ws: { effort: 'high', fast: true } });
+  });
+
+  it('keeps a choice in the workspace it was made in: another workspace starts with what its runner reports', async () => {
+    const invoke = installApi();
+    const first = renderHook(() => useModelTuning('ws', infoWith(), 'gpt-6-luna'));
+    await act(() => first.result.current.setEffort('high'));
+    await act(() => first.result.current.setFast(true));
+    first.unmount();
+    invoke.mockClear();
+
+    const other = renderHook(() => useModelTuning('other', infoWith({ sessionId: 's2', reasoningEffort: 'medium', fast: true }), 'gpt-6-luna'));
+    await act(async () => {});
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(other.result.current).toMatchObject({ effort: 'medium', fast: true });
+  });
+
+  it('still hands a workspace without a choice of its own the one an older version carried from chat to chat', async () => {
+    localStorage.setItem('moxxy.model.tuning', JSON.stringify({ effort: 'high', fast: true }));
+    const invoke = installApi();
+
+    renderHook(() => useModelTuning('new-ws', infoWith(), 'gpt-6-luna'));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.setFast', { workspaceId: 'new-ws', enabled: true }));
+    expect(invoke).toHaveBeenCalledWith('settings.setReasoning', { workspaceId: 'new-ws', effort: 'high' });
+  });
+
+  it('hands nothing over once that older choice was dropped', async () => {
+    localStorage.setItem('moxxy.model.tuning', JSON.stringify({ effort: 'high', fast: true }));
+    forgetSharedTuningChoice();
+    const invoke = installApi();
+
+    renderHook(() => useModelTuning('new-ws', infoWith(), 'gpt-6-luna'));
+    await act(async () => {});
+
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("shows reasoning that is on at the provider's default as Default, not Off", () => {

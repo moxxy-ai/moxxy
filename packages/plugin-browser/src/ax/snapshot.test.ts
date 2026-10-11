@@ -173,6 +173,31 @@ describe('formatSnapshot — a page that is waiting on a person', () => {
     expect(out.indexOf('browser_await_human')).toBeLessThan(out.indexOf('### Snapshot'));
   });
 
+  it('names the control that declines a cookie banner, and asks for nobody', () => {
+    const out = formatSnapshot({
+      tree: consentPage,
+      url: 'https://www.google.com/search?q=koty',
+      title: 'Zanim przejdziesz do Google',
+      tabs: [],
+      wall: 'consent',
+      decline: 'Odrzuć wszystko',
+      declineUid: '17',
+    });
+
+    expect(out).toContain('### Cookie banner');
+    expect(out).toContain('browser_click with uid="17"');
+    expect(out).toContain('"Odrzuć wszystko"');
+    expect(out).not.toContain('### Needs you');
+    expect(out.indexOf('### Cookie banner')).toBeLessThan(out.indexOf('### Snapshot'));
+  });
+
+  it('still asks for the user when another wall stands in front of the banner', () => {
+    const out = formatSnapshot({ tree: consentPage, url: 'https://x.pl', title: 'x', tabs: [], wall: 'captcha', decline: 'Odrzuć wszystko' });
+
+    expect(out).toContain('### Needs you');
+    expect(out).not.toContain('### Cookie banner');
+  });
+
   it('stays quiet on a page that is simply a page', () => {
     const out = formatSnapshot({
       tree: { uid: '1', role: 'RootWebArea', name: 'Sklep', children: [] },

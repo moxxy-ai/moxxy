@@ -239,6 +239,11 @@ export const contextConfigSchema = z.object({
   /** Lazy tool loading: send only core + loaded tool schemas, index the rest. Unset = on above 200 tools. */
   lazyTools: z.boolean().optional(),
   /**
+   * The reminder at the end of a turn that ended on a step that did not get
+   * done: take another way, or say what stops you. Asked once a turn. Unset = on.
+   */
+  unfinishedStepCheck: z.boolean().optional(),
+  /**
    * Reasoning/thinking preview. `true` enables it at the model's default depth;
    * `{ effort }` sets the depth. Honored only by providers/models that support
    * reasoning (Anthropic adaptive thinking, OpenAI/Codex reasoning). Default off.

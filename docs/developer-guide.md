@@ -116,4 +116,26 @@ pnpm check:deps
 
 Turbo runs the package-level build, typecheck, and test tasks. CI runs the repository gates on every push and pull request.
 
+### Live check for the ChatGPT-subscription provider
+
+Unit tests replay scripted streams; only the real backend can say whether it
+accepts what `openai-codex` sends. `pnpm test:live` runs four short turns on
+`gpt-6-luna` (a plain answer, two tool continuations with and without visible
+reasoning, an abort) against your own ChatGPT sign-in from the moxxy vault, so
+sign in once with `moxxy login openai-codex`. It reads the real vault on
+purpose: a refreshed token must land back there, or the old one stops working.
+
+It is local only. It skips itself under `CI`, and without a vault or a sign-in,
+because a personal subscription login must never be copied to CI. To run it
+automatically before a push that changes the Codex request path (the provider,
+`plugin-oauth`, the SDK turn and provider types, `core/run-turn`), enable the
+hook once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`scripts/live-check.mjs` decides from the pushed commits whether the push
+needs it; other pushes spend nothing.
+
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the contribution process and [configuration.md](configuration.md) for runtime settings.

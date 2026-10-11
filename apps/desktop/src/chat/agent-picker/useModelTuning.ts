@@ -4,8 +4,9 @@
  * Both live in the runner's session (reported in `session.info`), so every
  * client of the conversation shows the same values. A switch goes to the
  * runner, then the canonical refresh event makes every info reader re-read.
- * The person's last choice is remembered here only to hand it to the next
- * runner the workspace gets (a runner starts with neither set).
+ * A choice made here is remembered for its workspace only, to hand it to the
+ * next runner that workspace gets. A workspace without one starts with what
+ * its runner reports: the defaults set in Settings.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -15,10 +16,17 @@ import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 
 export const EFFORT_LEVELS: ReadonlyArray<ReasoningEffort> = ['off', 'low', 'medium', 'high', 'xhigh'];
 
+/** The levels an effort menu offers: `default` only while it is the effort, since it cannot be asked for. */
+export function effortLevelsFor(effort: EffortLevel): ReadonlyArray<EffortLevel> {
+  return effort === 'default' ? ['off', 'default', ...EFFORT_LEVELS.slice(1)] : EFFORT_LEVELS;
+}
+
 /** A level the effort can show: one a person can set, or `default`, reasoning on at the provider's own effort. */
 export type EffortLevel = ReasoningEffort | 'default';
 
-const CHOICE_KEY = 'moxxy.model.tuning';
+const CHOICES_KEY = 'moxxy.model.tuning.v2';
+/** One choice for every workspace, as versions before the defaults in Settings kept it. Read, never written. */
+const SHARED_CHOICE_KEY = 'moxxy.model.tuning';
 
 interface Shown {
   readonly effort: EffortLevel;
@@ -31,24 +39,47 @@ interface Choice {
   readonly fast: boolean;
 }
 
-const settable = (effort: EffortLevel | undefined): effort is ReasoningEffort => EFFORT_LEVELS.includes(effort as ReasoningEffort);
+export const isSettableEffort = (effort: EffortLevel | undefined): effort is ReasoningEffort => EFFORT_LEVELS.includes(effort as ReasoningEffort);
 
-function readChoice(): Choice | null {
+function choiceOf(parsed: unknown): Choice | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const { effort, fast } = parsed as Partial<Choice>;
+  return { ...(isSettableEffort(effort) ? { effort } : {}), fast: fast === true };
+}
+
+function readStored(key: string): unknown {
   try {
-    const raw = localStorage.getItem(CHOICE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Partial<Choice> | null) : null;
-    if (!parsed || typeof parsed !== 'object') return null;
-    return { ...(settable(parsed.effort) ? { effort: parsed.effort } : {}), fast: parsed.fast === true };
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as unknown) : null;
   } catch {
     return null;
   }
 }
 
-function saveChoice({ effort, fast }: Shown): void {
+function readChoices(): Record<string, unknown> {
+  const stored = readStored(CHOICES_KEY);
+  return stored && typeof stored === 'object' ? (stored as Record<string, unknown>) : {};
+}
+
+function readChoice(workspaceId: string): Choice | null {
+  return choiceOf(readChoices()[workspaceId]) ?? choiceOf(readStored(SHARED_CHOICE_KEY));
+}
+
+function saveChoice(workspaceId: string, { effort, fast }: Shown): void {
   try {
-    localStorage.setItem(CHOICE_KEY, JSON.stringify({ ...(settable(effort) ? { effort } : {}), fast }));
+    const choice: Choice = { ...(isSettableEffort(effort) ? { effort } : {}), fast };
+    localStorage.setItem(CHOICES_KEY, JSON.stringify({ ...readChoices(), [workspaceId]: choice }));
   } catch {
     // Not remembered for the next runner; the runner itself has the value.
+  }
+}
+
+/** Drops the choice older versions carried from chat to chat, once the defaults in Settings say what a new one starts with. */
+export function forgetSharedTuningChoice(): void {
+  try {
+    localStorage.removeItem(SHARED_CHOICE_KEY);
+  } catch {
+    // Nothing to drop where storage is unavailable.
   }
 }
 
@@ -107,7 +138,7 @@ export function useModelTuning(workspaceId: string, info: SessionInfo, model: st
         const now = { ...latest.current.pending, ...change };
         latest.current.pending = now;
         setPending(now);
-        saveChoice({ ...latest.current.reported, ...now });
+        saveChoice(workspaceId, { ...latest.current.reported, ...now });
         window.dispatchEvent(new CustomEvent(SESSION_INFO_REFRESH_EVENT));
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -119,11 +150,11 @@ export function useModelTuning(workspaceId: string, info: SessionInfo, model: st
     return done;
   };
 
-  // A new runner starts plain: give it the person's last choice, once.
+  // A new runner starts with the defaults: give it the choice made in this workspace, once.
   useEffect(() => {
     if (info.sessionId === undefined || restored.current === info.sessionId) return;
     restored.current = info.sessionId;
-    const choice = readChoice();
+    const choice = readChoice(workspaceId);
     if (!choice) return;
     const change: Partial<Choice> = {
       ...(choice.effort !== undefined && choice.effort !== reported.effort ? { effort: choice.effort } : {}),
@@ -137,14 +168,14 @@ export function useModelTuning(workspaceId: string, info: SessionInfo, model: st
   const effort = pending.effort ?? reported.effort;
   return {
     effort,
-    effortLevels: effort === 'default' ? ['off', 'default', ...EFFORT_LEVELS.slice(1)] : EFFORT_LEVELS,
+    effortLevels: effortLevelsFor(effort),
     fast: pending.fast ?? reported.fast,
     canSetEffort: offered.reasoning,
     canSetFast: offered.fast,
     busy: inFlight > 0,
     error,
     // `default` cannot be asked for: the menu shows it only as the effort the runner reported.
-    setEffort: (level) => (settable(level) ? apply({ effort: level }) : Promise.resolve()),
+    setEffort: (level) => (isSettableEffort(level) ? apply({ effort: level }) : Promise.resolve()),
     setFast: (enabled) => apply({ fast: enabled }),
   };
 }

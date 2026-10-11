@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
-import { createSubagentSpawner, createWorkflowToolRunner, type Session } from '@moxxy/core';
+import { createSubagentSpawner, createWorkflowToolRunner, resolveTurnModel, type Session } from '@moxxy/core';
 import { asPluginId, type EmittedEvent, type WorkflowRunResult } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import {
@@ -256,7 +256,8 @@ export function buildWorkflowRunner(args: {
  * terminal fallback matches runTurn's own resolution.
  */
 export function activeModel(session: Session): string {
-  return session.lastResolvedModel ?? safeActiveProvider(session)?.models[0]?.id ?? 'default';
+  const provider = safeActiveProvider(session);
+  return (provider ? resolveTurnModel(session, provider) : session.lastResolvedModel) ?? 'default';
 }
 
 export function safeActiveProvider(

@@ -7,7 +7,7 @@ import { Select } from '@moxxy/desktop-ui';
 import { Switch } from '../../settings/settings-primitives';
 import type { EffortLevel, ModelTuning as Tuning } from './useModelTuning';
 
-const EFFORT_LABELS: Record<EffortLevel, string> = {
+export const EFFORT_LABELS: Record<EffortLevel, string> = {
   off: 'Off',
   default: 'Default',
   low: 'Low',

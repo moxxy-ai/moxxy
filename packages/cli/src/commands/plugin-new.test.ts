@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runPluginNewCommand } from './plugin-new.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
@@ -64,6 +64,17 @@ describe('plugins new', () => {
     expect(entry).toContain(`name: 'greeter'`);
     expect(entry).toContain("__moxxy: 'plugin'");
     expect((await fs.readFile(path.join(root, 'README.md'), 'utf8')).length).toBeGreaterThan(0);
+  });
+
+  it('scaffolds in MOXXY_HOME/plugins/<name> when MOXXY_HOME is set', async () => {
+    const home = path.join(tmpHome, 'elsewhere');
+    vi.stubEnv('MOXXY_HOME', home);
+    try {
+      expect(await runPluginNewCommand(makeArgv(['new', 'greeter']))).toBe(0);
+      await expect(fs.access(path.join(home, 'plugins', 'greeter', 'package.json'))).resolves.toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('refuses to clobber an existing dir without --force', async () => {

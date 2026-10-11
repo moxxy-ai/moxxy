@@ -30,6 +30,22 @@ export default defineConfig({
 
 `${vault:NAME}` placeholders are resolved when a session starts, through the **active secret provider** with the local vault as fallback, which is the same path `ctx.getSecret(name)` takes inside a tool. A placeholder therefore means the same thing in config as it does anywhere else. The vault unlocks through the OS keychain by default and supports a passphrase fallback. Headless environments can provide that passphrase with `MOXXY_VAULT_PASSPHRASE`.
 
+### The model a new conversation starts with
+
+```yaml
+plugins:
+  provider:
+    default: openai-codex          # the provider a new conversation starts on
+    items:
+      openai-codex:
+        model: gpt-6-luna          # the model it runs when a turn names none
+context:
+  reasoning: { effort: medium }
+  fast: true
+```
+
+A turn runs on the model it names; without one, on the model the conversation last ran on; in a new conversation, on `items.<provider>.model`; and only when that is not set, on the first model the provider lists. This is one setting for every surface: the desktop, `moxxy` in the terminal, the runner and the channels all read it when a conversation starts. The desktop writes it in **Settings → Providers → Default model** (model, effort and fast in one row). Conversations already open keep what they run on.
+
 ### Reasoning effort and fast mode
 
 ```yaml
@@ -38,7 +54,16 @@ context:
   fast: true                    # the provider's faster, pricier tier
 ```
 
-`fast` asks OpenAI (the API and the ChatGPT-plan Codex backend) for `service_tier: "priority"`, its fast mode: answers come about 1.5× faster and use 2–2.5× more of the plan or credits. It reaches only models that offer it (`supportsFast` in the provider's catalog). Both settings belong to the conversation: the desktop sets them under the model list in **Model & usage**, every client of the conversation sees the change, and a new runner gets the person's last choice back.
+`fast` asks OpenAI (the API and the ChatGPT-plan Codex backend) for `service_tier: "priority"`, its fast mode: answers come about 1.5× faster and use 2–2.5× more of the plan or credits. It reaches only models that offer it (`supportsFast` in the provider's catalog). Both settings belong to the conversation: the desktop sets them under the model list in **Model & usage**, every client of the conversation sees the change. A change made there stays with that workspace: its next runner gets it back, and other workspaces start with the values above.
+
+### The reminder about a step that did not get done
+
+```yaml
+context:
+  unfinishedStepCheck: false   # leave out for on
+```
+
+When a turn ends right on a step that did not get done — a run of browser or Computer Use steps that stopped short of its last step — the agent is reminded once, before the turn closes, to take another way or to say plainly what stops it. The reminder is asked at most once in a turn and only then: not after a later step that worked, not after the agent handed the page over to you, not after a permission you refused, an error, or Stop. A step that was delivered but whose effect was not seen is checked first, never sent again blind. With `false` the turn ends as before and nothing is asked. `moxxy` in the terminal, the desktop and the channels read the same setting.
 
 Do not commit plaintext credentials. See [SECURITY.md](../SECURITY.md) for the security model and hardening guidance.
 
@@ -50,7 +75,7 @@ Provider keys such as `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are detected auto
 
 | Variable | Effect |
 |---|---|
-| `MOXXY_HOME` | Overrides the `~/.moxxy` directory used for the vault, skills, sessions, and services. |
+| `MOXXY_HOME` | Overrides the `~/.moxxy` directory used for the vault, permission rules (`permissions.json`), skills, workflows, memory, plugins, self-update transactions, the policy-bundle cache, sessions, and services. Collaborative-mode sockets and run folders stay under `~/.moxxy/collab` so every process of a run finds them. |
 | `MOXXY_DEBUG=1` | Enables verbose CLI errors and process diagnostics. |
 | `MOXXY_VAULT_PASSPHRASE` | Supplies a headless vault passphrase instead of using the OS keychain. |
 | `MOXXY_NO_KEYCHAIN` | Set to `1` to keep the vault off the OS keychain: the key is read from and written to `~/.moxxy/vault.key` only. The test suite sets it. |

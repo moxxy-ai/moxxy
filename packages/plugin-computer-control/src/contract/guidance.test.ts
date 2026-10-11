@@ -73,3 +73,13 @@ it('leaves computer_run out, tool and words, where it cannot run', () => {
   expect(on.tools).toBe(request.tools);
   expect(on.system).toMatch(/computer_run/);
 });
+
+// On gpt-6-luna the turn ended at "has no open window" in 5 of 5 trials, though the state names the shortcut.
+it('treats a Mac app without an open window as something to open, not a block', () => {
+  const { system } = withComputerGuidance('darwin')({ model: 'm', messages: [], tools: [tool('computer_click')] });
+  expect(system).toMatch(/runs without an open window is not a block: open a window with computer_press_key \(super\+n, or the shortcut the state names\) and carry on with the task\.$/);
+  // Only the macOS helper sends keys to an app that has no window.
+  for (const platform of ['win32', 'linux'] as const) {
+    expect(withComputerGuidance(platform)({ model: 'm', messages: [], tools: [tool('computer_click')] }).system).not.toMatch(/without an open window/);
+  }
+});

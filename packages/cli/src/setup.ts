@@ -29,6 +29,7 @@ import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
 import { applyEgressSettings } from './setup/egress.js';
 import { applyContextConfig } from './setup/context-config.js';
+import { configuredDefaultModels } from './setup/default-models.js';
 import { buildSecretResolver, vaultSecretProvider } from './setup/secrets.js';
 import { applyTranscriberDefault } from './setup/apply-transcriber.js';
 import { interactiveConfigTrustPrompt } from './setup/config-trust-prompt.js';
@@ -316,6 +317,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // and auto-selected per primary channel by coAttachWebSurface — no env needed.
 
   applyContextConfig(session, config.context);
+  session.defaultModels = configuredDefaultModels(config);
 
   // No separate preferences overlay anymore: the persisted provider/mode IS the
   // manifest default, already applied by activateProvider + applyPluginsTree

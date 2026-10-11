@@ -140,6 +140,28 @@ async function uidOf(call: (method: string, params?: Record<string, unknown>) =>
 }
 
 describe.skipIf(!available)('the headless sidecar acts as the desktop does', () => {
+  it('ends a developer recording when a legacy read belongs to another turn', async () => {
+    const { call } = await sidecarOn('/field');
+    expect((await call('diagnostics', { action: 'start', turn_id: 'developer' })).ok).toBe(true);
+    expect((await call('url', { turn_id: 'ordinary' })).ok).toBe(true);
+    expect(resultOf(await call('diagnostics', { action: 'read' }))).toMatchObject({ recording: false });
+  });
+
+  it('records real Console and Network events and sets the same CSS viewport', async () => {
+    const { page, call } = await sidecarOn('/field');
+    expect((await call('diagnostics', { action: 'start' })).ok).toBe(true);
+    await page.evaluate(`(async () => { console.error('headless diagnostic'); await (await fetch('/missing')).text(); })()`);
+    await expect.poll(async () => resultOf(await call('diagnostics', { action: 'read' }))).toMatchObject({
+      console: expect.arrayContaining([expect.objectContaining({ text: 'headless diagnostic' })]),
+      network: expect.arrayContaining([expect.objectContaining({ status: 404, finished: true })]),
+    });
+    expect(resultOf(await call('viewport', { width: 390, height: 844 }))).toEqual({
+      width: 390, height: 844, documentWidth: 390, horizontalOverflow: false, overridden: true,
+    });
+    expect(await page.evaluate('innerWidth')).toBe(390);
+    expect((await call('diagnostics', { action: 'stop' })).ok).toBe(true);
+  });
+
   it('replaces what a field already holds rather than appending to it', async () => {
     const { page, call } = await sidecarOn('/field');
     const field = await uidOf(call, 'textbox', 'Imię');
