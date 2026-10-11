@@ -37,6 +37,18 @@ describe('conversation auto-approve', () => {
     expect(seen.map(autoApproveSwitch)).toEqual([true, false]);
   });
 
+  it('still asks the person about a call that must be answered by them, while standing rules decide first', async () => {
+    const { s, prompted, ctx } = promptingSession();
+    await s.setAutoApprove(true);
+
+    expect((await s.resolver.check(call(), { ...ctx, askPerson: true })).mode).toBe('deny');
+    expect(prompted).toHaveBeenCalledOnce();
+
+    await s.permissions.addAllow({ name: 'Read' });
+    expect((await s.resolver.check(call('Read'), { ...ctx, askPerson: true })).mode).toBe('allow');
+    expect(prompted).toHaveBeenCalledOnce();
+  });
+
   it('switching it off brings the prompts back', async () => {
     const { s, prompted, ctx } = promptingSession();
     await s.setAutoApprove(true);

@@ -427,6 +427,7 @@ async function approveAgentTool(
     const decision = await ctx.permissions.check(call, {
       ...scope,
       toolDescription: request.description ?? ctx.tools.get(request.name)?.description,
+      ...(request.askPerson ? { askPerson: true } : {}),
     });
     if (decision.mode === 'deny') {
       const standing = await ctx.permissions.policyCheck?.(call, scope);

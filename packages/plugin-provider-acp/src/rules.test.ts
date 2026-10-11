@@ -1,6 +1,6 @@
 /** OpenCode's permission rules as `opencode debug agent <name>` reports them, read and turned into asks. */
 import { describe, expect, it } from 'vitest';
-import { askingConfig, askingRules, runsWithoutAsking, type OpenCodeRule } from './rules.js';
+import { askingConfig, askingRules, asksOutsideProject, runsWithoutAsking, type OpenCodeRule } from './rules.js';
 
 const rule = (permission: string, pattern: string, action: OpenCodeRule['action']): OpenCodeRule => ({ permission, pattern, action });
 
@@ -70,5 +70,18 @@ describe('the rules that make OpenCode ask', () => {
       model: 'openai/gpt-6-luna',
       agent: { build: { temperature: 0.2, permission: askingRules(DEFAULTS) }, review: { mode: 'subagent' } },
     });
+  });
+});
+
+describe('asks about work outside the project', () => {
+  it('knows them by the folder a file or a command names', () => {
+    expect(asksOutsideProject({ filepath: '/elsewhere/a.txt', parentDir: '/elsewhere' })).toBe(true);
+    expect(asksOutsideProject({ command: 'ls /elsewhere', directories: ['/elsewhere'], patterns: ['/elsewhere/*'] })).toBe(true);
+  });
+
+  it('leaves every other ask alone', () => {
+    expect(asksOutsideProject({ filepath: '/work/app/a.txt', diff: '+x' })).toBe(false);
+    expect(asksOutsideProject({ command: 'git push' })).toBe(false);
+    expect(asksOutsideProject(undefined)).toBe(false);
   });
 });

@@ -25,7 +25,7 @@ import {
   type AcpSessionUpdate,
 } from './protocol.js';
 import { AcpTurnTranslator, toAcpPrompt, toTokenUsage, type AcpShownCall } from './translate.js';
-import { askingConfig, runsWithoutAsking, type OpenCodeRule, type ReadAgentRules } from './rules.js';
+import { askingConfig, asksOutsideProject, runsWithoutAsking, type OpenCodeRule, type ReadAgentRules } from './rules.js';
 
 /** A running ACP agent (`opencode acp`): its stdout, stdin and stderr. */
 export interface AcpConnection {
@@ -112,6 +112,8 @@ export class AcpAgentSession implements LiveSession {
   private asking = false;
   /** Whether Moxxy answers the agent's asks for the person in this turn. */
   private autoApprove = false;
+  /** Auto-approve is on because Moxxy turned it on, not because the person chose it. */
+  private adopted = false;
 
   static async start(settings: AcpSessionSettings): Promise<AcpAgentSession> {
     const mcp = await startMoxxyMcpServer({ name: settings.agent.mcpServerName });
@@ -183,6 +185,8 @@ export class AcpAgentSession implements LiveSession {
     try {
       yield { type: 'session', sessionId: this.sessionId };
       this.autoApprove = req.autoApprove;
+      // Once the person turned it off, auto-approve on again is their choice.
+      if (!req.autoApprove) this.adopted = false;
       // A new conversation shows how the person's agent really runs (one
       // state). In goal mode Moxxy answers for the person because of the
       // goal, not because they chose auto-approve, so that waits.
@@ -191,6 +195,7 @@ export class AcpAgentSession implements LiveSession {
         const rules = await this.rules();
         if (rules && runsWithoutAsking(rules) && !this.autoApprove) {
           this.autoApprove = true;
+          this.adopted = true;
           yield { type: 'auto_approve', enabled: true };
         }
       }
@@ -380,8 +385,12 @@ export class AcpAgentSession implements LiveSession {
       const { call, events } = translator.callFor(ask.toolCall);
       yield* events;
       // With auto-approve on Moxxy answers for the person, as OpenCode's own auto mode does; standing rules still apply.
+      // Work outside the project OpenCode asks about even on its defaults: while
+      // Moxxy turned auto-approve on, not the person, the person still answers.
+      const askPerson = this.adopted && asksOutsideProject(ask.toolCall.rawInput);
+      const answering = askPerson ? { askPerson: true } : this.autoApprove ? { policyOnly: true } : {};
       const decision = await untilStopped(
-        req.host.approve({ callId, name: call.name, input: call.input, ...(this.autoApprove ? { policyOnly: true } : {}) }),
+        req.host.approve({ callId, name: call.name, input: call.input, ...answering }),
         req.signal,
         STOPPED,
       );

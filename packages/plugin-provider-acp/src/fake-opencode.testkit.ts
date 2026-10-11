@@ -70,6 +70,11 @@ export interface ToolOptions {
   readonly title?: string;
   /** Ask Moxxy first, as OpenCode does for an `ask` rule. */
   readonly ask?: boolean;
+  /**
+   * A path outside the project the call works in. OpenCode's own rules ask
+   * about it first (`external_directory`), even on its defaults.
+   */
+  readonly outside?: string;
   readonly fails?: string;
 }
 
@@ -369,6 +374,11 @@ export class FakeOpenCodeServer {
         const running = () => this.update(session, { sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress', kind, title, locations: [], rawInput: input });
         const changeAsk = asks && kind === 'edit';
         if (!changeAsk) running();
+        if (opts.outside !== undefined && !(await this.askOutside(session, toolCallId, kind, input, opts.outside))) {
+          const rejected = 'The user rejected permission to use this specific tool call.';
+          this.update(session, { sessionUpdate: 'tool_call_update', toolCallId, status: 'failed', kind, title, rawInput: input, content: [{ type: 'content', content: { type: 'text', text: rejected } }], rawOutput: { error: rejected } });
+          return { allowed: false };
+        }
         if (ruled === 'deny') {
           const denied = 'The user has specified a rule which prevents you from using this specific tool call.';
           this.update(session, { sessionUpdate: 'tool_call_update', toolCallId, status: 'failed', kind, title, rawInput: input, content: [{ type: 'content', content: { type: 'text', text: denied } }], rawOutput: { error: denied } });
@@ -420,6 +430,26 @@ export class FakeOpenCodeServer {
    * What the rules Moxxy handed this OpenCode (`OPENCODE_CONFIG_CONTENT`, the
    * agent's own permissions, last matching pattern wins) say about a call.
    */
+  /** OpenCode 1.18's `external_directory` ask, as its ACP agent sends it: a command names its folders, a file its parent. */
+  private async askOutside(session: FakeSession, toolCallId: string, kind: AcpToolKind, input: Record<string, unknown>, outside: string): Promise<boolean> {
+    const parentDir = kind === 'execute' ? outside : outside.slice(0, outside.lastIndexOf('/'));
+    const rawInput =
+      kind === 'execute'
+        ? { command: input.command, directories: [outside], patterns: [`${outside}/*`] }
+        : { filepath: outside, parentDir };
+    const answer = (await this.request('session/request_permission', {
+      sessionId: session.id,
+      toolCall: { toolCallId, title: kind === 'execute' ? input.command : parentDir, kind: 'other', status: 'pending', locations: [{ path: outside }], rawInput },
+      options: [
+        { optionId: 'once', kind: 'allow_once', name: 'Allow once' },
+        { optionId: 'always', kind: 'allow_always', name: 'Always allow' },
+        { optionId: 'reject', kind: 'reject_once', name: 'Reject' },
+      ],
+    })) as AcpPermissionOutcome;
+    this.permissionAnswers.push(answer);
+    return answer.outcome.outcome === 'selected' && answer.outcome.optionId !== 'reject';
+  }
+
   private ruleFor(session: FakeSession, tool: string, input: Record<string, unknown>): string | undefined {
     const content = this.env.OPENCODE_CONFIG_CONTENT;
     if (!content) return undefined;

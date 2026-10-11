@@ -194,7 +194,10 @@ The model picker offers what `opencode models` lists.
   deny stays denied. It then asks before edits, commands and web requests, and
   Moxxy shows each ask as its usual approval; turning auto-approve back on
   needs no restart, Moxxy answers the asks itself (your standing deny rules
-  still refuse). If your rules already ask, auto-approve stays off. OpenCode's
+  still refuse). Work outside the project folder, which OpenCode asks about
+  even on its defaults, still comes to you while auto-approve is the one the
+  first message turned on; once you switch it yourself, Moxxy answers that too.
+  If your rules already ask, auto-approve stays off. OpenCode's
   config files are never edited. OpenCode ends its turn when you decline, so
   Moxxy hands it your reason as its next message in the same turn.
 - **Stop.** Stop cancels OpenCode's prompt; the next message carries on in the

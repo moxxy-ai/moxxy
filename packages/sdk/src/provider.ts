@@ -424,7 +424,8 @@ export interface AgentStepHost {
   /**
    * Decide whether the agent may run one of its own tools. The person answers
    * unless auto-approve or a standing rule does; with `policyOnly` only hooks
-   * and standing rules (`permissions.json`) are consulted, never the person.
+   * and standing rules (`permissions.json`) are consulted, never the person;
+   * with `askPerson` the person answers even while auto-approve is on.
    */
   approve(request: AgentApprovalRequest): Promise<AgentApprovalDecision>;
   /** Show the agent's Question in every Moxxy window of the conversation. */
@@ -449,6 +450,8 @@ export type AgentToolOutcome =
 export interface AgentApprovalRequest extends AgentToolCall {
   readonly description?: string;
   readonly policyOnly?: boolean;
+  /** The agent's own setting would have asked the person about this call, and auto-approve was not their choice. */
+  readonly askPerson?: boolean;
 }
 
 export type AgentApprovalDecision =

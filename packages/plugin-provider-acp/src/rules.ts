@@ -63,6 +63,17 @@ export function askingConfig(agent: string, rules: ReadonlyArray<OpenCodeRule>, 
   return JSON.stringify({ ...config, agent: { ...agents, [agent]: { ...agents[agent], permission: askingRules(rules) } } });
 }
 
+/**
+ * Whether an ask is OpenCode's `external_directory`, which it puts to the
+ * person even on its defaults: about a file it names the parent folder
+ * (`parentDir`), about a command the folders (`directories`).
+ */
+export function asksOutsideProject(rawInput: unknown): boolean {
+  if (typeof rawInput !== 'object' || rawInput === null) return false;
+  const input = rawInput as Record<string, unknown>;
+  return typeof input.parentDir === 'string' || Array.isArray(input.directories);
+}
+
 /** The action for an input no narrower rule names. */
 function anyInput(rules: ReadonlyArray<OpenCodeRule>, permission: string): Action | undefined {
   return rules.findLast((rule) => rule.pattern === '*' && matches(rule.permission, permission))?.action;

@@ -401,6 +401,66 @@ describe('auto-approve shows how OpenCode really runs', () => {
     expect(asked).toEqual(['Write']);
   });
 
+  it('still asks the person before OpenCode works outside the project while auto-approve turned itself on', async () => {
+    const asked: string[] = [];
+    const { session, opencode } = connect(
+      async (turn) => {
+        const write = await turn.tool('write', 'edit', { filePath: '/elsewhere/a.txt', content: 'x' }, 'Wrote file successfully.', { outside: '/elsewhere/a.txt' });
+        const list = await turn.tool('bash', 'execute', { command: 'ls /elsewhere' }, 'a.txt', { outside: '/elsewhere' });
+        const local = await turn.tool('write', 'edit', { filePath: '/work/app/b.txt', content: 'y' }, 'Wrote file successfully.');
+        turn.say(`outside ${write.allowed} ${list.allowed}, local ${local.allowed}`);
+      },
+      { rules: { build: OPENCODE_DEFAULT_RULES } },
+    );
+    session.setPermissionResolver({ name: 'person', check: async (call) => (asked.push(call.name), { mode: 'allow' }) });
+
+    const events = await collectTurn(session, 'write it');
+
+    expect(autoApprove(session)).toBe(true);
+    expect(asked).toHaveLength(2);
+    expect(opencode.last.permissionAnswers).toHaveLength(2);
+    expect(said(events)).toEqual(['outside true true, local true']);
+  });
+
+  it('answers those asks itself once the person chose auto-approve', async () => {
+    const asked: string[] = [];
+    const { session, opencode } = connect(
+      async (turn) => {
+        if (opencode.promptCount < 3) return turn.say('ok');
+        await turn.tool('write', 'edit', { filePath: '/elsewhere/a.txt', content: 'x' }, 'Wrote file successfully.', { outside: '/elsewhere/a.txt' });
+        turn.say('written');
+      },
+      { rules: { build: OPENCODE_DEFAULT_RULES } },
+    );
+    session.setPermissionResolver({ name: 'person', check: async (call) => (asked.push(call.name), { mode: 'allow' }) });
+    await collectTurn(session, 'hi');
+    await session.setAutoApprove(false);
+    await collectTurn(session, 'hi again');
+    await session.setAutoApprove(true);
+
+    await collectTurn(session, 'write it');
+
+    expect(asked).toEqual([]);
+    expect(opencode.last.permissionAnswers.length).toBeGreaterThan(0);
+  });
+
+  it('keeps asking about outside the project on later messages while auto-approve is still the one OpenCode turned on', async () => {
+    const asked: string[] = [];
+    const { session } = connect(
+      async (turn) => {
+        await turn.tool('write', 'edit', { filePath: '/elsewhere/a.txt', content: 'x' }, 'Wrote file successfully.', { outside: '/elsewhere/a.txt' });
+        turn.say('written');
+      },
+      { rules: { build: OPENCODE_DEFAULT_RULES } },
+    );
+    session.setPermissionResolver({ name: 'person', check: async (call) => (asked.push(call.name), { mode: 'allow' }) });
+    await collectTurn(session, 'one');
+
+    await collectTurn(session, 'two');
+
+    expect(asked).toHaveLength(2);
+  });
+
   it('leaves auto-approve and OpenCode as they are when OpenCode cannot say how it runs', async () => {
     const { session, opencode } = connect(async (turn) => turn.say('ok'), { rules: null });
 
