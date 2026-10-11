@@ -9,6 +9,11 @@
  *   pnpm build
  *   node scripts/e2e-claude-cli-live.mjs
  *
+ * The connection under test is the repo's own: the plugin, the agent connection
+ * kit and the SDK are packed (`pnpm pack`) and npm-installed into the temporary
+ * MOXXY_HOME before Moxxy starts, the way the desktop seeds its plugins, so
+ * nothing has to be published first and the CLI does not fetch the npm copy.
+ *
  * Override the executable/model with CLAUDE_CODE_EXECUTABLE and
  * MOXXY_CLAUDE_E2E_MODEL. Both runs use generated temporary directories (the
  * Agent SDK installs into the temporary MOXXY_HOME); Claude writes a file only
@@ -19,6 +24,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveExecutableTarget, spawnExecutableTarget } from '../packages/sdk/dist/server.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cliBin = join(repoRoot, 'packages', 'cli', 'dist', 'bin.js');
@@ -28,9 +34,22 @@ const root = mkdtempSync(join(tmpdir(), 'moxxy-claude-live-'));
 const moxxyHome = join(root, 'moxxy-home');
 mkdirSync(moxxyHome);
 
+/** The plugin under test and the repo packages it needs that npm may not have yet. */
+const REPO_PACKAGES = ['sdk', 'agent-connection-kit', 'plugin-provider-claude-code'];
+
 function run(command, args, options = {}) {
+  return collect(spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options }));
+}
+
+/** A package manager found on PATH (npm/pnpm are `.cmd` shims on Windows, which plain spawn cannot start). */
+function runTool(name, args, options = {}) {
+  const target = resolveExecutableTarget(name);
+  if (!target) return Promise.resolve({ code: 1, stdout: '', stderr: `${name} not found on PATH` });
+  return collect(spawnExecutableTarget(target, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options }));
+}
+
+function collect(child) {
   return new Promise((resolvePromise) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options });
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (chunk) => (stdout += chunk));
@@ -38,6 +57,24 @@ function run(command, args, options = {}) {
     child.once('error', (error) => resolvePromise({ code: 1, stdout, stderr, error }));
     child.once('close', (code) => resolvePromise({ code: code ?? 1, stdout, stderr }));
   });
+}
+
+async function installRepoPlugin() {
+  const tarballs = join(root, 'tarballs');
+  mkdirSync(tarballs);
+  const files = [];
+  for (const name of REPO_PACKAGES) {
+    const file = join(tarballs, `${name}.tgz`);
+    const packed = await runTool('pnpm', ['pack', '--out', file], { cwd: join(repoRoot, 'packages', name) });
+    if (packed.code !== 0) throw new Error(`could not pack packages/${name} (run pnpm build first): ${packed.stderr.trim()}`);
+    files.push(file);
+  }
+  const plugins = join(moxxyHome, 'plugins');
+  mkdirSync(plugins);
+  writeFileSync(join(plugins, 'package.json'), `${JSON.stringify({ name: 'moxxy-user-plugins', version: '0.0.0', private: true, type: 'module' }, null, 2)}\n`);
+  const installed = await runTool('npm', ['install', '--prefix', plugins, '--no-fund', '--no-audit', '--install-links=false', ...files]);
+  if (installed.code !== 0) throw new Error(`could not install the packed plugin: ${installed.stderr.trim()}`);
+  console.log(`[PASS] installed the repo's ${REPO_PACKAGES.join(', ')} from packed tarballs`);
 }
 
 function authIsSignedIn(stdout) {
@@ -101,12 +138,16 @@ async function main() {
     return;
   }
   console.log(`moxxy Claude Agent live smoke — executable=${executable} model=${model}`);
+  await installRepoPlugin();
 
   const textWorkspace = join(root, 'text');
   mkdirSync(textWorkspace);
   const pong = await runMoxxy(textWorkspace, 'Reply with exactly PONG and nothing else.');
-  assertTurn('streamed subscription prompt', pong, ({ events, text }) =>
-    events.some((event) => event.type === 'assistant_chunk') && /PONG/i.test(text));
+  // The agent session record shows Claude Code itself did the turn, through this repo's connection.
+  assertTurn('streamed prompt on the Claude Agent connection', pong, ({ events, text }) =>
+    events.some((event) => event.type === 'plugin_event' && event.subtype === 'agent_session') &&
+    events.some((event) => event.type === 'assistant_chunk') &&
+    /PONG/i.test(text));
 
   const taskRepo = join(root, 'task-repository');
   mkdirSync(taskRepo);
