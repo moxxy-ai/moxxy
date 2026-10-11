@@ -23,6 +23,7 @@ export interface CodexThreadResponse {
   readonly approvalPolicy: CodexApprovalPolicy;
   readonly sandbox: CodexSandboxPolicy;
   readonly reasoningEffort: string | null;
+  readonly serviceTier?: string | null;
 }
 
 export type CodexUserInput =

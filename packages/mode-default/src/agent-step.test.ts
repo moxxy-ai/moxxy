@@ -80,6 +80,21 @@ describe('an agent connection turn', () => {
     expect(events).toContainEqual(expect.objectContaining({ type: 'provider_response', inputTokens: 10, outputTokens: 5 }));
   });
 
+  it('hands fast mode to the agent, which runs it on its own faster tier', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    session.fast = true;
+    await collectTurn(session, 'quick');
+    session.fast = false;
+    await collectTurn(session, 'slow');
+
+    expect(provider.steps.map((step) => step.fast)).toEqual([true, undefined]);
+    await session.close();
+  });
+
   it('resumes the agent own session on the next turn, and records the session only when it changes', async () => {
     const provider = new FakeAgentProvider(async function* () {
       yield { type: 'session', sessionId: 'agent-s1' };

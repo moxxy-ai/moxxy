@@ -26,6 +26,7 @@ const agentCapabilities = {
   supportsDocuments: false,
   supportsAudio: false,
   supportsReasoning: true,
+  supportsFast: true,
   hostedTools: ['web_search'],
 } as const;
 

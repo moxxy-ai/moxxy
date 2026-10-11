@@ -403,6 +403,8 @@ export interface AgentStepRequest {
   /** The conversation's auto-approve, one state with the agent's approval policy. */
   readonly autoApprove: boolean;
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
+  /** The person asked for fast mode; the adapter runs the agent on its own faster tier, where it has one. */
+  readonly fast?: boolean;
   readonly signal: AbortSignal;
   readonly host: AgentStepHost;
 }

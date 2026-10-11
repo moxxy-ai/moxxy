@@ -12,6 +12,7 @@ import { PassThrough } from 'node:stream';
 import { createInterface } from 'node:readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Inbox } from '@moxxy/agent-connection-kit';
 import type { CodexConnection } from './codex-session.js';
 import type { CodexApprovalPolicy, CodexGoal, CodexGoalStatus, CodexSandboxPolicy, CodexUserInput } from './protocol.js';
 
@@ -37,6 +38,8 @@ export interface FakeCodexTurn {
   callMoxxyTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown; isError?: boolean }>;
   usage(input: number, output: number, cached?: number): void;
   goal(status: CodexGoalStatus): void;
+  /** The next text Moxxy steers into this running turn (`turn/steer`). */
+  steered(): Promise<string>;
 }
 
 export type CodexScene = (turn: FakeCodexTurn) => Promise<void | { readonly status: 'failed'; readonly error: string }>;
@@ -50,6 +53,7 @@ export interface FakeThread {
   sandbox: CodexSandboxPolicy;
   model: string;
   effort: string | null;
+  serviceTier: string | null;
   collaborationMode: string;
   goal: CodexGoal | undefined;
   mcp: { readonly url: string; readonly headers: Record<string, string> } | undefined;
@@ -60,6 +64,9 @@ export interface FakeCodexDefaults {
   readonly sandbox?: CodexSandboxPolicy;
   readonly model?: string;
   readonly effort?: string | null;
+  readonly serviceTier?: string | null;
+  /** Refuse `turn/steer`, as Codex does for a turn that cannot take more input. */
+  readonly refuseSteer?: boolean;
 }
 
 /** The person's Codex install: every app-server Moxxy starts, and the threads it saved. */
@@ -99,7 +106,7 @@ export class FakeCodexServer {
   private readonly fromMoxxy = new PassThrough();
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   private nextRequestId = 0;
-  private active: { id: string; threadId: string; stop: AbortController } | undefined;
+  private active: { id: string; threadId: string; stop: AbortController; steers: Inbox<string> } | undefined;
   private readonly mcpClients: Client[] = [];
 
   constructor(
@@ -194,6 +201,8 @@ export class FakeCodexServer {
         if (params.sandboxPolicy !== undefined) thread.sandbox = params.sandboxPolicy as CodexSandboxPolicy;
         if (typeof params.model === 'string') thread.model = params.model;
         if (typeof params.effort === 'string') thread.effort = params.effort;
+        // `null` clears the tier back to Codex's standard one, which it calls `default`.
+        if (params.serviceTier !== undefined) thread.serviceTier = (params.serviceTier as string | null) ?? 'default';
         const collaboration = params.collaborationMode as { mode?: string } | undefined;
         if (collaboration?.mode) thread.collaborationMode = collaboration.mode;
         return { result: {}, after: () => this.notify('thread/settings/updated', { threadId: thread.id }) };
@@ -204,6 +213,13 @@ export class FakeCodexServer {
         const id = `turn-${++this.codex.turnCount}`;
         const input = params.input as CodexUserInput[];
         return { result: { turn: { id, items: [], status: 'inProgress', error: null } }, after: () => void this.runTurn(thread, id, input) };
+      }
+      case 'turn/steer': {
+        const active = this.active;
+        if (this.codex.defaults.refuseSteer || !active || active.id !== params.expectedTurnId) throw new Error('no steerable turn');
+        const text = (params.input as CodexUserInput[]).flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
+        active.steers.push(text);
+        return { result: { turnId: active.id } };
       }
       case 'turn/interrupt': {
         if (!this.active || this.active.id !== params.turnId) throw new Error('no active turn to interrupt');
@@ -250,6 +266,7 @@ export class FakeCodexServer {
       sandbox: sandboxFromMode(params.sandbox) ?? defaults.sandbox ?? { type: 'dangerFullAccess' },
       model: typeof params.model === 'string' ? params.model : (defaults.model ?? 'gpt-6-luna'),
       effort: defaults.effort === undefined ? 'xhigh' : defaults.effort,
+      serviceTier: defaults.serviceTier ?? 'default',
       collaborationMode: 'default',
       goal: undefined,
       mcp: mcpOf(params.config),
@@ -267,12 +284,13 @@ export class FakeCodexServer {
 
   private async runTurn(thread: FakeThread, id: string, input: ReadonlyArray<CodexUserInput>, objective?: string): Promise<void> {
     const stop = new AbortController();
-    this.active = { id, threadId: thread.id, stop };
+    const steers = new Inbox<string>();
+    this.active = { id, threadId: thread.id, stop, steers };
     this.notify('turn/started', { threadId: thread.id, turn: { id, items: [], status: 'inProgress', error: null } });
     const stopped = new Promise<'stopped'>((resolve) => stop.signal.addEventListener('abort', () => resolve('stopped'), { once: true }));
     let outcome: Awaited<ReturnType<CodexScene>> | 'stopped';
     try {
-      outcome = await Promise.race([this.codex.scene(this.turn(thread, id, input, stop.signal, objective)), stopped]);
+      outcome = await Promise.race([this.codex.scene(this.turn(thread, id, input, stop.signal, steers, objective)), stopped]);
     } catch (err) {
       outcome = { status: 'failed', error: err instanceof Error ? err.message : String(err) };
     }
@@ -287,7 +305,14 @@ export class FakeCodexServer {
     }
   }
 
-  private turn(thread: FakeThread, id: string, input: ReadonlyArray<CodexUserInput>, signal: AbortSignal, objective?: string): FakeCodexTurn {
+  private turn(
+    thread: FakeThread,
+    id: string,
+    input: ReadonlyArray<CodexUserInput>,
+    signal: AbortSignal,
+    steers: Inbox<string>,
+    objective?: string,
+  ): FakeCodexTurn {
     const base = { threadId: thread.id, turnId: id };
     const text = input.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
     return {
@@ -299,6 +324,7 @@ export class FakeCodexServer {
       thread,
       server: this,
       signal,
+      steered: () => steers.next(),
       started: (item) => this.notify('item/started', { ...base, item }),
       completed: (item) => this.notify('item/completed', { ...base, item }),
       say: (said, extra = {}) => {
@@ -369,6 +395,7 @@ function threadResponse(thread: FakeThread): Record<string, unknown> {
     approvalPolicy: thread.approvalPolicy,
     sandbox: thread.sandbox,
     reasoningEffort: thread.effort,
+    serviceTier: thread.serviceTier,
     instructionSources: [],
   };
 }

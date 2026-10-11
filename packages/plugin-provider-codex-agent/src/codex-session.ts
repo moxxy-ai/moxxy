@@ -61,6 +61,8 @@ interface Policy {
 interface ThreadSettings extends Policy {
   readonly model: string;
   readonly effort?: string;
+  /** Codex's service tier; `null` is its standard one. */
+  readonly serviceTier: string | null;
   readonly collaboration: 'plan' | 'default';
 }
 
@@ -68,6 +70,10 @@ interface ThreadSettings extends Policy {
 const AUTO: Policy = { approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } };
 /** Without auto-approve on a Codex set up for it: Codex asks before anything that writes. */
 const ASKING: Policy = { approvalPolicy: 'on-request', sandbox: { type: 'readOnly', networkAccess: false } };
+/** Codex's fast mode (`/fast`), its `priority` service tier. */
+const FAST_TIER = 'priority';
+/** Codex's own name for its standard tier, which `null` restores. */
+const STANDARD_TIER = 'default';
 /** Plan mode only reads: nothing is written and nobody is asked. */
 const PLANNING: Policy = { approvalPolicy: 'never', sandbox: ASKING.sandbox };
 
@@ -132,7 +138,10 @@ export class CodexAgentSession implements LiveSession {
   private threadId = '';
   /** How the person's Codex config runs the thread; restored when Moxxy no longer overrides it. */
   private original: Policy = AUTO;
-  private current: ThreadSettings = { ...AUTO, model: '', collaboration: 'default' };
+  private originalTier: string | null = null;
+  private current: ThreadSettings = { ...AUTO, model: '', serviceTier: null, collaboration: 'default' };
+  /** Why the person declined, for Codex's next message when its turn could not take it. */
+  private pendingNotes: string[] = [];
   private goal: CodexGoal | undefined;
   /** Codex turns that belong to the Moxxy turn running now. */
   private readonly myTurns = new Set<string>();
@@ -250,7 +259,14 @@ export class CodexAgentSession implements LiveSession {
     thread ??= await this.client.request<CodexThreadResponse>('thread/start', { cwd, config });
     this.threadId = thread.thread.id;
     this.original = { approvalPolicy: thread.approvalPolicy, sandbox: thread.sandbox };
-    this.current = { ...this.original, model: thread.model, ...(thread.reasoningEffort ? { effort: thread.reasoningEffort } : {}), collaboration: 'default' };
+    this.originalTier = thread.serviceTier && thread.serviceTier !== STANDARD_TIER ? thread.serviceTier : null;
+    this.current = {
+      ...this.original,
+      model: thread.model,
+      ...(thread.reasoningEffort ? { effort: thread.reasoningEffort } : {}),
+      serviceTier: this.originalTier,
+      collaboration: 'default',
+    };
   }
 
   /** What the thread should run with for this turn's mode, model and auto-approve. */
@@ -262,7 +278,14 @@ export class CodexAgentSession implements LiveSession {
       : mode === 'goal' || autoApprove ? (ownAuto ? this.original : AUTO)
       : ownAuto ? ASKING
       : this.original;
-    return { ...policy, model: req.model || this.current.model, ...(effort ? { effort } : {}), collaboration: mode === 'plan' ? 'plan' : 'default' };
+    return {
+      ...policy,
+      model: req.model || this.current.model,
+      ...(effort ? { effort } : {}),
+      // Fast mode off hands the tier back to how the person set Codex up.
+      serviceTier: req.fast ? FAST_TIER : this.originalTier,
+      collaboration: mode === 'plan' ? 'plan' : 'default',
+    };
   }
 
   /** Change on the thread only what differs; nothing is written to the person's Codex config. */
@@ -274,6 +297,7 @@ export class CodexAgentSession implements LiveSession {
     if (!same(wanted.sandbox, current.sandbox)) update.sandboxPolicy = wanted.sandbox;
     if (wanted.model !== current.model) update.model = wanted.model;
     if (wanted.effort && wanted.effort !== current.effort) update.effort = wanted.effort;
+    if (wanted.serviceTier !== current.serviceTier) update.serviceTier = wanted.serviceTier;
     if (wanted.collaboration !== current.collaboration) {
       update.collaborationMode = {
         mode: wanted.collaboration,
@@ -297,7 +321,9 @@ export class CodexAgentSession implements LiveSession {
   }
 
   private async startTurn(input: ReadonlyArray<CodexUserInput>): Promise<void> {
-    const started = await this.client.request<{ turn: CodexTurn }>('turn/start', { threadId: this.threadId, input });
+    const notes = this.pendingNotes.map((text): CodexUserInput => ({ type: 'text', text, text_elements: [] }));
+    this.pendingNotes = [];
+    const started = await this.client.request<{ turn: CodexTurn }>('turn/start', { threadId: this.threadId, input: [...notes, ...input] });
     this.myTurns.add(started.turn.id);
     this.activeTurn = started.turn.id;
   }
@@ -398,6 +424,7 @@ export class CodexAgentSession implements LiveSession {
           yield* translator.announce(callId, call);
           const decision = await this.decide(req, callId, call, p.reason);
           item.resolve({ decision: approvalDecision(decision, p.availableDecisions) });
+          await this.explainDecline(req, call, decision);
           return;
         }
         case 'item/permissions/requestApproval': {
@@ -407,6 +434,7 @@ export class CodexAgentSession implements LiveSession {
           const decision = await this.decide(req, callId, call, p.reason);
           yield { type: 'tool_result', callId, ok: decision.allow, ...(decision.allow ? { output: 'granted' } : { error: decision.reason }) };
           item.resolve(decision.allow ? { permissions: withoutNulls(p.permissions), scope: decision.always ? 'session' : 'turn' } : { permissions: {}, scope: 'turn' });
+          await this.explainDecline(req, call, decision);
           return;
         }
         case 'item/tool/requestUserInput': {
@@ -428,6 +456,7 @@ export class CodexAgentSession implements LiveSession {
           const decision = await this.decide(req, callId, call, message);
           yield { type: 'tool_result', callId, ok: decision.allow, ...(decision.allow ? { output: 'accepted' } : { error: decision.reason }) };
           item.resolve(decision.allow ? { action: 'accept', content: {}, _meta: null } : { action: 'decline', content: null, _meta: null });
+          await this.explainDecline(req, call, decision);
           return;
         }
         default:
@@ -441,6 +470,24 @@ export class CodexAgentSession implements LiveSession {
   private decide(req: AgentStepRequest, callId: string, call: CodexToolCall, reason: unknown): Promise<AgentApprovalDecision> {
     const description = typeof reason === 'string' && reason ? { description: reason } : {};
     return untilStopped(req.host.approve({ callId, name: call.name, input: call.input, ...description }), req.signal, STOPPED);
+  }
+
+  /**
+   * Codex's answer to an approval is a bare `decline`, so the person's reason
+   * goes into its running turn (`turn/steer`), or its next message when the
+   * turn can no longer take input.
+   */
+  private async explainDecline(req: AgentStepRequest, call: CodexToolCall, decision: AgentApprovalDecision): Promise<void> {
+    if (decision.allow || req.signal.aborted) return;
+    const text = declineNote(call, decision.reason);
+    const turnId = this.activeTurn;
+    const steered =
+      turnId !== undefined &&
+      (await this.client.request('turn/steer', { threadId: this.threadId, expectedTurnId: turnId, input: [{ type: 'text', text, text_elements: [] }] }).then(
+        () => true,
+        () => false,
+      ));
+    if (!steered) this.pendingNotes.push(text);
   }
 
   private async interrupt(): Promise<void> {
@@ -524,6 +571,15 @@ function approvalDecision(decision: AgentApprovalDecision, offered: unknown): st
   if (!decision.allow) return 'decline';
   const forSession = !Array.isArray(offered) || offered.includes('acceptForSession');
   return decision.always && forSession ? 'acceptForSession' : 'accept';
+}
+
+function declineNote(call: CodexToolCall, reason: string): string {
+  const input = (call.input ?? {}) as { command?: unknown; changes?: ReadonlyArray<{ path?: unknown }> };
+  const what =
+    typeof input.command === 'string' ? `${call.name} \`${input.command}\``
+    : Array.isArray(input.changes) && input.changes.length > 0 ? `${call.name} (${input.changes.map((change) => String(change.path)).join(', ')})`
+    : call.name;
+  return `The person declined ${what}. Their reason: ${reason}`;
 }
 
 function withoutNulls(value: unknown): Record<string, unknown> {

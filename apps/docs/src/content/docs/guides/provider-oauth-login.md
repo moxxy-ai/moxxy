@@ -142,7 +142,13 @@ Moxxy runs your installed `codex` (from `PATH`, or
   commands and file changes run outside its read-only sandbox, and Moxxy shows
   that as its usual approval. Auto-approve gives *this conversation's* Codex full
   access; `~/.codex/config.toml` is never edited. A Codex that is already set to
-  full access starts with auto-approve on.
+  full access starts with auto-approve on. Codex's answer to an approval carries
+  no reason, so when you decline, Moxxy hands your reason to its running turn
+  (or its next message, if the turn can no longer take input).
+- **Fast mode.** Moxxy's fast mode runs the conversation's Codex on its fast
+  tier (Codex's `/fast`); turned off, Codex goes back to its own setting.
+- **Stop.** Stop interrupts Codex's turn, its Computer Use and other tools
+  included; the next message carries on in the same thread.
 - **Modes.** Plan mode runs Codex in its plan mode: its questions become Moxxy
   questions (an own answer always fits) and its finished plan is shown in the
   plan card. Goal mode sets Codex's own thread goal; Codex keeps working through

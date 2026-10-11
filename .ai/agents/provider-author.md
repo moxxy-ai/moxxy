@@ -86,6 +86,8 @@ A provider that runs a vendor's own coding agent (Claude, Codex, OpenCode) inste
 - Everything the agent needs from Moxxy goes through `req.host`: `runTool` for a Moxxy tool it called over MCP (hooks, permissions and log as usual), `approve` before it runs a tool of its own (`policyOnly` for a hook that must not ask the person), `ask` for its Question.
 - `goal` reports the agent's own goal (Claude `/goal`, Codex `thread/goal`): `active` or `complete`. It is recorded as a `goal_status` plugin event, and goal mode ends its run on `complete` through `onAgentGoal` instead of waiting for `goal_complete`.
 - `plan` hands over the agent's finished plan (Codex plan mode). Plan mode shows it in its plan card through `onAgentPlan` and ends the run; a mode without the hook shows it as the agent's message. An agent whose plan arrives inside an approval (Claude `ExitPlanMode`) uses `host.approve` instead.
+- `req.fast` is the person's fast mode: run the agent on its own faster tier where it has one (Codex `serviceTier: 'priority'`), and back on the person's own setting when it is off.
+- An approval answer that carries no reason (Codex's bare `decline`) still owes the agent the person's reason: Codex gets it through `turn/steer` in the running turn, or in its next message.
 - `stream` still serves one-shot text calls (skill synthesis, summaries).
 - Moxxy's end-of-turn reminders do not run on these turns; a checkpoint runs there only with `agentConnections: true`.
 

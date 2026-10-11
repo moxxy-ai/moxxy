@@ -231,6 +231,7 @@ async function runRound(
       ...(resumeSessionId ? { resumeSessionId } : {}),
       autoApprove,
       ...(ctx.reasoning ? { reasoning: ctx.reasoning } : {}),
+      ...(ctx.fast ? { fast: true } : {}),
       signal,
       host,
     });

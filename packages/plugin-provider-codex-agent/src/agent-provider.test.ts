@@ -84,6 +84,31 @@ describe('a turn on the Codex agent connection', () => {
     expect(said(events)).toEqual([codexAgentModels[0]?.id]);
   });
 
+  it('runs Codex on its fast tier while fast mode is on, and on its own tier again when it is off', async () => {
+    // Codex names its standard tier `default`.
+    const { codex, session } = connect(async (turn) => turn.say(turn.thread.serviceTier ?? 'default'), { serviceTier: 'default' });
+
+    session.fast = true;
+    const fast = await collectTurn(session, 'quick');
+    session.fast = false;
+    const normal = await collectTurn(session, 'slow');
+
+    const updates = codex.last.sent('thread/settings/update');
+    expect(updates[0]).toMatchObject({ serviceTier: 'priority' });
+    expect(updates[1]).toMatchObject({ serviceTier: null });
+    expect(updates).toHaveLength(2);
+    expect([...said(fast), ...said(normal)]).toEqual(['priority', 'default']);
+  });
+
+  it('leaves a Codex set up for its fast tier on it', async () => {
+    const { codex, session } = connect(async (turn) => turn.say(turn.thread.serviceTier ?? 'standard'), { serviceTier: 'priority' });
+
+    const events = await collectTurn(session, 'quick');
+
+    expect(codex.last.sent('thread/settings/update')[0]).not.toHaveProperty('serviceTier');
+    expect(said(events)).toEqual(['priority']);
+  });
+
   it('keeps the same thread for the next message of the conversation', async () => {
     const { codex, session } = connect(async (turn) => turn.say(turn.text === 'first' ? 'one' : 'two'));
 
@@ -163,6 +188,49 @@ describe('approvals: one state with Codex own policy', () => {
     if (call?.type !== 'tool_call_requested') throw new Error('expected the command to be shown');
     const order = events.filter((e) => 'callId' in e && e.callId === call.callId).map((e) => e.type);
     expect(order).toEqual(['tool_call_requested', 'tool_call_denied', 'tool_result']);
+  });
+
+  it("tells Codex in its running turn why the person declined, since Codex's answer carries no reason", async () => {
+    const { codex, session } = connect(
+      async (turn) => {
+        await turn.run('touch app.js', '', { approval: true });
+        turn.say(`Understood: ${await turn.steered()}`);
+      },
+      ASKING,
+    );
+    session.setPermissionResolver({ name: 'person', check: async () => ({ mode: 'deny', reason: 'not now, build it in goal mode' }) });
+
+    const events = await collectTurn(session, 'build it');
+
+    expect(codex.last.sent('turn/steer')[0]).toMatchObject({
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      input: [{ type: 'text', text: expect.stringContaining('not now, build it in goal mode') }],
+    });
+    expect(said(events)[0]).toContain('Bash');
+    expect(said(events)[0]).toContain('not now, build it in goal mode');
+  });
+
+  it('carries the reason into the next message when the turn can no longer take it', async () => {
+    const { codex, session } = connect(
+      async (turn) => {
+        if (turn.text === 'build it') await turn.run('touch app.js', '', { approval: true });
+        turn.say('ok');
+      },
+      { ...ASKING, refuseSteer: true },
+    );
+    session.setPermissionResolver({ name: 'person', check: async () => ({ mode: 'deny', reason: 'not now' }) });
+
+    await collectTurn(session, 'build it');
+    await collectTurn(session, 'what next?');
+    await collectTurn(session, 'and then?');
+
+    const [, next, after] = codex.last.sent('turn/start');
+    expect(next?.input).toEqual([
+      { type: 'text', text: expect.stringContaining('not now'), text_elements: [] },
+      { type: 'text', text: 'what next?', text_elements: [] },
+    ]);
+    expect(after?.input).toEqual([{ type: 'text', text: 'and then?', text_elements: [] }]);
   });
 
   it('lets Codex go ahead when the person allows', async () => {
