@@ -5,7 +5,8 @@ import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
 import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
-import { useActiveAsk } from '@moxxy/client-core';
+import { QuestionSheet } from './QuestionSheet';
+import { useActiveAsk, useQuestion } from '@moxxy/client-core';
 import { Header, type WorkPanelControl } from './chat-surface/Header';
 import { useAgentSession, type ModelOwner } from './agent-picker/useAgentSession';
 import type { RunState } from '../shell/InstrumentBar';
@@ -114,6 +115,9 @@ export function ChatSurface({
   const actionCatalog = useActionCatalog(workspaceId);
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
+  const question = useQuestion(workspaceId);
+  // The run waits on the person: an approval it is blocked on, or a Question it asked.
+  const waitingOnPerson = activeAsk !== null || question.question !== null;
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
   const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && usesComputer(actionCatalog.tools)
     ? {workspaceId,sessionId:phase.sessionId,turnId:chat.activeTurnId} : null);
@@ -124,7 +128,7 @@ export function ChatSurface({
     workspaceId,
     ready,
     chat,
-    inputRequired: activeAsk !== null,
+    inputRequired: waitingOnPerson,
   });
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -139,7 +143,7 @@ export function ChatSurface({
   const planNext = usePlanNext({
     workspaceId,
     ready,
-    busy: chat.sending || chat.activeTurnId !== null || chat.compacting || activeAsk !== null,
+    busy: chat.sending || chat.activeTurnId !== null || chat.compacting || waitingOnPerson,
     onSend: sendPrompt,
   });
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
@@ -153,7 +157,7 @@ export function ChatSurface({
     activeDesk?.sessions.find((sn) => sn.id === activeDesk.activeSessionId)?.name ?? null;
   // The run's state, as the bar reports it. `awaiting` outranks `running`
   // because a blocked run is the one thing the supervisor has to act on.
-  const runState: RunState = activeAsk
+  const runState: RunState = waitingOnPerson
     ? 'awaiting'
     : chat.activeTurnId !== null || chat.sending
       ? 'running'
@@ -200,7 +204,7 @@ export function ChatSurface({
     disabled: !ready || chat.compacting || chat.activeTurnId !== null || chat.sending,
     onToggle: voiceCall.active ? voiceCall.close : voiceCall.open,
   };
-  const dock = useChatDock(docked, activeAsk !== null);
+  const dock = useChatDock(docked, waitingOnPerson);
   // Files dropped anywhere on the chat go to the composer, which stages them.
   const drop = useFileDropZone();
   const mainClass = dock.minimized
@@ -298,7 +302,11 @@ export function ChatSurface({
       {/* Tucked away, the composer stays mounted so a half-typed message and a
        *  running voice call survive; `contents` keeps the column's own layout. */}
       <div hidden={dock.minimized} style={{ display: dock.minimized ? 'none' : 'contents' }}>
-        {activeAsk && <AskSheet ask={activeAsk} />}
+        {activeAsk ? (
+          <AskSheet ask={activeAsk} />
+        ) : (
+          question.question && <QuestionSheet key={question.question.questionId} question={question} />
+        )}
         {voiceCall.active && (
           <div className="voice-rail-shell">
             <VoicePresenceRail

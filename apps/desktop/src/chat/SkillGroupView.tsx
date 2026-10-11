@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   describeToolCall,
   isFileDiffResult,
+  questionAnswerOf,
   formatToolActivity,
   type Block as FoldedBlock,
   type ToolCallBlockData,
@@ -11,6 +12,7 @@ import { Icon, type IconName } from '@moxxy/desktop-ui';
 import type { ToolIcon } from '@moxxy/sdk';
 import { useToolIcon } from './ToolIconContext';
 import { ActivityRow } from './ActivityRow';
+import { AnsweredQuestionBlock } from './blocks/AnsweredQuestionBlock';
 import { FileDiffBlock } from './blocks/FileDiffBlock';
 import { preStyle, pretty } from './blocks/block-shared';
 
@@ -275,6 +277,8 @@ export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
       return <li className="activity-list__diff"><FileDiffBlock display={display} /></li>;
     }
   }
+  const answered = questionAnswerOf(tool.outcome);
+  if (answered) return <li className="activity-list__diff"><AnsweredQuestionBlock display={answered} /></li>;
 
   const status = statusOf(tool.outcome);
   const output = tool.outcome?.type === 'tool_result' ? tool.outcome.output : undefined;

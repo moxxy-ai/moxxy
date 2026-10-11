@@ -3,6 +3,7 @@ import type { SessionId, TurnId } from './ids.js';
 import type { CapabilitySpec } from './isolation.js';
 import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
+import type { SessionQuestions } from './question.js';
 import type { PermissionResolver } from './permission.js';
 import type { ModelDescriptor, ProviderKeyValidation, ReasoningEffort } from './provider.js';
 import type { PluginSetupSpec } from './schemas.js';
@@ -558,6 +559,12 @@ export interface SessionLike {
   pluginsAdmin?: PluginsAdminView;
   /** Provider onboarding slice backing in-channel connect (key entry / OAuth). */
   providerSetup?: ProviderSetupView;
+  /**
+   * Questions the agent asks the person. Open questions are read from the log
+   * with `openQuestionsFromEvents`; this slice attaches a surface and answers.
+   * Optional capability per the seam convention: callers MUST guard.
+   */
+  readonly questions?: SessionQuestions;
   /**
    * Re-read the merged config from disk and live-apply the safe subset —
    * backs the TUI /settings panel's write-then-apply. Structurally matches

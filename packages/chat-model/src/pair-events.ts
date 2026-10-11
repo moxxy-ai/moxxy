@@ -1,6 +1,6 @@
 import type { MoxxyEvent, PluginEvent, ToolCompactPresentation } from '@moxxy/sdk';
 import { assertDefined, invariant } from './assert.js';
-import { isFileDiffDisplay } from '@moxxy/sdk/tool-display';
+import { isFileDiffDisplay, isQuestionAnswerDisplay, type QuestionAnswerDisplay } from '@moxxy/sdk/tool-display';
 import type {
   Block,
   CollabAgentView,
@@ -37,6 +37,13 @@ export function isFileDiffResult(
     outcome.ok &&
     isFileDiffDisplay((outcome.output as { display?: unknown } | undefined)?.display)
   );
+}
+
+/** What the person chose, when this settled outcome is an answered Question (`ask_user`); else null. */
+export function questionAnswerOf(outcome: ToolCallBlockData['outcome']): QuestionAnswerDisplay | null {
+  if (outcome === null || outcome.type !== 'tool_result' || !outcome.ok) return null;
+  const display = (outcome.output as { display?: unknown } | undefined)?.display;
+  return isQuestionAnswerDisplay(display) ? display : null;
 }
 
 /**

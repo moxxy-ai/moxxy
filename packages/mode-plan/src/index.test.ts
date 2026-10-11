@@ -173,9 +173,18 @@ describe('plan mode', () => {
         },
       }),
     );
+    session.tools.register(
+      defineTool({
+        name: 'ask_user',
+        description: 'ask',
+        inputSchema: z.object({}),
+        handler: () => 'answered',
+      }),
+    );
     const tools = readOnlyTools(session.tools);
 
-    expect(tools.list().map((tool) => tool.name)).toEqual(['Read', 'plan_complete']);
+    // Asking the person changes nothing, and planning is where a question helps most.
+    expect(tools.list().map((tool) => tool.name)).toEqual(['Read', 'ask_user', 'plan_complete']);
     expect(tools.get('Bash')).toBeUndefined();
     await expect(tools.execute('Bash', {}, new AbortController().signal)).rejects.toThrow(
       'does not allow',

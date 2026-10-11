@@ -34,6 +34,7 @@ import {
   attachParamsSchema,
   runTurnParamsSchema,
   setResolverParamsSchema,
+  questionAnswerParamsSchema,
   type AttachResult,
   type RunTurnResult,
 } from './protocol.js';
@@ -89,6 +90,8 @@ interface ConnectedClient {
   attached: boolean;
   handlesPermission: boolean;
   handlesApproval: boolean;
+  /** Detaches this client's Question surface; set while it shows Questions (v26). */
+  detachQuestions?: () => void;
   /** Identity this connection asserted at attach (v11), if any. */
   principal?: Principal;
   /** Turns this client started - aborted if it disconnects. */
@@ -263,6 +266,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.SessionRecordExchange, (raw) => handleSessionRecordExchange(ctx, raw));
     peer.handle(RunnerMethod.SessionSetAutoApprove, (raw) => handleSessionSetAutoApprove(ctx, raw));
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
+    peer.handle(RunnerMethod.QuestionAnswer, (raw) => this.handleQuestionAnswer(raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));
     peer.handle(RunnerMethod.SessionSetReasoning, (raw) => handleSessionSetReasoning(ctx, raw));
     peer.handle(RunnerMethod.SessionSetFast, (raw) => handleSessionSetFast(ctx, raw));
@@ -299,6 +303,7 @@ export class RunnerServer {
 
   private onDisconnect(client: ConnectedClient): void {
     this.clients.delete(client);
+    client.detachQuestions?.();
     // Tear down any turns this client was driving - there's no one left to
     // answer their prompts or consume their output.
     for (const turnId of client.turns) {
@@ -556,6 +561,18 @@ export class RunnerServer {
     const params = setResolverParamsSchema.parse(raw);
     if (params.permission !== undefined) client.handlesPermission = params.permission;
     if (params.approval !== undefined) client.handlesApproval = params.approval;
+    if (params.question === true && !client.detachQuestions) {
+      client.detachQuestions = this.session.questions.attachSurface();
+    } else if (params.question === false && client.detachQuestions) {
+      client.detachQuestions();
+      delete client.detachQuestions;
+    }
+    return {};
+  }
+
+  private async handleQuestionAnswer(raw: unknown): Promise<Record<string, never>> {
+    const params = questionAnswerParamsSchema.parse(raw);
+    await this.session.questions.answer(params.questionId, params.answers);
     return {};
   }
 

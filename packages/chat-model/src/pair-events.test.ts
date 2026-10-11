@@ -23,6 +23,7 @@ import {
   isFileDiffResult,
   isSettled,
   pairToolEvents,
+  questionAnswerOf,
   type CompactToolMap,
 } from './pair-events.js';
 import type {
@@ -731,6 +732,21 @@ describe('pairToolEvents — file-edit tools', () => {
     // A plain string result (e.g. bash) is not a file diff.
     const plain = pairToolEvents([toolRequest('b1', 'bash'), toolResult('b1', 'ok')]);
     expect(isFileDiffResult(asToolCall(plain[0]).outcome)).toBe(false);
+  });
+
+  it('questionAnswerOf reads what the person chose from a settled ask_user result', () => {
+    const display = {
+      kind: 'question-answer' as const,
+      questions: [{ header: 'Colour', question: 'Which colour?', chosen: ['Blue'] }],
+    };
+    const blocks = pairToolEvents([
+      toolRequest('a1', 'ask_user'),
+      toolResult('a1', { forModel: 'The user answered: …', display }),
+    ]);
+    expect(questionAnswerOf(asToolCall(blocks[0]).outcome)).toEqual(display);
+    const plain = pairToolEvents([toolRequest('b1', 'bash'), toolResult('b1', 'ok')]);
+    expect(questionAnswerOf(asToolCall(plain[0]).outcome)).toBeNull();
+    expect(questionAnswerOf(null)).toBeNull();
   });
 });
 

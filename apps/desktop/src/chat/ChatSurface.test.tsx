@@ -38,8 +38,15 @@ const focusModeToggle = vi.hoisted(() => vi.fn());
 /** The question the runner is blocked on, if any. */
 const askState = vi.hoisted(() => ({ ask: null as null | { id: string } }));
 
+/** The Question the agent asked the person, if any. */
+const questionState = vi.hoisted(() => ({ question: null as null | { questionId: string } }));
+
 vi.mock('./AskSheet', () => ({
   AskSheet: () => <div data-testid="ask-mock">Allow Bash?</div>,
+}));
+
+vi.mock('./QuestionSheet', () => ({
+  QuestionSheet: () => <div data-testid="question-mock">Which colour?</div>,
 }));
 
 vi.mock('./chat-surface/Header', () => ({
@@ -123,6 +130,7 @@ vi.mock('@moxxy/client-core', () => ({
     rename: vi.fn(),
   }),
   useActiveAsk: () => askState.ask,
+  useQuestion: () => ({ question: questionState.question }),
   useVoiceCall: () => ({ ...voiceCallState }),
   useQueuedTurns: () => [],
   deskForWorkspace: () => deskState.desk,
@@ -317,6 +325,7 @@ describe('ChatSurface, docked', () => {
     deskState.desk = undefined;
     voiceCallState.active = false;
     askState.ask = null;
+    questionState.question = null;
   });
 
   const connected = {
@@ -372,6 +381,18 @@ describe('ChatSurface, docked', () => {
     askState.ask = { id: 'a1' };
     render(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} docked />);
     expect(screen.getByTestId('ask-mock')).toBeVisible();
+  });
+
+  it('shows a Question the agent asked, after any approval it waits on first', () => {
+    questionState.question = { questionId: 'qa' };
+    const view = render(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} docked />);
+    expect(screen.getByTestId('question-mock')).toBeVisible();
+
+    askState.ask = { id: 'a1' };
+    view.rerender(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} docked />);
+
+    expect(screen.getByTestId('ask-mock')).toBeVisible();
+    expect(screen.queryByTestId('question-mock')).not.toBeInTheDocument();
   });
 
   it('tucks into a moxxy button and opens again, keeping the composer mounted', () => {

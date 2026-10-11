@@ -3808,6 +3808,122 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   .ask-btn:active:not(:disabled) { transform: none; }
 }
 
+/* A Question from the agent: each question in the card is a group of
+ * suggested answers, picked like chips, and a field for an answer of the
+ * person's own. A picked answer takes the accent; nothing is picked for the
+ * person, since a Question has no safe answer. */
+.question__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  min-height: 0;
+}
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.question__ask {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  padding: 0;
+  font-size: var(--type-ui);
+  line-height: 1.55;
+  color: var(--color-text);
+}
+.question__chip {
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-pill);
+  font-size: var(--type-label);
+  font-weight: 600;
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+}
+.question__hint {
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+}
+.question__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
+.question__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 100%;
+  padding: var(--space-6) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-block);
+  text-align: left;
+  color: var(--color-text);
+  background: transparent;
+  transition:
+    border-color var(--motion-shift) ease,
+    background-color var(--motion-shift) ease;
+}
+.question__choice:hover { border-color: var(--color-card-border-strong); }
+.question__choice[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.question__label {
+  font-size: var(--type-ui);
+  font-weight: 500;
+}
+.question__desc {
+  font-size: var(--type-label);
+  color: var(--color-text-muted);
+}
+.question__error {
+  margin: 0;
+  font-size: var(--type-label);
+  color: var(--color-red-text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .question__choice { transition: none; }
+}
+
+/* An answered Question in the transcript: what was asked, quiet, and what the
+ * person chose, in the text colour, so scrolling back shows the decision. */
+.answered {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  align-self: stretch;
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-block);
+}
+.answered__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  font-size: var(--type-label);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.answered__list { display: flex; flex-direction: column; gap: var(--space-6); margin: 0; }
+.answered__ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-6);
+  color: var(--color-text-muted);
+}
+.answered__said { margin: 0; color: var(--color-text); font-weight: 500; }
+.answered__own { font-weight: 400; font-style: italic; }
+
 /* The same card in the focus window. Beside the mark it floats over other
  * windows, so it has a shadow and a fixed frame its parts scroll inside; in
  * the Mini Chat it heads the panel. Both are cut out of the window's drag
@@ -3830,6 +3946,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .ask-dock--toast .ask-dock__cmd { max-height: 46px; flex-shrink: 1; min-height: 30px; }
 .ask-dock--toast .ask-dock__acts { flex-wrap: nowrap; flex-shrink: 0; }
 .ask-dock--toast .ask-btn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A Question's answers scroll inside the frame; Send stays in view below them. */
+.ask-dock--toast .question__list { flex: 1 1 auto; overflow-y: auto; }
 .ask-dock--panel {
   width: 100%;
   flex-shrink: 0;

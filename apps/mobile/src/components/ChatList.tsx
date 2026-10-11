@@ -19,6 +19,7 @@ import { memo, useCallback, useState, type ReactNode } from 'react';
 import { buildChatAttachmentPreview, summarizeAttachment } from '@/attachments';
 import { buildChatListContentStyle, buildOfflineEmptyStateCopy } from '@/chatListLayout';
 import type {
+  AnsweredTranscriptItem,
   AssistantTranscriptItem,
   ReasoningTranscriptItem,
   SubagentGroupTranscriptItem,
@@ -291,6 +292,10 @@ function MessageBlock({
     return <SystemGroupMessage group={item} />;
   }
 
+  if (item.kind === 'answered') {
+    return <AnsweredMessage item={item} />;
+  }
+
   return (
     <View
       style={{
@@ -306,6 +311,31 @@ function MessageBlock({
     >
       <Text style={sx('text-[12px] font-bold text-red')}>{item.label}</Text>
       <Text style={sx('mt-1 text-[13px] leading-5 text-muted')}>{item.text}</Text>
+    </View>
+  );
+}
+
+/** A Question the person answered, kept in view: each question and what they chose. */
+function AnsweredMessage({ item }: { readonly item: AnsweredTranscriptItem }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      testID="mobile-answered-question"
+      style={{
+        alignSelf: 'stretch',
+        backgroundColor: colors.cardBg,
+        borderColor: colors.cardBorder,
+        borderRadius: 12,
+        borderWidth: 1,
+        gap: 4,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+      }}
+    >
+      <Text style={sx('text-[12px] font-bold text-muted')}>{item.title}</Text>
+      {item.lines.map((line, at) => (
+        <Text key={at} style={sx('text-[14px] leading-5 text-text')}>{line}</Text>
+      ))}
     </View>
   );
 }

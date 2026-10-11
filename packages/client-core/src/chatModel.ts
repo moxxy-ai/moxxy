@@ -16,6 +16,7 @@
  */
 
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { QUESTION_PLUGIN_ID } from '@moxxy/sdk/questions';
 import {
   ChunkedBlockLog,
   FILE_DIFF_TOOL_NAMES,
@@ -144,7 +145,8 @@ const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
  * in via {@link registerRenderablePlugin} instead of editing this module (an
  * open-for-extension seam, matching the rest of the registry-driven codebase).
  */
-const renderablePluginIds = new Set<string>([SUBAGENT_PLUGIN_ID, COLLAB_PLUGIN_ID]);
+// Question records stay in the chat so its open Question can be read from it.
+const renderablePluginIds = new Set<string>([SUBAGENT_PLUGIN_ID, COLLAB_PLUGIN_ID, QUESTION_PLUGIN_ID]);
 
 /** Opt a plugin's `plugin_event`s into the rendered transcript. Idempotent. */
 export function registerRenderablePlugin(pluginId: string): void {

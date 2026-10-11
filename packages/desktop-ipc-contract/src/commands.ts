@@ -5,6 +5,7 @@ import type {
   MoxxyEvent,
   SessionInfo,
   OpenSurfaceResult,
+  QuestionAnswers,
   SurfaceInfo,
   SurfaceInputMessage,
   SurfaceSize,
@@ -334,6 +335,14 @@ export interface IpcCommands {
   'session.setAutoApprove': (args: {
     workspaceId?: string;
     enabled: boolean;
+  }) => Promise<void>;
+  /** Answer an open Question of the workspace's conversation. Questions are
+   *  read from the conversation log, so every client of it shows the same one
+   *  and the first answer closes it everywhere; a later answer rejects. */
+  'session.answerQuestion': (args: {
+    workspaceId?: string;
+    questionId: string;
+    answers: QuestionAnswers;
   }) => Promise<void>;
   /** Run a slash command on the workspace's runner. The runner returns
    *  a CommandOutput (text / session-action / noop / error) which the

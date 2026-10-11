@@ -7,8 +7,10 @@
  * The projection layer (see `mode-helpers.ts`) sends ONLY `forModel` to the
  * model, so the rich payload never bloats the context window.
  *
- * The first (and currently only) display kind is `file-diff`, emitted by the
- * built-in Write/Edit tools. It carries the changed slices of a file (a few
+ * `question-answer` (from `ask_user`) keeps what the person chose, so the
+ * transcript still shows it once the Question's card is gone.
+ *
+ * `file-diff` is emitted by the built-in Write/Edit tools. It carries the changed slices of a file (a few
  * lines of context around each edit) — never the whole file — so the payload
  * stays bounded regardless of file size. Channels render it as a classic diff:
  * line numbers, +/- markers, green/red line backgrounds.
@@ -46,8 +48,27 @@ export interface FileDiffDisplay {
   readonly truncated?: boolean;
 }
 
+/** One question the person answered, as words: what was asked and what they chose. */
+export interface AnsweredQuestion {
+  readonly header?: string;
+  readonly question: string;
+  /** Labels of the suggested answers they picked, in order. */
+  readonly chosen: ReadonlyArray<string>;
+  /** Their answer in their own words, when they wrote one. */
+  readonly own?: string;
+}
+
+/**
+ * The answers to a Question (`ask_user`), kept so the transcript shows what the
+ * person chose after the card is gone.
+ */
+export interface QuestionAnswerDisplay {
+  readonly kind: 'question-answer';
+  readonly questions: ReadonlyArray<AnsweredQuestion>;
+}
+
 /** Extensible union of structured tool-result payloads. */
-export type ToolDisplay = FileDiffDisplay;
+export type ToolDisplay = FileDiffDisplay | QuestionAnswerDisplay;
 
 /**
  * The shape a tool returns when it wants a rich, channel-rendered result.
@@ -68,7 +89,31 @@ export function isToolDisplayResult(x: unknown): x is ToolDisplayResult {
 }
 
 export function isToolDisplay(x: unknown): x is ToolDisplay {
-  return isFileDiffDisplay(x);
+  return isFileDiffDisplay(x) || isQuestionAnswerDisplay(x);
+}
+
+export function isQuestionAnswerDisplay(x: unknown): x is QuestionAnswerDisplay {
+  if (typeof x !== 'object' || x === null) return false;
+  const d = x as { kind?: unknown; questions?: unknown };
+  if (d.kind !== 'question-answer' || !Array.isArray(d.questions)) return false;
+  return d.questions.every((item: unknown) => {
+    if (typeof item !== 'object' || item === null) return false;
+    const q = item as { question?: unknown; chosen?: unknown; own?: unknown };
+    return (
+      typeof q.question === 'string' &&
+      Array.isArray(q.chosen) &&
+      q.chosen.every((label) => typeof label === 'string') &&
+      (q.own === undefined || typeof q.own === 'string')
+    );
+  });
+}
+
+/** One line per answered question, e.g. "Colour: Which colour? → Blue", for text surfaces. */
+export function questionAnswerLines(d: QuestionAnswerDisplay): string[] {
+  return d.questions.map((item) => {
+    const said = [...(item.chosen.length > 0 ? [item.chosen.join(', ')] : []), ...(item.own ? [`own answer: ${item.own}`] : [])];
+    return `${item.header ? `${item.header}: ` : ''}${item.question} → ${said.join('; ')}`;
+  });
 }
 
 export function isFileDiffDisplay(x: unknown): x is FileDiffDisplay {

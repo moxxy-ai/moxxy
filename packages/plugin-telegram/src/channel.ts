@@ -3,6 +3,7 @@ import type { Context } from 'grammy';
 import { newTurnId } from '@moxxy/core';
 import {
   AutoApproveSwitch,
+  ChatQuestions,
   TurnCoordinator,
   deliverVoiceReply,
   resolveSecret,
@@ -37,6 +38,7 @@ import { handleVoiceMessage } from './channel/voice-handler.js';
 import { loadVoiceReplies, saveVoiceReplies } from './keys.js';
 import { createTelegramMirror } from './channel/mirror.js';
 import { telegramModel, type TelegramModel } from './channel/model.js';
+import { TelegramQuestionCards } from './channel/question-cards.js';
 
 const TOKEN_KEY = 'telegram_bot_token';
 
@@ -130,11 +132,20 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   private readonly framePump: FramePump;
   private readonly typing = new TypingIndicator();
   private readonly pairing: PairingHandler;
+  // The conversation's Questions, drawn as cards with answer buttons.
+  private readonly questions = new ChatQuestions(() => this.session);
+  private readonly questionCards: TelegramQuestionCards;
+  private detachQuestions: (() => void) | null = null;
 
   constructor(opts: TelegramChannelOptions) {
     this.opts = opts;
     this.permissionResolver = new TelegramPermissionResolver();
     this.approvalResolver = new TelegramApprovalResolver();
+    this.questionCards = new TelegramQuestionCards({
+      api: () => (this.bot ? this.bot.api : null),
+      chatId: () => this.currentChatId,
+      ...(opts.logger ? { logger: opts.logger } : {}),
+    });
     this.framePump = new FramePump({
       editFrameMs: opts.editFrameMs ?? 1000,
       ...(opts.logger ? { logger: opts.logger } : {}),
@@ -235,6 +246,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     // this channel. setApprovalResolver(null) on stop tears it down so
     // headless code paths after channel close don't see a stale handler.
     this.session.setApprovalResolver(this.approvalResolver);
+    this.detachQuestions = this.questions.attach((update) => void this.questionCards.render(update));
 
     // Mirror-to-both: a turn this channel did NOT initiate (a message written
     // in the desktop's chat with this bot) shows here — its prompt, then its
@@ -334,6 +346,8 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         this.approvalResolver.abortAll(reason);
         this.logUnsub?.();
         this.logUnsub = null;
+        this.detachQuestions?.();
+        this.detachQuestions = null;
         if (this.session) this.session.setApprovalResolver(null);
         this.framePump.endTurn();
         this.typing.stop();
@@ -394,6 +408,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         approvalResolver: this.approvalResolver,
         permissionResolver: this.permissionResolver,
         framePump: this.framePump,
+        questions: this.questions,
       },
       {
         setAwaitingApprovalText: (state) => {
@@ -563,6 +578,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         permissionResolver: this.permissionResolver,
         approvalResolver: this.approvalResolver,
         pairing: this.pairing,
+        questions: this.questions,
       },
       {
         setAwaitingApprovalText: (state) => {

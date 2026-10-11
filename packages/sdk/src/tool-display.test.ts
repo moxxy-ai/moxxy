@@ -4,8 +4,11 @@ import {
   fileDiffSummary,
   fileDiffVerb,
   isFileDiffDisplay,
+  isQuestionAnswerDisplay,
   isToolDisplayResult,
+  questionAnswerLines,
   toDiffRows,
+  type QuestionAnswerDisplay,
   type FileDiffDisplay,
 } from './tool-display.js';
 
@@ -91,5 +94,33 @@ describe('guards', () => {
         hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [] }],
       }),
     ).toBe(true);
+  });
+});
+
+describe('question-answer display', () => {
+  const answered: QuestionAnswerDisplay = {
+    kind: 'question-answer',
+    questions: [
+      { header: 'Colour', question: 'Which colour?', chosen: ['Blue'] },
+      { question: 'Which parts?', chosen: ['Auth', 'Billing'], own: 'and the admin' },
+    ],
+  };
+
+  it('is a tool display, so the model is shown only the text and the transcript the answers', () => {
+    expect(isQuestionAnswerDisplay(answered)).toBe(true);
+    expect(isToolDisplayResult({ forModel: 'The user answered: …', display: answered })).toBe(true);
+  });
+
+  it('rejects a malformed payload instead of rendering it', () => {
+    expect(isQuestionAnswerDisplay({ kind: 'question-answer' })).toBe(false);
+    expect(isQuestionAnswerDisplay({ kind: 'question-answer', questions: [{ question: 'Q?' }] })).toBe(false);
+    expect(isQuestionAnswerDisplay({ kind: 'question-answer', questions: [{ question: 'Q?', chosen: [1] }] })).toBe(false);
+  });
+
+  it('reads as one line per question for text surfaces', () => {
+    expect(questionAnswerLines(answered)).toEqual([
+      'Colour: Which colour? → Blue',
+      'Which parts? → Auth, Billing; own answer: and the admin',
+    ]);
   });
 });

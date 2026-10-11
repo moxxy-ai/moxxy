@@ -12,6 +12,7 @@ Moxxy ships as a useful agent and as a framework whose main blocks can be replac
 | Voice input | Send Telegram or Discord voice notes, use TUI voice input, or post raw audio to HTTP. Every session picks `plugins.transcriber.default` at start, else Codex transcription when you are logged in with ChatGPT (`moxxy login openai-codex`). OpenAI Whisper support is included, and the `Transcriber` contract is replaceable. |
 | Desktop Voice Mode | Talk to a session hands-free: the local engine runs every utterance as an agent turn read aloud by the spoken voice chosen in Settings → Voice (Gemini Flash-Lite or Local Piper), and the GPT-Live engine holds a live conversation over your ChatGPT login that knows the chat, hands explicit tasks to the agent in your own words, and reads back the real result ([details](voice-gpt-live.md)). |
 | Permissions | Every Moxxy tool call passes through the permission engine. Persisted allow rules can be scoped by tool. |
+| Questions | When a decision is genuinely yours, the agent asks it with `ask_user`: one to four questions, each with two to four suggested answers and room for an answer of your own. The question is part of the conversation, so the desktop, the terminal UI, Telegram, Discord and the phone show the same one (a card, a dialog, or a message with buttons — a plain reply works too), and the first answer from any of them closes it everywhere. The answer stays in the conversation: the transcript shows each question and what you chose ("You answered"). A Question never asks leave to act and auto-approve never answers it. With nobody to answer (a headless run), the agent is told to decide on its own and say what it chose. Goal mode, which runs unattended, does not offer `ask_user` at all: the agent picks the sensible default and lists those choices in its final summary. |
 | Secrets vault | AES-256-GCM encryption protects secrets at rest. Configuration refers to secrets with `${vault:NAME}` placeholders. |
 | Capability isolation | Optional isolators enforce declared filesystem, network, environment, time, and memory capabilities. In-process, worker, subprocess, and experimental WebAssembly options are available. |
 | Long-term memory | Journal-based memory supports vector recall. TF-IDF is built in, with OpenAI and on-device embedding plugins available. |
@@ -68,7 +69,7 @@ The built-in `self-heal` skill is for Moxxy's own parts — a plugin, MCP server
 
 ## Tools and integrations
 
-Built-in tools include Read, Edit, Write, Bash, Grep, Glob, recall, Sleep, Wait, and StopJob. Optional plugins add web fetching, Playwright browser sessions, macOS computer control, MCP servers, OAuth, subagents, and other integrations.
+Built-in tools include Read, Edit, Write, Bash, Grep, Glob, recall, Sleep, Wait, StopJob, and ask_user. Optional plugins add web fetching, Playwright browser sessions, macOS computer control, MCP servers, OAuth, subagents, and other integrations.
 
 ### Moxxy Browser
 

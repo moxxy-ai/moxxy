@@ -182,6 +182,11 @@ export function registerSessionHandlers(
     await mustDriver(id).setAutoApprove(enabled);
     broadcastHostEvent('session.autoApprove.changed', { workspaceId: id, enabled });
   });
+  handle('session.answerQuestion', async ({ workspaceId, questionId, answers }) => {
+    const id = workspaceId ?? pool.activeWorkspaceId();
+    if (!id) throw new IpcError('not-connected', 'no active session to answer the question in');
+    await mustDriver(id).answerQuestion(questionId, answers);
+  });
   handle('session.runCommand', async ({ workspaceId, name, args }) => {
     const { session } = resolveCtx(pool, { workspaceId });
     const def = session.commands.get(name);

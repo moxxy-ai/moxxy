@@ -1,3 +1,4 @@
+import { isQuestionAnswerDisplay, questionAnswerLines } from '@moxxy/sdk/tool-display';
 import { boolOf, textOf } from './utils/record';
 import type { PromptAttachment } from './clientFrames';
 
@@ -8,7 +9,16 @@ export type TranscriptItem =
   | ToolGroupTranscriptItem
   | ErrorTranscriptItem
   | SubagentGroupTranscriptItem
-  | SystemGroupTranscriptItem;
+  | SystemGroupTranscriptItem
+  | AnsweredTranscriptItem;
+
+/** A Question the person answered: what was asked and what they chose, one line each. */
+export interface AnsweredTranscriptItem {
+  readonly id: string;
+  readonly kind: 'answered';
+  readonly title: 'You answered';
+  readonly lines: ReadonlyArray<string>;
+}
 
 export interface ReasoningTranscriptItem {
   readonly id: string;
@@ -366,6 +376,15 @@ export function buildCommittedChatTranscript(
       flushAssistant();
       flushSystem();
       closeSubagentRun();
+      const answered = type === 'tool_result' && isRecord(event.output) ? event.output.display : undefined;
+      if (isQuestionAnswerDisplay(answered)) {
+        // Kept in view, not in the collapsed Tools group: it is the person's own decision.
+        const callId = toolCallId(event) || `tool-${index}`;
+        tools = tools.filter((tool) => tool.id !== callId);
+        flushTools();
+        pushItem({ id: `answered:${callId}`, kind: 'answered', title: 'You answered', lines: questionAnswerLines(answered) });
+        continue;
+      }
       tools = upsertTool(tools, event, type, index);
       continue;
     }

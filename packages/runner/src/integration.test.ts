@@ -21,6 +21,7 @@ import { loadActiveProvider, loadDisabledProviders } from '@moxxy/config';
 import {
   asTurnId,
   defineMode,
+  openQuestionsFromEvents,
   definePlugin,
   defineProvider,
   defineSurface,
@@ -1977,3 +1978,104 @@ describe('running turns (protocol v22)', () => {
     await turn;
   });
 });
+
+describe('questions (protocol v26)', () => {
+  const colour = {
+    id: 'q1',
+    question: 'Which colour?',
+    options: [
+      { id: 'red', label: 'Red' },
+      { id: 'blue', label: 'Blue' },
+    ],
+    multiSelect: false,
+    allowOther: true,
+  };
+
+  /** A runner whose model calls a tool that asks one question and returns what came back. */
+  async function serveAsking() {
+    const provider = new FakeProvider({ script: [toolUseReply('asks', {}), textReply('done')] });
+    const { session, socketPath } = await serve(provider);
+    session.tools.register(
+      defineTool({
+        name: 'asks',
+        description: 'Asks the person one question.',
+        inputSchema: z.object({}),
+        permission: { action: 'allow' },
+        handler: async (_input, ctx) => (ctx.ask ? JSON.stringify(await ctx.ask([colour])) : 'no ask'),
+      }),
+    );
+    return { session, socketPath };
+  }
+
+  const toolOutput = (remote: RemoteSession) => {
+    const result = remote.log.ofType('tool_result').at(-1);
+    return result && result.ok ? result.output : undefined;
+  };
+
+  it('a question asked in a turn shows on an attached client, which answers it', async () => {
+    const { socketPath } = await serveAsking();
+    const desktop = await attach(socketPath, 'desktop');
+    assertQuestions(desktop).attachSurface();
+
+    const turn = (async () => {
+      for await (const _event of desktop.runTurn('ask me')) void _event;
+    })();
+    await waitFor(() => openQuestionsFromEvents(desktop.log.slice()).length === 1);
+    const [open] = openQuestionsFromEvents(desktop.log.slice());
+    await assertQuestions(desktop).answer(String(open?.questionId), { q1: { selected: ['blue'] } });
+    await turn;
+
+    expect(JSON.parse(String(toolOutput(desktop)))).toEqual({ kind: 'answered', answers: { q1: { selected: ['blue'] } } });
+  });
+
+  it('any attached client can answer, and the second answer is turned away', async () => {
+    const { socketPath } = await serveAsking();
+    const desktop = await attach(socketPath, 'desktop');
+    const bot = await attach(socketPath, 'discord');
+    assertQuestions(desktop).attachSurface();
+
+    const turn = (async () => {
+      for await (const _event of desktop.runTurn('ask me')) void _event;
+    })();
+    await waitFor(() => openQuestionsFromEvents(bot.log.slice()).length === 1);
+    const id = String(openQuestionsFromEvents(bot.log.slice())[0]?.questionId);
+    await assertQuestions(bot).answer(id, { q1: { selected: ['red'] } });
+    await expect(assertQuestions(desktop).answer(id, { q1: { selected: ['blue'] } })).rejects.toThrow(
+      'This question is no longer open.',
+    );
+    await turn;
+
+    expect(JSON.parse(String(toolOutput(desktop)))).toEqual({ kind: 'answered', answers: { q1: { selected: ['red'] } } });
+    await waitFor(() => openQuestionsFromEvents(desktop.log.slice()).length === 0);
+  });
+
+  it('with no client showing questions, the tool hears nobody will answer', async () => {
+    const { socketPath } = await serveAsking();
+    const remote = await attach(socketPath);
+
+    for await (const _event of remote.runTurn('ask me')) void _event;
+
+    expect(JSON.parse(String(toolOutput(remote)))).toEqual({ kind: 'unanswerable' });
+  });
+
+  it('a client that detaches, or disconnects, stops counting as one that answers', async () => {
+    const { session, socketPath } = await serveAsking();
+    const desktop = await attach(socketPath, 'desktop');
+    const detach = assertQuestions(desktop).attachSurface();
+    await waitFor(() => session.questions.surfaceCount === 1);
+
+    detach();
+    await waitFor(() => session.questions.surfaceCount === 0);
+
+    assertQuestions(desktop).attachSurface();
+    await waitFor(() => session.questions.surfaceCount === 1);
+    await desktop.close();
+    await waitFor(() => session.questions.surfaceCount === 0);
+  });
+});
+
+function assertQuestions(remote: RemoteSession) {
+  const questions = remote.questions;
+  if (!questions) throw new Error('RemoteSession has no questions slice');
+  return questions;
+}

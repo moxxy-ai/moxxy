@@ -7,6 +7,7 @@ import type { TelegramPermissionResolver } from '../permission.js';
 import type { TelegramApprovalResolver } from '../approval.js';
 import type { TelegramModel } from './model.js';
 import { PROVIDER_PREFIX, modelScreen, providerScreen } from './model-picker.js';
+import { QUESTION_BUTTON_PREFIX, type ChatQuestions } from '@moxxy/channel-kit';
 
 export interface AwaitingApprovalText {
   approvalId: string;
@@ -21,6 +22,8 @@ export interface CallbackState {
   readonly approvalResolver: TelegramApprovalResolver;
   /** Pairing gate — the same authorization check the text/voice handlers enforce. */
   readonly pairing: { isAuthorized(chatId: number): boolean };
+  /** The conversation's open Questions, answered by their buttons. */
+  readonly questions: Pick<ChatQuestions, 'press'>;
 }
 
 export interface CallbackCallbacks {
@@ -33,6 +36,7 @@ export interface CallbackCallbacks {
 /** Inline-keyboard callback router. Dispatches by prefix:
  *  - `perm:`   → permission resolver
  *  - `appr:`   → approval resolver
+ *  - `q:`      → a Question's answer buttons
  *  - `mprov:`  → the model picker's screens (a provider's models, or back)
  *  - `model:`  → this bot's model (`provider::model` or `default`)
  *  - `mode:`   → mode switch
@@ -67,6 +71,12 @@ export async function handleCallback(
   }
   if (data.startsWith('appr:')) {
     await handleAppr(ctx, data, state, cb);
+    return;
+  }
+  if (data.startsWith(QUESTION_BUTTON_PREFIX)) {
+    // Answer the click at once (the card itself shows what changed).
+    await ctx.answerCallbackQuery();
+    await state.questions.press(data);
     return;
   }
   if (data.startsWith(PROVIDER_PREFIX)) {

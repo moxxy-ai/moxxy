@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { questionAnswersSchema } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -9,6 +10,7 @@ import type {
   PermissionContext,
   PermissionDecision,
   Principal,
+  QuestionAnswers,
   OpenSurfaceResult,
   SessionInfo,
   SurfaceDataMessage,
@@ -173,7 +175,8 @@ import type {
 /** v23: `computer.changed` pushes a session's Computer Use turns after every change, and `computer.control` accepts `takeover` (additive). */
 /** v24: `session.setFast` switches the provider's faster tier; `SessionInfo` reports `fast` and `reasoningEffort` (additive). */
 /** v25: `SessionInfo.defaultModel` reports the model a turn runs on when it names none (additive). */
-export const RUNNER_PROTOCOL_VERSION = 25;
+/** v26: `setResolver` takes `question` (this client shows Questions) and `question.answer` answers one (additive). */
+export const RUNNER_PROTOCOL_VERSION = 26;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -227,6 +230,8 @@ export const RunnerMethod = {
   SessionSetAutoApprove: 'session.setAutoApprove',
   /** client->server: declare which resolvers this client will answer. */
   SetResolver: 'setResolver',
+  /** client->server: answer an open Question the session recorded (v26). */
+  QuestionAnswer: 'question.answer',
   /** client->server: switch the active mode. */
   ModeSetActive: 'mode.setActive',
   /** client->server: set the session's reasoning/thinking effort (v9). */
@@ -403,6 +408,14 @@ export interface SetResolverParams {
   readonly permission?: boolean;
   /** This client will answer `approval.confirm` for the turns it owns. */
   readonly approval?: boolean;
+  /** This client shows the session's Questions and can answer them (v26). */
+  readonly question?: boolean;
+}
+
+/** Params for `question.answer` (v26). */
+export interface QuestionAnswerParams {
+  readonly questionId: string;
+  readonly answers: QuestionAnswers;
 }
 
 export interface ModeSetActiveParams {
@@ -664,7 +677,12 @@ export const abortParamsSchema = z.object({ turnId: z.string() });
 export const setResolverParamsSchema = z.object({
   permission: z.boolean().optional(),
   approval: z.boolean().optional(),
+  question: z.boolean().optional(),
 });
+
+export const questionAnswerParamsSchema = z
+  .object({ questionId: z.string().min(1), answers: questionAnswersSchema })
+  .strict();
 
 export const modeSetActiveParamsSchema = z.object({ name: z.string() });
 

@@ -1,5 +1,5 @@
 import { assertDefined, type ChannelHandle, type ClientSession as Session } from '@moxxy/sdk';
-import { applySessionAction } from '@moxxy/channel-kit';
+import { applySessionAction, type ChatQuestions } from '@moxxy/channel-kit';
 import { gateInbound } from '../allow-list.js';
 import type { InboundMessage } from '../schema.js';
 import type { DiscordApprovalResolver } from '../approval.js';
@@ -36,6 +36,8 @@ export interface MessageHandlerDeps {
   readonly allowList: AllowListStore;
   readonly approvalResolver: DiscordApprovalResolver;
   readonly permissionResolver: DiscordPermissionResolver;
+  /** The conversation's open Questions; a plain reply answers the latest one. */
+  readonly questions: Pick<ChatQuestions, 'typed'>;
   readonly logger?: ChannelLogger;
 }
 
@@ -111,6 +113,10 @@ export async function handleInboundMessage(
     await ctx.reply(handled ? `✓ submitted (${optionId})` : 'that approval is no longer pending');
     return;
   }
+
+  // A reply to an open Question answers it; the turn that asked waits on it,
+  // so this too comes before the busy guard.
+  if (text && !text.startsWith('/') && (await deps.questions.typed(text))) return;
 
   // /cancel works even while busy; everything else routes below.
   if (text === '/cancel') {

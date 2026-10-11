@@ -141,6 +141,34 @@ export {
   autoApproveSwitch,
 } from './auto-approve.js';
 
+export {
+  QUESTION_PLUGIN_ID,
+  QUESTION_ASKED,
+  QUESTION_RESOLVED,
+  questionOptionSchema,
+  questionItemSchema,
+  questionAnswerSchema,
+  questionAnswersSchema,
+  questionRecord,
+  openQuestionsFromEvents,
+  questionAnswersProblem,
+  describeQuestionAnswers,
+  questionAnswerDisplay,
+} from './question.js';
+export type {
+  QuestionOption,
+  QuestionItem,
+  QuestionAnswer,
+  QuestionAnswers,
+  QuestionOutcome,
+  QuestionRecord,
+  OpenQuestion,
+  QuestionAsker,
+  SessionQuestions,
+} from './question.js';
+export { emptyDraft, chooseOption, typeOwnAnswer, draftAnswers } from './question-draft.js';
+export type { QuestionDraft } from './question-draft.js';
+
 export type {
   ClientSession,
   ProvidersClientView,
@@ -236,6 +264,8 @@ export type {
   DiffHunk,
   DiffRow,
   FileDiffDisplay,
+  AnsweredQuestion,
+  QuestionAnswerDisplay,
   ToolDisplay,
   ToolDisplayResult,
 } from './tool-display.js';
@@ -243,6 +273,8 @@ export {
   isToolDisplayResult,
   isToolDisplay,
   isFileDiffDisplay,
+  isQuestionAnswerDisplay,
+  questionAnswerLines,
   fileDiffSummary,
   fileDiffVerb,
   diffGutterNo,

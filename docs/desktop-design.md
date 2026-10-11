@@ -225,6 +225,45 @@ is red. Asking leave to act marks the card amber; asking which way to go on
 marks it with the accent. Focus goes to the safe answer, Tab stays inside the
 card and Escape gives the safe answer.
 
+### A Question from the agent
+
+When the agent asks the person something (the `ask_user` tool, or a connected
+agent's own question) the card sits in the same place and is of the same make,
+titled "Question" with the accent mark (`chat/ask/QuestionCard.tsx`, placed by
+`chat/QuestionSheet.tsx`). An approval the run is blocked on comes first; the
+Question shows once it is answered.
+
+Each question is a group: an optional short header as an accent chip, the
+question as prose, the suggested answers as bordered chips (a picked one takes
+the accent border and soft fill), and, where the question takes one, a field
+for an answer of the person's own. Several questions stack in one card and go
+out with one "Send answer". Send stays disabled until every question has an
+answer, and its tooltip says which one is missing. A failed send says why in a
+red line above it.
+
+A Question blocks no action, so nothing in the card is safe to pick for the
+person: no answer is preselected and Escape answers nothing. Focus goes to the
+first suggested answer, Tab stays inside the card and ⌘↵ / Ctrl+↵ sends. The
+question is read from the conversation's own events (`useQuestion` in
+`@moxxy/client-core`), so every client of the conversation shows the same card
+and the first answer from any of them closes it everywhere. A chat with an
+open Question counts as waiting on the person in the sidebar and the
+instrument bar.
+
+The focus window shows the same card, after any approval, beside the mark and
+at the head of the Mini Chat (`focus/FocusAskCard.tsx`, read by
+`focus/useFocusAsk.ts`). There it is a group, not a dialog: it takes no focus
+and no key, and drops the ⌘↵ hint, because the window floats over other work.
+Picks and the field work as in the desktop, and Send answer sends. Its frame
+is fixed, so the questions scroll inside it and Send stays in view below them.
+
+Once answered, the card goes and the transcript keeps the decision: a quiet
+bordered block headed "You answered", each question in muted text (with its
+chip) and what the person chose under it in the text colour, their own words
+in italics and quotes (`chat/blocks/AnsweredQuestionBlock.tsx`). It reads the
+`question-answer` display `ask_user` returns, so it is never folded away like
+an ordinary tool row.
+
 ### A voice conversation
 
 Voice mode does not change the screen. While it is on, one card sits between

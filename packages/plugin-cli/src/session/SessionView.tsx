@@ -25,6 +25,7 @@ import { useEventStream } from './use-event-stream.js';
 import { useImageAttachments } from './use-image-attachments.js';
 import { useTurnRunner } from './use-turn-runner.js';
 import { usePermissionQueue } from './use-permission-queue.js';
+import { useQuestion } from './use-question.js';
 import { useGlobalHotkeys } from './use-global-hotkeys.js';
 import { useVoiceInput } from './use-voice-input.js';
 import { useReadAloud } from './use-read-aloud.js';
@@ -122,8 +123,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const pendingPermission = permissions.pendingPermission;
   const pendingApproval = permissions.pendingApproval;
+  const question = useQuestion(session, stream.events);
   const overlayOpen =
-    overlay != null || picker != null || pendingPermission != null || pendingApproval != null;
+    overlay != null ||
+    picker != null ||
+    pendingPermission != null ||
+    pendingApproval != null ||
+    question != null;
 
   useGlobalHotkeys({
     busy: turn.busy,
@@ -448,7 +454,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
           overlay != null ||
           picker != null ||
           pendingPermission != null ||
-          pendingApproval != null
+          pendingApproval != null ||
+          question != null
         }
       />
       <OverlayOrNotice
@@ -467,6 +474,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         pendingPermission={pendingPermission}
         pendingPermissionDepth={Math.max(0, permissions.pendingPermissions.length - 1)}
         pendingApproval={pendingApproval}
+        question={question}
         picker={picker}
         pluginSetup={pluginSetup}
         onPluginSetupFinish={(values) => {

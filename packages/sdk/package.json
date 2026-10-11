@@ -64,6 +64,10 @@
     "./transcriber": {
       "types": "./dist/transcriber.d.ts",
       "import": "./dist/transcriber.js"
+    },
+    "./questions": {
+      "types": "./dist/questions.d.ts",
+      "import": "./dist/questions.js"
     }
   },
   "files": [

@@ -322,6 +322,21 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('session.setAutoApprove', {})).toThrow();
   });
 
+  it('takes an answer to a question as chosen option ids and bounded words of the person own', () => {
+    const answer = (answers: unknown) => () =>
+      validateIpcInput('session.answerQuestion', { workspaceId: 'ws', questionId: 'q-1', answers });
+    expect(answer({ q1: { selected: ['o1'] } })).not.toThrow();
+    expect(answer({ q1: { selected: [], other: 'Teal' } })).not.toThrow();
+    expect(answer({ q1: { selected: 'o1' } })).toThrow();
+    expect(answer({ q1: { selected: [], other: 'x'.repeat(10_001) } })).toThrow();
+    expect(answer({ q1: { selected: ['o1'], extra: true } })).toThrow();
+    expect(() => validateIpcInput('session.answerQuestion', { questionId: '', answers: {} })).toThrow();
+  });
+
+  it('lets a paired phone answer the conversation questions', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('session.answerQuestion')).toBe(true);
+  });
+
   it('requires a strict boolean for mobileGateway.setEnabled', () => {
     expect(() => validateIpcInput('mobileGateway.setEnabled', { enabled: true })).not.toThrow();
     expect(() => validateIpcInput('mobileGateway.setEnabled', { enabled: 'yes' })).toThrow();

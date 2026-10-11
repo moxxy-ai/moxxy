@@ -88,3 +88,10 @@ export { ForeignTurnMirror, MirrorTarget, type ForeignTurnMirrorOptions } from '
 export { channelTurnContext, type ChannelTurnContextSpec } from './turn-context.js';
 export { applySessionAction, type SessionActionTarget } from './session-action.js';
 export { readLocalFiles, type LocalFile, type ReadLocalFilesOptions } from './local-files.js';
+export {
+  ChatQuestions,
+  QUESTION_BUTTON_PREFIX,
+  type QuestionButton,
+  type QuestionCard,
+  type QuestionUpdate,
+} from './questions.js';

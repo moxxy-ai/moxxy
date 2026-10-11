@@ -75,7 +75,7 @@ export function MiniText({
           className="focus-transcript"
           style={style.panelBody}
         >
-          {ask && <FocusAskCard prompt={ask} variant="panel" />}
+          {ask && <FocusAskCard ask={ask} variant="panel" />}
           {transcribing && <TransientStatus label="Transcribing…" />}
           {!workspaceId || (transcript.isEmpty && !transcript.sending) ? (
             <IdleLine

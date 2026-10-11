@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { isFileDiffResult, type ToolCallBlockData } from '@moxxy/chat-model';
+import { isFileDiffResult, questionAnswerOf, type ToolCallBlockData } from '@moxxy/chat-model';
 import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
 import { ActivityRow } from '../ActivityRow';
 import { iconForTool, statusOf, toolActivityLabel } from '../SkillGroupView';
 import { useToolIcon } from '../ToolIconContext';
 import { preStyle, pretty } from './block-shared';
+import { AnsweredQuestionBlock } from './AnsweredQuestionBlock';
 import { FileDiffBlock } from './FileDiffBlock';
 
 export function ToolBlock({ name, input, outcome }: {
@@ -18,6 +19,8 @@ export function ToolBlock({ name, input, outcome }: {
     const display = (outcome.output as { display: FileDiffDisplay }).display;
     if (isFileDiffDisplay(display)) return <FileDiffBlock display={display} />;
   }
+  const answered = questionAnswerOf(outcome);
+  if (answered) return <AnsweredQuestionBlock display={answered} />;
   const status = statusOf(outcome);
   const output = outcome?.type === 'tool_result' ? outcome.output : undefined;
   const error = outcome === null ? undefined : outcome.type === 'denied' ? outcome.reason : outcome.error?.message;

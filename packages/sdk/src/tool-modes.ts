@@ -1,11 +1,15 @@
 import type { ToolRegistry } from './mode.js';
 import type { ToolDef } from './tool.js';
 
-const offeredIn = (tool: ToolDef | undefined, mode: string): boolean => !tool?.modes || tool.modes.includes(mode);
+const offeredIn = (tool: ToolDef | undefined, mode: string): boolean => {
+  if (!tool) return true;
+  if (tool.notInModes && tool.notInModes.includes(mode)) return false;
+  return !tool.modes || tool.modes.includes(mode);
+};
 
 /**
  * The registry as a mode sees it: a tool that names its modes is left out of
- * the others — not offered to the model, and refused if called anyway. It stays
+ * the others, and one that rules a mode out is left out of that one — not offered to the model, and refused if called anyway. It stays
  * registered, so its permission and isolation are looked up as before.
  */
 export function toolsForMode(tools: ToolRegistry, mode: string): ToolRegistry {

@@ -42,4 +42,21 @@ describe('toolsForMode', () => {
     expect(toolsForMode(registry, 'goal').list().map((t) => t.name)).toEqual(['Read', 'goal_abandon']);
     expect(toolsForMode(registry, 'collab-peer').get('collab_inbox')?.name).toBe('collab_inbox');
   });
+
+  it('leaves a tool out of the modes it rules out, and offers it in every other', async () => {
+    const asks = defineTool({
+      name: 'ask_user',
+      description: 'asks',
+      inputSchema: z.object({}),
+      handler: async () => 'asked',
+      notInModes: ['goal'],
+    });
+    expect(asks.notInModes).toEqual(['goal']);
+    const withAsk: ToolRegistry = { list: () => [tool('Read'), asks], get: (name) => withAsk.list().find((t) => t.name === name), execute: async (name) => name };
+
+    expect(toolsForMode(withAsk, 'goal').list().map((t) => t.name)).toEqual(['Read']);
+    expect(toolsForMode(withAsk, 'goal').get('ask_user')).toBeUndefined();
+    await expect(toolsForMode(withAsk, 'goal').execute('ask_user', {}, signal)).rejects.toThrow(/ask_user is not available in goal mode/);
+    expect(toolsForMode(withAsk, 'default').get('ask_user')?.name).toBe('ask_user');
+  });
 });

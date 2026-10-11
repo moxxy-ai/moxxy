@@ -6,9 +6,9 @@
  * connection, no discord.js instances.
  */
 
-/** A message we sent and can edit in place (the streamed frame). */
+/** A message we sent and can edit in place (the streamed frame, a Question card). */
 export interface SentMessageLike {
-  edit(content: string): Promise<unknown>;
+  edit(content: string | OutboundPayload): Promise<unknown>;
 }
 
 /** Payload accepted by `send` — text plus optional component rows (buttons) or

@@ -28,6 +28,7 @@ const READ_ONLY_TOOLS = new Set([
   'load_skill',
   'web_search',
   'web_fetch',
+  'ask_user',
 ]);
 
 export async function* runPlanMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> {

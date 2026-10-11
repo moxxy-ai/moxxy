@@ -5,6 +5,7 @@ import type { PermissionRule } from './permission.js';
 import type { SessionId, ToolCallId, TurnId } from './ids.js';
 import type { SubagentSpawner } from './subagent.js';
 import type { ToolIsolationSpec } from './isolation.js';
+import type { QuestionItem, QuestionOutcome } from './question.js';
 
 /**
  * A tool the active model provider can execute on its own infrastructure.
@@ -158,6 +159,13 @@ export interface ToolContext {
    * then read it here, e.g. `const key = await ctx.getSecret('ELEVENLABS_API_KEY')`.
    */
   readonly getSecret?: (name: string) => Promise<string | null>;
+  /**
+   * Ask the person a Question and wait for the answer. Present when the tool
+   * runs inside a session turn; the outcome says `unanswerable` when no surface
+   * that can show a question is attached (a headless run), so the tool can tell
+   * the agent to decide on its own.
+   */
+  readonly ask?: (questions: ReadonlyArray<QuestionItem>) => Promise<QuestionOutcome>;
 }
 
 /**
@@ -230,6 +238,11 @@ export interface ToolDef {
    * a task in a mode that never asked for it. See `toolsForMode`.
    */
   readonly modes?: ReadonlyArray<string>;
+  /**
+   * The modes this tool is left out of; the opposite of `modes`. For a tool
+   * that cannot work there (`ask_user` in goal mode, which runs unattended).
+   */
+  readonly notInModes?: ReadonlyArray<string>;
   /**
    * The user's refusal of this tool ends the turn, with this text as its last
    * message, instead of letting the model try another way round it. For tools

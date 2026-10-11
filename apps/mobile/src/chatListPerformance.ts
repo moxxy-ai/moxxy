@@ -154,6 +154,10 @@ function transcriptItemRenderSignature(item: TranscriptItem): string {
     ].join('\u001f');
   }
 
+  if (item.kind === 'answered') {
+    return [item.kind, item.id, ...item.lines].join('\u001f');
+  }
+
   return [item.kind, item.id, item.label, item.text].join('\u001f');
 }
 

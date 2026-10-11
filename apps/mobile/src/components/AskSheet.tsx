@@ -5,28 +5,33 @@ import type { PermissionResponseMode } from '../permissionResponse';
 import { ApprovalCard } from './ApprovalCard';
 import { PermissionCard } from './PermissionCard';
 import { WorkflowAskCard } from './WorkflowAskCard';
+import { QuestionCard } from './QuestionCard';
+import type { UseQuestion } from '@moxxy/client-core';
 
 interface AskSheetProps {
   readonly asks: ReadonlyArray<Record<string, unknown>>;
   readonly permissions: ReadonlyArray<Record<string, unknown>>;
+  /** A Question the agent asked; shown once no approval or permission waits. */
+  readonly question: UseQuestion;
   readonly maxHeight?: number;
   readonly onAskResponse: (requestId: string, response: Record<string, unknown>) => void;
   readonly onPermissionDecision: (permissionId: string, mode: PermissionResponseMode) => void;
 }
 
 export function AskSheet(props: AskSheetProps) {
-  const total = props.asks.length + props.permissions.length;
+  const total = props.asks.length + props.permissions.length + (props.question.question ? 1 : 0);
   if (total === 0) {
     return (
       <View style={sx('mt-8 items-center rounded-card border border-cardBorder bg-cardBg px-5 py-8')}>
         <Text style={sx('text-center text-[16px] font-bold text-text')}>No pending actions</Text>
-        <Text style={sx('mt-1 text-center text-[13px] text-muted')}>Approvals and permissions will appear here.</Text>
+        <Text style={sx('mt-1 text-center text-[13px] text-muted')}>Approvals, permissions and questions will appear here.</Text>
       </View>
     );
   }
 
   const firstAsk = props.asks[0];
   const firstPermission = firstAsk ? null : props.permissions[0];
+  const showQuestion = !firstAsk && !firstPermission;
   const extraCount = total - 1;
 
   return (
@@ -78,6 +83,9 @@ export function AskSheet(props: AskSheetProps) {
           />
           );
         })()
+      ) : null}
+      {showQuestion && props.question.question ? (
+        <QuestionCard key={props.question.question.questionId} question={props.question} />
       ) : null}
     </ScrollView>
   );

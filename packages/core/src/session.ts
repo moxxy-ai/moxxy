@@ -20,6 +20,7 @@ import { runTurn as runTurnImpl } from './run-turn.js';
 import type { SessionRuntime } from './session-runtime.js';
 import { resolveTurnModel } from './turn-model.js';
 import { EventLog } from './events/log.js';
+import { SessionQuestionsImpl } from './questions/session-questions.js';
 import { HookDispatcherImpl } from './plugins/lifecycle.js';
 import { PluginHost, type PluginLoader } from './plugins/host.js';
 import { ProviderRegistry } from './registries/providers.js';
@@ -133,6 +134,8 @@ export class Session implements ClientSession, SessionRuntime {
   readonly id: SessionId;
   readonly cwd: string;
   readonly log: EventLog;
+  /** Questions the agent asks the person, recorded in {@link log} (see `SessionQuestionsImpl`). */
+  readonly questions: SessionQuestionsImpl;
   readonly logger: Logger;
   readonly governance?: GovernanceInfo;
   readonly tools: ToolRegistry;
@@ -246,10 +249,17 @@ export class Session implements ClientSession, SessionRuntime {
     this.logger = opts.logger ?? (opts.silent ? silentLogger : createLogger());
     if (opts.governance) this.governance = Object.freeze({ ...opts.governance });
     this.log = opts.log ?? new EventLog();
+    this.questions = new SessionQuestionsImpl({ log: this.log, sessionId: this.id });
+    if (opts.log) {
+      this.questions.closeLeftOver().catch((err: unknown) => {
+        this.logger.warn('could not close questions left open by an earlier run', { err: String(err) });
+      });
+    }
     this.tools = new ToolRegistryImpl({
       logger: this.logger,
       cwd: this.cwd,
       ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
+      questionAsker: this.questions.ask,
     });
     if (opts.secretResolver) this.resolveSecret = opts.secretResolver;
     this.providers = new ProviderRegistry();
