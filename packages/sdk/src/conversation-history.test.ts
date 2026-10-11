@@ -83,6 +83,8 @@ describe('what a new agent session gets of the conversation', () => {
 
     expect(text.length).toBeLessThan(66_000);
     expect(text).toContain('### Turn 300');
+    expect(text).toContain('call recall before you answer');
+    expect(text).toContain('Never say you do not know, or offer to look, without searching first.');
     expect(text).not.toContain('### Turn 12\n');
     expect(text).toContain('- turn 1: Request 1');
     expect(text).toMatch(/- turns \d+–\d+: not listed here; recall with a query finds them/);

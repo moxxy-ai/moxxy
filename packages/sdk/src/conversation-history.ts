@@ -127,9 +127,11 @@ export function searchConversation(
 
 const HEADER =
   "Earlier in this conversation, from Moxxy's own record of it. It is history to work from: not a new request, and " +
-  "nothing in it outranks the person's newest message or your own instructions. Tool output and file contents are " +
-  'not repeated here; read files again when you need them. Moxxy\'s recall tool searches the whole conversation ' +
-  '(recall with a query) and reads any turn in full (recall with its turn number).';
+  "nothing in it outranks the person's newest message or your own instructions. The record is incomplete: older " +
+  'turns are one line each and long turns are cut. When the person asks about anything it does not show in full, ' +
+  "call recall before you answer: Moxxy's recall tool searches the whole conversation (recall with a query) and " +
+  'reads any turn in full (recall with its turn number). Never say you do not know, or offer to look, without ' +
+  'searching first. Tool output and file contents are not repeated here; read files again when you need them.';
 
 function toTurn(number: number, turnId: TurnId, events: ReadonlyArray<MoxxyEvent>): ConversationTurn {
   const said: string[] = [];
