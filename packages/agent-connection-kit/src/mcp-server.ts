@@ -1,12 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
+import { waitFor, type WakeSource } from '@moxxy/sdk';
 
 /**
  * The MCP server through which a vendor agent calls Moxxy's own tools.
  * Streamable HTTP, stateless, answering every request with one JSON object:
- * only `initialize`, `ping`, `tools/list` and `tools/call` are needed. Written
- * by hand because the MCP SDK is kept out of the CLI bundle.
+ * only `initialize`, `ping`, `tools/list` and `tools/call` are needed, plus the
+ * event stream that carries `notifications/tools/list_changed` to an agent that
+ * reads the list once (OpenCode). Written by hand because the MCP SDK is kept
+ * out of the CLI bundle.
  */
 
 export interface McpTool {
@@ -36,7 +39,18 @@ export interface MoxxyMcpServer {
   readonly authorization: string;
   /** Point the server at the tools of another turn, or at none between turns. */
   setHandler(handler: McpToolHandler | undefined): void;
+  /**
+   * Make sure the agent has this turn's tools. An agent that already read
+   * another list is told it changed, and this resolves once it read the list
+   * again: `false` when it did not within `timeoutMs`.
+   */
+  announceTools(opts?: AnnounceOptions): Promise<boolean>;
   close(): Promise<void>;
+}
+
+export interface AnnounceOptions {
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface MoxxyMcpServerOptions {
@@ -47,6 +61,8 @@ export interface MoxxyMcpServerOptions {
 
 export const MCP_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const;
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const ANNOUNCE_TIMEOUT_MS = 5_000;
+const LIST_CHANGED = `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' })}\n\n`;
 
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
@@ -76,13 +92,23 @@ export async function startMoxxyMcpServer(opts: MoxxyMcpServerOptions = {}): Pro
   const token = randomBytes(32).toString('base64url');
   const authorization = `Bearer ${token}`;
   const serverInfo = { name: opts.name ?? 'moxxy', version: opts.version ?? '0.0.0' };
+  /** Open event streams, where notices reach the agent. */
+  const streams = new Set<ServerResponse>();
+  /** The tools as the agent last read them; `undefined` until it reads them. */
+  let listed: string | undefined;
+  const wakers = new Set<() => void>();
+  const changed = () => wakers.forEach((wake) => wake());
+  const onChange: WakeSource = (wake) => {
+    wakers.add(wake);
+    return () => wakers.delete(wake);
+  };
 
   const dispatch = async (method: string, params: unknown, signal: AbortSignal): Promise<unknown> => {
     switch (method) {
       case 'initialize': {
         const requested = (params as { protocolVersion?: unknown } | undefined)?.protocolVersion;
         const protocolVersion = isSupportedVersion(requested) ? requested : MCP_PROTOCOL_VERSIONS[0];
-        return { protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo };
+        return { protocolVersion, capabilities: { tools: { listChanged: true } }, serverInfo };
       }
       case 'ping':
         return {};
@@ -119,11 +145,12 @@ export async function startMoxxyMcpServer(opts: MoxxyMcpServerOptions = {}): Pro
     // A browser always names the page a request comes from; an agent never does.
     if (req.headers.origin !== undefined) return send(res, 403);
     if (!authorized(req.headers.authorization, authorization)) return send(res, 401);
-    if (req.method !== 'POST') return send(res, 405, undefined, { allow: 'POST' });
     const version = req.headers['mcp-protocol-version'];
     if (typeof version === 'string' && !isSupportedVersion(version)) {
       return send(res, 400, rpcError(null, INVALID_REQUEST, `Unsupported MCP protocol version: ${version}`));
     }
+    if (req.method === 'GET' && req.headers.accept?.includes('text/event-stream')) return openStream(res);
+    if (req.method !== 'POST') return send(res, 405, undefined, { allow: 'POST' });
 
     const body = await readBody(req);
     if (body === undefined) return send(res, 413);
@@ -146,12 +173,27 @@ export async function startMoxxyMcpServer(opts: MoxxyMcpServerOptions = {}): Pro
     });
     try {
       const result = await dispatch(message.method, message.params, hungUp.signal);
-      if (!hungUp.signal.aborted) send(res, 200, { jsonrpc: '2.0', id, result });
+      if (hungUp.signal.aborted) return;
+      send(res, 200, { jsonrpc: '2.0', id, result });
+      if (message.method === 'tools/list') {
+        listed = signatureOf((result as { tools: ReadonlyArray<McpTool> }).tools);
+        changed();
+      }
     } catch (err) {
       const code = err instanceof RpcError ? err.code : -32603;
       if (!hungUp.signal.aborted) send(res, 200, rpcError(id, code, err instanceof Error ? err.message : String(err)));
     }
   };
+
+  const openStream = (res: ServerResponse): void => {
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+    res.flushHeaders();
+    streams.add(res);
+    res.on('close', () => streams.delete(res));
+    changed();
+  };
+
+  const current = () => signatureOf(handler ? handler.list() : []);
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -168,8 +210,26 @@ export async function startMoxxyMcpServer(opts: MoxxyMcpServerOptions = {}): Pro
     setHandler(next) {
       handler = next;
     },
+    async announceTools({ timeoutMs = ANNOUNCE_TIMEOUT_MS, signal } = {}) {
+      // An agent that never read the list reads this one when it does.
+      if (listed === undefined || listed === current()) return true;
+      let told = false;
+      const outcome = await waitFor(
+        () => {
+          if (listed === current()) return true;
+          if (!told && streams.size > 0) {
+            told = true;
+            for (const stream of streams) stream.write(LIST_CHANGED);
+          }
+          return undefined;
+        },
+        { wakeOn: [onChange], timeoutMs, ...(signal ? { signal } : {}) },
+      );
+      return outcome.status === 'ready';
+    },
     close: () =>
       new Promise<void>((resolve) => {
+        for (const stream of streams) stream.end();
         server.close(() => resolve());
         server.closeAllConnections();
       }),
@@ -178,6 +238,10 @@ export async function startMoxxyMcpServer(opts: MoxxyMcpServerOptions = {}): Pro
 
 function isSupportedVersion(value: unknown): value is (typeof MCP_PROTOCOL_VERSIONS)[number] {
   return typeof value === 'string' && (MCP_PROTOCOL_VERSIONS as ReadonlyArray<string>).includes(value);
+}
+
+function signatureOf(tools: ReadonlyArray<McpTool>): string {
+  return JSON.stringify(tools.map(({ name, description, inputSchema }) => [name, description, inputSchema]));
 }
 
 function authorized(given: string | undefined, expected: string): boolean {

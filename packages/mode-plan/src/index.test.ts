@@ -216,4 +216,45 @@ describe('plan mode', () => {
     const final = events.filter((event) => event.type === 'assistant_message').at(-1);
     expect(final).toMatchObject({ type: 'assistant_message', source: 'system', content: plan });
   });
+
+  it('asks an agent without a plan of its own for its plan through plan_complete, and shows it in the plan card', async () => {
+    const provider = new FakeAgentProvider(async function* (req) {
+      if (provider.steps.length === 1) {
+        yield { type: 'tool_call', callId: 'r1', name: 'Read', input: { file_path: 'README.md' } };
+        yield { type: 'tool_result', callId: 'r1', ok: true, output: '# app' };
+        yield { type: 'message', text: 'Here is my plan: first audit, then build.' };
+        return;
+      }
+      await req.host.runTool({ callId: 'p1', name: 'plan_complete', input: firstPlan });
+      yield { type: 'message', text: 'Plan submitted.' };
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+
+    const events = await collectTurn(session, 'Plan the onboarding');
+
+    expect(provider.steps).toHaveLength(2);
+    expect(provider.steps[0]?.tools.map((tool) => tool.name)).toContain('plan_complete');
+    expect(provider.steps[1]?.prompt[0]).toMatchObject({ type: 'text', text: expect.stringContaining('plan_complete') });
+    const card = events.find((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed');
+    expect(card).toMatchObject({ payload: { title: firstPlan.title, steps: firstPlan.steps.length } });
+  });
+
+  it('leaves an agent with its own plan mode to finish its turn without a nudge', async () => {
+    const provider = new FakeAgentProvider(
+      async function* () {
+        yield { type: 'message', text: 'Which database should I plan for?' };
+      },
+      'fake-agent',
+      { agentOwns: { plan: true } },
+    );
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+
+    await collectTurn(session, 'Plan the storage');
+
+    expect(provider.steps).toHaveLength(1);
+  });
 });

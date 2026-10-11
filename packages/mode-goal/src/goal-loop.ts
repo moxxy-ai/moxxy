@@ -126,6 +126,9 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
   const idleNudge: TurnCheckpoint = {
     name: 'goal-idle',
     gateOn: 'idle',
+    // An agent with its own goal keeps going by itself and says when it is met (`onAgentGoal`).
+    agentConnections: true,
+    applies: (loopCtx) => loopCtx.provider.agentOwns?.goal !== true,
     run: async (check) => {
       if (check.consecutiveIdle >= GOAL_MAX_NOOP_ITERATIONS) {
         await goalCtx.emit({

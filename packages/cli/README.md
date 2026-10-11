@@ -95,6 +95,14 @@ Desktop and interactive CLI setup can start sign-in. Headless runners/services g
 
 Codex itself does each turn through `codex app-server`, with its own instructions, config, tools, skills and MCP servers. Moxxy shows Codex's approvals and questions, shows its plan in plan mode, ends goal mode when Codex's own goal is met, and lends Codex its own tools over a local MCP server. Auto-approve gives only the current conversation's Codex full access; `~/.codex/config.toml` is never edited. Your reason for declining reaches Codex, fast mode runs it on its fast tier, and Stop interrupts its turn, tools included. "ChatGPT — Moxxy" (`openai-codex`) is the other way round: Moxxy does the work with ChatGPT models.
 
+### OpenCode (your own OpenCode setup)
+
+1. Install OpenCode so `opencode` is on `PATH` (or set `OPENCODE_EXECUTABLE=/absolute/path/to/opencode`).
+2. Its free models work without signing in; for other providers run `opencode auth login` (or `moxxy login opencode`) in a terminal.
+3. Select "OpenCode agent" (`opencode`) in `moxxy init`. Pick any model `opencode models` lists with `--model`, or persist `plugins.provider.items.opencode.model`.
+
+OpenCode itself does each turn through `opencode acp`, with its own instructions, config, tools, skills, permission rules and MCP servers. Moxxy shows what it does and its permission asks; auto-approve shows how OpenCode really runs (on with OpenCode's defaults, which ask for nothing; turning it off restarts that OpenCode once with your rules made to ask, for that process only), steers plan and goal mode through tools it lends OpenCode over a local MCP server, and never edits OpenCode's config.
+
 Contributors with an authenticated subscription can run the opt-in, no-API-key smoke gate after `pnpm build`:
 
 ```sh

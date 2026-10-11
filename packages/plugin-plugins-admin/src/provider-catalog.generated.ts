@@ -2,6 +2,23 @@
 import type { PluginCatalogEntry } from './catalog-types.js';
 export const PROVIDER_PLUGIN_CATALOG = [
   {
+    "id": "provider-acp",
+    "packageName": "@moxxy/plugin-provider-acp",
+    "installSpec": "@moxxy/plugin-provider-acp",
+    "label": "OpenCode agent",
+    "description": "OpenCode does the work with your own OpenCode setup and models; Moxxy shows it and lends its browser and tools.",
+    "provides": [
+      {
+        "category": "provider",
+        "name": "opencode"
+      }
+    ],
+    "provider": {
+      "auth": "oauth",
+      "defaultModel": "opencode/big-pickle"
+    }
+  },
+  {
     "id": "provider-anthropic",
     "packageName": "@moxxy/plugin-provider-anthropic",
     "installSpec": "@moxxy/plugin-provider-anthropic",

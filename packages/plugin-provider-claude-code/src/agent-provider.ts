@@ -67,6 +67,8 @@ export function claudeSessions(): AgentSessionPool<ClaudeAgentSession> {
  */
 export class ClaudeAgentProvider implements LLMProvider {
   readonly name = CLAUDE_CODE_PROVIDER_ID;
+  /** Its own plan mode and goal: Moxxy shows the plan and ends the goal when the agent says so. */
+  readonly agentOwns = { plan: true, goal: true } as const;
   readonly models = claudeCodeModels;
   private readonly defaultModel: string;
   private readonly loadSdk: () => Promise<ClaudeAgentSdk>;

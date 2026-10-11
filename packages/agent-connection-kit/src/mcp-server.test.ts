@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { startMoxxyMcpServer, type McpToolHandler, type MoxxyMcpServer } from './mcp-server.js';
 
 const servers: MoxxyMcpServer[] = [];
@@ -108,6 +109,46 @@ describe('the Moxxy tools MCP server', () => {
     expect((await client.listTools()).tools.map((t) => t.name)).toEqual(['browser_title']);
   });
 
+  it('tells an agent that keeps the list it read that the turn brought other tools, and waits until it reads them', async () => {
+    const server = await start();
+    const client = await connect(server);
+    const reread = new Promise<string[]>((resolve) =>
+      client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+        resolve((await client.listTools()).tools.map((t) => t.name));
+      }),
+    );
+    expect((await client.listTools()).tools).toEqual([]);
+
+    server.setHandler(titleTool);
+
+    expect(await Promise.all([server.announceTools(), reread])).toEqual([true, ['browser_title']]);
+  });
+
+  it('tells the agent nothing when it already has the turn tools', async () => {
+    const server = await start(titleTool);
+    const client = await connect(server);
+    let notices = 0;
+    client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+      notices += 1;
+    });
+    await client.listTools();
+
+    server.setHandler(undefined);
+    server.setHandler({ ...titleTool, call: titleTool.call });
+
+    expect(await server.announceTools()).toBe(true);
+    expect(notices).toBe(0);
+  });
+
+  it('says so when the agent does not read the new tools in time', async () => {
+    const server = await start();
+    const auth = { authorization: server.authorization, 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    await fetch(server.url, { method: 'POST', headers: auth, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+    server.setHandler(titleTool);
+
+    expect(await server.announceTools({ timeoutMs: 50 })).toBe(false);
+  });
+
   it('tells the agent no turn is running when nobody can run the tool', async () => {
     const server = await start(titleTool);
     const client = await connect(server);
@@ -171,17 +212,24 @@ describe('who may talk to the server', () => {
     expect(response.status).toBe(403);
   });
 
-  it('answers pings, accepts notifications, and offers no event stream', async () => {
+  it('answers pings, accepts notifications, and keeps an event stream open only for notices', async () => {
     const server = await start(titleTool);
     const auth = { authorization: server.authorization };
 
     const ping = await post(server, auth);
     const note = await post(server, auth, { jsonrpc: '2.0', method: 'notifications/initialized' });
-    const stream = await fetch(server.url, { headers: { ...auth, accept: 'text/event-stream' } });
+    const hangUp = new AbortController();
+    const stream = await fetch(server.url, { headers: { ...auth, accept: 'text/event-stream' }, signal: hangUp.signal });
+    const plainGet = await fetch(server.url, { headers: auth });
+    const strangerStream = await fetch(server.url, { headers: { accept: 'text/event-stream' } });
+    hangUp.abort();
 
     expect(await ping.json()).toEqual({ jsonrpc: '2.0', id: 1, result: {} });
     expect(note.status).toBe(202);
-    expect(stream.status).toBe(405);
+    expect(stream.status).toBe(200);
+    expect(stream.headers.get('content-type')).toBe('text/event-stream');
+    expect(plainGet.status).toBe(405);
+    expect(strangerStream.status).toBe(401);
   });
 
   it('says so for a method it does not know', async () => {

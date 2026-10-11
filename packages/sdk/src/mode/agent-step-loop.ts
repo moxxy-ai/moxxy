@@ -126,13 +126,14 @@ export async function* runAgentStepLoop(ctx: ModeContext, opts: ReactLoopOptions
         });
       }
     }
-    if (round.moxxyTools.length > 0) {
+    if (round.moxxyTools.length > 0 && opts.onToolBatchEnd) {
+      const directive = await opts.onToolBatchEnd(ctx, { toolUses: round.moxxyTools, iteration });
+      if (directive?.action === 'stop') return;
+    }
+    // A round where the agent ran tools, its own or Moxxy's, is work, not idling.
+    if (round.moxxyTools.length > 0 || round.ranTools) {
       consecutiveIdle = 0;
       injectionsUsed = 0;
-      if (opts.onToolBatchEnd) {
-        const directive = await opts.onToolBatchEnd(ctx, { toolUses: round.moxxyTools, iteration });
-        if (directive?.action === 'stop') return;
-      }
     } else {
       consecutiveIdle += 1;
     }
@@ -170,6 +171,8 @@ interface Round {
   readonly error?: string;
   /** Moxxy tools the agent called over MCP, for the mode's `onToolBatchEnd`. */
   readonly moxxyTools: ReadonlyArray<CollectedToolUse>;
+  /** The agent ran tools of its own. */
+  readonly ranTools: boolean;
   /** Set when the person refused a tool whose refusal ends the turn: its text. */
   readonly endsTurn?: string;
   readonly goal?: AgentGoalStatus;
@@ -219,6 +222,7 @@ async function runRound(
   let sessionId = resumeSessionId;
   let goal: AgentGoalStatus | undefined;
   let plan: string | undefined;
+  let ranTools = false;
 
   try {
     const stream = agentStep({
@@ -253,6 +257,7 @@ async function runRound(
           break;
         case 'tool_call':
           open.add(event.callId);
+          ranTools = true;
           await emit({
             ...base,
             type: 'tool_call_requested',
@@ -355,6 +360,7 @@ async function runRound(
     ...(usage ? { usage } : {}),
     ...(error !== undefined ? { error } : {}),
     moxxyTools,
+    ranTools,
     ...(endsTurn !== undefined ? { endsTurn } : {}),
     ...(goal ? { goal } : {}),
     ...(plan !== undefined ? { plan } : {}),

@@ -70,6 +70,8 @@ export function codexSessions(): AgentSessionPool<CodexAgentSession> {
  */
 export class CodexAgentProvider implements LLMProvider {
   readonly name = CODEX_AGENT_PROVIDER_ID;
+  /** Its own plan mode and goal: Moxxy shows the plan and ends the goal when the agent says so. */
+  readonly agentOwns = { plan: true, goal: true } as const;
   readonly models = codexAgentModels;
   private readonly defaultModel: string;
   private readonly start: StartCodexAppServer;

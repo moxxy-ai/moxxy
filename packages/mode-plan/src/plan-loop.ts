@@ -41,6 +41,9 @@ export async function* runPlanMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
   const requireStructuredPlan: TurnCheckpoint = {
     name: 'plan-complete',
     gateOn: 'idle',
+    // An agent with its own plan mode hands its plan back itself (`onAgentPlan`).
+    agentConnections: true,
+    applies: (loopCtx) => loopCtx.provider.agentOwns?.plan !== true,
     run: async () => ({ action: 'inject', volatile: true, text: PLAN_COMPLETION_NUDGE }),
   };
 

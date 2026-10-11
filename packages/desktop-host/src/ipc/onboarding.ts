@@ -74,7 +74,7 @@ export function registerOnboardingHandlers(pool: RunnerPool): void {
     const info = remote?.getInfo();
     const known = info?.providers.find((p) => p.name === provider);
     if (known) return known.authKind;
-    const OAUTH_FALLBACK = new Set(['openai-codex', 'claude-code', 'codex-agent']);
+    const OAUTH_FALLBACK = new Set(['openai-codex', 'claude-code', 'codex-agent', 'opencode']);
     return OAUTH_FALLBACK.has(provider) ? 'oauth' : 'api-key';
   });
 }

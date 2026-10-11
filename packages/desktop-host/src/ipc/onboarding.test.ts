@@ -17,7 +17,7 @@ function captureHandlers(): Map<string, Handler> {
 }
 
 describe('onboarding.providerAuthKind before a runner is reachable', () => {
-  it.each(['openai-codex', 'claude-code', 'codex-agent'])('signs in to %s rather than asking for a key', async (provider) => {
+  it.each(['openai-codex', 'claude-code', 'codex-agent', 'opencode'])('signs in to %s rather than asking for a key', async (provider) => {
     const authKind = captureHandlers().get('onboarding.providerAuthKind');
     assertDefined(authKind, 'onboarding.providerAuthKind handler');
     expect(await authKind({ provider })).toBe('oauth');

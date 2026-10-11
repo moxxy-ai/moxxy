@@ -7,6 +7,8 @@ Most providers use API keys. Three providers use a **subscription** instead:
 `openai-codex` (`@moxxy/plugin-provider-openai-codex`, shown as **ChatGPT — Moxxy**)
 and `codex-agent` (`@moxxy/plugin-provider-codex-agent`, shown as **ChatGPT — Codex agent**)
 for ChatGPT Pro/Plus, and `claude-code` (`@moxxy/plugin-provider-claude-code`) for Claude Pro/Max.
+`opencode` (`@moxxy/plugin-provider-acp`, shown as **OpenCode agent**) uses
+whatever your own OpenCode is set up with.
 The generic `@moxxy/plugin-oauth` plugin handles the dance for any provider
 that wires the same hook.
 
@@ -156,6 +158,55 @@ Moxxy runs your installed `codex` (from `PATH`, or
 - **Conversations.** Each Moxxy conversation keeps one running Codex, and
   resumes Codex's thread after a restart.
 - **Credentials.** Codex owns its login files; Moxxy neither reads nor stores them.
+
+## OpenCode — `opencode`
+
+The `opencode` connection, shown as **OpenCode agent**, hands each turn to
+OpenCode itself through `opencode acp` (the Agent Client Protocol), with its own
+instructions, config, tools, skills, permission rules, MCP servers and models.
+Set it active with:
+
+```yaml
+# moxxy.config.yaml
+provider:
+  name: opencode
+  # any model `opencode models` lists
+  model: opencode/big-pickle
+```
+
+You need OpenCode installed. Its free models need no sign-in; for other model
+providers, sign OpenCode in from a terminal:
+
+```sh
+opencode auth login      # or: moxxy login opencode
+opencode auth list
+```
+
+Moxxy runs your installed `opencode` (from `PATH`, or
+`OPENCODE_EXECUTABLE=/absolute/path/to/opencode`) and installs nothing of its own.
+The model picker offers what `opencode models` lists.
+
+- **Approvals.** The auto-approve switch shows how OpenCode really runs. On
+  its defaults OpenCode edits files and runs commands without asking, so the
+  first message turns auto-approve on. Turn it off and Moxxy restarts that
+  conversation's OpenCode once, with your own rules passed in for that process
+  only (`OPENCODE_CONFIG_CONTENT`): what they allow becomes an ask, what they
+  deny stays denied. It then asks before edits, commands and web requests, and
+  Moxxy shows each ask as its usual approval; turning auto-approve back on
+  needs no restart, Moxxy answers the asks itself (your standing deny rules
+  still refuse). If your rules already ask, auto-approve stays off. OpenCode's
+  config files are never edited. OpenCode ends its turn when you decline, so
+  Moxxy hands it your reason as its next message in the same turn.
+- **Stop.** Stop cancels OpenCode's prompt; the next message carries on in the
+  same session.
+- **Modes.** Plan mode runs OpenCode in its plan mode (no file edits). OpenCode
+  has no plan hand-off or goal of its own, so Moxxy lends it `plan_complete` and
+  the goal tools over MCP: its plan is shown in the plan card, and in goal mode
+  it keeps working until it calls `goal_complete`. Its questions go through
+  Moxxy's `ask_user`.
+- **Conversations.** Each Moxxy conversation keeps one running OpenCode, and
+  loads OpenCode's session after a restart.
+- **Credentials.** OpenCode owns its login files; Moxxy neither reads nor stores them.
 
 ## Using OAuth in your own plugin
 

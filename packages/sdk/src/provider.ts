@@ -192,6 +192,14 @@ export interface LLMProvider {
    * conversation's turns; `stream` still serves one-shot text calls.
    */
   agentStep?(req: AgentStepRequest): AsyncIterable<AgentStepEvent>;
+  /**
+   * On an agent connection: the plan and goal the vendor's agent keeps itself
+   * (Claude, Codex), handed back as `plan` and `goal` events. Moxxy's plan and
+   * goal modes steer an agent without them like any model: through
+   * `plan_complete` / `goal_complete` it calls over MCP, and a nudge when it
+   * stops without one.
+   */
+  readonly agentOwns?: AgentOwnModes;
   countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number>;
 }
 
@@ -448,6 +456,11 @@ export type AgentApprovalDecision =
   | { readonly allow: false; readonly reason: string };
 
 export type AgentGoalStatus = 'active' | 'complete';
+
+export interface AgentOwnModes {
+  readonly plan?: boolean;
+  readonly goal?: boolean;
+}
 
 /** What the agent did, in the order it did it. */
 export type AgentStepEvent =

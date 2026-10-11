@@ -653,22 +653,26 @@ describe('goal tools outside goal mode', () => {
   });
 });
 
-describe('goal mode on an agent connection with its own goal', () => {
-  const priorModePlugin = definePlugin({
-    name: '@moxxy/testing/prior-mode',
-    modes: [defineMode({ name: 'prior', run: async function* () {} })],
-  });
+const priorModePlugin = definePlugin({
+  name: '@moxxy/testing/prior-mode',
+  modes: [defineMode({ name: 'prior', run: async function* () {} })],
+});
 
-  function armed(provider: FakeAgentProvider) {
-    const session = createFakeSession({ provider });
-    session.pluginHost.registerStatic(priorModePlugin);
-    session.pluginHost.registerStatic(goalModePlugin);
-    session.modes.setActive(GOAL_MODE_NAME);
-    return session;
+function armed(provider: FakeAgentProvider) {
+  const session = createFakeSession({ provider });
+  session.pluginHost.registerStatic(priorModePlugin);
+  session.pluginHost.registerStatic(goalModePlugin);
+  session.modes.setActive(GOAL_MODE_NAME);
+  return session;
+}
+
+describe('goal mode on an agent connection with its own goal', () => {
+  function ownGoal(script: ConstructorParameters<typeof FakeAgentProvider>[0]) {
+    return new FakeAgentProvider(script, 'fake-agent', { agentOwns: { goal: true } });
   }
 
   it('ends the run when the agent says its goal is met, and hands back the previous mode', async () => {
-    const provider = new FakeAgentProvider(async function* () {
+    const provider = ownGoal(async function* () {
       yield { type: 'message', text: 'goal.txt now says GOAL-DONE.' };
       yield { type: 'goal', status: 'complete' };
     });
@@ -684,7 +688,7 @@ describe('goal mode on an agent connection with its own goal', () => {
   });
 
   it('stays armed when the agent goal is still open, so the next message carries on', async () => {
-    const provider = new FakeAgentProvider(async function* () {
+    const provider = ownGoal(async function* () {
       yield { type: 'message', text: 'Half way.' };
       yield { type: 'goal', status: 'active' };
     });
@@ -694,5 +698,64 @@ describe('goal mode on an agent connection with its own goal', () => {
 
     expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(false);
     expect(session.modes.getActiveName()).toBe(GOAL_MODE_NAME);
+  });
+});
+
+describe('goal mode on an agent connection without a goal of its own', () => {
+  it('keeps the agent going until it declares the goal met through goal_complete, then hands back the previous mode', async () => {
+    const provider = new FakeAgentProvider(async function* (req) {
+      if (provider.steps.length === 1) {
+        yield { type: 'tool_call', callId: 'b1', name: 'Bash', input: { command: 'echo GOAL-DONE > goal.txt' } };
+        yield { type: 'tool_result', callId: 'b1', ok: true, output: '' };
+        yield { type: 'message', text: 'goal.txt is written.' };
+        return;
+      }
+      await req.host.runTool({ callId: 'g1', name: 'goal_complete', input: { summary: 'goal.txt says GOAL-DONE', evidence: ['cat goal.txt'] } });
+      yield { type: 'message', text: 'Done.' };
+    });
+    const session = armed(provider);
+
+    const events = await collectTurn(session, 'make goal.txt say GOAL-DONE');
+
+    expect(provider.steps).toHaveLength(2);
+    // The second round is goal mode's nudge, handed to the agent as its next message.
+    const nudge = provider.steps[1]?.prompt[0];
+    expect(nudge).toMatchObject({ type: 'text', text: expect.stringContaining('goal_complete') });
+    expect(provider.steps[0]?.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['goal_complete', 'goal_abandon']));
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(true);
+    expect(session.modes.getActiveName()).toBe('prior');
+  });
+
+  it('keeps an agent that works every round going, however many rounds it takes', async () => {
+    const provider = new FakeAgentProvider(async function* (req) {
+      const round = provider.steps.length;
+      if (round < 6) {
+        yield { type: 'tool_call', callId: `b${round}`, name: 'Bash', input: { command: `step ${round}` } };
+        yield { type: 'tool_result', callId: `b${round}`, ok: true, output: '' };
+        yield { type: 'message', text: `Step ${round} done.` };
+        return;
+      }
+      await req.host.runTool({ callId: 'g1', name: 'goal_complete', input: { summary: 'all six steps' } });
+    });
+    const session = armed(provider);
+
+    const events = await collectTurn(session, 'do six steps');
+
+    expect(provider.steps).toHaveLength(6);
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(true);
+  });
+
+  it('ends the run once the agent stops working without saying the goal is met', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'I think it is done.' };
+    });
+    const session = armed(provider);
+
+    const events = await collectTurn(session, 'tidy up');
+
+    expect(provider.steps).toHaveLength(3);
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_stalled')).toBe(true);
+    expect(session.modes.getActiveName()).toBe('prior');
   });
 });

@@ -255,6 +255,7 @@ export type {
   AgentStepHost,
   AgentStepEvent,
   AgentGoalStatus,
+  AgentOwnModes,
   AgentToolCall,
   AgentToolOutcome,
   AgentApprovalRequest,

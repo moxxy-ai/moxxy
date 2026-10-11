@@ -382,6 +382,22 @@ describe('goal mode', () => {
     expect(session.modes.getActiveName()).toBe('default');
   });
 
+  it('leaves a goal Codex stopped on (blocked) to Codex, without Moxxy pushing it on', async () => {
+    const { codex, session } = connect(async (turn) => {
+      turn.say('I need the API key to go on.');
+      turn.goal('blocked');
+    });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive('goal');
+
+    await collectTurn(session, 'deploy it');
+
+    // Codex starts the goal's turn itself; Moxxy adds no message of its own.
+    expect(codex.last.sent('turn/start')).toHaveLength(0);
+    expect(codex.turnCount).toBe(1);
+    expect(session.modes.getActiveName()).toBe('goal');
+  });
+
   it('runs the goal with full access even when the person has Codex ask, without changing the conversation auto-approve', async () => {
     const { codex, session } = connect(async (turn) => {
       if (turn.objective !== undefined) turn.goal('complete');

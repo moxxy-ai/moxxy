@@ -277,6 +277,23 @@ describe('Moxxy modes on Claude', () => {
     expect(answer).toMatchObject({ behavior: 'allow' });
   });
 
+  it('leaves a goal Claude still has open to Claude, without Moxxy pushing it on', async () => {
+    const { claude, session } = connect(async function* (turn) {
+      if (turn.text === '/goal') {
+        yield assistantText('Goal active: the site is deployed', '<synthetic>');
+        return;
+      }
+      yield assistantText('I need the API key to go on.');
+    });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive('goal');
+
+    await collectTurn(session, 'the site is deployed');
+
+    expect(claude.last.received.map((m) => m.message.content)).toEqual([[{ type: 'text', text: '/goal the site is deployed' }], '/goal']);
+    expect(session.modes.getActiveName()).toBe('goal');
+  });
+
   it('runs a goal with Claude own /goal, and ends Moxxy goal mode when Claude says it is met', async () => {
     const { claude, session } = connect(async function* (turn) {
       if (turn.text === '/goal') {
