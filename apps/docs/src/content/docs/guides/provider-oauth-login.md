@@ -147,7 +147,9 @@ Moxxy runs your installed `codex` (from `PATH`, or
   commands and file changes run outside its read-only sandbox, and Moxxy shows
   that as its usual approval. Auto-approve gives *this conversation's* Codex full
   access; `~/.codex/config.toml` is never edited. A Codex that is already set to
-  full access starts with auto-approve on. Codex's answer to an approval carries
+  full access starts with auto-approve on. Once the conversation has run, the
+  switch stays as you left it, also when Moxxy starts a new Codex process that
+  resumes the thread. Codex's answer to an approval carries
   no reason, so when you decline, Moxxy hands your reason to its running turn
   (or its next message, if the turn can no longer take input). While
   auto-approve is off, you answer those approvals, not Codex's own reviewer
@@ -207,7 +209,9 @@ The model picker offers what `opencode models` lists.
   still refuse). Work outside the project folder, which OpenCode asks about
   even on its defaults, still comes to you while auto-approve is the one the
   first message turned on; once you switch it yourself, Moxxy answers that too.
-  If your rules already ask, auto-approve stays off. OpenCode's
+  If your rules already ask, auto-approve stays off. A new OpenCode process
+  that loads the session keeps the switch as you left it (and, unable to tell
+  who turned it on, keeps asking you about work outside the project). OpenCode's
   config files are never edited. OpenCode ends its turn when you decline, so
   Moxxy hands it your reason as its next message in the same turn.
 - **Stop.** Stop cancels OpenCode's prompt; the next message carries on in the

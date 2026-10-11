@@ -205,7 +205,16 @@ export class FakeCodexServer {
         return started;
       }
       case 'config/read':
-        return { result: { config: { model_reasoning_summary: this.codex.defaults.reasoningSummary ?? null, approvals_reviewer: this.codex.defaults.approvalsReviewer ?? 'user' } } };
+        return {
+          result: {
+            config: {
+              model_reasoning_summary: this.codex.defaults.reasoningSummary ?? null,
+              approvals_reviewer: this.codex.defaults.approvalsReviewer ?? 'user',
+              approval_policy: this.codex.defaults.approvalPolicy ?? 'never',
+              sandbox_mode: modeOfSandbox(this.codex.defaults.sandbox ?? { type: 'dangerFullAccess' }),
+            },
+          },
+        };
       case 'thread/resume': {
         if (this.codex.resumeFailures < (this.codex.defaults.resumeFailures ?? 0)) {
           this.codex.resumeFailures += 1;
@@ -213,7 +222,8 @@ export class FakeCodexServer {
         }
         const saved = this.codex.saved.get(String(params.threadId));
         if (!saved) throw new Error(`no rollout found for thread id ${String(params.threadId)}`);
-        const thread: FakeThread = { ...saved, mcp: mcpOf(params.config), moxxyTools: [] };
+        // As Codex 0.155 resumes a thread: the approval policy Moxxy set on it is kept, the sandbox is the person's config again.
+        const thread: FakeThread = { ...saved, sandbox: this.codex.defaults.sandbox ?? { type: 'dangerFullAccess' }, mcp: mcpOf(params.config), moxxyTools: [] };
         thread.moxxyTools = await this.readMoxxyTools(thread);
         this.threads.set(thread.id, thread);
         return { result: threadResponse(thread) };
@@ -436,6 +446,12 @@ function threadResponse(thread: FakeThread): Record<string, unknown> {
     serviceTier: thread.serviceTier,
     instructionSources: [],
   };
+}
+
+function modeOfSandbox(sandbox: CodexSandboxPolicy): string {
+  if (sandbox.type === 'readOnly') return 'read-only';
+  if (sandbox.type === 'workspaceWrite') return 'workspace-write';
+  return 'danger-full-access';
 }
 
 function sandboxFromMode(mode: unknown): CodexSandboxPolicy | undefined {

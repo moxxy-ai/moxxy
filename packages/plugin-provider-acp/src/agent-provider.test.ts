@@ -360,6 +360,19 @@ describe('approvals: OpenCode asks, Moxxy answers', () => {
     ]);
   });
 
+  it('keeps auto-approve the person turned off when a new OpenCode loads the session', async () => {
+    const { session, opencode, pool } = connect(async (turn) => turn.say('ok'), { rules: { build: OPENCODE_DEFAULT_RULES } });
+    await collectTurn(session, 'one');
+    await session.setAutoApprove(false);
+    await collectTurn(session, 'two');
+    await pool.close(String(session.id));
+
+    await collectTurn(session, 'three');
+
+    expect(opencode.last.sent('session/load')).toHaveLength(1);
+    expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(false);
+  });
+
   it('leaves auto-approve off when OpenCode own rules ask before edits and commands', async () => {
     const { session, opencode } = connect(async (turn) => turn.say('ok'));
 
@@ -520,6 +533,26 @@ describe('auto-approve shows how OpenCode really runs', () => {
     expect(asked).toHaveLength(2);
   });
 
+  it('keeps asking about outside the project after a new OpenCode loads the session, since it cannot tell who turned auto-approve on', async () => {
+    const asked: string[] = [];
+    const { session, opencode, pool } = connect(
+      async (turn) => {
+        await turn.tool('write', 'edit', { filePath: '/elsewhere/a.txt', content: 'x' }, 'Wrote file successfully.', { outside: '/elsewhere/a.txt' });
+        turn.say('written');
+      },
+      { rules: { build: OPENCODE_DEFAULT_RULES } },
+    );
+    session.setPermissionResolver({ name: 'person', check: async (call) => (asked.push(call.name), { mode: 'allow' }) });
+    await collectTurn(session, 'one');
+    await pool.close(String(session.id));
+
+    await collectTurn(session, 'two');
+
+    expect(opencode.last.sent('session/load')).toHaveLength(1);
+    expect(autoApprove(session)).toBe(true);
+    expect(asked).toHaveLength(2);
+  });
+
   it('keeps the conversation when the asking OpenCode cannot load the session, and loads it on the next message', async () => {
     const { session, opencode } = connect(
       async (turn) => turn.say(turn.text === 'remember MARMOT-55' ? 'noted' : 'MARMOT-55'),
@@ -533,8 +566,10 @@ describe('auto-approve shows how OpenCode really runs', () => {
     const next = await collectTurn(session, 'which word?');
 
     expect(failed).toContainEqual(expect.objectContaining({ type: 'error', message: expect.stringContaining('could not load') }));
-    expect(opencode.servers).toHaveLength(3);
+    // The next agent loads the session, then starts again asking, since auto-approve stays off.
+    expect(opencode.servers).toHaveLength(4);
     expect(opencode.servers.flatMap((server) => server.sent('session/new'))).toHaveLength(1);
+    expect(autoApprove(session)).toBe(false);
     expect(said(next)).toEqual(['MARMOT-55']);
   });
 

@@ -31,8 +31,20 @@ export interface CodexThreadResponse {
 export type CodexApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent';
 
 /** What `config/read` answers: the person's effective Codex config, as far as Moxxy reads it. */
+/** The person's Codex config as `config/read` reports it for the folder (only what Moxxy reads). */
 export interface CodexConfigRead {
-  readonly config: { readonly model_reasoning_summary?: string | null };
+  readonly config: {
+    readonly model_reasoning_summary?: string | null;
+    readonly approval_policy?: CodexApprovalPolicy | null;
+    readonly sandbox_mode?: 'read-only' | 'workspace-write' | 'danger-full-access' | null;
+    readonly sandbox_workspace_write?: {
+      readonly writable_roots: ReadonlyArray<string>;
+      readonly network_access: boolean;
+      readonly exclude_tmpdir_env_var: boolean;
+      readonly exclude_slash_tmp: boolean;
+    } | null;
+    readonly approvals_reviewer?: CodexApprovalsReviewer | null;
+  };
 }
 
 export type CodexUserInput =

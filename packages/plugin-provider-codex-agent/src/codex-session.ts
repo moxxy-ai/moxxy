@@ -96,6 +96,21 @@ export function isAuto(policy: Policy): boolean {
   return policy.approvalPolicy === 'never' && policy.sandbox.type === 'dangerFullAccess';
 }
 
+/** The sandbox a config's `sandbox_mode` gives a thread. */
+function sandboxOf(mode: SandboxMode, workspace: CodexConfigRead['config']['sandbox_workspace_write']): CodexSandboxPolicy {
+  if (mode === 'danger-full-access') return { type: 'dangerFullAccess' };
+  if (mode === 'read-only') return { type: 'readOnly', networkAccess: false };
+  return {
+    type: 'workspaceWrite',
+    writableRoots: workspace ? workspace.writable_roots : [],
+    networkAccess: workspace ? workspace.network_access : false,
+    excludeTmpdirEnvVar: workspace ? workspace.exclude_tmpdir_env_var : false,
+    excludeSlashTmp: workspace ? workspace.exclude_slash_tmp : false,
+  };
+}
+
+type SandboxMode = NonNullable<CodexConfigRead['config']['sandbox_mode']>;
+
 /**
  * Moxxy tools Codex already has its own of, so they are not lent over MCP:
  * its file and shell tools, web search, background jobs, skills, memory, its
@@ -149,8 +164,12 @@ export class CodexAgentSession implements LiveSession {
   private alive = true;
   private closed = false;
   private inTurn = false;
-  /** The thread has not reported its own policy to the conversation yet. */
-  private fresh = true;
+  /**
+   * The conversation has not been told how Codex runs yet. Only a thread
+   * started for it does that: a conversation going on keeps the auto-approve
+   * the person chose, which a new process resuming the thread knows nothing of.
+   */
+  private fresh: boolean;
   private threadId = '';
   /** How the person's Codex config runs the thread; restored when Moxxy no longer overrides it. */
   private original: Policy = AUTO;
@@ -191,6 +210,7 @@ export class CodexAgentSession implements LiveSession {
     private readonly mcp: MoxxyMcpServer,
     private readonly connection: CodexConnection,
   ) {
+    this.fresh = !settings.resume;
     this.listed = toolsLentToCodex(settings.tools ?? []);
     this.client = new JsonRpcLineClient({ readable: connection.readable, writable: connection.writable });
     connection.stderr?.on('data', (data: Buffer | string) => {
@@ -237,7 +257,7 @@ export class CodexAgentSession implements LiveSession {
     try {
       yield { type: 'session', sessionId: this.threadId };
       let autoApprove = req.autoApprove;
-      // A new thread shows the conversation how the person's Codex really runs
+      // A new conversation's thread shows it how the person's Codex really runs
       // (one state). In goal mode Codex runs with full access for the goal, not
       // because the person chose auto-approve, so that waits for the next turn.
       if (this.fresh && mode !== 'goal') {
@@ -286,14 +306,16 @@ export class CodexAgentSession implements LiveSession {
     // Codex lists Moxxy's tools when the thread opens and keeps that list for the thread.
     this.mcp.setHandler(idleToolsHandler(this.listed));
     let thread: CodexThreadResponse | undefined;
+    let resumed = false;
     if (resume) {
-      const resumed = await resumeAgentSession({
+      const loaded = await resumeAgentSession({
         label: 'Codex',
         load: () => this.client.request<CodexThreadResponse>('thread/resume', { threadId: resume, cwd, config }),
         gone: threadGone,
       });
-      if (resumed.kind === 'loaded') {
-        thread = resumed.session;
+      if (loaded.kind === 'loaded') {
+        thread = loaded.session;
+        resumed = true;
         const found = await this.client.request<{ goal: CodexGoal | null }>('thread/goal/get', { threadId: thread.thread.id }).catch(() => undefined);
         this.goal = found?.goal ?? undefined;
       } else {
@@ -304,16 +326,23 @@ export class CodexAgentSession implements LiveSession {
     }
     thread ??= await this.client.request<CodexThreadResponse>('thread/start', { cwd, config });
     this.threadId = thread.thread.id;
-    this.original = { approvalPolicy: thread.approvalPolicy, sandbox: thread.sandbox };
+    // A new thread runs as the person set Codex up. A resumed one keeps the approval
+    // policy and reviewer Moxxy last set on it, so their own setup comes from their config.
+    const own = resumed && read ? read.config : undefined;
+    const running: Policy = { approvalPolicy: thread.approvalPolicy, sandbox: thread.sandbox };
+    this.original = {
+      approvalPolicy: (own && own.approval_policy) ?? running.approvalPolicy,
+      sandbox: own && own.sandbox_mode ? sandboxOf(own.sandbox_mode, own.sandbox_workspace_write) : running.sandbox,
+    };
     this.originalTier = thread.serviceTier && thread.serviceTier !== STANDARD_TIER ? thread.serviceTier : null;
-    this.originalReviewer = thread.approvalsReviewer ?? 'user';
+    this.originalReviewer = (own && own.approvals_reviewer) ?? thread.approvalsReviewer ?? 'user';
     this.current = {
-      ...this.original,
+      ...running,
       model: thread.model,
       ...(thread.reasoningEffort ? { effort: thread.reasoningEffort } : {}),
       serviceTier: this.originalTier,
       collaboration: 'default',
-      reviewer: this.originalReviewer,
+      reviewer: thread.approvalsReviewer ?? 'user',
       summary: this.ownSummary ?? null,
     };
   }

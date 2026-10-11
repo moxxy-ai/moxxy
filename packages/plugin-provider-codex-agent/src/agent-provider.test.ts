@@ -339,6 +339,48 @@ describe('approvals: one state with Codex own policy', () => {
     expect(codex.last.thread).toMatchObject({ approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } });
   });
 
+  it('keeps auto-approve the person turned on when a new Codex resumes the thread', async () => {
+    const { codex, session, pool } = connect(async (turn) => turn.say('ok'), ASKING);
+    await collectTurn(session, 'one');
+    await session.setAutoApprove(true);
+    await collectTurn(session, 'two');
+    await pool.close(String(session.id));
+
+    await collectTurn(session, 'three');
+
+    expect(codex.last.sent('thread/resume')).toHaveLength(1);
+    expect(autoApproveOf(session)).toBe(true);
+    expect(codex.last.thread).toMatchObject({ approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } });
+  });
+
+  it('keeps auto-approve the person turned off when a new Codex resumes the thread', async () => {
+    const { codex, session, pool } = connect(async (turn) => turn.say('ok'));
+    await collectTurn(session, 'one');
+    await session.setAutoApprove(false);
+    await collectTurn(session, 'two');
+    await pool.close(String(session.id));
+
+    await collectTurn(session, 'three');
+
+    expect(codex.last.sent('thread/resume')).toHaveLength(1);
+    expect(autoApproveOf(session)).toBe(false);
+    expect(codex.last.thread).toMatchObject(ASKING);
+  });
+
+  it("gives Codex its own reviewer back after a new Codex resumed a thread Moxxy had set to the person's answers", async () => {
+    const { codex, session, pool } = connect(async (turn) => turn.say('ok'), { approvalsReviewer: 'auto_review' });
+    await collectTurn(session, 'one');
+    await session.setAutoApprove(false);
+    await collectTurn(session, 'two');
+    await pool.close(String(session.id));
+    await collectTurn(session, 'three');
+
+    await session.setAutoApprove(true);
+    await collectTurn(session, 'four');
+
+    expect(codex.last.thread).toMatchObject({ approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' }, approvalsReviewer: 'auto_review' });
+  });
+
   it('lends Moxxy tools over MCP, run through Moxxy permissions and shown once', async () => {
     let ran = 0;
     const browserOpen = defineTool({
