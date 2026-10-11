@@ -20,6 +20,23 @@ const RETRY_AFTER_MS = 500;
 export const LOST_SESSION_NOTE =
   'Moxxy could not find your earlier session for this conversation: it no longer exists, so you start this one without that history. Tell the person so in one sentence before anything else.';
 
+/** Why an agent started a session of its own while the conversation already ran: its earlier one is gone, or it had none. */
+export type NewSessionReason = 'lost' | 'new';
+
+/**
+ * What a new agent session is told first: the conversation so far from
+ * Moxxy's record (`AgentStepRequest.earlierConversation`), so the agent
+ * carries on instead of starting over. `undefined` when there is nothing to say.
+ */
+export function earlierConversationNote(reason: NewSessionReason, earlier: string | undefined): string | undefined {
+  if (earlier === undefined) return reason === 'lost' ? LOST_SESSION_NOTE : undefined;
+  const intro =
+    reason === 'lost'
+      ? 'Your earlier session for this Moxxy conversation no longer exists, so this one is new. Carry on from where the conversation is; there is no need to bring the change up.'
+      : 'You join this Moxxy conversation partway: its earlier turns ran without you.';
+  return `${intro}\n\n${earlier}`;
+}
+
 /**
  * Load the agent's earlier session for a conversation. A fresh session is
  * only ever the caller's answer to `gone`, the agent saying the session no

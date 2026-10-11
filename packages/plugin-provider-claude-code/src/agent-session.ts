@@ -3,11 +3,14 @@ import type { AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome,
 import {
   Inbox,
   agentModeFor,
+  earlierConversationNote,
   moxxyToolsHandler,
+  resumeAgentSession,
   startMoxxyMcpServer,
   type AgentMode,
   type LiveSession,
   type MoxxyMcpServer,
+  type NewSessionReason,
   untilStopped,
 } from '@moxxy/agent-connection-kit';
 import { fromClaudeQuestions, toClaudeAnswers } from './questions.js';
@@ -45,11 +48,13 @@ export interface ClaudeSessionSettings {
 /**
  * Moxxy tools Claude Code already has its own of, so they are not lent over
  * MCP: its file and shell tools, web, background jobs, questions, skills,
- * memory and recall, its own plan (ExitPlanMode) and goal (`/goal`).
+ * memory, its own plan (ExitPlanMode) and goal (`/goal`). `recall` is lent:
+ * it searches Moxxy's record of the whole conversation, which outlives
+ * Claude's own session.
  */
 const CLAUDE_HAS_ITS_OWN = new Set([
   'Read', 'Edit', 'Write', 'Bash', 'Grep', 'Glob', 'Sleep', 'Wait', 'StopJob',
-  'web_search', 'web_fetch', 'ask_user', 'recall', 'session_recall',
+  'web_search', 'web_fetch', 'ask_user', 'session_recall',
   'load_skill', 'reload_skills', 'synthesize_skill', 'load_tool',
   'plan_complete', 'goal_complete', 'goal_abandon',
 ]);
@@ -86,6 +91,9 @@ type Item =
   | { readonly kind: 'moxxy-tool'; readonly call: AgentToolCall; readonly resolve: (outcome: AgentToolOutcome) => void };
 
 const NOT_IN_A_TURN = 'Nobody is in the Moxxy conversation right now to answer this.';
+/** In goal mode `/goal` must start the message, so the conversation so far goes first, on its own. */
+const READ_ONLY_REPLY = 'Reply with OK only: the person\'s message follows next.';
+class SessionGone extends Error {}
 const MAX_STDERR = 2048;
 
 /**
@@ -111,9 +119,10 @@ export class ClaudeAgentSession implements LiveSession {
   private stderr = '';
 
   static async start(settings: ClaudeSessionSettings): Promise<ClaudeAgentSession> {
+    const checked = await withoutLostSession(settings);
     const mcp = await startMoxxyMcpServer({ name: 'moxxy' });
     try {
-      return new ClaudeAgentSession(settings, mcp);
+      return new ClaudeAgentSession(checked.settings, mcp, checked.newSession);
     } catch (err) {
       await mcp.close();
       throw err;
@@ -123,6 +132,8 @@ export class ClaudeAgentSession implements LiveSession {
   private constructor(
     readonly settings: ClaudeSessionSettings,
     private readonly mcp: MoxxyMcpServer,
+    /** Claude's session is new while the conversation may already have run: its first message carries the conversation so far. */
+    private newSession: NewSessionReason | undefined,
   ) {
     this.model = settings.model;
     this.permissionMode = settings.permissionMode;
@@ -180,9 +191,13 @@ export class ClaudeAgentSession implements LiveSession {
         return;
       }
       await this.align(req, mode);
+      const note = this.newSession ? earlierConversationNote(this.newSession, req.earlierConversation?.()) : undefined;
+      this.newSession = undefined;
       const prefix = mode === 'goal' && !this.goalActive ? '/goal ' : '';
+      if (note && prefix) await this.silently(`${note}\n\n${READ_ONLY_REPLY}`);
       if (mode === 'goal') this.goalActive = true;
-      this.send(toClaudeContent(req.prompt, prefix));
+      const content = toClaudeContent(req.prompt, prefix);
+      this.send(note && !prefix && typeof content !== 'string' ? [{ type: 'text', text: note }, ...content] : content);
       const translator = new TurnTranslator();
       for (;;) {
         const item = await this.inbox.next();
@@ -411,6 +426,29 @@ export class ClaudeAgentSession implements LiveSession {
     const stderr = this.stderr.trim();
     return { type: 'error', message: stderr && !detail.includes(stderr) ? `${detail}\n${stderr}` : detail, retryable: false };
   }
+}
+
+/**
+ * The settings to start Claude with: without `resume` when Claude's session
+ * for this conversation no longer exists (Claude would fail every turn on it),
+ * so the conversation goes on in a new one. A check that keeps failing stops
+ * the turn rather than start over.
+ */
+async function withoutLostSession(settings: ClaudeSessionSettings): Promise<{ settings: ClaudeSessionSettings; newSession?: NewSessionReason }> {
+  const { resume, sdk } = settings;
+  if (!resume) return { settings, newSession: 'new' };
+  if (!sdk.getSessionInfo) return { settings };
+  const resumed = await resumeAgentSession({
+    label: 'Claude Code',
+    load: async () => {
+      if (!(await sdk.getSessionInfo?.(resume))) throw new SessionGone(`Claude has no session ${resume}.`);
+      return resume;
+    },
+    gone: (error) => error instanceof SessionGone,
+  });
+  if (resumed.kind === 'loaded') return { settings };
+  const { resume: _lost, ...fresh } = settings;
+  return { settings: fresh, newSession: 'lost' };
 }
 
 function refuse(item: Exclude<Item, { kind: 'message' | 'ended' }>): void {

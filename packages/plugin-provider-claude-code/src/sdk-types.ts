@@ -171,4 +171,6 @@ export interface ClaudeQuery extends AsyncIterable<ClaudeMessage> {
 
 export interface ClaudeAgentSdk {
   query(params: { prompt: string | AsyncIterable<ClaudeUserMessage>; options: ClaudeQueryOptions }): ClaudeQuery;
+  /** One of Claude's saved sessions, searched across every project; `undefined` when it no longer exists. */
+  getSessionInfo?(sessionId: string): Promise<{ readonly sessionId: string } | undefined>;
 }

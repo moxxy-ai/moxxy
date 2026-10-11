@@ -109,7 +109,10 @@ What carries over, and what does not:
   approval. Goal mode uses Claude's own `/goal`, and ends when Claude says the
   goal is met.
 - **Conversations.** Each Moxxy conversation keeps one running Claude, and
-  resumes Claude's own session after a restart.
+  resumes Claude's own session after a restart. A session Claude no longer
+  keeps (it clears old ones, by default 30 days after their last use) is
+  replaced by a new one that starts from Moxxy's record of the conversation;
+  see [Conversations outlive the agent's session](#conversations-outlive-the-agents-session).
 - **Credentials.** Claude Code owns its login files; Moxxy neither reads nor
   stores them.
 
@@ -163,7 +166,7 @@ Moxxy runs your installed `codex` (from `PATH`, or
   resumes Codex's thread after a restart. If Codex fails to read the thread,
   Moxxy tries once more and then shows the error, starting no other thread, so
   the history is kept for your next message. Only a thread Codex no longer has
-  is replaced by a new one, and Codex is told to say so.
+  is replaced by a new one, which starts from Moxxy's record of the conversation.
 - **Credentials.** Codex owns its login files; Moxxy neither reads nor stores them.
 
 ## OpenCode — `opencode`
@@ -219,8 +222,26 @@ The model picker offers what `opencode models` lists.
   and a failed load alike, so Moxxy checks OpenCode's session list: a session
   still there is tried once more and otherwise the error is shown, with no other
   session started; only a session OpenCode no longer has is replaced by a new
-  one, and OpenCode is told to say so.
+  one, which starts from Moxxy's record of the conversation.
 - **Credentials.** OpenCode owns its login files; Moxxy neither reads nor stores them.
+
+## Conversations outlive the agent's session
+
+A Moxxy conversation lasts until you delete it. The agent's own session (Claude's
+session, Codex's thread, OpenCode's session) only holds what the agent
+remembers, and Moxxy keeps the whole conversation itself. When an agent starts
+a new session while the conversation already has turns (its earlier session is
+gone, or you switched agents partway), its first message carries the
+conversation so far from that record:
+
+- the latest turns word for word, up to about 16k tokens;
+- one line for every older turn, in your own words;
+- a note that this is history to work from, not a new request.
+
+Tool output and file contents are not repeated; the agent reads files again when
+it needs them. Each agent also gets Moxxy's `recall` tool, which searches the
+whole conversation (`recall({ query: "database port" })`) and reads any turn in
+full (`recall({ turn: 12 })`), so a detail from long ago is still found.
 
 ## Using OAuth in your own plugin
 

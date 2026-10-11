@@ -5,8 +5,8 @@ import {
   Inbox,
   JsonRpcError,
   JsonRpcLineClient,
-  LOST_SESSION_NOTE,
   agentModeFor,
+  earlierConversationNote,
   moxxyToolsHandler,
   resumeAgentSession,
   startMoxxyMcpServer,
@@ -14,6 +14,7 @@ import {
   type AgentMode,
   type LiveSession,
   type MoxxyMcpServer,
+  type NewSessionReason,
 } from '@moxxy/agent-connection-kit';
 import type { AcpAgentSpec } from './agents.js';
 import {
@@ -111,6 +112,8 @@ export class AcpAgentSession implements LiveSession {
   private ownMode = BUILD_MODE;
   /** Why the person declined, for the next message when the turn ended first. */
   private pendingNotes: string[] = [];
+  /** The session is new while the conversation may already have run: its first prompt carries the conversation so far. */
+  private newSession: NewSessionReason | undefined;
   private stderr = '';
   /** No turn has shown the conversation yet how the agent runs. */
   private fresh = true;
@@ -216,6 +219,11 @@ export class AcpAgentSession implements LiveSession {
       // list: a turn that brings others has it read them again first.
       await this.mcp.announceTools({ signal: req.signal });
       await this.configure(req, mode);
+      if (this.newSession) {
+        const note = earlierConversationNote(this.newSession, req.earlierConversation?.());
+        this.newSession = undefined;
+        if (note) this.pendingNotes.unshift(note);
+      }
       const notes = this.pendingNotes.map((text): AcpContentBlock => ({ type: 'text', text }));
       this.pendingNotes = [];
       let input: AcpContentBlock[] = [...notes, ...toAcpPrompt(req.prompt)];
@@ -316,8 +324,10 @@ export class AcpAgentSession implements LiveSession {
         session = resumed.session;
         this.sessionId = resume;
       } else {
-        this.pendingNotes.push(LOST_SESSION_NOTE);
+        this.newSession = 'lost';
       }
+    } else {
+      this.newSession = 'new';
     }
     if (!session) {
       session = await this.client.request<AcpSessionResponse>('session/new', { cwd, mcpServers });

@@ -6,8 +6,8 @@ import {
   Inbox,
   JsonRpcError,
   JsonRpcLineClient,
-  LOST_SESSION_NOTE,
   agentModeFor,
+  earlierConversationNote,
   moxxyToolsHandler,
   resumeAgentSession,
   startMoxxyMcpServer,
@@ -15,6 +15,7 @@ import {
   type AgentMode,
   type LiveSession,
   type MoxxyMcpServer,
+  type NewSessionReason,
 } from '@moxxy/agent-connection-kit';
 import { MOXXY_MCP_SERVER } from './constants.js';
 import type {
@@ -55,6 +56,8 @@ export interface CodexSessionSettings {
   readonly cwd: string;
   /** The conversation's Codex thread from an earlier process, to resume. */
   readonly resume?: string;
+  /** The Moxxy tools of the turn that starts this Codex: Codex reads them once, as the thread opens. */
+  readonly tools?: ReadonlyArray<ToolDef>;
 }
 
 interface Policy {
@@ -92,13 +95,14 @@ export function isAuto(policy: Policy): boolean {
 
 /**
  * Moxxy tools Codex already has its own of, so they are not lent over MCP:
- * its file and shell tools, web search, background jobs, skills, memory and
- * recall, its own plan and goal. `ask_user` is lent: outside plan mode Codex
- * has no question of its own.
+ * its file and shell tools, web search, background jobs, skills, memory, its
+ * own plan and goal. `ask_user` is lent: outside plan mode Codex has no
+ * question of its own. `recall` is lent: it searches Moxxy's record of the
+ * whole conversation, which outlives Codex's own thread.
  */
 const CODEX_HAS_ITS_OWN = new Set([
   'Read', 'Edit', 'Write', 'Bash', 'Grep', 'Glob', 'Sleep', 'Wait', 'StopJob',
-  'web_search', 'web_fetch', 'recall', 'session_recall',
+  'web_search', 'web_fetch', 'session_recall',
   'load_skill', 'reload_skills', 'synthesize_skill', 'load_tool',
   'plan_complete', 'goal_complete', 'goal_abandon',
 ]);
@@ -125,6 +129,7 @@ type Item =
 const MAX_STDERR = 2048;
 const DISMISSED = { kind: 'dismissed', reason: 'cancelled' } as const;
 const STOPPED: AgentApprovalDecision = { allow: false, reason: 'The person stopped the turn.' };
+const NO_TURN_TOOL: AgentToolOutcome = { ok: false, message: 'No Moxxy turn is running, so the tool cannot run now.' };
 const NOBODY_TO_ASK = 'Nobody is there to answer questions right now. Pick the sensible choice yourself and say which one you picked.';
 const CLIENT_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
@@ -154,6 +159,8 @@ export class CodexAgentSession implements LiveSession {
   private current: ThreadSettings = { ...AUTO, model: '', serviceTier: null, collaboration: 'default', reviewer: 'user', summary: null };
   /** Why the person declined, for Codex's next message when its turn could not take it. */
   private pendingNotes: string[] = [];
+  /** The thread is new while the conversation may already have run: its first message carries the conversation so far. */
+  private newThread: NewSessionReason | undefined;
   private goal: CodexGoal | undefined;
   /** Codex turns that belong to the Moxxy turn running now. */
   private readonly myTurns = new Set<string>();
@@ -230,6 +237,11 @@ export class CodexAgentSession implements LiveSession {
         if (!autoApprove) autoApprove = isAuto(this.original);
       }
       await this.apply(this.wanted(req, mode, autoApprove));
+      if (this.newThread) {
+        const note = earlierConversationNote(this.newThread, req.earlierConversation?.());
+        this.newThread = undefined;
+        if (note) this.pendingNotes.unshift(note);
+      }
       await this.begin(mode, req);
       yield* this.read(req, mode, new TurnTranslator());
     } catch (err) {
@@ -262,6 +274,8 @@ export class CodexAgentSession implements LiveSession {
     const config = { mcp_servers: { [MOXXY_MCP_SERVER]: { url: this.mcp.url, http_headers: { Authorization: this.mcp.authorization } } } };
     const read = await this.client.request<CodexConfigRead>('config/read', { cwd }).catch(() => undefined);
     this.ownSummary = read ? (read.config.model_reasoning_summary ?? null) : undefined;
+    // Codex lists Moxxy's tools when the thread opens and keeps that list for the thread.
+    this.mcp.setHandler(moxxyToolsHandler(toolsLentToCodex(this.settings.tools ?? []), { runTool: async () => NO_TURN_TOOL }));
     let thread: CodexThreadResponse | undefined;
     if (resume) {
       const resumed = await resumeAgentSession({
@@ -274,10 +288,13 @@ export class CodexAgentSession implements LiveSession {
         const found = await this.client.request<{ goal: CodexGoal | null }>('thread/goal/get', { threadId: thread.thread.id }).catch(() => undefined);
         this.goal = found?.goal ?? undefined;
       } else {
-        this.pendingNotes.push(LOST_SESSION_NOTE);
+        this.newThread = 'lost';
       }
+    } else {
+      this.newThread = 'new';
     }
     thread ??= await this.client.request<CodexThreadResponse>('thread/start', { cwd, config });
+    this.mcp.setHandler(undefined);
     this.threadId = thread.thread.id;
     this.original = { approvalPolicy: thread.approvalPolicy, sandbox: thread.sandbox };
     this.originalTier = thread.serviceTier && thread.serviceTier !== STANDARD_TIER ? thread.serviceTier : null;
@@ -392,6 +409,8 @@ export class CodexAgentSession implements LiveSession {
         this.myTurns.add(turn.id);
         this.activeTurn = turn.id;
         if (req.signal.aborted) void this.interrupt();
+        // A goal turn Codex started by itself takes what waited for its next message.
+        else if (this.pendingNotes.length > 0) await this.steerPending(turn.id);
         continue;
       }
       if (item.method === 'turn/completed') {
@@ -518,6 +537,17 @@ export class CodexAgentSession implements LiveSession {
         () => false,
       ));
     if (!steered) this.pendingNotes.push(text);
+  }
+
+  private async steerPending(turnId: string): Promise<void> {
+    const notes = this.pendingNotes;
+    this.pendingNotes = [];
+    const input = notes.map((text): CodexUserInput => ({ type: 'text', text, text_elements: [] }));
+    const steered = await this.client.request('turn/steer', { threadId: this.threadId, expectedTurnId: turnId, input }).then(
+      () => true,
+      () => false,
+    );
+    if (!steered) this.pendingNotes.unshift(...notes);
   }
 
   private async interrupt(): Promise<void> {

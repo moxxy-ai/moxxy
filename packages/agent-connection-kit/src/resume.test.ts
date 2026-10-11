@@ -1,6 +1,6 @@
 /** Loading an agent's earlier session: never a silent fresh start. */
 import { describe, expect, it } from 'vitest';
-import { resumeAgentSession } from './resume.js';
+import { earlierConversationNote, LOST_SESSION_NOTE, resumeAgentSession } from './resume.js';
 
 const failing = (...errors: unknown[]) => {
   let calls = 0;
@@ -46,5 +46,25 @@ describe('resumeAgentSession', () => {
     let asked = 0;
 
     await expect(resumeAgentSession({ label: 'OpenCode', load: attempt.load, gone: async () => ++asked === 2, retryAfterMs: 1 })).resolves.toEqual({ kind: 'gone' });
+  });
+});
+
+describe('what a new agent session is told first', () => {
+  const earlier = '### Turn 1\nPerson: Use port 5433';
+
+  it('hands over the conversation so far after the earlier session was lost', () => {
+    const note = earlierConversationNote('lost', earlier) ?? '';
+
+    expect(note).toMatch(/^Your earlier session for this Moxxy conversation no longer exists/);
+    expect(note).toContain(earlier);
+  });
+
+  it('hands it over to an agent that joins the conversation partway', () => {
+    expect(earlierConversationNote('new', earlier)).toMatch(/^You join this Moxxy conversation partway[\s\S]*Use port 5433/);
+  });
+
+  it('says only that the session was lost when there is no earlier turn, and nothing to a new conversation', () => {
+    expect(earlierConversationNote('lost', undefined)).toBe(LOST_SESSION_NOTE);
+    expect(earlierConversationNote('new', undefined)).toBeUndefined();
   });
 });

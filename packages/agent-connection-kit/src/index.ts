@@ -38,4 +38,11 @@ export {
 } from './cli-version.js';
 export { Inbox, untilStopped } from './inbox.js';
 export { transcript } from './transcript.js';
-export { LOST_SESSION_NOTE, resumeAgentSession, type ResumeOptions, type Resumed } from './resume.js';
+export {
+  earlierConversationNote,
+  LOST_SESSION_NOTE,
+  resumeAgentSession,
+  type NewSessionReason,
+  type ResumeOptions,
+  type Resumed,
+} from './resume.js';

@@ -408,6 +408,13 @@ export interface AgentStepRequest {
   readonly tools: ReadonlyArray<ToolDef>;
   /** The agent's own session from an earlier turn of this conversation, to resume. */
   readonly resumeSessionId?: string;
+  /**
+   * The conversation before this turn, from Moxxy's record, for an agent that
+   * starts a new session of its own while the conversation already has turns
+   * (its earlier session is gone, or it joins partway). `undefined` when no
+   * turn came before. Built only when called.
+   */
+  readonly earlierConversation?: () => string | undefined;
   /** The conversation's auto-approve, one state with the agent's approval policy. */
   readonly autoApprove: boolean;
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;

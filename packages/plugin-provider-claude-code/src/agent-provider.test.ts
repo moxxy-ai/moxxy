@@ -14,6 +14,7 @@ import {
   type MoxxyEvent,
   type PermissionResolver,
   type QuestionItem,
+  type ToolDef,
 } from '@moxxy/sdk';
 import { collectTurn, type Session } from '@moxxy/core';
 import { createFakeSession } from '@moxxy/testing';
@@ -22,7 +23,7 @@ import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
 import { AgentSessionPool } from '@moxxy/agent-connection-kit';
 import { ClaudeAgentProvider, claudeCodeModels } from './agent-provider.js';
-import type { ClaudeAgentSession } from './agent-session.js';
+import { toolsLentToClaude, type ClaudeAgentSession } from './agent-session.js';
 import { FakeClaude, assistantText, assistantToolUse, toolResult, type ClaudeScene } from './fake-claude.testkit.js';
 
 const sessions: Session[] = [];
@@ -102,6 +103,48 @@ describe('a turn on the Claude agent connection', () => {
     expect(claude.queries).toHaveLength(2);
     expect(claude.queries[0]?.closed).toBe(true);
     expect(claude.last.options.resume).toBe('claude-session-1');
+  });
+
+  it('goes on in a new Claude session, with the conversation so far, when Claude no longer has its own', async () => {
+    const { claude, session, pool } = connect(async function* (turn) {
+      yield assistantText(turn.text.includes('which port?') ? '5433' : 'port 5433 it is');
+    });
+    await collectTurn(session, 'use port 5433');
+    await pool.close(String(session.id));
+    claude.saved.clear();
+
+    const events = await collectTurn(session, 'which port?');
+    await collectTurn(session, 'thanks');
+
+    expect(claude.last.options.resume).toBeUndefined();
+    const [first, second] = claude.last.received.map((m) => m.message.content) as Array<Array<{ text: string }>>;
+    expect(first?.[0]?.text).toMatch(/^Your earlier session for this Moxxy conversation no longer exists/);
+    expect(first?.[0]?.text).toContain('### Turn 1\nPerson: use port 5433\nAgent: port 5433 it is');
+    expect(first?.[1]?.text).toBe('which port?');
+    expect(second).toEqual([{ type: 'text', text: 'thanks' }]);
+    expect(said(events)).toEqual(['5433']);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'agent_session', payload: { provider: 'claude-code', sessionId: 'claude-session-2' } }));
+  });
+
+  it('hands the conversation so far over before a goal, since /goal must start its own message', async () => {
+    const { claude, session, pool } = connect(async function* (turn) {
+      if (turn.text === '/goal') {
+        yield assistantText('Goal active: the site is deployed', '<synthetic>');
+        return;
+      }
+      yield assistantText('ok');
+    });
+    await collectTurn(session, 'use port 5433');
+    await pool.close(String(session.id));
+    claude.saved.clear();
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive('goal');
+
+    await collectTurn(session, 'the site is deployed');
+
+    const sent = claude.last.received.map((m) => m.message.content);
+    expect(String(sent[0])).toMatch(/^Your earlier session[\s\S]*use port 5433[\s\S]*Reply with OK only/);
+    expect(sent.slice(1)).toEqual([[{ type: 'text', text: '/goal the site is deployed' }], '/goal']);
   });
 });
 
@@ -388,5 +431,13 @@ describe('one-off text calls', () => {
     expect(claude.last.options.tools).toEqual([]);
     expect(claude.last.options.persistSession).toBe(false);
     expect(claude.last.options.systemPrompt).toBe('Summarize.');
+  });
+});
+
+describe('the Moxxy tools Claude gets', () => {
+  it('include recall, which searches the whole conversation, and not what Claude has its own of', () => {
+    const tools = ['Read', 'recall', 'session_recall', 'present_view'].map((name) => ({ name }) as ToolDef);
+
+    expect(toolsLentToClaude(tools).map((tool) => tool.name)).toEqual(['recall', 'present_view']);
   });
 });

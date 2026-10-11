@@ -61,6 +61,8 @@ export interface FakeThread {
   collaborationMode: string;
   goal: CodexGoal | undefined;
   mcp: { readonly url: string; readonly headers: Record<string, string> } | undefined;
+  /** Moxxy's tools as Codex read them when the thread opened; Codex 0.155 keeps that list for the thread. */
+  moxxyTools: ReadonlyArray<string>;
 }
 
 export interface FakeCodexDefaults {
@@ -196,8 +198,12 @@ export class FakeCodexServer {
     switch (method) {
       case 'initialize':
         return { result: { userAgent: 'moxxy/0.155.1', codexHome: '/home/me/.codex', platformFamily: 'unix', platformOs: 'macos' } };
-      case 'thread/start':
-        return this.startThread(params);
+      case 'thread/start': {
+        const started = this.startThread(params);
+        const thread = this.threads.get(String((started.result as { thread: { id: string } }).thread.id));
+        if (thread) thread.moxxyTools = await this.readMoxxyTools(thread);
+        return started;
+      }
       case 'config/read':
         return { result: { config: { model_reasoning_summary: this.codex.defaults.reasoningSummary ?? null, approvals_reviewer: this.codex.defaults.approvalsReviewer ?? 'user' } } };
       case 'thread/resume': {
@@ -207,7 +213,8 @@ export class FakeCodexServer {
         }
         const saved = this.codex.saved.get(String(params.threadId));
         if (!saved) throw new Error(`no rollout found for thread id ${String(params.threadId)}`);
-        const thread: FakeThread = { ...saved, mcp: mcpOf(params.config) };
+        const thread: FakeThread = { ...saved, mcp: mcpOf(params.config), moxxyTools: [] };
+        thread.moxxyTools = await this.readMoxxyTools(thread);
         this.threads.set(thread.id, thread);
         return { result: threadResponse(thread) };
       }
@@ -290,6 +297,7 @@ export class FakeCodexServer {
       collaborationMode: 'default',
       goal: undefined,
       mcp: mcpOf(params.config),
+      moxxyTools: [],
     };
     this.threads.set(id, thread);
     if (!thread.ephemeral) this.codex.saved.set(id, thread);
@@ -382,6 +390,7 @@ export class FakeCodexServer {
       },
       request: (method, params) => this.request(method, { ...base, ...params }),
       callMoxxyTool: async (name, args) => {
+        if (!thread.moxxyTools.includes(name)) throw new Error(`Codex has no tool mcp__moxxy__${name}; it read ${JSON.stringify(thread.moxxyTools)}`);
         const client = await this.moxxyClient(thread);
         const result = await client.callTool({ name, arguments: args });
         return { content: result.content, ...(result.isError ? { isError: true } : {}) };
@@ -396,6 +405,12 @@ export class FakeCodexServer {
         this.notify('thread/goal/updated', { ...base, goal: thread.goal });
       },
     };
+  }
+
+  private async readMoxxyTools(thread: FakeThread): Promise<string[]> {
+    if (!thread.mcp) return [];
+    const { tools } = await (await this.moxxyClient(thread)).listTools();
+    return tools.map((tool) => tool.name);
   }
 
   /** Connect to Moxxy's MCP server the way Codex does, from the thread config Moxxy passed. */

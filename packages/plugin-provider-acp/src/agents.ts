@@ -19,7 +19,8 @@ export interface AcpAgentSpec {
 /**
  * OpenCode (`opencode acp`). It has its own file, shell, web-fetch, todo,
  * skill and sub-agent tools. It has no question tool over ACP, no plan hand-off
- * and no goal, so Moxxy lends `ask_user`, `plan_complete` and the goal tools.
+ * and no goal, so Moxxy lends `ask_user`, `plan_complete` and the goal tools,
+ * and `recall`, which searches Moxxy's record of the whole conversation.
  */
 export const OPENCODE_AGENT: AcpAgentSpec = {
   providerId: OPENCODE_PROVIDER_ID,
@@ -29,7 +30,7 @@ export const OPENCODE_AGENT: AcpAgentSpec = {
   moxxyToolPrefix: `${MOXXY_MCP_SERVER}_`,
   ownTools: new Set([
     'Read', 'Edit', 'Write', 'Bash', 'Grep', 'Glob', 'Sleep', 'Wait', 'StopJob',
-    'web_fetch', 'recall', 'session_recall',
+    'web_fetch', 'session_recall',
     'load_skill', 'reload_skills', 'synthesize_skill', 'load_tool',
   ]),
   loginCommand: 'opencode auth login',

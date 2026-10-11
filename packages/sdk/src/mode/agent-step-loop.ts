@@ -1,5 +1,6 @@
 import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, agentSessionFromEvents } from '../agent-step.js';
 import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents } from '../auto-approve.js';
+import { renderEarlierConversation } from '../conversation-history.js';
 import { computeElisionState } from '../elision-state.js';
 import type { MoxxyEvent, UserPromptEvent } from '../events.js';
 import { asToolCallId } from '../ids.js';
@@ -233,6 +234,7 @@ async function runRound(
       mode,
       tools: ctx.tools.list(),
       ...(resumeSessionId ? { resumeSessionId } : {}),
+      earlierConversation: () => renderEarlierConversation(ctx.log, ctx.turnId),
       autoApprove,
       ...(ctx.reasoning ? { reasoning: ctx.reasoning } : {}),
       ...(ctx.fast ? { fast: true } : {}),

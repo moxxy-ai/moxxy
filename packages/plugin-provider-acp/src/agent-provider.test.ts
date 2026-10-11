@@ -5,15 +5,16 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver } from '@moxxy/sdk';
+import { autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver, type ToolDef } from '@moxxy/sdk';
 import { collectTurn, type Session } from '@moxxy/core';
 import { createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
-import { AgentSessionPool, LOST_SESSION_NOTE } from '@moxxy/agent-connection-kit';
+import { AgentSessionPool } from '@moxxy/agent-connection-kit';
 import { AcpAgentProvider } from './agent-provider.js';
-import type { AcpAgentSession } from './acp-session.js';
+import { toolsLentTo, type AcpAgentSession } from './acp-session.js';
+import { OPENCODE_AGENT } from './agents.js';
 import { FakeOpenCode, OPENCODE_DEFAULT_RULES, type FakeOpenCodeDefaults, type OpenCodeScene } from './fake-opencode.testkit.js';
 
 const sessions: Session[] = [];
@@ -194,21 +195,30 @@ describe('a turn on the OpenCode agent connection', () => {
     expect(said(next)).toEqual(['MARMOT-55']);
   });
 
-  it('starts a new session when OpenCode no longer has the old one', async () => {
-    const { opencode, session, pool } = connect(async (turn) => turn.say('ok'));
-    await collectTurn(session, 'hello');
+  it('starts a new session with the conversation so far when OpenCode no longer has the old one', async () => {
+    const { opencode, session, pool } = connect(async (turn) => turn.say('port 5433 it is'));
+    await collectTurn(session, 'use port 5433');
     await pool.close(String(session.id));
     opencode.saved.clear();
 
-    const events = await collectTurn(session, 'hello again');
+    const events = await collectTurn(session, 'which port?');
+    await collectTurn(session, 'thanks');
 
     expect(opencode.last.sent('session/list')[0]).toMatchObject({ cwd: '/work/app' });
     expect(opencode.last.sent('session/new')).toHaveLength(1);
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'agent_session', payload: { provider: 'opencode', sessionId: 'ses_2' } }));
-    expect(opencode.last.sent('session/prompt')[0]?.prompt).toEqual([
-      { type: 'text', text: LOST_SESSION_NOTE },
-      { type: 'text', text: 'hello again' },
-    ]);
+    const [first, second] = opencode.last.sent('session/prompt');
+    const [note, prompt] = (first?.prompt ?? []) as Array<{ text: string }>;
+    expect(note?.text).toMatch(/^Your earlier session for this Moxxy conversation no longer exists/);
+    expect(note?.text).toContain('### Turn 1\nPerson: use port 5433\nAgent: port 5433 it is');
+    expect(prompt?.text).toBe('which port?');
+    expect(second?.prompt).toEqual([{ type: 'text', text: 'thanks' }]);
+  });
+
+  it('lends OpenCode recall, which searches the whole conversation, beside the tools it lacks', () => {
+    const tools = ['Read', 'recall', 'session_recall', 'ask_user'].map((name) => ({ name }) as ToolDef);
+
+    expect(toolsLentTo(OPENCODE_AGENT, tools).map((tool) => tool.name)).toEqual(['recall', 'ask_user']);
   });
 
   it('finds the session on a later page of OpenCode sessions before deciding it is gone', async () => {

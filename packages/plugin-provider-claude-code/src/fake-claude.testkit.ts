@@ -40,12 +40,19 @@ export const toolResult = (id: string, content: string, isError = false): Claude
 
 export class FakeClaude implements ClaudeAgentSdk {
   readonly queries: FakeQuery[] = [];
+  /** The sessions Claude keeps on disk, as `getSessionInfo` finds them. */
+  readonly saved = new Set<string>();
   private sessions = 0;
   constructor(private readonly scene: ClaudeScene) {}
+
+  async getSessionInfo(sessionId: string): Promise<{ sessionId: string } | undefined> {
+    return this.saved.has(sessionId) ? { sessionId } : undefined;
+  }
 
   query(params: { prompt: string | AsyncIterable<ClaudeUserMessage>; options: ClaudeQueryOptions }): ClaudeQuery {
     this.sessions += 1;
     const sessionId = params.options.resume ?? `claude-session-${this.sessions}`;
+    this.saved.add(sessionId);
     const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene);
     this.queries.push(query);
     return query;

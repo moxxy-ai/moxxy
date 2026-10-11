@@ -14,15 +14,16 @@ import {
   type MoxxyEvent,
   type PermissionResolver,
   type QuestionItem,
+  type ToolDef,
 } from '@moxxy/sdk';
 import { collectTurn, type Session } from '@moxxy/core';
 import { createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
-import { AgentSessionPool, LOST_SESSION_NOTE } from '@moxxy/agent-connection-kit';
+import { AgentSessionPool } from '@moxxy/agent-connection-kit';
 import { CodexAgentProvider, codexAgentModels } from './agent-provider.js';
-import type { CodexAgentSession } from './codex-session.js';
+import { toolsLentToCodex, type CodexAgentSession } from './codex-session.js';
 import { FakeCodex, type CodexScene, type FakeCodexDefaults } from './fake-codex.testkit.js';
 
 const sessions: Session[] = [];
@@ -146,18 +147,30 @@ describe('a turn on the Codex agent connection', () => {
     expect(events).toContainEqual(expect.objectContaining({ subtype: 'agent_session', payload: expect.objectContaining({ sessionId: 'thread-2' }) }));
   });
 
-  it('tells Codex its earlier thread is gone, so it says so to the person', async () => {
-    const { codex, session, pool } = connect(async (turn) => turn.say('ok'));
-    await collectTurn(session, 'hello');
+  it('hands a new thread the conversation so far when the earlier one is gone, once', async () => {
+    const { codex, session, pool } = connect(async (turn) => turn.say('port 5433 it is'));
+    await collectTurn(session, 'use port 5433');
     await pool.close(String(session.id));
     codex.saved.clear();
 
-    await collectTurn(session, 'hello again');
+    await collectTurn(session, 'which port?');
+    await collectTurn(session, 'thanks');
 
-    expect(codex.last.sent('turn/start')[0]?.input).toEqual([
-      { type: 'text', text: LOST_SESSION_NOTE, text_elements: [] },
-      { type: 'text', text: 'hello again', text_elements: [] },
-    ]);
+    const [first, second] = codex.last.sent('turn/start');
+    const [note, prompt] = (first?.input ?? []) as Array<{ text: string }>;
+    expect(note?.text).toMatch(/^Your earlier session for this Moxxy conversation no longer exists/);
+    expect(note?.text).toContain('### Turn 1\nPerson: use port 5433\nAgent: port 5433 it is');
+    expect(note?.text).not.toContain('which port?');
+    expect(prompt?.text).toBe('which port?');
+    expect(second?.input).toEqual([{ type: 'text', text: 'thanks', text_elements: [] }]);
+  });
+
+  it('says nothing more than the message to a new conversation', async () => {
+    const { codex, session } = connect(async (turn) => turn.say('hi'));
+
+    await collectTurn(session, 'hello');
+
+    expect(codex.last.sent('turn/start')[0]?.input).toEqual([{ type: 'text', text: 'hello', text_elements: [] }]);
   });
 
   it('resumes the thread when Codex fails to read it once, instead of starting another', async () => {
@@ -351,6 +364,25 @@ describe('approvals: one state with Codex own policy', () => {
     expect(lent).toMatchObject({ content: [{ type: 'text', text: 'opened http://localhost:8765' }] });
     expect(events.filter((e) => e.type === 'tool_call_requested').map((e) => (e as { name: string }).name)).toEqual(['browser_open']);
   });
+
+  it('lists the Moxxy tools as Codex opens or resumes the thread, the only time Codex reads them', async () => {
+    const recallLike = defineTool({ name: 'note_lookup', description: 'Look a note up.', inputSchema: z.object({}), handler: async () => 'the note' });
+    const found: unknown[] = [];
+    const { session, pool } = connect(async (turn) => {
+      found.push(await turn.callMoxxyTool('note_lookup', {}));
+      turn.say('ok');
+    });
+    session.pluginHost.registerStatic(definePlugin({ name: 'test-notes', tools: [recallLike] }));
+
+    await collectTurn(session, 'look it up');
+    await pool.close(String(session.id));
+    await collectTurn(session, 'again, after a restart');
+
+    expect(found).toEqual([
+      expect.objectContaining({ content: [{ type: 'text', text: 'the note' }] }),
+      expect.objectContaining({ content: [{ type: 'text', text: 'the note' }] }),
+    ]);
+  });
 });
 
 describe('reasoning summaries', () => {
@@ -464,6 +496,27 @@ describe('goal mode', () => {
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: AGENT_GOAL_SUBTYPE, payload: expect.objectContaining({ status: 'complete' }) }));
     expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(true);
     expect(session.modes.getActiveName()).toBe('default');
+  });
+
+  it('hands a new thread the conversation so far in the first turn of its goal', async () => {
+    let handed = '';
+    const { codex, session, pool } = connect(async (turn) => {
+      if (turn.objective !== undefined) {
+        handed = await turn.steered();
+        turn.goal('complete');
+      }
+      turn.say('ok');
+    });
+    await collectTurn(session, 'use port 5433');
+    await pool.close(String(session.id));
+    codex.saved.clear();
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive('goal');
+
+    await collectTurn(session, 'deploy on that port');
+
+    expect(handed).toMatch(/^Your earlier session for this Moxxy conversation no longer exists[\s\S]*Person: use port 5433/);
+    expect(codex.last.sent('thread/goal/set')[0]).toMatchObject({ objective: 'deploy on that port' });
   });
 
   it('leaves a goal Codex stopped on (blocked) to Codex, without Moxxy pushing it on', async () => {
@@ -637,5 +690,13 @@ describe('one-off text calls', () => {
       developerInstructions: 'Summarize.',
     });
     expect(codex.last.closed).toBe(true);
+  });
+});
+
+describe('the Moxxy tools Codex gets', () => {
+  it('include recall, which searches the whole conversation, and not what Codex has its own of', () => {
+    const tools = ['Read', 'recall', 'session_recall', 'present_view'].map((name) => ({ name }) as ToolDef);
+
+    expect(toolsLentToCodex(tools).map((tool) => tool.name)).toEqual(['recall', 'present_view']);
   });
 });
