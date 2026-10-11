@@ -1,5 +1,35 @@
 # @moxxy/plugin-browser
 
+## 0.43.0
+
+### Minor Changes
+
+- 889810e: Add on-demand browser Console and Network diagnostics with bounded text response reads and exact CSS viewport sizing, including measured document width, horizontal overflow and override state without an extra read. Retain the existing element-box measurement in cropped image results and captions so CSS dimensions can be distinguished from scaled image pixels. Stop recordings before user hand-off and takeover; ordinary page snapshots do not enable diagnostics.
+
+### Patch Changes
+
+- 889810e: Verify typed browser form values before pressing Enter so a successfully submitted field clearing itself does not stop the remaining steps. Bind Enter to the typed field in single actions and batches, report uncertain submission without retrying, and recheck user takeover immediately before input, including selector-based filling. Reject read-only and non-text controls before sending input events and keep protected values out of typing replies. Repair native field-value reads and reuse their result without another full accessibility-tree read. Keep list-row context for unnamed controls and uniquely visible delete buttons in both runner trees and delta snapshots, excluding decorative subtree labels. Retain row labels as click or hover targets without confusing them with check/uncheck controls, and direct native double clicks to the UID tool and browser navigation to browser_history.
+
+  Recheck takeover before each next character, the second press of a double click, and text selection or bulk insertion after focus. Release the current key or mouse button while refusing further input, without additional browser reads or model requests.
+
+  Forward aborted browser calls to the backend with request-scoped cancellation. Stop queued sidecar work before dispatch and check cancellation between host input operations without closing the shared browser or cancelling unrelated calls.
+
+  Distinguish native Undo from Shift-modified Redo so browser editing shortcuts restore an undone edit instead of issuing Undo again.
+
+  Preserve multiline accessible names and field values in delta snapshots, escaping newlines and quotes so text cannot create fake element handles or hide edits after the first line. Retain the existing truncation and snapshot budgets.
+
+- bae6e6e: Wait for Chromium's next render frame before reporting viewport dimensions and overflow after a resize or reset. Report an unconfirmed layout if the frame does not arrive, rather than returning stale dimensions as a success.
+- Updated dependencies [7b24827]
+- Updated dependencies [45f501a]
+- Updated dependencies [1c4d5aa]
+- Updated dependencies [889810e]
+- Updated dependencies [3b0fcdf]
+- Updated dependencies [0a44449]
+- Updated dependencies [235ae19]
+- Updated dependencies [a501dbd]
+  - @moxxy/sdk@0.43.0
+  - @moxxy/jev@0.2.2
+
 ## 0.42.1
 
 ### Patch Changes

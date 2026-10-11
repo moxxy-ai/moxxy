@@ -1,5 +1,24 @@
 # @moxxy/jev
 
+## 0.2.2
+
+### Patch Changes
+
+- 1c4d5aa: Keep observed section headings with repeated browser action labels so product-specific buttons can be distinguished without guessing. Include descriptions when validating learned targets so a same-named button in a different section is not reused.
+- 3b0fcdf: Bind cookie rejection to a confirmed banner and its control UID, preserve mixed checkbox states, and distinguish Computer Use user/access blocks from failures and uncertain effects so continuation never suggests bypassing a block or blindly repeating an unconfirmed action.
+
+  Preserve human consent handling for full terms-agreement labels independently of the exact cookie-decline match.
+
+- Updated dependencies [7b24827]
+- Updated dependencies [45f501a]
+- Updated dependencies [1c4d5aa]
+- Updated dependencies [889810e]
+- Updated dependencies [3b0fcdf]
+- Updated dependencies [0a44449]
+- Updated dependencies [235ae19]
+- Updated dependencies [a501dbd]
+  - @moxxy/sdk@0.43.0
+
 ## 0.2.1
 
 ### Patch Changes

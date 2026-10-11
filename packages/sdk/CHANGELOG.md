@@ -1,5 +1,24 @@
 # @moxxy/sdk
 
+## 0.43.0
+
+### Minor Changes
+
+- a501dbd: A turn that ends right on a step that did not get done is reminded once to take another way or to say what stops it. A run of browser or Computer Use steps that stops short now says so in its result (`shortfall`), and the default mode asks once before the turn closes — not after a later step that worked, a hand-over to the user, a refused permission, an error or Stop. Switch it off with `context.unfinishedStepCheck: false`.
+
+### Patch Changes
+
+- 7b24827: The agent stops less often at the first failed step to ask whether it should go on. Every model request now carries a rule (in `AGENT_CONDUCT`) to try another route before ending the turn and to take the next step instead of offering it, while still asking for what only the user has and before anything that cannot be undone. The built-in `self-heal` skill now covers only Moxxy's own broken parts — a plugin, MCP server, provider or permission rule — so an ordinary error in a task no longer ends in a proposal that waits for approval. On macOS, Computer Use no longer ends the turn when the app it was asked to use has no open window; it opens one and carries on.
+- 45f501a: Avoid false cookie handoffs for footer settings buttons and recognize necessary-only consent choices, including IKEA's Polish label.
+- 1c4d5aa: Keep observed section headings with repeated browser action labels so product-specific buttons can be distinguished without guessing. Include descriptions when validating learned targets so a same-named button in a different section is not reused.
+- 889810e: Preserve completed, provider-owned reasoning items through the event log and replay them to ChatGPT OAuth on stateless tool continuations. Keep replay independent of visible reasoning summaries, retain multiple items without forwarding another provider's state, and ignore unfinished streamed state.
+- 3b0fcdf: Bind cookie rejection to a confirmed banner and its control UID, preserve mixed checkbox states, and distinguish Computer Use user/access blocks from failures and uncertain effects so continuation never suggests bypassing a block or blindly repeating an unconfirmed action.
+
+  Preserve human consent handling for full terms-agreement labels independently of the exact cookie-decline match.
+
+- 0a44449: A tool now declares that the user's refusal ends the turn with `refusalEndsTurn` (Computer Use tools set it), instead of the SDK matching `computer_` names. Only the user's answer ends the turn: a `permissions.json` rule or a plugin hook refusing such a tool comes back to the model as a failed step, and a standing rule's refusal is now recorded as `policy` rather than `resolver`.
+- 235ae19: End the current turn after a Computer Use permission denial, cancelling remaining batch actions without retries, alternate tools or continuation reminders. New user turns retain normal permission checks.
+
 ## 0.42.1
 
 ## 0.42.0
