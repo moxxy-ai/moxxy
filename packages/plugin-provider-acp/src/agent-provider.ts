@@ -177,6 +177,7 @@ export class AcpAgentProvider implements LLMProvider {
       start: this.start,
       readRules: this.readRules,
       cwd: req.cwd,
+      tools: req.allTools ?? req.tools,
       ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
     };
     const sessions = this.config.sessions ?? acpSessions();

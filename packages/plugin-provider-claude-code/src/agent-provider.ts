@@ -171,6 +171,7 @@ export class ClaudeAgentProvider implements LLMProvider {
       ...(this.config.executable ? { executable: this.config.executable } : {}),
       ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
       ...(permissionMode ? { permissionMode } : {}),
+      tools: req.allTools ?? req.tools,
     };
   }
 }

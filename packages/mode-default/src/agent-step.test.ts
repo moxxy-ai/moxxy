@@ -135,6 +135,37 @@ describe('an agent connection turn', () => {
     expect(types(events)).toContain('tool_call_approved');
   });
 
+  it('lists the tools of every mode to the agent, and records why one this mode does not offer was not run', async () => {
+    let fromMoxxy: unknown;
+    const provider = new FakeAgentProvider(async function* (req) {
+      fromMoxxy = await req.host.runTool({ callId: 'mcp_1', name: 'goal_only', input: {} });
+      yield { type: 'message', text: 'Done.' };
+    });
+    const session = sessionWith(provider);
+    let ran = false;
+    session.tools.register(
+      defineTool({
+        name: 'goal_only',
+        description: 'Only in goal mode',
+        inputSchema: z.object({}),
+        modes: ['goal'],
+        handler: async () => {
+          ran = true;
+          return 'ran';
+        },
+      }),
+    );
+
+    const events = await collectTurn(session, 'go');
+
+    expect(provider.steps[0]?.allTools?.map((t) => t.name)).toContain('goal_only');
+    expect(provider.steps[0]?.tools.map((t) => t.name)).not.toContain('goal_only');
+    expect(ran).toBe(false);
+    expect(fromMoxxy).toEqual({ ok: false, message: expect.stringMatching(/^goal_only is not available in default mode/) });
+    expect(events.find((e) => e.type === 'tool_call_requested')).toMatchObject({ callId: 'mcp_1', name: 'goal_only' });
+    expect(events.find((e) => e.type === 'tool_result')).toMatchObject({ callId: 'mcp_1', ok: false, error: { kind: 'denied' } });
+  });
+
   it('asks the person before the agent runs its own tool, and records the refusal', async () => {
     let decision: unknown;
     const provider = new FakeAgentProvider(async function* (req) {

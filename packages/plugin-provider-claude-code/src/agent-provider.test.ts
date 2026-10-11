@@ -23,7 +23,7 @@ import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
 import { AgentSessionPool } from '@moxxy/agent-connection-kit';
 import { ClaudeAgentProvider, claudeCodeModels } from './agent-provider.js';
-import { toolsLentToClaude, type ClaudeAgentSession } from './agent-session.js';
+import { ClaudeAgentSession, toolsLentToClaude } from './agent-session.js';
 import { FakeClaude, assistantText, assistantToolUse, toolResult, type ClaudeScene } from './fake-claude.testkit.js';
 
 const sessions: Session[] = [];
@@ -337,6 +337,24 @@ describe('Moxxy modes on Claude', () => {
     expect(session.modes.getActiveName()).toBe('goal');
   });
 
+  it('answers the next message after a goal turn, once Claude said how its goal stands', async () => {
+    const { session } = connect(async function* (turn) {
+      if (turn.text === '/goal') {
+        yield assistantText('Goal active: the site is deployed', '<synthetic>');
+        return;
+      }
+      yield assistantText(turn.text === 'and now?' ? 'Still deploying.' : 'Working on it.');
+    });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive('goal');
+    await collectTurn(session, 'the site is deployed');
+    session.modes.setActive('default');
+
+    const events = await collectTurn(session, 'and now?');
+
+    expect(said(events)).toEqual(['Still deploying.']);
+  });
+
   it('runs a goal with Claude own /goal, and ends Moxxy goal mode when Claude says it is met', async () => {
     const { claude, session } = connect(async function* (turn) {
       if (turn.text === '/goal') {
@@ -431,6 +449,58 @@ describe('one-off text calls', () => {
     expect(claude.last.options.tools).toEqual([]);
     expect(claude.last.options.persistSession).toBe(false);
     expect(claude.last.options.systemPrompt).toBe('Summarize.');
+  });
+});
+
+describe('the Moxxy tools Claude can see', () => {
+  const askLike = defineTool({ name: 'ask_like', description: 'Ask the person.', inputSchema: z.object({}), notInModes: ['goal'], handler: async () => 'answered' });
+
+  it('are listed before Claude starts, since it reads them as it starts', async () => {
+    const claude = new FakeClaude(async function* () {});
+    const session = await ClaudeAgentSession.start({ sdk: claude, cwd: '/work', model: 'claude-opus-5-5', tools: [askLike] });
+
+    const { tools } = await (await claude.last.moxxyClient()).listTools();
+    await session.close();
+
+    expect(tools.map((tool) => tool.name)).toEqual(['ask_like']);
+  });
+
+  it('stay the same between modes, and Claude hears why one is not available in this mode', async () => {
+    const results: Array<{ content: unknown; isError?: boolean }> = [];
+    const { session } = connect(async function* (turn) {
+      if (turn.text === '/goal') {
+        yield assistantText('Goal active: done', '<synthetic>');
+        return;
+      }
+      if (turn.text.endsWith('do it') || turn.text === 'now ask me') results.push(await turn.callMoxxyTool('ask_like', {}));
+      yield assistantText('ok');
+    });
+    session.pluginHost.registerStatic(definePlugin({ name: 'test-ask', tools: [askLike] }));
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive('goal');
+
+    await collectTurn(session, 'do it');
+    session.modes.setActive('default');
+    await collectTurn(session, 'now ask me');
+
+    expect(results[0]).toEqual({ content: [{ type: 'text', text: expect.stringMatching(/^ask_like is not available in goal mode/) }], isError: true });
+    expect(results[1]).toEqual({ content: [{ type: 'text', text: 'answered' }] });
+  });
+
+  it('tells Claude when the conversation gains a tool, so it reads the list again', async () => {
+    const noted = defineTool({ name: 'note_lookup', description: 'Look a note up.', inputSchema: z.object({}), handler: async () => 'the note' });
+    const found: unknown[] = [];
+    const { claude, session } = connect(async function* (turn) {
+      if (turn.text === 'look it up') found.push(await turn.callMoxxyTool('note_lookup', {}));
+      yield assistantText('ok');
+    });
+    await collectTurn(session, 'hello');
+    session.pluginHost.registerStatic(definePlugin({ name: 'test-notes', tools: [noted] }));
+
+    await collectTurn(session, 'look it up');
+
+    expect(claude.queries).toHaveLength(1);
+    expect(found).toEqual([expect.objectContaining({ content: [{ type: 'text', text: 'the note' }] })]);
   });
 });
 

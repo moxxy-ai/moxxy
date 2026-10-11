@@ -7,8 +7,10 @@ import {
   JsonRpcLineClient,
   agentModeFor,
   earlierConversationNote,
+  idleToolsHandler,
   moxxyToolsHandler,
   resumeAgentSession,
+  sameToolNames,
   startMoxxyMcpServer,
   untilStopped,
   type AgentMode,
@@ -50,6 +52,8 @@ export interface AcpSessionSettings {
   readonly resume?: string;
   /** How the person's agent runs; without it Moxxy leaves the agent's own rules and the conversation's auto-approve alone. */
   readonly readRules?: ReadAgentRules;
+  /** Every Moxxy tool of the conversation: the agent reads the list as the session opens, and again on a notice. */
+  readonly tools?: ReadonlyArray<ToolDef>;
 }
 
 type RequestItem = {
@@ -112,6 +116,8 @@ export class AcpAgentSession implements LiveSession {
   private ownMode = BUILD_MODE;
   /** Why the person declined, for the next message when the turn ended first. */
   private pendingNotes: string[] = [];
+  /** The Moxxy tools the agent is shown: every one of the conversation, the same in every mode. */
+  private listed: ToolDef[];
   /** The session is new while the conversation may already have run: its first prompt carries the conversation so far. */
   private newSession: NewSessionReason | undefined;
   private stderr = '';
@@ -150,6 +156,8 @@ export class AcpAgentSession implements LiveSession {
     connection: AcpConnection,
   ) {
     this.connection = connection;
+    this.listed = toolsLentTo(settings.agent, settings.tools ?? [])
+    this.mcp.setHandler(idleToolsHandler(this.listed));
     this.client = this.listen(connection);
   }
 
@@ -192,8 +200,10 @@ export class AcpAgentSession implements LiveSession {
       this.client.notify('session/cancel', { sessionId: this.sessionId });
     };
     req.signal.addEventListener('abort', onAbort, { once: true });
+    const all = toolsLentTo(this.settings.agent, req.allTools ?? req.tools);
+    if (!sameToolNames(all, this.listed)) this.listed = all;
     this.mcp.setHandler(
-      moxxyToolsHandler(toolsLentTo(this.settings.agent, req.tools), {
+      moxxyToolsHandler(this.listed, {
         runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })),
       }),
     );
@@ -216,7 +226,7 @@ export class AcpAgentSession implements LiveSession {
       }
       if (!this.autoApprove && mode !== 'goal') await this.askFromNowOn();
       // OpenCode reads the Moxxy tools when the session opens and keeps that
-      // list: a turn that brings others has it read them again first.
+      // list: when the conversation gained or lost one, it reads them again first.
       await this.mcp.announceTools({ signal: req.signal });
       await this.configure(req, mode);
       if (this.newSession) {
@@ -245,7 +255,7 @@ export class AcpAgentSession implements LiveSession {
       if (!req.signal.aborted) yield { type: 'error', message: this.alive ? this.failureMessage(err) : this.endedMessage(), retryable: false };
     } finally {
       req.signal.removeEventListener('abort', onAbort);
-      this.mcp.setHandler(undefined);
+      this.mcp.setHandler(idleToolsHandler(this.listed));
       this.inTurn = false;
       this.dismissQueued();
     }

@@ -129,6 +129,7 @@ export async function* runTurn(
       provider,
       // A tool meant for other modes (goal_abandon) is no way out of this one.
       tools: toolsForMode(tools, strategy.name),
+      allTools: session.tools,
       skills: session.skills,
       log: session.log,
       compactor: session.compactors.getActive(),

@@ -15,6 +15,7 @@ import type {
   ContentBlock,
   TokenUsage,
 } from '../provider.js';
+import type { ToolDef } from '../tool.js';
 import type { StopReason } from '../provider-utils.js';
 import { usageEventFields } from '../token-accounting.js';
 import { dispatchToolCall } from '../tool-dispatch.js';
@@ -203,7 +204,7 @@ async function runRound(
     runTool: async (call) => {
       moxxyTools.push({ id: call.callId, name: call.name, input: call.input });
       await emit({ ...base, type: 'tool_call_requested', source: 'model', callId: asToolCallId(call.callId), name: call.name, input: call.input });
-      const outcome = await runMoxxyTool(ctx, call, iteration, (event) => events.push(event));
+      const outcome = await runMoxxyTool(ctx, call, iteration, mode, (event) => events.push(event));
       if (!outcome.ok && outcome.endsTurn) {
         endsTurn = ctx.tools.get(call.name)?.refusalEndsTurn;
         stopAgent.abort();
@@ -233,6 +234,7 @@ async function runRound(
       cwd: ctx.cwd,
       mode,
       tools: ctx.tools.list(),
+      allTools: everyTool(ctx),
       ...(resumeSessionId ? { resumeSessionId } : {}),
       earlierConversation: () => renderEarlierConversation(ctx.log, ctx.turnId),
       autoApprove,
@@ -369,13 +371,43 @@ async function runRound(
   };
 }
 
+function notOfferedHere(name: string, mode: string): string {
+  const question = name === 'ask_user' ? ' Nobody is there to answer questions: pick the sensible choice yourself and say which one you picked.' : '';
+  return `${name} is not available in ${mode} mode, so Moxxy did not run it. Carry on without it.${question}`;
+}
+
+/** The session's tools in any mode, with those this turn's mode adds for itself (plan mode's `plan_complete`). */
+function everyTool(ctx: ModeContext): ToolDef[] {
+  const turn = ctx.tools.list();
+  if (!ctx.allTools) return [...turn];
+  const names = new Set(turn.map((tool) => tool.name));
+  return [...ctx.allTools.list().filter((tool) => !names.has(tool.name)), ...turn];
+}
+
 /** A Moxxy tool the agent called: the same hooks, permissions, run and log as any tool call. */
 async function runMoxxyTool(
   ctx: ModeContext,
   call: AgentToolCall,
   iteration: number,
+  mode: string,
   record: (event: MoxxyEvent) => void,
 ): Promise<AgentToolOutcome> {
+  // The agent sees every tool of the conversation (it reads the list once); this mode may not offer this one.
+  if (ctx.allTools?.get(call.name) && !ctx.tools.get(call.name)) {
+    const message = notOfferedHere(call.name, mode);
+    record(
+      await ctx.emit({
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        type: 'tool_result',
+        source: 'tool',
+        callId: asToolCallId(call.callId),
+        ok: false,
+        error: { kind: 'denied', message },
+      }),
+    );
+    return { ok: false, message };
+  }
   let result: MoxxyEvent | undefined;
   let refused = false;
   for await (const event of dispatchToolCall(ctx, { id: call.callId, name: call.name, input: call.input }, iteration)) {

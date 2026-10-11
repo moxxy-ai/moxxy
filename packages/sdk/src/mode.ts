@@ -90,6 +90,13 @@ export interface ModeContext {
   readonly systemPrompt?: string;
   readonly provider: LLMProvider;
   readonly tools: ToolRegistry;
+  /**
+   * Every tool of the session, in any mode (`tools` is this turn's mode's,
+   * plus any it adds for itself). An agent connection lists these to the
+   * vendor agent, which reads its tool list once, and refuses a call to one
+   * this mode does not offer.
+   */
+  readonly allTools?: ToolRegistry;
   readonly skills: SkillRegistry;
   readonly log: EventLogReader;
   readonly compactor: CompactorDef | null;

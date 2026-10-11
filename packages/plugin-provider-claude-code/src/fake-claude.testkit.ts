@@ -8,6 +8,7 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import type {
   ClaudeAgentSdk,
   ClaudeMessage,
@@ -72,6 +73,9 @@ export class FakeQuery implements ClaudeQuery {
   interrupts = 0;
   closed = false;
   permissionMode: ClaudePermissionMode;
+  /** Moxxy's tools as Claude read them: once as it starts, and again on a list-changed notice. */
+  moxxyTools: ReadonlyArray<string> = [];
+  private reading: Promise<void> | undefined;
   private stop = new AbortController();
   private mcp: Client | undefined;
 
@@ -86,6 +90,7 @@ export class FakeQuery implements ClaudeQuery {
 
   async *[Symbol.asyncIterator](): AsyncIterator<ClaudeMessage> {
     try {
+      if (this.options.mcpServers?.moxxy) await this.readMoxxyTools();
       const messages = typeof this.prompt === 'string' ? [this.userMessage(this.prompt)] : this.prompt;
       for await (const message of messages) {
         if (this.closed) return;
@@ -174,11 +179,23 @@ export class FakeQuery implements ClaudeQuery {
         return out;
       },
       callMoxxyTool: async (name, args) => {
+        await this.reading;
+        if (!this.moxxyTools.includes(name)) throw new Error(`Claude has no tool mcp__moxxy__${name}; it read ${JSON.stringify(this.moxxyTools)}`);
         const client = await this.moxxyClient();
         const result = await client.callTool({ name, arguments: args });
         return { content: result.content, ...(result.isError ? { isError: true } : {}) };
       },
     };
+  }
+
+  private async readMoxxyTools(): Promise<void> {
+    const client = await this.moxxyClient();
+    const read = () =>
+      (this.reading = client.listTools().then(({ tools }) => {
+        this.moxxyTools = tools.map((tool) => tool.name);
+      }));
+    client.setNotificationHandler(ToolListChangedNotificationSchema, read);
+    await read();
   }
 
   /** Connect to Moxxy's MCP server the way Claude does, from the options Moxxy passed. */

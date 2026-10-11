@@ -585,7 +585,7 @@ describe('plan and goal mode', () => {
   it('has OpenCode, which reads the Moxxy tools once when the session opens, read them again when a turn brings others', async () => {
     const read: Array<ReadonlyArray<string>> = [];
     const { session } = connect(async (turn) => {
-      read.push(turn.session.moxxyTools);
+      read.push(turn.session.moxxyTools)
       if (turn.session.mode === 'plan') await turn.callMoxxyTool('plan_complete', plan);
       turn.say('ok');
     });

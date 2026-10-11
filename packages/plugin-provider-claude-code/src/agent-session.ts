@@ -4,8 +4,10 @@ import {
   Inbox,
   agentModeFor,
   earlierConversationNote,
+  idleToolsHandler,
   moxxyToolsHandler,
   resumeAgentSession,
+  sameToolNames,
   startMoxxyMcpServer,
   type AgentMode,
   type LiveSession,
@@ -43,6 +45,8 @@ export interface ClaudeSessionSettings {
   readonly executable?: string;
   readonly resume?: string;
   readonly permissionMode?: ClaudePermissionMode;
+  /** Every Moxxy tool of the conversation: Claude reads the list as it starts, and again on a notice. */
+  readonly tools?: ReadonlyArray<ToolDef>;
 }
 
 /**
@@ -117,6 +121,8 @@ export class ClaudeAgentSession implements LiveSession {
   private model: string;
   private goalActive = false;
   private stderr = '';
+  /** The Moxxy tools Claude is shown: every one of the conversation, the same in every mode. */
+  private listed: ToolDef[];
 
   static async start(settings: ClaudeSessionSettings): Promise<ClaudeAgentSession> {
     const checked = await withoutLostSession(settings);
@@ -137,6 +143,9 @@ export class ClaudeAgentSession implements LiveSession {
   ) {
     this.model = settings.model;
     this.permissionMode = settings.permissionMode;
+    // Claude reads Moxxy's tools as it starts: they are listed before it does.
+    this.listed = toolsLentToClaude(settings.tools ?? []);
+    mcp.setHandler(idleToolsHandler(this.listed));
     this.query = settings.sdk.query({
       prompt: this.userMessages(),
       options: {
@@ -180,12 +189,16 @@ export class ClaudeAgentSession implements LiveSession {
     this.inTurn = true;
     const interrupt = () => void this.query.interrupt().catch(() => undefined);
     req.signal.addEventListener('abort', interrupt, { once: true });
+    const all = toolsLentToClaude(req.allTools ?? req.tools);
+    if (!sameToolNames(all, this.listed)) this.listed = all;
     this.mcp.setHandler(
-      moxxyToolsHandler(toolsLentToClaude(req.tools), {
+      moxxyToolsHandler(this.listed, {
         runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })),
       }),
     );
     try {
+      // The conversation gained or lost a tool since Claude read the list: it reads it again on this notice.
+      await this.mcp.announceTools({ signal: req.signal });
       if (this.owesResult && !(await this.settlePrevious())) {
         yield this.endedError();
         return;
@@ -228,7 +241,7 @@ export class ClaudeAgentSession implements LiveSession {
       }
     } finally {
       req.signal.removeEventListener('abort', interrupt);
-      this.mcp.setHandler(undefined);
+      this.mcp.setHandler(idleToolsHandler(this.listed));
       this.inTurn = false;
       this.dismissQueued();
     }
@@ -344,7 +357,10 @@ export class ClaudeAgentSession implements LiveSession {
         refuse(item);
         continue;
       }
-      if (isPersonResult(item.message)) return;
+      if (isPersonResult(item.message)) {
+        this.owesResult = false;
+        return;
+      }
       onMessage?.(item.message);
     }
   }

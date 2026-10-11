@@ -8,7 +8,7 @@ export {
   type MoxxyMcpServer,
   type MoxxyMcpServerOptions,
 } from './mcp-server.js';
-export { mcpToolsFrom, moxxyToolsHandler, toMcpResult } from './moxxy-tools.js';
+export { idleToolsHandler, mcpToolsFrom, moxxyToolsHandler, sameToolNames, toMcpResult } from './moxxy-tools.js';
 export {
   JsonRpcError,
   JsonRpcLineClient,

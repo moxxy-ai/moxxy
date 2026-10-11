@@ -8,8 +8,10 @@ import {
   JsonRpcLineClient,
   agentModeFor,
   earlierConversationNote,
+  idleToolsHandler,
   moxxyToolsHandler,
   resumeAgentSession,
+  sameToolNames,
   startMoxxyMcpServer,
   untilStopped,
   type AgentMode,
@@ -56,7 +58,7 @@ export interface CodexSessionSettings {
   readonly cwd: string;
   /** The conversation's Codex thread from an earlier process, to resume. */
   readonly resume?: string;
-  /** The Moxxy tools of the turn that starts this Codex: Codex reads them once, as the thread opens. */
+  /** Every Moxxy tool of the conversation: Codex reads the list once, as the thread opens or resumes. */
   readonly tools?: ReadonlyArray<ToolDef>;
 }
 
@@ -129,7 +131,6 @@ type Item =
 const MAX_STDERR = 2048;
 const DISMISSED = { kind: 'dismissed', reason: 'cancelled' } as const;
 const STOPPED: AgentApprovalDecision = { allow: false, reason: 'The person stopped the turn.' };
-const NO_TURN_TOOL: AgentToolOutcome = { ok: false, message: 'No Moxxy turn is running, so the tool cannot run now.' };
 const NOBODY_TO_ASK = 'Nobody is there to answer questions right now. Pick the sensible choice yourself and say which one you picked.';
 const CLIENT_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
@@ -164,6 +165,8 @@ export class CodexAgentSession implements LiveSession {
   private goal: CodexGoal | undefined;
   /** Codex turns that belong to the Moxxy turn running now. */
   private readonly myTurns = new Set<string>();
+  /** The Moxxy tools Codex listed as the thread opened, the same for every turn. */
+  private readonly listed: ToolDef[];
   private activeTurn: string | undefined;
   private lastError: string | undefined;
   private stderr = '';
@@ -187,6 +190,7 @@ export class CodexAgentSession implements LiveSession {
     private readonly mcp: MoxxyMcpServer,
     private readonly connection: CodexConnection,
   ) {
+    this.listed = toolsLentToCodex(settings.tools ?? []);
     this.client = new JsonRpcLineClient({ readable: connection.readable, writable: connection.writable });
     connection.stderr?.on('data', (data: Buffer | string) => {
       this.stderr = (this.stderr + String(data)).slice(-MAX_STDERR);
@@ -204,9 +208,13 @@ export class CodexAgentSession implements LiveSession {
     return this.alive;
   }
 
-  /** Whether this Codex was started where the turn runs (a running thread cannot move). */
-  fits(settings: Pick<CodexSessionSettings, 'cwd'>): boolean {
-    return settings.cwd === this.settings.cwd;
+  /**
+   * Whether this Codex was started where the turn runs (a running thread
+   * cannot move) and listed the tools the conversation has now: Codex reads
+   * them only as a thread opens, so other tools mean resuming it in a new Codex.
+   */
+  fits(settings: Pick<CodexSessionSettings, 'cwd' | 'tools'>): boolean {
+    return settings.cwd === this.settings.cwd && sameToolNames(toolsLentToCodex(settings.tools ?? []), this.listed);
   }
 
   async *turn(req: AgentStepRequest): AsyncGenerator<AgentStepEvent> {
@@ -221,7 +229,7 @@ export class CodexAgentSession implements LiveSession {
     };
     req.signal.addEventListener('abort', onAbort, { once: true });
     this.mcp.setHandler(
-      moxxyToolsHandler(toolsLentToCodex(req.tools), {
+      moxxyToolsHandler(this.listed, {
         runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })),
       }),
     );
@@ -248,7 +256,7 @@ export class CodexAgentSession implements LiveSession {
       if (!req.signal.aborted) yield { type: 'error', message: this.alive ? messageOf(err) : this.endedMessage(), retryable: false };
     } finally {
       req.signal.removeEventListener('abort', onAbort);
-      this.mcp.setHandler(undefined);
+      this.mcp.setHandler(idleToolsHandler(this.listed));
       this.inTurn = false;
       this.dismissQueued();
     }
@@ -275,7 +283,7 @@ export class CodexAgentSession implements LiveSession {
     const read = await this.client.request<CodexConfigRead>('config/read', { cwd }).catch(() => undefined);
     this.ownSummary = read ? (read.config.model_reasoning_summary ?? null) : undefined;
     // Codex lists Moxxy's tools when the thread opens and keeps that list for the thread.
-    this.mcp.setHandler(moxxyToolsHandler(toolsLentToCodex(this.settings.tools ?? []), { runTool: async () => NO_TURN_TOOL }));
+    this.mcp.setHandler(idleToolsHandler(this.listed));
     let thread: CodexThreadResponse | undefined;
     if (resume) {
       const resumed = await resumeAgentSession({
@@ -294,7 +302,6 @@ export class CodexAgentSession implements LiveSession {
       this.newThread = 'new';
     }
     thread ??= await this.client.request<CodexThreadResponse>('thread/start', { cwd, config });
-    this.mcp.setHandler(undefined);
     this.threadId = thread.thread.id;
     this.original = { approvalPolicy: thread.approvalPolicy, sandbox: thread.sandbox };
     this.originalTier = thread.serviceTier && thread.serviceTier !== STANDARD_TIER ? thread.serviceTier : null;

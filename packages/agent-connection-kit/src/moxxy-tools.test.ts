@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineTool, type AgentStepHost, type AgentToolCall } from '@moxxy/sdk';
-import { mcpToolsFrom, moxxyToolsHandler, toMcpResult } from './moxxy-tools.js';
+import { idleToolsHandler, mcpToolsFrom, moxxyToolsHandler, sameToolNames, toMcpResult } from './moxxy-tools.js';
 
 describe('a Moxxy tool result handed to the agent', () => {
   it('is text for text and JSON for other values', () => {
@@ -78,5 +78,19 @@ describe('the Moxxy tools offered to the agent', () => {
     expect(first).toEqual({ content: [{ type: 'text', text: 'Example Domain' }] });
     expect(calls[0]).toMatchObject({ name: 'browser_title', input: { url: 'https://example.com' } });
     expect(calls[0]?.callId).not.toBe(calls[1]?.callId);
+  });
+
+  it('keeps the same list between turns and runs nothing then', async () => {
+    const handler = idleToolsHandler([title]);
+
+    expect(handler.list().map((t) => t.name)).toEqual(['browser_title']);
+    expect(await handler.call('browser_title', {}, new AbortController().signal)).toMatchObject({ isError: true });
+  });
+
+  it('tells lists of the same tools from lists that differ', () => {
+    const other = { ...title, name: 'other' };
+
+    expect(sameToolNames([title, other], [other, title])).toBe(true);
+    expect(sameToolNames([title], [title, other])).toBe(false);
   });
 });

@@ -385,6 +385,47 @@ describe('approvals: one state with Codex own policy', () => {
   });
 });
 
+describe('the Moxxy tools Codex can see', () => {
+  const askLike = defineTool({ name: 'ask_like', description: 'Ask the person.', inputSchema: z.object({}), notInModes: ['goal'], handler: async () => 'answered' });
+
+  it('lists every Moxxy tool from the start, and says why one is not available in this mode', async () => {
+    const results: Array<{ content: unknown; isError?: boolean }> = [];
+    const { session } = connect(async (turn) => {
+      results.push(await turn.callMoxxyTool('ask_like', {}));
+      if (turn.objective !== undefined) turn.goal('complete');
+      turn.say('ok');
+    });
+    session.pluginHost.registerStatic(definePlugin({ name: 'test-ask', tools: [askLike] }));
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive('goal');
+
+    await collectTurn(session, 'do it');
+    session.modes.setActive('default');
+    await collectTurn(session, 'now ask me');
+
+    expect(results[0]).toEqual({ content: [{ type: 'text', text: expect.stringMatching(/^ask_like is not available in goal mode/) }], isError: true });
+    expect(results[1]).toEqual({ content: [{ type: 'text', text: 'answered' }] });
+  });
+
+  it('resumes the thread in a new Codex when the conversation gains a tool, so Codex reads the new list', async () => {
+    const noted = defineTool({ name: 'note_lookup', description: 'Look a note up.', inputSchema: z.object({}), handler: async () => 'the note' });
+    const found: unknown[] = [];
+    const { codex, session } = connect(async (turn) => {
+      if (turn.text === 'look it up') found.push(await turn.callMoxxyTool('note_lookup', {}));
+      turn.say('ok');
+    });
+    await collectTurn(session, 'hello');
+    const first = codex.last;
+    session.pluginHost.registerStatic(definePlugin({ name: 'test-notes', tools: [noted] }));
+
+    await collectTurn(session, 'look it up');
+
+    expect(codex.last).not.toBe(first);
+    expect(codex.last.sent('thread/resume')[0]).toMatchObject({ threadId: 'thread-1' });
+    expect(found).toEqual([expect.objectContaining({ content: [{ type: 'text', text: 'the note' }] })]);
+  });
+});
+
 describe('reasoning summaries', () => {
   it("asks for Codex's summaries of its thinking when the person's config leaves them to the model", async () => {
     const { codex, session } = connect(async (turn) => turn.say('ok'));

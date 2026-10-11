@@ -174,7 +174,7 @@ export class CodexAgentProvider implements LLMProvider {
 
   /** The conversation's running Codex, or a new one (resuming its thread) when there is none that fits. */
   private async lease(req: AgentStepRequest): Promise<AgentSessionLease<CodexAgentSession>> {
-    const settings = { start: this.start, cwd: req.cwd, tools: req.tools, ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}) };
+    const settings = { start: this.start, cwd: req.cwd, tools: req.allTools ?? req.tools, ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}) };
     const sessions = this.config.sessions ?? codexSessions();
     const create = () => CodexAgentSession.start(settings);
     const lease = await sessions.acquire(req.sessionId, { signal: req.signal, create });

@@ -243,6 +243,25 @@ it needs them. Each agent also gets Moxxy's `recall` tool, which searches the
 whole conversation (`recall({ query: "database port" })`) and reads any turn in
 full (`recall({ turn: 12 })`), so a detail from long ago is still found.
 
+## The Moxxy tools an agent sees
+
+Claude, Codex and OpenCode each read their list of Moxxy tools once, as their
+session opens. So Moxxy lists every tool of the conversation, in every mode,
+from the start, and the list stays the same when you switch modes. A tool the
+current mode does not offer (`ask_user` in goal mode, say) is still listed;
+calling it runs nothing, and the agent is told why, for example
+"ask_user is not available in goal mode, so Moxxy did not run it". The refusal
+shows in the conversation like any other tool result.
+
+When the list itself changes, because you installed or enabled a plugin
+partway through a conversation:
+
+- Claude and OpenCode are told the list changed and read it again before the
+  next message.
+- Codex does not re-read a list it already has, so Moxxy restarts its
+  `codex app-server` and resumes the same thread, which reads the new list.
+  The conversation carries on; only the process is new.
+
 ## Using OAuth in your own plugin
 
 The `@moxxy/plugin-oauth` plugin contributes three tools:

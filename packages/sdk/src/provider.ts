@@ -406,6 +406,12 @@ export interface AgentStepRequest {
   readonly mode: string;
   /** Moxxy tools this mode offers; the adapter lends the ones the agent lacks over Moxxy's MCP server. */
   readonly tools: ReadonlyArray<ToolDef>;
+  /**
+   * Every Moxxy tool of the conversation, in any mode. Agents read their tool
+   * list once (Codex as a thread opens, Claude as it starts), so the adapter
+   * lists these and refuses, with the reason, a call to one `tools` lacks.
+   */
+  readonly allTools?: ReadonlyArray<ToolDef>;
   /** The agent's own session from an earlier turn of this conversation, to resume. */
   readonly resumeSessionId?: string;
   /**
