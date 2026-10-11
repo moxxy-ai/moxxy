@@ -104,8 +104,8 @@ export class AcpTurnTranslator {
       state.ended = true;
       const output = toolOutput(update);
       const diff = update.status === 'completed' ? fileDiffOf(state.tool, state.input, update.rawOutput, this.cwd) : undefined;
-      const image = diff ? undefined : toolImage(update);
-      const shown = diff ? { forModel: output, display: diff } : image ? imageToolOutput(output, image) : output;
+      const images = diff ? [] : toolImages(update);
+      const shown = diff ? { forModel: output, display: diff } : images.length > 0 ? imageToolOutput(output, images) : output;
       events.push(
         update.status === 'completed'
           ? { type: 'tool_result', callId: update.toolCallId, ok: true, output: shown }
@@ -197,14 +197,13 @@ function fileDiffOf(tool: string, input: Record<string, unknown>, rawOutput: unk
   return undefined;
 }
 
-/** The first image of a finished call (an image file OpenCode read, a screenshot an MCP tool returned). */
-function toolImage(update: AcpToolCall): ToolImage | undefined {
-  for (const part of update.content ?? []) {
-    if (part.type !== 'content') continue;
+/** The images of a finished call (an image file OpenCode read, screenshots an MCP tool returned), in order. */
+function toolImages(update: AcpToolCall): ToolImage[] {
+  return (update.content ?? []).flatMap((part) => {
+    if (part.type !== 'content') return [];
     const block = part.content as { type: string; mimeType?: unknown; data?: unknown };
-    if (block.type === 'image' && typeof block.mimeType === 'string' && typeof block.data === 'string') return { mediaType: block.mimeType, base64: block.data };
-  }
-  return undefined;
+    return block.type === 'image' && typeof block.mimeType === 'string' && typeof block.data === 'string' ? [{ mediaType: block.mimeType, base64: block.data }] : [];
+  });
 }
 
 function toolOutput(update: AcpToolCall): string {

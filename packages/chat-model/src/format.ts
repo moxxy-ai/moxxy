@@ -255,9 +255,10 @@ export function compactPreviewLine(call: LiveToolCall): string {
   return summarizeArgs(call.request.input);
 }
 
-/** An image a tool returned, for surfaces that show it as text: "image (JPEG, 198.4 KB)". */
-export function toolImageLabel(image: ToolImage): string {
-  const bytes = Math.floor((image.base64.length * 3) / 4);
+/** The images a tool returned, for surfaces that show them as text: "image (JPEG, 198.4 KB)", "3 images (JPEG, PNG, 610.0 KB)". */
+export function toolImagesLabel(images: ReadonlyArray<ToolImage>): string {
+  const bytes = images.reduce((sum, image) => sum + Math.floor((image.base64.length * 3) / 4), 0);
   const size = bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
-  return `image (${image.mediaType.replace(/^image\//, '').toUpperCase()}, ${size})`;
+  const kinds = [...new Set(images.map((image) => image.mediaType.replace(/^image\//, '').toUpperCase()))];
+  return `${images.length === 1 ? 'image' : `${images.length} images`} (${[...kinds, size].join(', ')})`;
 }

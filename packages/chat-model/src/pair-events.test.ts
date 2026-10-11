@@ -24,7 +24,7 @@ import {
   isSettled,
   pairToolEvents,
   questionAnswerOf,
-  toolImageResultOf,
+  toolImagesResultOf,
   type CompactToolMap,
 } from './pair-events.js';
 import type {
@@ -750,18 +750,21 @@ describe('pairToolEvents — file-edit tools', () => {
     expect(questionAnswerOf(null)).toBeNull();
   });
 
-  it('toolImageResultOf reads the image a settled result carries, and the text beside it', () => {
+  it('toolImagesResultOf reads every image a settled result carries, and the text beside them', () => {
     const blocks = pairToolEvents([
       toolRequest('i1', 'mcp__cua_repl__js'),
-      toolResult('i1', { forModel: 'Screenshot of Arc', mediaType: 'image/jpeg', base64: '/9j/AAA' }),
+      toolResult('i1', { forModel: 'Two windows', mediaType: 'image/jpeg', base64: '/9j/AAA', moreImages: [{ mediaType: 'image/png', base64: 'iVBOR' }] }),
     ]);
-    expect(toolImageResultOf(asToolCall(blocks[0]).outcome)).toEqual({
-      image: { mediaType: 'image/jpeg', base64: '/9j/AAA' },
-      text: 'Screenshot of Arc',
+    expect(toolImagesResultOf(asToolCall(blocks[0]).outcome)).toEqual({
+      images: [
+        { mediaType: 'image/jpeg', base64: '/9j/AAA' },
+        { mediaType: 'image/png', base64: 'iVBOR' },
+      ],
+      text: 'Two windows',
     });
     const plain = pairToolEvents([toolRequest('b2', 'bash'), toolResult('b2', 'ok')]);
-    expect(toolImageResultOf(asToolCall(plain[0]).outcome)).toBeNull();
-    expect(toolImageResultOf(null)).toBeNull();
+    expect(toolImagesResultOf(asToolCall(plain[0]).outcome)).toBeNull();
+    expect(toolImagesResultOf(null)).toBeNull();
   });
 });
 

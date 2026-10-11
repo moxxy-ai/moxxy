@@ -140,6 +140,21 @@ describe('Claude messages as Moxxy events', () => {
     ]);
   });
 
+  it('keeps every different image a result carries, in order', () => {
+    const t = new TurnTranslator('/repo');
+    t.translate(assistant([{ type: 'tool_use', id: 'toolu_m', name: 'mcp__computer-use__computer_batch', input: {} }]));
+    const image = (data: string) => ({ type: 'image', source: { type: 'base64', media_type: 'image/png', data } });
+
+    expect(t.translate(toolResult('toolu_m', [{ type: 'text', text: 'Two screens' }, image('ONE'), image('TWO')]))).toEqual([
+      {
+        type: 'tool_result',
+        callId: 'toolu_m',
+        ok: true,
+        output: { forModel: 'Two screens', mediaType: 'image/png', base64: 'ONE', moreImages: [{ mediaType: 'image/png', base64: 'TWO' }] },
+      },
+    ]);
+  });
+
   it('keeps the text of a result whose report is no file change', () => {
     const t = new TurnTranslator('/repo');
     t.translate(assistant([{ type: 'tool_use', id: 'toolu_b', name: 'Bash', input: {} }]));

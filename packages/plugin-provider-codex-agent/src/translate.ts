@@ -130,27 +130,29 @@ function toolResultOf(item: CodexItem, cwd: string, readImage: (path: string) =>
     }
     case 'mcpToolCall': {
       if (item.error) return { ok: false, error: item.error.message };
-      const shown = mcpImageOf(item.result);
-      return { ok: status !== 'failed', output: shown ? imageToolOutput(shown.text, shown.image) : item.result };
+      const shown = mcpImagesOf(item.result);
+      return { ok: status !== 'failed', output: shown ? imageToolOutput(shown.text, shown.images) : item.result };
     }
     case 'imageView': {
       const image = readImage(item.path);
-      return { ok: true, output: image ? imageToolOutput(item.path, image) : '' };
+      return { ok: true, output: image ? imageToolOutput(item.path, [image]) : '' };
     }
     default:
       return { ok: true, output: '' };
   }
 }
 
-/** The first image of an MCP result (Codex's computer use sends each screenshot twice) and its text. */
-function mcpImageOf(result: unknown): { readonly image: ToolImage; readonly text: string } | undefined {
+/** The images of an MCP result, in order, and its text; Codex's computer use sends each screenshot twice. */
+function mcpImagesOf(result: unknown): { readonly images: ToolImage[]; readonly text: string } | undefined {
   const content = (result as { content?: unknown } | null | undefined)?.content;
   if (!Array.isArray(content)) return undefined;
   const parts = content as ReadonlyArray<{ type?: unknown; text?: unknown; data?: unknown; mimeType?: unknown }>;
-  const first = parts.find((part) => part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string');
-  if (!first || typeof first.data !== 'string' || typeof first.mimeType !== 'string') return undefined;
+  const images = parts.flatMap((part) =>
+    part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string' ? [{ mediaType: part.mimeType, base64: part.data }] : [],
+  );
+  if (images.length === 0) return undefined;
   const text = parts.flatMap((part) => (part.type === 'text' && typeof part.text === 'string' ? [part.text] : [])).join('\n');
-  return { image: { mediaType: first.mimeType, base64: first.data }, text };
+  return { images, text };
 }
 
 /** A new or changed file as a diff: Codex sends a new file's content, and a change as a unified diff. */

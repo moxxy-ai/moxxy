@@ -300,7 +300,7 @@ export {
   fileDiffVerb,
   diffGutterNo,
   toDiffRows,
-  toolImageOf,
+  toolImagesOf,
   imageToolOutput,
 } from './tool-display.js';
 export { fileDiffFromText, fileDiffFromPatch, parseUnifiedDiff, diffPathIn, type PatchHunk } from './file-diff.js';

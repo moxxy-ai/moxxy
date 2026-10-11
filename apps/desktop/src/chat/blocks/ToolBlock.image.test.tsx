@@ -43,6 +43,28 @@ describe('an image in a tool result', () => {
     expect(screen.queryByText(/9j\/AAA/)).toBeNull();
   });
 
+  it('shows every image a tool returned, each opening on its own', () => {
+    const open = vi.fn();
+    const shots: ToolResultEvent = {
+      ...screenshot,
+      output: { ...(screenshot.output as object), moreImages: [{ mediaType: 'image/png', base64: 'iVBOR2' }, { mediaType: 'image/png', base64: 'iVBOR3' }] },
+    };
+    render(
+      <ImagePreviewProvider value={open}>
+        <ToolBlock name="mcp__cua_repl__js" input={{ title: 'Trzy okna' }} outcome={shots} />
+      </ImagePreviewProvider>,
+    );
+
+    const thumbs = screen.getAllByRole('button', { name: /preview image \d of 3 mcp__cua_repl__js returned/i });
+    expect(thumbs.map((thumb) => thumb.querySelector('img')?.getAttribute('src'))).toEqual([
+      'data:image/jpeg;base64,/9j/AAA',
+      'data:image/png;base64,iVBOR2',
+      'data:image/png;base64,iVBOR3',
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: /preview image 3 of 3/i }));
+    expect(open).toHaveBeenCalledWith({ name: 'mcp__cua_repl__js', mediaType: 'image/png', base64: 'iVBOR3' });
+  });
+
   it('shows in a row of a tool group too', () => {
     render(
       <ul>

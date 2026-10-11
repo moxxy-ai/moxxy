@@ -90,4 +90,20 @@ describe("OpenCode's images", () => {
       output: { forModel: 'Image read successfully', mediaType: 'image/png', base64: 'iVBOR' },
     });
   });
+
+  it('keep every different image a finished call sends, in order', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    t.update({ sessionUpdate: 'tool_call', toolCallId: 'r2', title: 'screens', kind: 'other', status: 'in_progress', rawInput: {} });
+    const image = (data: string) => ({ type: 'content', content: { type: 'image', mimeType: 'image/png', data } }) as const;
+
+    const [result] = t.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'r2',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: 'Two screens' } }, image('ONE'), image('ONE'), image('TWO')],
+      rawOutput: { output: 'Two screens', metadata: {} },
+    });
+
+    expect(result).toMatchObject({ output: { base64: 'ONE', moreImages: [{ mediaType: 'image/png', base64: 'TWO' }] } });
+  });
 });

@@ -1,12 +1,12 @@
 import type { ContentBlock } from './provider.js';
-import { isToolDisplayResult, toolImageOf } from './tool-display.js';
+import { isToolDisplayResult, toolImagesOf } from './tool-display.js';
 
 export type ToolImageBlock = Extract<ContentBlock, { type: 'image' }>;
 
-/** What a model is shown of a successful tool output: text, plus the pixels of an image. */
+/** What a model is shown of a successful tool output: text, plus the pixels of each image. */
 export interface ToolOutputForModel {
   readonly text: string;
-  readonly image: ToolImageBlock | null;
+  readonly images: ReadonlyArray<ToolImageBlock>;
 }
 
 const IMAGE_MARKER = '[image returned by tool — see attached image]';
@@ -17,11 +17,14 @@ const IMAGE_MARKER = '[image returned by tool — see attached image]';
  */
 export function toolOutputForModel(output: unknown): ToolOutputForModel {
   // A rich result (e.g. a file diff): the model only needs the short summary.
-  if (isToolDisplayResult(output)) return { text: output.forModel, image: null };
-  // An image is handed over as an image block so the model SEES the pixels.
-  const found = toolImageOf(output);
-  if (found) return { text: found.text || IMAGE_MARKER, image: { type: 'image', mediaType: found.image.mediaType, data: found.image.base64 } };
-  return { text: safeStringifyOutput(output), image: null };
+  if (isToolDisplayResult(output)) return { text: output.forModel, images: [] };
+  // Images are handed over as image blocks so the model SEES the pixels.
+  const found = toolImagesOf(output);
+  if (found) {
+    const images = found.images.map((image): ToolImageBlock => ({ type: 'image', mediaType: image.mediaType, data: image.base64 }));
+    return { text: found.text || IMAGE_MARKER, images };
+  }
+  return { text: safeStringifyOutput(output), images: [] };
 }
 
 /**

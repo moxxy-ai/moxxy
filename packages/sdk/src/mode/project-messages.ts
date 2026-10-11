@@ -383,10 +383,10 @@ export function projectMessages(
         // Stub bulky old tool output to a recall-able marker (decision shared
         // with estimateContextTokens via toolResultStubbed).
         let text: string;
-        // An image-shaped output (a screenshot/clipboard grab) is carried as a
-        // provider `image` block so the model SEES the pixels — only when the
+        // An image-shaped output (a screenshot/clipboard grab) is carried as
+        // provider `image` blocks so the model SEES the pixels — only when the
         // result isn't stubbed (elided) or an error and the call succeeded.
-        let image: ToolImageBlock | null = null;
+        let images: ReadonlyArray<ToolImageBlock> = [];
         if (toolResultStubbed(e, el)) {
           text = toolResultStubText(e, el);
         } else if (e.error) {
@@ -394,12 +394,12 @@ export function projectMessages(
         } else {
           const forModel = toolOutputForModel(e.output);
           text = forModel.text;
-          if (e.ok) image = forModel.image;
+          if (e.ok) images = forModel.images;
         }
         const content: ContentBlock[] = [
           { type: 'tool_result', toolUseId: e.callId, content: text, isError: !e.ok },
+          ...images,
         ];
-        if (image) content.push(image);
         messages.push({ role: 'tool_result', content });
         recordStable(e.seq);
         break;

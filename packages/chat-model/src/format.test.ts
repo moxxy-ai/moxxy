@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  toolImageLabel,
+  toolImagesLabel,
   buildCompactSummary,
   compactPreviewLine,
   describeToolCall,
@@ -198,9 +198,14 @@ describe('compactPreviewLine', () => {
   });
 });
 
-describe('toolImageLabel', () => {
+describe('toolImagesLabel', () => {
   it('names an image by its kind and decoded size', () => {
-    expect(toolImageLabel({ mediaType: 'image/jpeg', base64: 'A'.repeat(3000) })).toBe('image (JPEG, 2.2 KB)');
-    expect(toolImageLabel({ mediaType: 'image/png', base64: 'AAAA' })).toBe('image (PNG, 3 B)');
+    expect(toolImagesLabel([{ mediaType: 'image/jpeg', base64: 'A'.repeat(3000) }])).toBe('image (JPEG, 2.2 KB)');
+    expect(toolImagesLabel([{ mediaType: 'image/png', base64: 'AAAA' }])).toBe('image (PNG, 3 B)');
+  });
+
+  it('counts several images, with their kinds and their size together', () => {
+    const jpeg = { mediaType: 'image/jpeg', base64: 'A'.repeat(3000) };
+    expect(toolImagesLabel([jpeg, jpeg, { mediaType: 'image/png', base64: 'A'.repeat(3000) }])).toBe('3 images (JPEG, PNG, 6.6 KB)');
   });
 });

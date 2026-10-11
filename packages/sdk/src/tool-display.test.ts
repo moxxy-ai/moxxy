@@ -9,7 +9,7 @@ import {
   isToolDisplayResult,
   questionAnswerLines,
   toDiffRows,
-  toolImageOf,
+  toolImagesOf,
   type QuestionAnswerDisplay,
   type FileDiffDisplay,
 } from './tool-display.js';
@@ -127,30 +127,42 @@ describe('question-answer display', () => {
   });
 });
 
-describe('an image in a tool result', () => {
-  it('is read from the shape Moxxy tools return, with the text beside it', () => {
-    expect(toolImageOf({ mediaType: 'image/png', base64: 'AAA', forModel: 'Screenshot of Arc' })).toEqual({
-      image: { mediaType: 'image/png', base64: 'AAA' },
+describe('images in a tool result', () => {
+  it('are read from the shape Moxxy tools return, with the text beside it', () => {
+    expect(toolImagesOf({ mediaType: 'image/png', base64: 'AAA', forModel: 'Screenshot of Arc' })).toEqual({
+      images: [{ mediaType: 'image/png', base64: 'AAA' }],
       text: 'Screenshot of Arc',
     });
   });
 
-  it('is read from the provider-native image block too', () => {
-    expect(toolImageOf({ type: 'image', mediaType: 'image/jpeg', data: 'BBB' })).toEqual({
-      image: { mediaType: 'image/jpeg', base64: 'BBB' },
+  it('are read from the provider-native image block too', () => {
+    expect(toolImagesOf({ type: 'image', mediaType: 'image/jpeg', data: 'BBB' })).toEqual({
+      images: [{ mediaType: 'image/jpeg', base64: 'BBB' }],
       text: '',
     });
   });
 
-  it('is nothing for text, a file diff, or an object without pixels', () => {
-    expect(toolImageOf('plain text')).toBeNull();
-    expect(toolImageOf({ mediaType: 'image/png' })).toBeNull();
-    expect(toolImageOf(null)).toBeNull();
+  it('are nothing for text, a file diff, or an object without pixels', () => {
+    expect(toolImagesOf('plain text')).toBeNull();
+    expect(toolImagesOf({ mediaType: 'image/png' })).toBeNull();
+    expect(toolImagesOf(null)).toBeNull();
   });
 
-  it('is what an agent connection hands over: the text the agent read and one image', () => {
-    const output = imageToolOutput('Took a screenshot.', { mediaType: 'image/jpeg', base64: 'CCC' });
+  it('are what an agent connection hands over: the text the agent read and every image, in order', () => {
+    const shots = [
+      { mediaType: 'image/jpeg', base64: 'ONE' },
+      { mediaType: 'image/png', base64: 'TWO' },
+      { mediaType: 'image/jpeg', base64: 'THREE' },
+    ];
 
-    expect(toolImageOf(output)).toEqual({ image: { mediaType: 'image/jpeg', base64: 'CCC' }, text: 'Took a screenshot.' });
+    expect(toolImagesOf(imageToolOutput('Took three screenshots.', shots))).toEqual({ images: shots, text: 'Took three screenshots.' });
+  });
+
+  it('keep one copy of an image sent twice, as Codex sends each screenshot', () => {
+    const shot = { mediaType: 'image/jpeg', base64: 'SAME' };
+    const other = { mediaType: 'image/jpeg', base64: 'OTHER' };
+
+    expect(imageToolOutput('', [shot, shot, other, shot])).toEqual({ forModel: '', mediaType: 'image/jpeg', base64: 'SAME', moreImages: [other] });
+    expect(imageToolOutput('', [shot, shot])).toEqual({ forModel: '', mediaType: 'image/jpeg', base64: 'SAME' });
   });
 });

@@ -68,4 +68,11 @@ describe('ToolCallBlock with an image result', () => {
     expect(text).toContain('Result · image (JPEG, 2.2 KB) · Arc, tests.html');
     expect(text).not.toContain('AAAA');
   });
+
+  it('counts every image when a tool returned several', () => {
+    const shots = { ...shot, output: { forModel: 'Two windows', mediaType: 'image/jpeg', base64: 'A'.repeat(3000), moreImages: [{ mediaType: 'image/jpeg', base64: 'B'.repeat(3000) }] } } as unknown as ToolResultEvent;
+    const text = frame(React.createElement(ToolCallBlock, { request: call, outcome: shots, expanded: true }));
+
+    expect(text).toContain('Result · 2 images (JPEG, 4.4 KB) · Two windows');
+  });
 });

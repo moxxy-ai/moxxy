@@ -17,6 +17,8 @@
  * line numbers, +/- markers, green/red line backgrounds.
  */
 
+import { invariant } from './assert.js';
+
 /** One rendered line of a diff. */
 export interface DiffLine {
   readonly kind: 'context' | 'add' | 'del';
@@ -149,22 +151,38 @@ export interface ToolImage {
 }
 
 /**
- * The image in a tool output and the text beside it, or `null`. A tool returns
- * `{ mediaType, base64, forModel? }` (Moxxy's screenshot tools, agent
- * connections) or the provider-native `{ type: 'image', mediaType, data }`.
+ * The images in a tool output and the text beside them, or `null`. A tool
+ * returns `{ mediaType, base64, forModel?, moreImages? }` (Moxxy's screenshot
+ * tools, agent connections) or the provider-native `{ type: 'image', mediaType, data }`.
  */
-export function toolImageOf(output: unknown): { readonly image: ToolImage; readonly text: string } | null {
+export function toolImagesOf(output: unknown): { readonly images: ReadonlyArray<ToolImage>; readonly text: string } | null {
   if (typeof output !== 'object' || output === null) return null;
-  const o = output as { type?: unknown; mediaType?: unknown; base64?: unknown; data?: unknown; forModel?: unknown };
+  const o = output as { type?: unknown; mediaType?: unknown; base64?: unknown; data?: unknown; forModel?: unknown; moreImages?: unknown };
   if (typeof o.mediaType !== 'string') return null;
   const base64 = typeof o.base64 === 'string' ? o.base64 : o.type === 'image' && typeof o.data === 'string' ? o.data : null;
   if (base64 === null) return null;
-  return { image: { mediaType: o.mediaType, base64 }, text: typeof o.forModel === 'string' ? o.forModel : '' };
+  const more = Array.isArray(o.moreImages) ? o.moreImages.filter(isToolImage) : [];
+  return { images: [{ mediaType: o.mediaType, base64 }, ...more], text: typeof o.forModel === 'string' ? o.forModel : '' };
 }
 
-/** A tool output holding one image and the text the agent read beside it. */
-export function imageToolOutput(text: string, image: ToolImage): { readonly forModel: string; readonly mediaType: string; readonly base64: string } {
-  return { forModel: text, mediaType: image.mediaType, base64: image.base64 };
+function isToolImage(x: unknown): x is ToolImage {
+  if (typeof x !== 'object' || x === null) return false;
+  const image = x as { mediaType?: unknown; base64?: unknown };
+  return typeof image.mediaType === 'string' && typeof image.base64 === 'string';
+}
+
+/**
+ * A tool output holding the images a tool returned, in order, and the text the
+ * agent read beside them. An image sent more than once is kept once.
+ */
+export function imageToolOutput(
+  text: string,
+  images: ReadonlyArray<ToolImage>,
+): { readonly forModel: string; readonly mediaType: string; readonly base64: string; readonly moreImages?: ReadonlyArray<ToolImage> } {
+  const distinct = images.filter((image, index) => images.findIndex((other) => other.base64 === image.base64) === index);
+  const [first, ...more] = distinct;
+  invariant(first !== undefined, 'an image tool output holds at least one image');
+  return { forModel: text, mediaType: first.mediaType, base64: first.base64, ...(more.length > 0 ? { moreImages: more } : {}) };
 }
 
 /** Human summary, e.g. "Added 10 lines, removed 1 line". */

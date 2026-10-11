@@ -289,8 +289,9 @@ does not send the old content).
 When Claude, Codex or OpenCode looks at an image during its work, the
 conversation shows it under the tool's line: a screenshot it takes while it
 controls the computer, an image file it reads. Click it to see it full size.
-The terminal says an image came back, with its kind and size. One image is
-shown per tool call (Codex's computer use sends each screenshot twice).
+The terminal says how many images came back, with their kind and size. Every
+image a tool call returned is shown, side by side; an image sent twice shows
+once (Codex's computer use sends each screenshot twice).
 
 | Agent | Where the image comes from |
 |---|---|

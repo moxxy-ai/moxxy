@@ -1,6 +1,6 @@
 import type { MoxxyEvent, PluginEvent, ToolCompactPresentation } from '@moxxy/sdk';
 import { assertDefined, invariant } from './assert.js';
-import { isFileDiffDisplay, isQuestionAnswerDisplay, toolImageOf, type QuestionAnswerDisplay, type ToolImage } from '@moxxy/sdk/tool-display';
+import { isFileDiffDisplay, isQuestionAnswerDisplay, toolImagesOf, type QuestionAnswerDisplay, type ToolImage } from '@moxxy/sdk/tool-display';
 import type {
   Block,
   CollabAgentView,
@@ -46,10 +46,10 @@ export function questionAnswerOf(outcome: ToolCallBlockData['outcome']): Questio
   return isQuestionAnswerDisplay(display) ? display : null;
 }
 
-/** The image a settled tool result carries (a screenshot, an image an agent looked at) and the text beside it; else null. */
-export function toolImageResultOf(outcome: ToolCallBlockData['outcome']): { readonly image: ToolImage; readonly text: string } | null {
+/** The images a settled tool result carries (screenshots, images an agent looked at) and the text beside them; else null. */
+export function toolImagesResultOf(outcome: ToolCallBlockData['outcome']): { readonly images: ReadonlyArray<ToolImage>; readonly text: string } | null {
   if (outcome === null || outcome.type !== 'tool_result' || !outcome.ok) return null;
-  return toolImageOf(outcome.output);
+  return toolImagesOf(outcome.output);
 }
 
 /**

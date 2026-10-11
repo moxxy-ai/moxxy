@@ -77,8 +77,8 @@ export class TurnTranslator {
         events.push({ type: 'tool_result', callId: block.tool_use_id, ok: false, error: text });
         continue;
       }
-      const image = diff ? undefined : resultImage(block.content);
-      const output = diff ? { forModel: text, display: diff } : image ? imageToolOutput(text, image) : text;
+      const images = diff ? [] : resultImages(block.content);
+      const output = diff ? { forModel: text, display: diff } : images.length > 0 ? imageToolOutput(text, images) : text;
       events.push({ type: 'tool_result', callId: block.tool_use_id, ok: true, output });
     }
     return events;
@@ -163,17 +163,17 @@ function isPatchHunk(x: unknown): x is { oldStart: number; newStart: number; lin
   );
 }
 
-/** The first image of a result (a screenshot, an image file Claude read); Moxxy shows one per call. */
-function resultImage(content: string | ReadonlyArray<{ type: string }> | undefined): ToolImage | undefined {
-  if (typeof content === 'string' || !content) return undefined;
-  for (const part of content) {
-    if (part.type !== 'image') continue;
+/** The images of a result (a screenshot, an image file Claude read), in order. */
+function resultImages(content: string | ReadonlyArray<{ type: string }> | undefined): ToolImage[] {
+  if (typeof content === 'string' || !content) return [];
+  return content.flatMap((part) => {
+    if (part.type !== 'image') return [];
     const source = (part as { source?: { type?: unknown; media_type?: unknown; data?: unknown } }).source;
     if (source && source.type === 'base64' && typeof source.media_type === 'string' && typeof source.data === 'string') {
-      return { mediaType: source.media_type, base64: source.data };
+      return [{ mediaType: source.media_type, base64: source.data }];
     }
-  }
-  return undefined;
+    return [];
+  });
 }
 
 function resultText(content: string | ReadonlyArray<{ type: string; text?: string }> | undefined): string {

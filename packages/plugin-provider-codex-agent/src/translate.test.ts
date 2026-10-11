@@ -83,6 +83,24 @@ describe("Codex's images", () => {
     });
   });
 
+  it('keep every different screenshot an MCP tool returned, each once, in order', () => {
+    const translator = new TurnTranslator('/repo');
+    const shot = (data: string) => ({ type: 'image', data, mimeType: 'image/jpeg' });
+    const content = [{ type: 'text', text: 'Three windows' }, shot('/9j/ONE'), shot('/9j/ONE'), shot('/9j/TWO'), shot('/9j/TWO'), shot('/9j/THREE')];
+    const item = { type: 'mcpToolCall', id: 'm3', server: 'cua_repl', tool: 'js', status: 'completed', arguments: {}, result: { content }, error: null };
+
+    expect(translator.translate('item/completed', { item })[1]).toMatchObject({
+      output: {
+        forModel: 'Three windows',
+        base64: '/9j/ONE',
+        moreImages: [
+          { mediaType: 'image/jpeg', base64: '/9j/TWO' },
+          { mediaType: 'image/jpeg', base64: '/9j/THREE' },
+        ],
+      },
+    });
+  });
+
   it('keep the result of an MCP tool without an image as Codex sent it', () => {
     const translator = new TurnTranslator('/repo');
     const result = { content: [{ type: 'text', text: 'ok' }], structuredContent: null };

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { isFileDiffResult, questionAnswerOf, toolImageResultOf, type ToolCallBlockData } from '@moxxy/chat-model';
+import { isFileDiffResult, questionAnswerOf, toolImagesResultOf, type ToolCallBlockData } from '@moxxy/chat-model';
 import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
 import { ActivityRow } from '../ActivityRow';
 import { iconForTool, statusOf, toolActivityLabel } from '../SkillGroupView';
@@ -7,7 +7,7 @@ import { useToolIcon } from '../ToolIconContext';
 import { preStyle, pretty } from './block-shared';
 import { AnsweredQuestionBlock } from './AnsweredQuestionBlock';
 import { FileDiffBlock } from './FileDiffBlock';
-import { ToolImage } from './ToolImage';
+import { ToolImages } from './ToolImages';
 
 export function ToolBlock({ name, input, outcome }: {
   readonly name: string;
@@ -23,8 +23,8 @@ export function ToolBlock({ name, input, outcome }: {
   const answered = questionAnswerOf(outcome);
   if (answered) return <AnsweredQuestionBlock display={answered} />;
   const status = statusOf(outcome);
-  const shown = toolImageResultOf(outcome);
-  // An image's text stands for it in the body; the pixels show as the thumbnail.
+  const shown = toolImagesResultOf(outcome);
+  // The images' text stands for them in the body; the pixels show as thumbnails.
   const output = shown ? shown.text || undefined : outcome?.type === 'tool_result' ? outcome.output : undefined;
   const error = outcome === null ? undefined : outcome.type === 'denied' ? outcome.reason : outcome.error?.message;
   return (
@@ -37,7 +37,7 @@ export function ToolBlock({ name, input, outcome }: {
         open={open}
         onToggle={() => setOpen((value) => !value)}
       />
-      {shown ? <ToolImage image={shown.image} tool={name} /> : null}
+      {shown ? <ToolImages images={shown.images} tool={name} /> : null}
       {open ? (
         <div className="activity-detail-row__body activity-detail-row__body--root">
           <pre style={preStyle}>{pretty(input)}</pre>

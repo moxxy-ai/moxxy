@@ -11,9 +11,8 @@ import type { McpCallResult, McpContent, McpTool, McpToolHandler } from './mcp-s
 /** A Moxxy tool result as an MCP tool result: what the model would see, pixels included. */
 export function toMcpResult(outcome: AgentToolOutcome): McpCallResult {
   if (!outcome.ok) return { content: [{ type: 'text', text: outcome.message }], isError: true };
-  const { text, image } = toolOutputForModel(outcome.output);
-  const content: McpContent[] = [{ type: 'text', text }];
-  if (image) content.push({ type: 'image', data: image.data, mimeType: image.mediaType });
+  const { text, images } = toolOutputForModel(outcome.output);
+  const content: McpContent[] = [{ type: 'text', text }, ...images.map((image): McpContent => ({ type: 'image', data: image.data, mimeType: image.mediaType }))];
   return { content };
 }
 
