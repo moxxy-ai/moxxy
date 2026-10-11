@@ -79,6 +79,8 @@ export type ClaudeMessage =
       readonly message: { readonly content: string | ReadonlyArray<ClaudeContentBlock> };
       readonly parent_tool_use_id: string | null;
       readonly isSynthetic?: boolean;
+      /** The tool's own output object (Edit and Write report their patch here), beside the text Claude read. */
+      readonly tool_use_result?: unknown;
     }
   | {
       readonly type: 'stream_event';

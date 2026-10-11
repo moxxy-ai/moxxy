@@ -1,4 +1,5 @@
-import type { AgentStepEvent, ContentBlock, TokenUsage } from '@moxxy/sdk';
+import type { AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage } from '@moxxy/sdk';
+import { diffPathIn, fileDiffFromPatch, fileDiffFromText, parseUnifiedDiff } from '@moxxy/sdk';
 import type { AcpContentBlock, AcpSessionUpdate, AcpToolCall, AcpToolKind, AcpUsage } from './protocol.js';
 
 /** A tool the agent runs itself, as Moxxy names it (`Bash`, `Read`, … so Moxxy's rules and formatting apply). */
@@ -28,7 +29,11 @@ export class AcpTurnTranslator {
   private text = '';
   private thought = '';
 
-  constructor(private readonly moxxyToolPrefix: string) {}
+  /** `cwd`: the project folder, which the paths of file diffs are shown relative to. */
+  constructor(
+    private readonly moxxyToolPrefix: string,
+    private readonly cwd = '',
+  ) {}
 
   update(update: AcpSessionUpdate): AgentStepEvent[] {
     switch (update.sessionUpdate) {
@@ -98,9 +103,10 @@ export class AcpTurnTranslator {
     if (done && state.shown && !state.ended) {
       state.ended = true;
       const output = toolOutput(update);
+      const diff = update.status === 'completed' ? fileDiffOf(state.tool, state.input, update.rawOutput, this.cwd) : undefined;
       events.push(
         update.status === 'completed'
-          ? { type: 'tool_result', callId: update.toolCallId, ok: true, output }
+          ? { type: 'tool_result', callId: update.toolCallId, ok: true, output: diff ? { forModel: output, display: diff } : output }
           : { type: 'tool_result', callId: update.toolCallId, ok: false, error: output || 'the tool failed' },
       );
     }
@@ -167,6 +173,26 @@ export function shownCall(tool: string, kind: AcpToolKind | undefined, input: Re
     default:
       return { name: kind === 'execute' ? 'Bash' : tool, input: input };
   }
+}
+
+/**
+ * An OpenCode edit or new file as a diff. An edit's metadata has the unified
+ * diff (its `content` has only the replaced text, without line numbers); a
+ * write gives the content, and says whether the file `exists`ed before.
+ */
+function fileDiffOf(tool: string, input: Record<string, unknown>, rawOutput: unknown, cwd: string): FileDiffDisplay | undefined {
+  const metadata = asRecord(asRecord(rawOutput).metadata);
+  const file = typeof input.filePath === 'string' ? input.filePath : undefined;
+  if (!file) return undefined;
+  const path = diffPathIn(cwd, file);
+  if (tool === 'edit' && typeof metadata.diff === 'string') {
+    const hunks = parseUnifiedDiff(metadata.diff);
+    return hunks.length > 0 ? fileDiffFromPatch({ path, mode: 'update', hunks }) : undefined;
+  }
+  if (tool === 'write' && metadata.exists === false && typeof input.content === 'string') {
+    return fileDiffFromText({ path, mode: 'create', before: '', after: input.content });
+  }
+  return undefined;
 }
 
 function toolOutput(update: AcpToolCall): string {

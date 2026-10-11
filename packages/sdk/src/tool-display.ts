@@ -10,7 +10,8 @@
  * `question-answer` (from `ask_user`) keeps what the person chose, so the
  * transcript still shows it once the Question's card is gone.
  *
- * `file-diff` is emitted by the built-in Write/Edit tools. It carries the changed slices of a file (a few
+ * `file-diff` is emitted by the built-in Write/Edit tools, and by agent connections for the agent's own
+ * edits (built with `file-diff.ts`). It carries the changed slices of a file (a few
  * lines of context around each edit) — never the whole file — so the payload
  * stays bounded regardless of file size. Channels render it as a classic diff:
  * line numbers, +/- markers, green/red line backgrounds.

@@ -300,6 +300,7 @@ export {
   diffGutterNo,
   toDiffRows,
 } from './tool-display.js';
+export { fileDiffFromText, fileDiffFromPatch, parseUnifiedDiff, diffPathIn, type PatchHunk } from './file-diff.js';
 export { toolOutputForModel, type ToolOutputForModel, type ToolImageBlock } from './tool-output.js';
 export type {
   ViewNode,

@@ -100,7 +100,7 @@ export type CodexItem =
       readonly type: 'fileChange';
       readonly id: string;
       readonly status: string;
-      readonly changes: ReadonlyArray<{ readonly path: string; readonly kind: { readonly type: string }; readonly diff?: string }>;
+      readonly changes: ReadonlyArray<CodexFileChange>;
     }
   | {
       readonly type: 'mcpToolCall';
@@ -120,6 +120,13 @@ export type CodexWebSearchAction =
   | { readonly type: 'open_page'; readonly url?: string }
   | { readonly type: 'find_in_page'; readonly url?: string; readonly pattern?: string }
   | { readonly type: 'other' };
+
+/** One file of a `fileChange`: for `add` the diff is the new content, for `update` a unified diff; `move_path` names where an update moved it. */
+export interface CodexFileChange {
+  readonly path: string;
+  readonly kind: { readonly type: string; readonly move_path?: string | null };
+  readonly diff?: string;
+}
 
 const KNOWN_ITEMS = new Set<string>(['agentMessage', 'plan', 'reasoning', 'commandExecution', 'fileChange', 'mcpToolCall', 'webSearch', 'imageView']);
 

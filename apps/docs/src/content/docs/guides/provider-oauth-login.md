@@ -265,6 +265,25 @@ partway through a conversation:
   `codex app-server` and resumes the same thread, which reads the new list.
   The conversation carries on; only the process is new.
 
+## File changes show as diffs
+
+When Claude, Codex or OpenCode creates or edits a file, the conversation shows
+the change as a diff, the same way it shows an edit Moxxy makes itself: the
+file's path inside the project, the added and removed lines with their line
+numbers, and a few lines around each change. Moxxy builds it from what the agent
+reports about its own edit:
+
+| Agent | Edit | New file |
+|---|---|---|
+| Claude | the patch its Edit or Write reports | the content Write was given |
+| Codex | the unified diff of a `fileChange` | the content of an `add` |
+| OpenCode | the unified diff in the edit's metadata | the content `write` was given, when the file did not exist |
+
+Some changes stay as the text the agent sent, because the agent does not report
+enough for a diff: a Codex change that touches several files at once or deletes
+a file, and an OpenCode `write` that replaces a file that already existed (OpenCode
+does not send the old content).
+
 ## Using OAuth in your own plugin
 
 The `@moxxy/plugin-oauth` plugin contributes three tools:

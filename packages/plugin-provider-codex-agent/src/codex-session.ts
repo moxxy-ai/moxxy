@@ -251,7 +251,7 @@ export class CodexAgentSession implements LiveSession {
         if (note) this.pendingNotes.unshift(note);
       }
       await this.begin(mode, req);
-      yield* this.read(req, mode, new TurnTranslator());
+      yield* this.read(req, mode, new TurnTranslator(this.settings.cwd));
     } catch (err) {
       if (!req.signal.aborted) yield { type: 'error', message: this.alive ? messageOf(err) : this.endedMessage(), retryable: false };
     } finally {

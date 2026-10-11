@@ -16,6 +16,8 @@ const toolResult = (id: string, content: unknown, isError?: boolean, parent: str
     message: { content: [{ type: 'tool_result', tool_use_id: id, content, ...(isError === undefined ? {} : { is_error: isError }) }] },
     parent_tool_use_id: parent,
   }) as ClaudeMessage;
+/** The tool's own output object, which the SDK sends beside the text the model reads. */
+const withToolUseResult = (message: ClaudeMessage, result: unknown): ClaudeMessage => ({ ...message, tool_use_result: result }) as ClaudeMessage;
 
 describe('Claude messages as Moxxy events', () => {
   it('records the session and the real approval policy from the start of each turn', () => {
@@ -97,6 +99,44 @@ describe('Claude messages as Moxxy events', () => {
     ]);
     expect(t.translate(assistant([{ type: 'tool_use', id: 'toolu_5', name: 'Edit', input: { file_path: 'a.ts' } }]))).toEqual([]);
     expect(t.announce('toolu_5', 'Edit', {})).toEqual([]);
+  });
+
+  it('shows an edit and a new file as diffs from what Claude reports, with the path inside the project', () => {
+    const t = new TurnTranslator('/repo');
+    t.translate(assistant([{ type: 'tool_use', id: 'toolu_e', name: 'Edit', input: { file_path: '/repo/src/db.ts' } }]));
+    t.translate(assistant([{ type: 'tool_use', id: 'toolu_w', name: 'Write', input: { file_path: '/repo/notes.md' } }]));
+    const edited = {
+      filePath: '/repo/src/db.ts',
+      oldString: 'const port = 5432;',
+      newString: 'const port = 5433;',
+      originalFile: 'const host = "x";\nconst port = 5432;\n',
+      structuredPatch: [{ oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [' const host = "x";', '-const port = 5432;', '+const port = 5433;'] }],
+      userModified: false,
+      replaceAll: false,
+    };
+    const created = { type: 'create', filePath: '/repo/notes.md', content: '# Notes\nport 5433\n', structuredPatch: [], originalFile: null, userModified: false };
+
+    const [edit] = t.translate(withToolUseResult(toolResult('toolu_e', 'The file /repo/src/db.ts has been updated successfully.'), edited));
+    const [write] = t.translate(withToolUseResult(toolResult('toolu_w', 'File created successfully at: /repo/notes.md'), created));
+
+    expect(edit).toMatchObject({
+      type: 'tool_result',
+      ok: true,
+      output: {
+        forModel: 'The file /repo/src/db.ts has been updated successfully.',
+        display: { kind: 'file-diff', path: 'src/db.ts', mode: 'update', added: 1, removed: 1 },
+      },
+    });
+    expect(write).toMatchObject({ output: { display: { kind: 'file-diff', path: 'notes.md', mode: 'create', added: 2, removed: 0 } } });
+  });
+
+  it('keeps the text of a result whose report is no file change', () => {
+    const t = new TurnTranslator('/repo');
+    t.translate(assistant([{ type: 'tool_use', id: 'toolu_b', name: 'Bash', input: {} }]));
+
+    expect(t.translate(withToolUseResult(toolResult('toolu_b', 'ok'), { stdout: 'ok', stderr: '' }))).toEqual([
+      { type: 'tool_result', callId: 'toolu_b', ok: true, output: 'ok' },
+    ]);
   });
 
   it('leaves a subagent inner work out, except a result of a call it already showed', () => {

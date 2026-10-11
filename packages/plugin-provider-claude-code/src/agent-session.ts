@@ -211,7 +211,7 @@ export class ClaudeAgentSession implements LiveSession {
       if (mode === 'goal') this.goalActive = true;
       const content = toClaudeContent(req.prompt, prefix);
       this.send(note && !prefix && typeof content !== 'string' ? [{ type: 'text', text: note }, ...content] : content);
-      const translator = new TurnTranslator();
+      const translator = new TurnTranslator(this.settings.cwd);
       for (;;) {
         const item = await this.inbox.next();
         if (item.kind === 'ended') {

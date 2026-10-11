@@ -1,4 +1,5 @@
-import type { AgentGoalStatus, AgentStepEvent, ContentBlock, TokenUsage } from '@moxxy/sdk';
+import type { AgentGoalStatus, AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage } from '@moxxy/sdk';
+import { diffPathIn, fileDiffFromPatch, fileDiffFromText } from '@moxxy/sdk';
 import type { ClaudeContentBlock, ClaudeMessage, ClaudePermissionMode, ClaudeUsage, ClaudeUserContent } from './sdk-types.js';
 
 /** The name Moxxy's MCP server has in Claude; its tools appear as `mcp__moxxy__<name>`. */
@@ -14,6 +15,9 @@ export const MOXXY_TOOL_PREFIX = `mcp__${MOXXY_MCP_SERVER}__`;
 export class TurnTranslator {
   private readonly announced = new Set<string>();
   private readonly moxxyCalls = new Set<string>();
+
+  /** `cwd`: the project folder, which the paths of file diffs are shown relative to. */
+  constructor(private readonly cwd = '') {}
 
   /** Show a call before Moxxy decides on it, unless it is already shown. */
   announce(callId: string, name: string, input: unknown): AgentStepEvent[] {
@@ -59,20 +63,36 @@ export class TurnTranslator {
     return events;
   }
 
-  private fromToolResults(message: { message: { content: string | ReadonlyArray<ClaudeContentBlock> } }): AgentStepEvent[] {
+  private fromToolResults(message: { message: { content: string | ReadonlyArray<ClaudeContentBlock> }; tool_use_result?: unknown }): AgentStepEvent[] {
     const { content } = message.message;
     if (typeof content === 'string') return [];
+    const results = content.filter(isToolResult);
+    // The tool's own output object belongs to the message, so it is read only when the message carries one result.
+    const diff = results.length === 1 ? this.fileDiffOf(message.tool_use_result) : undefined;
     const events: AgentStepEvent[] = [];
-    for (const block of content) {
-      if (!isToolResult(block) || this.moxxyCalls.has(block.tool_use_id) || !this.announced.has(block.tool_use_id)) continue;
+    for (const block of results) {
+      if (this.moxxyCalls.has(block.tool_use_id) || !this.announced.has(block.tool_use_id)) continue;
       const text = resultText(block.content);
       events.push(
         block.is_error
           ? { type: 'tool_result', callId: block.tool_use_id, ok: false, error: text }
-          : { type: 'tool_result', callId: block.tool_use_id, ok: true, output: text },
+          : { type: 'tool_result', callId: block.tool_use_id, ok: true, output: diff ? { forModel: text, display: diff } : text },
       );
     }
     return events;
+  }
+
+  /** The diff of what Edit or Write reports: its patch, or for a new file its content. */
+  private fileDiffOf(result: unknown): FileDiffDisplay | undefined {
+    if (typeof result !== 'object' || result === null) return undefined;
+    const report = result as { filePath?: unknown; structuredPatch?: unknown; type?: unknown; content?: unknown };
+    if (typeof report.filePath !== 'string' || !Array.isArray(report.structuredPatch)) return undefined;
+    const path = diffPathIn(this.cwd, report.filePath);
+    const mode = report.type === 'create' ? 'create' : 'update';
+    const hunks = report.structuredPatch.filter(isPatchHunk);
+    if (hunks.length > 0) return fileDiffFromPatch({ path, mode, hunks });
+    if (mode === 'create' && typeof report.content === 'string') return fileDiffFromText({ path, mode, before: '', after: report.content });
+    return undefined;
   }
 }
 
@@ -128,6 +148,17 @@ function fromDelta(message: { event: { type: string; delta?: { type: string; tex
   if (event.delta.type === 'text_delta' && event.delta.text) return [{ type: 'text_delta', delta: event.delta.text }];
   if (event.delta.type === 'thinking_delta' && event.delta.thinking) return [{ type: 'reasoning_delta', delta: event.delta.thinking }];
   return [];
+}
+
+function isPatchHunk(x: unknown): x is { oldStart: number; newStart: number; lines: string[] } {
+  if (typeof x !== 'object' || x === null) return false;
+  const hunk = x as { oldStart?: unknown; newStart?: unknown; lines?: unknown };
+  return (
+    typeof hunk.oldStart === 'number' &&
+    typeof hunk.newStart === 'number' &&
+    Array.isArray(hunk.lines) &&
+    hunk.lines.every((line) => typeof line === 'string')
+  );
 }
 
 function resultText(content: string | ReadonlyArray<{ type: string; text?: string }> | undefined): string {

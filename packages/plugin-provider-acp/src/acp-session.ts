@@ -399,7 +399,7 @@ export class AcpAgentSession implements LiveSession {
 
   /** One prompt, read until the agent answers it. False when the turn is over without it (stopped, failed). */
   private async *prompt(input: ReadonlyArray<AcpContentBlock>, req: AgentStepRequest, declines: string[]): AsyncGenerator<AgentStepEvent, boolean> {
-    const translator = new AcpTurnTranslator(this.settings.agent.moxxyToolPrefix);
+    const translator = new AcpTurnTranslator(this.settings.agent.moxxyToolPrefix, this.settings.cwd);
     this.client.request<AcpPromptResponse>('session/prompt', { sessionId: this.sessionId, prompt: input }).then(
       (result) => this.inbox.push({ kind: 'done', result }),
       (error: unknown) => this.inbox.push({ kind: 'failed', error }),

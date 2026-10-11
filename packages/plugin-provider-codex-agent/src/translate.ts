@@ -1,8 +1,10 @@
-import type { AgentStepEvent, ContentBlock, QuestionAnswers, QuestionItem, TokenUsage } from '@moxxy/sdk';
+import type { AgentStepEvent, ContentBlock, FileDiffDisplay, QuestionAnswers, QuestionItem, TokenUsage } from '@moxxy/sdk';
+import { diffPathIn, fileDiffFromPatch, fileDiffFromText, parseUnifiedDiff } from '@moxxy/sdk';
 import { MOXXY_MCP_SERVER } from './constants.js';
 import {
   knownItem,
   type CodexAsyncQuestion,
+  type CodexFileChange,
   type CodexItem,
   type CodexTokenUsage,
   type CodexUserInput,
@@ -25,6 +27,9 @@ export class TurnTranslator {
   private readonly calls = new Map<string, CodexToolCall>();
   /** Questions Codex asked in its message (plan mode), answered once its turn ends. */
   questions: ReadonlyArray<CodexAsyncQuestion> = [];
+
+  /** `cwd`: the project folder, which the paths of file diffs are shown relative to. */
+  constructor(private readonly cwd = '') {}
 
   /** Show a call before Moxxy decides on it, unless it is already shown. */
   announce(callId: string, call: CodexToolCall): AgentStepEvent[] {
@@ -79,7 +84,7 @@ export class TurnTranslator {
       default: {
         const call = toolCallOf(item);
         if (!call) return [];
-        return [...this.announce(item.id, call), { type: 'tool_result', callId: item.id, ...toolResultOf(item) }];
+        return [...this.announce(item.id, call), { type: 'tool_result', callId: item.id, ...toolResultOf(item, this.cwd) }];
       }
     }
   }
@@ -102,7 +107,7 @@ export function toolCallOf(item: CodexItem): CodexToolCall | undefined {
   }
 }
 
-function toolResultOf(item: CodexItem): { readonly ok: boolean; readonly output?: unknown; readonly error?: string } {
+function toolResultOf(item: CodexItem, cwd: string): { readonly ok: boolean; readonly output?: unknown; readonly error?: string } {
   const status = 'status' in item ? item.status : 'completed';
   if (status === 'declined') return { ok: false, error: 'The person declined this.' };
   switch (item.type) {
@@ -111,15 +116,27 @@ function toolResultOf(item: CodexItem): { readonly ok: boolean; readonly output?
       const ok = status === 'completed' && (item.exitCode === null || item.exitCode === 0);
       return ok ? { ok, output } : { ok, error: output || `The command ended with exit code ${item.exitCode ?? 'unknown'}.` };
     }
-    case 'fileChange':
-      return status === 'completed'
-        ? { ok: true, output: item.changes.map((change) => change.diff ?? `${change.kind.type} ${change.path}`).join('\n') }
-        : { ok: false, error: 'The change was not applied.' };
+    case 'fileChange': {
+      if (status !== 'completed') return { ok: false, error: 'The change was not applied.' };
+      const text = item.changes.map((change) => change.diff ?? `${change.kind.type} ${change.path}`).join('\n');
+      const display = item.changes.length === 1 && item.changes[0] ? fileDiffOf(item.changes[0], cwd) : undefined;
+      return { ok: true, output: display ? { forModel: text, display } : text };
+    }
     case 'mcpToolCall':
       return item.error ? { ok: false, error: item.error.message } : { ok: status !== 'failed', output: item.result };
     default:
       return { ok: true, output: '' };
   }
+}
+
+/** A new or changed file as a diff: Codex sends a new file's content, and a change as a unified diff. */
+function fileDiffOf(change: CodexFileChange, cwd: string): FileDiffDisplay | undefined {
+  if (change.diff === undefined) return undefined;
+  if (change.kind.type === 'add') return fileDiffFromText({ path: diffPathIn(cwd, change.path), mode: 'create', before: '', after: change.diff });
+  if (change.kind.type !== 'update') return undefined;
+  const hunks = parseUnifiedDiff(change.diff);
+  const path = diffPathIn(cwd, change.kind.move_path ?? change.path);
+  return hunks.length > 0 ? fileDiffFromPatch({ path, mode: 'update', hunks }) : undefined;
 }
 
 function webSearchInput(query: string, action: CodexWebSearchAction | null | undefined): Record<string, string> {
