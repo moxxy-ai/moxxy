@@ -87,6 +87,14 @@ A provider that runs a vendor's own coding agent (Claude, Codex, OpenCode) inste
 - `stream` still serves one-shot text calls (skill synthesis, summaries).
 - Moxxy's end-of-turn reminders do not run on these turns; a checkpoint runs there only with `agentConnections: true`.
 
+The parts every agent connection needs live in `@moxxy/agent-connection-kit` (private, bundled into the CLI):
+
+- `startMoxxyMcpServer` — the MCP server (Streamable HTTP on 127.0.0.1, bearer token, browsers refused) through which the agent calls Moxxy tools. Point it at a turn with `setHandler(moxxyToolsHandler(req.tools, req.host))`, and at `undefined` between turns. Results go through `toolOutputForModel` from `@moxxy/sdk`, so the agent sees exactly what a model would (images as pixels).
+- `JsonRpcLineClient` — JSON-RPC over stdio lines, with or without the `"jsonrpc"` field (Codex app-server leaves it out, ACP agents send it); both sides can make requests.
+- `AgentSessionPool` — one live agent per conversation up to a limit, the idlest closed first, waiting on turn ends (never a timer); call `closeAll` from `onShutdown`.
+- `agentModeFor` — Moxxy mode to the agent's own `default` / `plan` / `goal`.
+- `inspectAgentCli` — the CLI's version, who installed it (npm, Homebrew, the vendor installer) and the matching update command.
+
 ## Recorded fixtures
 
 Use `RecordedProvider` from `@moxxy/testing` to record real API calls into JSONL fixtures, then replay deterministically in CI:

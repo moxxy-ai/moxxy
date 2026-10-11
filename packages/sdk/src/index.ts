@@ -290,6 +290,7 @@ export {
   diffGutterNo,
   toDiffRows,
 } from './tool-display.js';
+export { toolOutputForModel, type ToolOutputForModel, type ToolImageBlock } from './tool-output.js';
 export type {
   ViewNode,
   ViewAction,
