@@ -250,6 +250,16 @@ export type {
   ProviderOAuthStatus,
   ProviderAuthDescriptor,
 } from './provider.js';
+export type {
+  AgentStepRequest,
+  AgentStepHost,
+  AgentStepEvent,
+  AgentToolCall,
+  AgentToolOutcome,
+  AgentApprovalRequest,
+  AgentApprovalDecision,
+} from './provider.js';
+export { AGENT_CONNECTION_PLUGIN_ID, AGENT_SESSION_SUBTYPE, agentSessionFromEvents } from './agent-step.js';
 export {
   encodeLoginAuthUrl,
   decodeLoginAuthUrl,

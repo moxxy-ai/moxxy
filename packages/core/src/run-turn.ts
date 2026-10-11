@@ -116,6 +116,7 @@ export async function* runTurn(
     // so the shared tool dispatcher can hand onToolCall hooks the real cwd/env
     // (path-based policy hooks gate on these) instead of empty placeholders.
     const appCtx = session.appContext();
+    const questions = session.questions;
     const ctx: ModeContext = {
       sessionId: session.id,
       turnId,
@@ -142,6 +143,7 @@ export async function* runTurn(
       ...(session.loopGuard ? { loopGuard: session.loopGuard } : {}),
       permissions: session.resolver,
       ...(session.approvalResolver ? { approval: session.approvalResolver } : {}),
+      ...(questions ? { ask: (items) => questions.ask({ turnId, questions: items, signal: effectiveSignal }) } : {}),
       hooks: session.dispatcher,
       pluginHost: session.pluginHost,
       signal: effectiveSignal,

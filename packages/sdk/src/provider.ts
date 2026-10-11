@@ -1,5 +1,7 @@
 import type { HostedTool, ToolDef } from './tool.js';
 import type { ReasoningReplayItem } from './events.js';
+import type { StopReason } from './provider-utils.js';
+import type { QuestionItem, QuestionOutcome } from './question.js';
 
 export interface ProviderMessage {
   readonly role: 'system' | 'user' | 'assistant' | 'tool_result';
@@ -184,6 +186,12 @@ export interface LLMProvider {
     options?: { readonly signal?: AbortSignal },
   ): Promise<void>;
   stream(req: ProviderRequest): AsyncIterable<ProviderEvent>;
+  /**
+   * Present on an agent connection: run one turn of the vendor's own coding
+   * agent. The shared loop then calls this instead of {@link stream} for the
+   * conversation's turns; `stream` still serves one-shot text calls.
+   */
+  agentStep?(req: AgentStepRequest): AsyncIterable<AgentStepEvent>;
   countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number>;
 }
 
@@ -367,3 +375,87 @@ export interface ProviderDef {
    */
   readonly auth?: ProviderAuthDescriptor;
 }
+
+/**
+ * Agent connections: the vendor's own coding agent (Claude, Codex, OpenCode)
+ * does the turn, unmodified. A provider that runs one implements
+ * `LLMProvider.agentStep`; the shared loop then runs one agent turn instead of
+ * "call the model, run the tools, repeat" and records what the agent did as
+ * ordinary Moxxy events. Everything the agent needs from Moxxy (its tools, the
+ * person's approval, a Question) goes through {@link AgentStepHost}.
+ */
+
+/** One turn of the vendor's agent. */
+export interface AgentStepRequest {
+  /** The model the person picked, exactly as the agent names it. */
+  readonly model: string;
+  /** The person's message for this turn (or the loop's follow-up), with its images and documents. */
+  readonly prompt: ReadonlyArray<ContentBlock>;
+  readonly cwd: string;
+  /** The active Moxxy mode (`default`, `plan`, `goal`, …), mapped by the adapter onto the agent's own. */
+  readonly mode: string;
+  /** Moxxy tools this mode offers; the adapter lends the ones the agent lacks over Moxxy's MCP server. */
+  readonly tools: ReadonlyArray<ToolDef>;
+  /** The agent's own session from an earlier turn of this conversation, to resume. */
+  readonly resumeSessionId?: string;
+  /** The conversation's auto-approve, one state with the agent's approval policy. */
+  readonly autoApprove: boolean;
+  readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
+  readonly signal: AbortSignal;
+  readonly host: AgentStepHost;
+}
+
+/** What Moxxy does for the agent during its turn. */
+export interface AgentStepHost {
+  /** Run a Moxxy tool the agent called (over MCP) through Moxxy's hooks, permissions and log. */
+  runTool(call: AgentToolCall): Promise<AgentToolOutcome>;
+  /**
+   * Decide whether the agent may run one of its own tools. The person answers
+   * unless auto-approve or a standing rule does; with `policyOnly` only hooks
+   * and standing rules (`permissions.json`) are consulted, never the person.
+   */
+  approve(request: AgentApprovalRequest): Promise<AgentApprovalDecision>;
+  /** Show the agent's Question in every Moxxy window of the conversation. */
+  ask(questions: ReadonlyArray<QuestionItem>): Promise<QuestionOutcome>;
+}
+
+export interface AgentToolCall {
+  readonly callId: string;
+  readonly name: string;
+  readonly input: unknown;
+}
+
+export type AgentToolOutcome =
+  | { readonly ok: true; readonly output: unknown }
+  | {
+      readonly ok: false;
+      readonly message: string;
+      /** The person refused a tool whose refusal ends the turn: stop the agent's turn. */
+      readonly endsTurn?: boolean;
+    };
+
+export interface AgentApprovalRequest extends AgentToolCall {
+  readonly description?: string;
+  readonly policyOnly?: boolean;
+}
+
+export type AgentApprovalDecision =
+  | { readonly allow: true; /** The person allowed it for the rest of the session. */ readonly always?: boolean }
+  | { readonly allow: false; readonly reason: string };
+
+/** What the agent did, in the order it did it. */
+export type AgentStepEvent =
+  | { readonly type: 'text_delta'; readonly delta: string }
+  | { readonly type: 'reasoning_delta'; readonly delta: string }
+  /** A finished assistant message; `tool_use` when the agent went on to call tools. */
+  | { readonly type: 'message'; readonly text: string; readonly stopReason?: StopReason }
+  | { readonly type: 'reasoning'; readonly text: string }
+  /** A tool the agent runs itself (its Bash, Edit, …). */
+  | { readonly type: 'tool_call'; readonly callId: string; readonly name: string; readonly input: unknown }
+  | { readonly type: 'tool_result'; readonly callId: string; readonly ok: boolean; readonly output?: unknown; readonly error?: string }
+  /** The agent's own session id, kept to resume it. */
+  | { readonly type: 'session'; readonly sessionId: string }
+  /** The agent's real approval policy; it becomes the conversation's auto-approve. */
+  | { readonly type: 'auto_approve'; readonly enabled: boolean }
+  | { readonly type: 'usage'; readonly usage: TokenUsage }
+  | { readonly type: 'error'; readonly message: string; readonly retryable: boolean };

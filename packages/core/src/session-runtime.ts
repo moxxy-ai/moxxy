@@ -1,4 +1,5 @@
 import type {
+  QuestionAsker,
   AppContext,
   ApprovalResolver,
   CacheStrategyDef,
@@ -61,6 +62,8 @@ export interface SessionRuntime {
   readonly cacheStrategies: { getActive(): CacheStrategyDef | null };
   readonly resolver: PermissionResolver;
   readonly approvalResolver: ApprovalResolver | null;
+  /** The conversation's Questions; a turn asks through them (`ModeContext.ask`). */
+  readonly questions?: { readonly ask: QuestionAsker };
   readonly elisionSettings: ElisionSettings | null;
   readonly lazyTools: boolean | undefined;
   readonly unfinishedStepCheck: boolean | undefined;

@@ -76,6 +76,17 @@ The CLI's `validateProviderKey()` is a thin registry dispatcher — it has zero 
 
 The provider never sees permission logic. It only emits `tool_use_start`/`tool_use_end`. The loop strategy gates on the result.
 
+## Agent connections (`agentStep`)
+
+A provider that runs a vendor's own coding agent (Claude, Codex, OpenCode) instead of calling a model adds `agentStep(req): AsyncIterable<AgentStepEvent>` (types in `@moxxy/sdk`, `agent-step.ts`). The shared loop (`runReactLoop`) then hands each round of the conversation to it and records what it yields as ordinary events, so every mode and every surface keeps working:
+
+- `text_delta` / `message` become `assistant_chunk` / `assistant_message`; `tool_call` / `tool_result` become `tool_call_requested` (with `executedBy: 'provider'`) / `tool_result`; `usage` lands on `provider_response`.
+- `session` records the agent's own session id; the next turn gets it back as `req.resumeSessionId`.
+- `auto_approve` reports the agent's real approval policy, which becomes the conversation's auto-approve (one state); `req.autoApprove` carries it into the next turn.
+- Everything the agent needs from Moxxy goes through `req.host`: `runTool` for a Moxxy tool it called over MCP (hooks, permissions and log as usual), `approve` before it runs a tool of its own (`policyOnly` for a hook that must not ask the person), `ask` for its Question.
+- `stream` still serves one-shot text calls (skill synthesis, summaries).
+- Moxxy's end-of-turn reminders do not run on these turns; a checkpoint runs there only with `agentConnections: true`.
+
 ## Recorded fixtures
 
 Use `RecordedProvider` from `@moxxy/testing` to record real API calls into JSONL fixtures, then replay deterministically in CI:

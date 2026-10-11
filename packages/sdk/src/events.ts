@@ -141,6 +141,8 @@ export interface ToolCallRequestedEvent extends EventBase {
   readonly name: string;
   readonly input: unknown;
   readonly skillContext?: SkillId;
+  /** Set when the provider's own agent ran the tool (an agent connection), not Moxxy. */
+  readonly executedBy?: 'provider';
 }
 
 export interface ToolCallApprovedEvent extends EventBase {
