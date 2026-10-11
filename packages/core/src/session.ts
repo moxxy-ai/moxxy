@@ -728,10 +728,10 @@ function wrapWithPolicy(
   // through to the channel resolver's prompt / deny-by-default path, while
   // `policyCheck` callers (auto-approving modes) supply their own fallback
   // so no prompt can ever fire.
-  const policyDecision = async (call: PendingToolCall): Promise<PermissionDecision | null> => {
+  const policyDecision = async (call: PendingToolCall, ctx?: PermissionContext): Promise<PermissionDecision | null> => {
     const policy = engine.check(call);
     if (policy) return policy;
-    return evaluateWorkspaceToolRule(getToolRule(call.name), call, cwd);
+    return evaluateWorkspaceToolRule(ctx?.toolPermission ?? getToolRule(call.name), call, cwd);
   };
   // Use a Proxy so any extra methods on the underlying resolver
   // (`abortAll`, channel-specific helpers) remain accessible — only
@@ -740,7 +740,7 @@ function wrapWithPolicy(
     get(target, prop, receiver) {
       if (prop === 'check') {
         return async (call: PendingToolCall, ctx: PermissionContext) => {
-          const decided = await policyDecision(call);
+          const decided = await policyDecision(call, ctx);
           if (decided) return decided;
           // Auto-approve replaces only the asking: policy denies above still
           // win, and a scoped resolver (subagent, goal run) keeps its own say.
@@ -750,13 +750,13 @@ function wrapWithPolicy(
         };
       }
       if (prop === 'policyCheck') {
-        return async (call: PendingToolCall) => policyDecision(call);
+        return async (call: PendingToolCall, ctx?: PermissionContext) => policyDecision(call, ctx);
       }
       if (prop === 'mandatoryCheck') {
         return async (call: PendingToolCall, ctx: PermissionContext) => {
           const scoped = currentPermissionScope();
           if (!scoped) return null;
-          const policy = await policyDecision(call);
+          const policy = await policyDecision(call, ctx);
           return policy ?? scoped.check(call, ctx);
         };
       }

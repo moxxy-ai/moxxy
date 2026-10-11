@@ -90,6 +90,43 @@ describe('plan mode', () => {
     ).toBe(true);
   });
 
+  it('hands in the plan without asking the person, as plan_complete declares', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('plan_complete', firstPlan, 'plan-1')],
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+    const asked: string[] = [];
+    session.setPermissionResolver({
+      name: 'asks',
+      check: async (call) => {
+        asked.push(call.name);
+        return { mode: 'deny', reason: 'the person was asked' };
+      },
+    });
+
+    const events = await collectTurn(session, 'Design a simpler workspace onboarding flow');
+
+    expect(asked).toEqual([]);
+    expect(events.some((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed')).toBe(true);
+  });
+
+  it('still refuses plan_complete where the person denied it', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('plan_complete', firstPlan, 'plan-1'), textReply('Understood.')],
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+    session.permissions.setImmutableRules({ allow: [], deny: [{ name: 'plan_complete', reason: 'no plans here' }] });
+
+    const events = await collectTurn(session, 'Design a simpler workspace onboarding flow');
+
+    expect(events.some((event) => event.type === 'tool_call_denied')).toBe(true);
+    expect(events.some((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed')).toBe(false);
+  });
+
   it('keeps prior plans in context so the next turn can revise them', async () => {
     const revised: PlanDefinition = {
       ...firstPlan,
@@ -231,9 +268,12 @@ describe('plan mode', () => {
     const session = createFakeSession({ provider });
     session.pluginHost.registerStatic(planModePlugin);
     session.modes.setActive(PLAN_MODE_NAME);
+    const asked: string[] = [];
+    session.setPermissionResolver({ name: 'asks', check: async (call) => (asked.push(call.name), { mode: 'allow' }) });
 
     const events = await collectTurn(session, 'Plan the onboarding');
 
+    expect(asked).toEqual([]);
     expect(provider.steps).toHaveLength(2);
     expect(provider.steps[0]?.tools.map((tool) => tool.name)).toContain('plan_complete');
     expect(provider.steps[1]?.prompt[0]).toMatchObject({ type: 'text', text: expect.stringContaining('plan_complete') });

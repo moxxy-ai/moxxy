@@ -58,16 +58,22 @@ export async function* dispatchToolCall(
       return;
     }
 
+    const offered = ctx.tools.get(t.name);
+    const scope = {
+      sessionId: String(ctx.sessionId),
+      turnId: String(ctx.turnId),
+      ...(offered?.permission ? { toolPermission: offered.permission } : {}),
+    };
     const decision = await ctx.permissions.check(
       { callId: asToolCallId(t.id), name: t.name, input: actualInput },
-      { sessionId: String(ctx.sessionId), turnId: String(ctx.turnId), toolDescription: ctx.tools.get(t.name)?.description },
+      { ...scope, toolDescription: offered?.description },
     );
     if (decision.mode === 'deny') {
       // The session's resolver consults standing rules before asking anyone;
       // name such a refusal as policy, so 'resolver' means the answer given.
       const standing = await ctx.permissions.policyCheck?.(
         { callId: asToolCallId(t.id), name: t.name, input: actualInput },
-        { sessionId: String(ctx.sessionId), turnId: String(ctx.turnId) },
+        scope,
       );
       yield* emitDenied(ctx, t, decision.reason ?? 'denied by resolver', standing?.mode === 'deny' ? 'policy' : 'resolver');
       return;
@@ -77,7 +83,7 @@ export async function* dispatchToolCall(
     ctx.signal.throwIfAborted();
     const mandatory = await ctx.permissions.mandatoryCheck?.(
       { callId: asToolCallId(t.id), name: t.name, input: actualInput },
-      { sessionId: String(ctx.sessionId), turnId: String(ctx.turnId) },
+      scope,
     );
     if (mandatory?.mode === 'deny') {
       yield* emitDenied(ctx, t, mandatory.reason ?? 'workflow approval denied', 'resolver');
@@ -85,7 +91,7 @@ export async function* dispatchToolCall(
     }
     const policy = await ctx.permissions.policyCheck?.(
       { callId: asToolCallId(t.id), name: t.name, input: actualInput },
-      { sessionId: String(ctx.sessionId), turnId: String(ctx.turnId) },
+      scope,
     );
     if (policy?.mode === 'deny') {
       yield* emitDenied(ctx, t, policy.reason ?? 'denied by policy', 'policy');

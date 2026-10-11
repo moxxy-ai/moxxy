@@ -47,6 +47,12 @@ export interface PendingToolCall {
 export interface PermissionContext {
   readonly turnId?: string;
   readonly toolDescription?: string;
+  /**
+   * The rule declared by the tool this turn offers under the call's name. A
+   * mode may offer tools the session registry does not hold (plan mode's
+   * `plan_complete`), so the resolver needs it from the call site.
+   */
+  readonly toolPermission?: PermissionRule;
   readonly skillContext?: string;
   readonly sessionId: string;
 }
