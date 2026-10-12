@@ -1,6 +1,14 @@
 import type { newTurnId } from '@moxxy/core';
-import { assertDefined, type ClientSession as Session } from '@moxxy/sdk';
-import { FramePump, channelTurnContext, driveTurn, subscribeTurn } from '@moxxy/channel-kit';
+import { assertDefined, type ClientSession as Session, type ToolImage } from '@moxxy/sdk';
+import {
+  FramePump,
+  activeAgentName,
+  channelTurnContext,
+  driveTurn,
+  imageUploads,
+  subscribeTurn,
+  type ImageUploadLimits,
+} from '@moxxy/channel-kit';
 import { DiscordTurnRenderer, splitForDiscord } from '../render.js';
 import type { ChannelLogger, SendableChannelLike, SentMessageLike } from './discord-like.js';
 import type { TypingIndicator } from './typing-indicator.js';
@@ -13,6 +21,17 @@ import type { CallTurnListener } from '../voice-call/call.js';
  */
 export const MIN_EDIT_FRAME_MS = 1_200;
 export const DEFAULT_EDIT_FRAME_MS = 1_500;
+
+/**
+ * What one Discord message may carry: 10 attachments of at most 10 MB together
+ * (a bot's upload limit without server boosts). A turn sends its latest 10 images.
+ */
+export const DISCORD_IMAGE_LIMITS: ImageUploadLimits = {
+  perMessage: 10,
+  maxMessageBytes: 10_000_000,
+  maxFileBytes: 10_000_000,
+  maxImages: 10,
+};
 
 /** Clamp a configured editFrameMs to the Discord-safe floor. */
 export function clampEditFrameMs(requested: number | undefined): number {
@@ -88,7 +107,8 @@ export async function runDiscordTurn(
   const { session, channel, typing, editFrameMs, logger, onFinalReply, spokenTurn } = deps;
   const { text, model, controller, turnId } = opts;
 
-  const renderer = new DiscordTurnRenderer();
+  // The agent's name comes from the session, so every surface names the same agent.
+  const renderer = new DiscordTurnRenderer({ agentName: () => activeAgentName(session.getInfo()) });
   const sendPart = async (part: string): Promise<SentMessageLike | null> => {
     try {
       return await channel.send(part);
@@ -99,7 +119,8 @@ export async function runDiscordTurn(
   };
   const pump = new FramePump<SentMessageLike>({
     editFrameMs,
-    frame: () => renderer.snapshot(),
+    // The final frame drops what is only true while the turn runs.
+    frame: (final) => renderer.snapshot({ final }),
     // Guarantee at least one message even when the turn produced no text.
     emptyFinalText: '*(no output)*',
     // The sink does final-only work (split-overflow tails), so the final frame
@@ -127,6 +148,19 @@ export async function runDiscordTurn(
       },
     },
   });
+
+  /** The images tools returned, as attachments under the reply; a failed upload is logged, never fatal. */
+  const sendImages = async (images: ReadonlyArray<ToolImage>): Promise<void> => {
+    const { batches, left } = imageUploads(images, DISCORD_IMAGE_LIMITS);
+    for (const batch of batches) {
+      try {
+        await channel.send({ files: batch.map((file) => ({ attachment: file.bytes, name: file.name })) });
+      } catch (err) {
+        logger?.warn('discord image upload failed', { err: String(err) });
+      }
+    }
+    if (left > 0) await sendPart(`*${left} more image${left === 1 ? '' : 's'} not sent (too many or too large).*`);
+  };
 
   typing.start(channel);
   let streamed = false;
@@ -174,6 +208,7 @@ export async function runDiscordTurn(
       signal: controller.signal,
     });
     await pump.flush(true);
+    await sendImages(renderer.images());
     // The text reply is now out. Speak the final assistant body if a voice
     // reply is wired — isolated so a synth/transcode/transport failure can
     // never break (or re-report) the already-delivered text turn.

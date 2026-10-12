@@ -1,11 +1,20 @@
-import type { MoxxyEvent } from '@moxxy/sdk';
+import type { MoxxyEvent, StepListDisplay } from '@moxxy/sdk';
 import {
   assertDefined,
   fileDiffSummary,
   fileDiffVerb,
   isFileDiffDisplay,
   type FileDiffDisplay,
+  type ToolImage,
 } from '@moxxy/sdk';
+import {
+  STEP_MARKS,
+  TurnAgentWork,
+  agentComputerText,
+  imagesLine,
+  stepListHeading,
+  unifiedDiffText,
+} from '@moxxy/channel-kit';
 
 const TELEGRAM_MESSAGE_LIMIT = 4000; // 4096 minus a safety margin
 
@@ -74,6 +83,11 @@ interface SkillEntry {
   readonly toolCount: number;
 }
 
+export interface TurnRendererOptions {
+  /** The name of the agent of the session's active agent connection ("Codex"), read when a frame is drawn. */
+  readonly agentName?: () => string | undefined;
+}
+
 export class TurnRenderer {
   private chunks: string[] = [];
   /** In-flight + completed tool calls keyed by callId, in arrival order. */
@@ -84,9 +98,17 @@ export class TurnRenderer {
   private errorLine: string | null = null;
   /** Pre-formatted HTML diff blocks, one per file-diff tool result, in arrival order. */
   private diffBlocks: string[] = [];
+  /** The step list, images and computer use of the turn, as every channel reads them. */
+  private readonly work = new TurnAgentWork();
+  private readonly agentName: () => string | undefined;
   private lastFrame = '';
 
+  constructor(opts: TurnRendererOptions = {}) {
+    this.agentName = opts.agentName ?? (() => undefined);
+  }
+
   accept(event: MoxxyEvent): RenderedFrame {
+    this.work.accept(event);
     switch (event.type) {
       case 'assistant_chunk':
         this.chunks.push(event.delta);
@@ -164,13 +186,14 @@ export class TurnRenderer {
   }
 
   /**
-   * Compose the current frame. `collapse` (set on the final flush) folds a
-   * long tool-activity trace into an expandable box so the finished message
-   * leads with the answer; during streaming it's left false so the activity
+   * Compose the current frame. `final` (set on the last flush, once the turn is
+   * over) folds a long tool-activity trace into an expandable box so the
+   * finished message leads with the answer, and drops what is only true while
+   * the turn runs (the agent using the computer); during streaming the activity
    * stays fully visible while work is in flight.
    */
-  snapshot(opts: { collapse?: boolean } = {}): RenderedFrame {
-    const activityHtml = this.renderActivity(opts.collapse ?? false) ?? '';
+  snapshot(opts: { final?: boolean } = {}): RenderedFrame {
+    const activityHtml = this.renderActivity(opts.final ?? false) ?? '';
     const body = this.finalAssistant ?? this.chunks.join('');
     const diffHtml = this.diffBlocks.join('\n\n');
     const errorHtml = this.errorLine ?? '';
@@ -187,18 +210,25 @@ export class TurnRenderer {
    * the fence/inline placeholder dance). Use `__inert__` markers so
    * already-formed HTML doesn't get re-escaped.
    *
-   * When `collapse` is set (final frame) and the trace ran long, fold it
+   * On the final frame, when the trace ran long, fold it
    * into a `<blockquote expandable>` topped by a one-line summary — the
    * tool noise becomes a tap-to-open box and the assistant's answer leads.
    */
-  private renderActivity(collapse: boolean): string | null {
+  private renderActivity(final: boolean): string | null {
     const lines: string[] = [];
+    const computer = this.work.computerUse;
+    if (computer && !final) {
+      lines.push(`🖥 <b>${escape(agentComputerText(computer, this.agentName()))}</b> — send /cancel to stop`);
+    }
     if (this.skillBanner) {
       lines.push(`💡 <b>${escape(this.skillBanner.name)}</b>`);
     }
+    const steps = this.work.stepList;
+    if (steps) lines.push(...stepListLines(steps));
     // Show last N tool entries to keep the message compact when a turn
     // makes many calls. Most-recent at the bottom (matches chronology).
-    const tools = [...this.tools.values()];
+    // A call that changed the list of steps shows in the list, not here.
+    const tools = [...this.tools.values()].filter((t) => !this.work.isStepListCall(t.id));
     const visible = tools.slice(-10);
     const hidden = tools.length - visible.length;
     if (hidden > 0) {
@@ -207,9 +237,11 @@ export class TurnRenderer {
     for (const t of visible) {
       lines.push(`• <code>${escape(t.name)}</code>(${escape(t.inputPreview)}) ${statusBadge(t.status)}`);
     }
+    const images = this.work.images.length;
+    if (images > 0) lines.push(`🖼 ${imagesLine(images)}`);
     for (const n of this.notices.slice(-5)) lines.push(n);
     if (lines.length === 0) return null;
-    if (collapse && lines.length >= COLLAPSE_ACTIVITY_LINES) {
+    if (final && lines.length >= COLLAPSE_ACTIVITY_LINES) {
       const summary = activitySummary(tools.length);
       const inner = summary ? `${summary}\n${lines.join('\n')}` : lines.join('\n');
       return `<blockquote expandable>${inner}</blockquote>`;
@@ -217,7 +249,13 @@ export class TurnRenderer {
     return `<blockquote>${lines.join('\n')}</blockquote>`;
   }
 
+  /** The images tools returned this turn, each once, for the channel to send after the reply. */
+  images(): ReadonlyArray<ToolImage> {
+    return this.work.images;
+  }
+
   reset(): void {
+    this.work.reset();
     this.chunks = [];
     this.tools.clear();
     this.skillBanner = null;
@@ -237,6 +275,18 @@ export class TurnRenderer {
 function activitySummary(toolCount: number): string {
   if (toolCount <= 0) return '';
   return `🔧 <b>${toolCount} step${toolCount === 1 ? '' : 's'}</b>`;
+}
+
+/** An agent's list of steps: its heading, an optional reason it changed, then one marked line per step. */
+function stepListLines(list: StepListDisplay): string[] {
+  const lines = [`📋 <b>${escape(stepListHeading(list))}</b>`];
+  if (list.explanation) lines.push(`<i>${escape(list.explanation)}</i>`);
+  for (const step of list.steps) {
+    const text = escape(step.text);
+    const shown = step.status === 'in_progress' ? `<b>${text}</b>` : step.status === 'cancelled' ? `<s>${text}</s>` : text;
+    lines.push(`${STEP_MARKS[step.status]} ${shown}`);
+  }
+  return lines;
 }
 
 function statusBadge(status: ToolStatus): string {
@@ -286,27 +336,6 @@ function renderFileDiff(d: FileDiffDisplay): string {
     '\n' +
     `<pre><code class="language-diff">${escape(diffText)}</code></pre>`
   );
-}
-
-/**
- * Build a classic unified-diff body from a file-diff display: a
- * `@@ -oldStart,oldLines +newStart,newLines @@` header per hunk, then each
- * line prefixed with ` `/`+`/`-`. Hunks are separated by a blank line.
- * Returns '' when there are no hunks.
- */
-function unifiedDiffText(d: FileDiffDisplay): string {
-  const blocks: string[] = [];
-  for (const hunk of d.hunks) {
-    const lines: string[] = [
-      `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
-    ];
-    for (const line of hunk.lines) {
-      const marker = line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' ';
-      lines.push(`${marker}${line.text}`);
-    }
-    blocks.push(lines.join('\n'));
-  }
-  return blocks.join('\n\n');
 }
 
 function truncJson(value: unknown, max = 60): string {

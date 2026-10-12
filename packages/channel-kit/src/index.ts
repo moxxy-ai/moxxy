@@ -95,3 +95,13 @@ export {
   type QuestionCard,
   type QuestionUpdate,
 } from './questions.js';
+export {
+  STEP_MARKS,
+  TurnAgentWork,
+  activeAgentName,
+  agentComputerText,
+  imagesLine,
+  stepListHeading,
+  unifiedDiffText,
+} from './agent-work.js';
+export { imageUploads, type ImageUpload, type ImageUploadLimits } from './tool-images.js';

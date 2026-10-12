@@ -3,6 +3,7 @@ import type { Context } from 'grammy';
 import { newTurnId } from '@moxxy/core';
 import {
   AutoApproveSwitch,
+  activeAgentName,
   ChatQuestions,
   TurnCoordinator,
   deliverVoiceReply,
@@ -148,6 +149,8 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     });
     this.framePump = new FramePump({
       editFrameMs: opts.editFrameMs ?? 1000,
+      // The agent's name comes from the session, so every surface names the same agent.
+      agentName: () => (this.session ? activeAgentName(this.session.getInfo()) : undefined),
       ...(opts.logger ? { logger: opts.logger } : {}),
     });
     this.pairing = new PairingHandler({
