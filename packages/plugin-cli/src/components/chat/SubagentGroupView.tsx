@@ -5,6 +5,8 @@ import { blockGap } from './density.js';
 import {
   DotColors,
   formatTokensK,
+  subagentState,
+  subagentToolsLabel,
   truncate,
   type SubagentBlock,
   type SubagentGroupBlock,
@@ -35,19 +37,10 @@ export const SubagentGroupView: React.FC<{
   expandToolOutputs: boolean;
 }> = ({ group, expandToolOutputs }) => {
   const agents = group.agents;
-  const total = agents.length;
-  const running = agents.filter((a) => a.completedAtMs == null && a.error == null).length;
-  const failed = agents.filter((a) => a.error != null).length;
-  const anyRunning = running > 0;
-  const dotColor = failed > 0 ? Colors.danger : anyRunning ? Colors.busy : DotColors.subagent;
-
-  // "N {type} agents {verb}" — drop the type word for a mixed fan-out, use the
-  // singular noun for a lone agent, and append a failure tail when any failed.
-  const typeWord = group.agentType === 'mixed' ? '' : `${group.agentType} `;
-  const noun = total === 1 ? 'agent' : 'agents';
-  const verb = anyRunning ? 'running' : 'finished';
-  const failTail = failed > 0 ? ` (${failed} failed)` : '';
-  const header = `${total} ${typeWord}${noun} ${verb}${failTail}`;
+  const failed = agents.some((a) => a.error != null);
+  const busy = agents.some((a) => subagentState(a) === 'running' || subagentState(a) === 'background');
+  const dotColor = failed ? Colors.danger : busy ? Colors.busy : DotColors.subagent;
+  const header = subagentGroupHeader(group);
 
   if (!expandToolOutputs) {
     return (
@@ -77,22 +70,44 @@ export const SubagentGroupView: React.FC<{
   );
 };
 
+/**
+ * "N {type} agents {verb}" — drop the type word for a mixed fan-out, use the
+ * singular noun for a lone agent, and append a failure tail when any failed.
+ */
+export function subagentGroupHeader(group: SubagentGroupBlock): string {
+  const agents = group.agents;
+  const running = agents.filter((a) => subagentState(a) === 'running').length;
+  const background = agents.filter((a) => subagentState(a) === 'background').length;
+  const failed = agents.filter((a) => a.error != null).length;
+  const typeWord = group.agentType === 'mixed' ? '' : `${group.agentType} `;
+  const noun = agents.length === 1 ? 'agent' : 'agents';
+  const verb = running > 0 ? 'running' : background > 0 ? 'in the background' : 'finished';
+  const where = running === 0 && background === 0 && agents.every((a) => a.continued === true) ? ' in the background' : '';
+  const failTail = failed > 0 ? ` (${failed} failed)` : '';
+  return `${agents.length} ${typeWord}${noun} ${verb}${where}${failTail}`;
+}
+
+/** The status line under one agent of the group. */
+export function subagentStatusText(agent: SubagentBlock): string {
+  if (agent.error) return truncate(agent.error, ERROR_MAX);
+  const state = subagentState(agent);
+  if (state === 'running') return 'running';
+  if (state === 'background') return 'going on in the background';
+  return agent.continued === true ? 'Done in the background' : 'Done';
+}
+
 const SubagentRow: React.FC<{ agent: SubagentBlock }> = ({ agent }) => {
-  const running = agent.completedAtMs == null && agent.error == null;
+  const state = subagentState(agent);
   const tokens = formatTokensK(agent.tokensUsed);
-  const toolPart = `${agent.toolCallCount} tool use${agent.toolCallCount === 1 ? '' : 's'}`;
-  const statusColor = agent.error ? Colors.danger : running ? Colors.busy : DotColors.subagent;
-  const statusText = agent.error
-    ? truncate(agent.error, ERROR_MAX)
-    : running
-      ? 'running'
-      : 'Done';
+  const toolPart = subagentToolsLabel(agent, 'use');
+  const statusColor = agent.error ? Colors.danger : state === 'running' || state === 'background' ? Colors.busy : DotColors.subagent;
+  const statusText = subagentStatusText(agent);
   return (
     <Box flexDirection="column">
       <Box>
         <Text dimColor>{'├ '}</Text>
         <Text>{truncate(agent.label, LABEL_MAX)}</Text>
-        <Text dimColor>{` · ${toolPart}`}</Text>
+        {toolPart ? <Text dimColor>{` · ${toolPart}`}</Text> : null}
         {tokens ? <Text dimColor>{` · ${tokens} tokens`}</Text> : null}
       </Box>
       <Box>

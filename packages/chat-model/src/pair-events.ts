@@ -22,7 +22,7 @@ import type {
   SubagentGroupBlock,
   ToolCallBlockData,
 } from './types.js';
-import { oneLine } from './format.js';
+import { oneLine, subagentState } from './format.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
 const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
@@ -72,6 +72,7 @@ export function toolImagesResultOf(outcome: ToolCallBlockData['outcome']): { rea
 function handleSubagentEvent(
   e: PluginEvent,
   subagents: Map<string, SubagentBlock>,
+  background: Map<string, SubagentBlock>,
   root: Block[],
   groupRef: { current: SubagentGroupBlock | null },
 ): void {
@@ -89,6 +90,7 @@ function handleSubagentEvent(
       startedAtMs: new Date(e.ts).getTime(),
       completedAtMs: null,
       toolCallCount: 0,
+      ...(payload.toolsUnseen === true ? { toolsUnseen: true } : {}),
       tokensUsed: null,
       toolCalls: [],
       stopReason: null,
@@ -96,26 +98,10 @@ function handleSubagentEvent(
       error: null,
     };
     subagents.set(childSessionId, block);
-    // Fold consecutive sibling agents (a dispatch_agent fan-out) into one
-    // group. The run is broken by any non-subagent block (see pushBlock /
-    // boundary resets), so a fresh `subagent_started` after that opens a new
-    // group. A lone agent renders as a group of one.
-    if (groupRef.current) {
-      groupRef.current.agents.push(block);
-      if (groupRef.current.agentType !== agentType) groupRef.current.agentType = 'mixed';
-    } else {
-      const group: SubagentGroupBlock = {
-        kind: 'subagent-group',
-        id: `subagentgroup:${e.id}`,
-        agentType,
-        agents: [block],
-      };
-      groupRef.current = group;
-      root.push(group);
-    }
+    addToGroup(block, e, root, groupRef);
     return;
   }
-  const block = subagents.get(childSessionId);
+  const block = subagents.get(childSessionId) ?? continuedFrom(background.get(childSessionId));
   if (!block) return;
   if (e.subtype === 'subagent_tool_call') {
     block.toolCallCount += 1;
@@ -145,6 +131,54 @@ function handleSubagentEvent(
   }
   // chunk / tool_result / nested-grand-child: ignore at top level;
   // the /agents modal exposes the raw stream when needed.
+
+  /** A subagent from an earlier turn reporting again: its row there stays as it was, a new one shows what it does now. */
+  function continuedFrom(earlier: SubagentBlock | undefined): SubagentBlock | undefined {
+    if (!earlier) return undefined;
+    background.delete(childSessionId);
+    const block: SubagentBlock = {
+      kind: 'subagent',
+      id: e.id,
+      childSessionId,
+      label: earlier.label,
+      agentType: earlier.agentType,
+      startedAtMs: earlier.startedAtMs,
+      completedAtMs: null,
+      toolCallCount: 0,
+      ...(earlier.toolsUnseen === true ? { toolsUnseen: true } : {}),
+      tokensUsed: null,
+      toolCalls: [],
+      stopReason: null,
+      finalPreview: null,
+      error: null,
+      continued: true,
+    };
+    subagents.set(childSessionId, block);
+    addToGroup(block, e, root, groupRef);
+    return block;
+  }
+}
+
+/**
+ * Fold consecutive sibling agents (a dispatch_agent fan-out) into one group.
+ * The run is broken by any non-subagent block (see pushBlock / boundary
+ * resets), so a fresh agent after that opens a new group. A lone agent renders
+ * as a group of one.
+ */
+function addToGroup(block: SubagentBlock, e: PluginEvent, root: Block[], groupRef: { current: SubagentGroupBlock | null }): void {
+  if (groupRef.current) {
+    groupRef.current.agents.push(block);
+    if (groupRef.current.agentType !== block.agentType) groupRef.current.agentType = 'mixed';
+    return;
+  }
+  const group: SubagentGroupBlock = {
+    kind: 'subagent-group',
+    id: `subagentgroup:${e.id}`,
+    agentType: block.agentType,
+    agents: [block],
+  };
+  groupRef.current = group;
+  root.push(group);
 }
 
 function collabUpsertAgent(
@@ -392,6 +426,9 @@ export interface FoldState {
   // into it until something non-compact closes it.
   openLive: LiveToolBlockData | null;
   readonly subagents: Map<string, SubagentBlock>;
+  // Subagents of earlier turns still running when their turn ended (an agent's
+  // helper going on in the background), by childSessionId.
+  readonly backgroundSubagents: Map<string, SubagentBlock>;
   // Open subagent group, if any. Consecutive `subagent_started` events accrete
   // into it; any non-subagent block (or a turn/scope boundary) closes the run.
   readonly subagentGroup: { current: SubagentGroupBlock | null };
@@ -415,6 +452,7 @@ export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MA
     continuationSkillEvent: null,
     openLive: null,
     subagents: new Map<string, SubagentBlock>(),
+    backgroundSubagents: new Map<string, SubagentBlock>(),
     subagentGroup: { current: null },
     collab: { current: null },
     openSteps: null,
@@ -508,11 +546,18 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     s.suppressedCallIds.clear();
     s.suppressedSkillScopes.clear();
     s.subagentGroup.current = null;
-    // Subagents run to completion within the turn that dispatched them, so the
-    // lookup map is a within-turn concern like callTargets. Clearing it bounds
-    // the map to one turn and drops a late completion bearing a stale/colliding
-    // childSessionId from an earlier turn (it would otherwise mutate the old
-    // block). The blocks themselves stay reachable from `root`.
+    // Moxxy's own subagents run to completion within the turn that dispatched
+    // them, so the lookup map is a within-turn concern like callTargets.
+    // Clearing it bounds the map to one turn and drops a late completion
+    // bearing a stale/colliding childSessionId from an earlier turn (it would
+    // otherwise mutate the old block). An agent's helper may outlive its turn:
+    // one still running is marked as going on in the background (settled, so
+    // a terminal can freeze it) and what it does later gets a row of its own.
+    for (const [id, agent] of s.subagents) {
+      if (agent.completedAtMs !== null || agent.error !== null) continue;
+      agent.backgrounded = true;
+      s.backgroundSubagents.set(id, agent);
+    }
     s.subagents.clear();
     s.collab.current = null;
     if (s.openSteps) s.openSteps.closed = true;
@@ -658,7 +703,7 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     // compact calls and render chronologically out of order (above the agents
     // it actually followed). The verbose-tool path does the same.
     closeOpenLive();
-    handleSubagentEvent(e, s.subagents, s.root, s.subagentGroup);
+    handleSubagentEvent(e, s.subagents, s.backgroundSubagents, s.root, s.subagentGroup);
     return;
   }
   // Collaborative-run events fold into one team-level block (roster, bus,
@@ -948,12 +993,13 @@ export class IncrementalFold {
  * Static-rendered items are frozen, so this gate must be conservative:
  * pending tool calls (animated dot), open skill scopes (children still
  * arriving), and running subagents (live elapsed counter) all stay in
- * the dynamic area until they finish.
+ * the dynamic area until they finish or their turn ends with them going
+ * on in the background.
  */
 export function isSettled(block: Block): boolean {
   if (block.kind === 'event') return true;
   if (block.kind === 'tool-call') return block.outcome !== null;
-  if (block.kind === 'subagent') return block.completedAtMs !== null || block.error !== null;
+  if (block.kind === 'subagent') return subagentState(block) !== 'running';
   if (block.kind === 'subagent-group') return block.agents.every(isSettled);
   if (block.kind === 'collab') return block.completedAtMs !== null;
   if (block.kind === 'skill-scope') {

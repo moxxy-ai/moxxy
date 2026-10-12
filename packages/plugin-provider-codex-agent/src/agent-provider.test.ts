@@ -101,6 +101,43 @@ describe('a turn on the Codex agent connection', () => {
     expect(events.filter((e) => e.type === 'tool_call_requested').map((e) => e.type === 'tool_call_requested' && e.name)).toEqual(['update_plan', 'update_plan']);
   });
 
+  it("keeps the turn going while a subagent's own thread starts and finishes a turn", async () => {
+    const { session } = connect(async (turn) => {
+      const child = { threadId: 'thread-child', turn: { id: 'turn-child', items: [], status: 'inProgress', error: null } };
+      turn.server.notify('turn/started', child);
+      turn.server.notify('turn/completed', { ...child, turn: { ...child.turn, status: 'completed' } });
+      await turn.run('echo after', 'after\n');
+      turn.say('The subagent found two files.');
+    });
+
+    const events = await collectTurn(session, 'ask a subagent');
+
+    expect(said(events)).toEqual(['The subagent found two files.']);
+  });
+
+  it("shows a subagent Codex starts as a subagent, with the tools it runs in its own thread and its answer", async () => {
+    const { session } = connect(async (turn) => {
+      const activity = (kind: string) => ({ threadId: turn.threadId, turnId: turn.id, item: { type: 'subAgentActivity', id: `act-${kind}`, kind, agentThreadId: 'thread-child', agentPath: '/root/inspect_folder' } });
+      const child = { threadId: 'thread-child', turnId: 'turn-child' };
+      turn.server.notify('item/started', activity('started'));
+      turn.server.notify('item/completed', { ...child, item: { type: 'commandExecution', id: 'exec-c', command: 'ls', cwd: '/work/app', status: 'completed', aggregatedOutput: 'a.txt', exitCode: 0 } });
+      turn.server.notify('item/completed', { ...child, item: { type: 'agentMessage', id: 'msg-c', text: 'One file: a.txt.', phase: 'final_answer' } });
+      turn.server.notify('item/started', activity('completed'));
+      turn.say('The subagent found a.txt.');
+    });
+
+    const events = await collectTurn(session, 'ask a subagent');
+
+    const subagents = events.flatMap((e) => (e.type === 'plugin_event' && e.pluginId === '@moxxy/subagents' ? [[e.subtype, e.payload]] : []));
+    expect(subagents).toEqual([
+      ['subagent_started', expect.objectContaining({ childSessionId: 'thread-child', label: 'inspect folder' })],
+      ['subagent_tool_call', expect.objectContaining({ childSessionId: 'thread-child', name: 'Bash', input: { command: 'ls', cwd: '/work/app' } })],
+      ['subagent_completed', expect.objectContaining({ childSessionId: 'thread-child', text: 'One file: a.txt.' })],
+    ]);
+    expect(events.filter((e) => e.type === 'tool_call_requested')).toEqual([]);
+    expect(said(events)).toEqual(['The subagent found a.txt.']);
+  });
+
   it('runs the model the person picked on the thread', async () => {
     const { codex, session } = connect(async (turn) => turn.say(turn.thread.model));
 

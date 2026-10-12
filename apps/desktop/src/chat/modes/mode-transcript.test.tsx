@@ -178,6 +178,17 @@ describe('SubagentGroupView', () => {
     expect(screen.getByRole('button', { name: /1 Explore agent running/ })).toBeInTheDocument();
   });
 
+  it('says when a helper went on in the background, with a still light, and marks its report back from there', () => {
+    const { container, rerender } = render(<SubagentGroupView block={group([agent(1, { completedAtMs: null, backgrounded: true })])} />);
+    const head = screen.getByRole('button', { name: /1 agent in the background/ });
+    expect(head.querySelector('.led')).toHaveAttribute('data-state', 'background');
+    expect(container.querySelector('.activity-shimmer')).toBeNull();
+
+    rerender(<SubagentGroupView block={group([agent(1, { continued: true })])} />);
+    fireEvent.click(screen.getByRole('button', { name: /1 agent finished in the background/ }));
+    expect(screen.getByText('from the background')).toBeInTheDocument();
+  });
+
   it('lists the agents as rows of the conversation, not as a terminal tree', () => {
     const { container } = render(<SubagentGroupView block={group([agent(1), agent(2, { error: 'timed out' })])} />);
     fireEvent.click(screen.getByRole('button', { name: /2 agents/ }));

@@ -262,7 +262,7 @@ export type {
   AgentApprovalRequest,
   AgentApprovalDecision,
 } from './provider.js';
-export { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, agentSessionFromEvents } from './agent-step.js';
+export { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from './agent-step.js';
 export {
   conversationTurns,
   EARLIER_CONVERSATION_CHARS,

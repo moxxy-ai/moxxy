@@ -1,6 +1,7 @@
 import type { AgentGoalStatus, AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage } from '@moxxy/sdk';
 import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, stepListOutput, type ToolImage } from '@moxxy/sdk';
 import type { ClaudeContentBlock, ClaudeMessage, ClaudePermissionMode, ClaudeUsage, ClaudeUserContent } from './sdk-types.js';
+import { ClaudeSubagents } from './subagents.js';
 import { ClaudeTaskList } from './task-list.js';
 
 /** The name Moxxy's MCP server has in Claude; its tools appear as `mcp__moxxy__<name>`. */
@@ -9,9 +10,8 @@ export const MOXXY_TOOL_PREFIX = `mcp__${MOXXY_MCP_SERVER}__`;
 
 /**
  * Claude's messages for one turn, as Moxxy agent events. Calls to Moxxy's own
- * tools are left out: Moxxy records those when it runs them. A subagent's
- * inner work is left out too (it gets its own view later), except the result
- * of a call that was already shown because Claude asked to approve it.
+ * tools are left out: Moxxy records those when it runs them. A subagent shows
+ * as a subagent, with its own calls under it.
  */
 export class TurnTranslator {
   private readonly announced = new Map<string, { readonly name: string; readonly input: unknown }>();
@@ -20,16 +20,21 @@ export class TurnTranslator {
   /**
    * `cwd`: the project folder, which the paths of file diffs are shown relative to.
    * `tasks`: Claude's task list, which outlives a turn.
+   * `subagents`: Claude's subagents, which may outlive a turn.
    */
   constructor(
     private readonly cwd = '',
     private readonly tasks = new ClaudeTaskList(),
+    private readonly subagents = new ClaudeSubagents(),
   ) {}
 
   /** Show a call before Moxxy decides on it, unless it is already shown. */
-  announce(callId: string, name: string, input: unknown): AgentStepEvent[] {
-    if (this.announced.has(callId) || name.startsWith(MOXXY_TOOL_PREFIX)) return [];
+  announce(callId: string, name: string, input: unknown, from: { readonly inSubagent?: boolean } = {}): AgentStepEvent[] {
+    // A subagent's call shows under its subagent, from the subagent's message.
+    if (from.inSubagent || this.announced.has(callId) || name.startsWith(MOXXY_TOOL_PREFIX)) return [];
+    if (this.subagents.ownerOf(callId) !== undefined || this.subagents.isSubagent(callId)) return [];
     this.announced.set(callId, { name, input });
+    if (this.subagents.isSubagentTool(name)) return this.subagents.started(callId, input);
     return [{ type: 'tool_call', callId, name, input }];
   }
 
@@ -37,12 +42,13 @@ export class TurnTranslator {
     switch (message.type) {
       case 'system':
         if (isInit(message)) return 'session_id' in message ? this.fromInit(message) : [];
+        if (message.subtype === 'task_progress' || message.subtype === 'task_notification') return this.subagents.fromTaskNote(message);
         // Claude reports every change of mode, whoever made it, so the switch follows it at once.
         return isModeChange(message) ? autoApproveEvents(message.permissionMode) : [];
       case 'stream_event':
         return isMainThread(message) ? fromDelta(message) : [];
       case 'assistant':
-        return isMainThread(message) ? this.fromAssistant(message) : [];
+        return isMainThread(message) ? this.fromAssistant(message) : this.fromSubagent(message);
       case 'user':
         return this.fromToolResults(message);
       default:
@@ -69,6 +75,14 @@ export class TurnTranslator {
     return events;
   }
 
+  private fromSubagent(message: { message: { content: ReadonlyArray<ClaudeContentBlock> }; parent_tool_use_id: string | null }): AgentStepEvent[] {
+    if (message.parent_tool_use_id === null) return [];
+    const blocks = message.message.content;
+    const text = blocks.flatMap((b) => (isText(b) ? [b.text] : [])).join('');
+    const calls = blocks.filter(isToolUse).filter((call) => !call.name.startsWith(MOXXY_TOOL_PREFIX));
+    return this.subagents.fromMessage(message.parent_tool_use_id, text, calls);
+  }
+
   private fromToolResults(message: { message: { content: string | ReadonlyArray<ClaudeContentBlock> }; tool_use_result?: unknown }): AgentStepEvent[] {
     const { content } = message.message;
     if (typeof content === 'string') return [];
@@ -80,6 +94,10 @@ export class TurnTranslator {
       const call = this.announced.get(block.tool_use_id);
       if (this.moxxyCalls.has(block.tool_use_id) || !call) continue;
       const text = resultText(block.content);
+      if (this.subagents.isSubagent(block.tool_use_id)) {
+        events.push(...this.subagents.fromResult(block.tool_use_id, text, block.is_error === true, results.length === 1 ? message.tool_use_result : undefined));
+        continue;
+      }
       if (block.is_error) {
         events.push({ type: 'tool_result', callId: block.tool_use_id, ok: false, error: text });
         continue;

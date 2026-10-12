@@ -1332,6 +1332,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   50%      { box-shadow: 0 0 0 4px var(--color-primary-soft); }
 }
 .led[data-state='awaiting'] { background: var(--color-amber); }
+/* Still working, but this row no longer follows it: the light holds still. */
+.led[data-state='background'] { background: var(--color-primary); }
 .led[data-state='done']     { background: var(--color-green); }
 .led[data-state='failed']   { background: var(--color-red); }
 
@@ -3223,6 +3225,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   text-overflow: ellipsis;
   color: var(--color-text);
 }
+.agent-row__note,
 .agent-row__meta,
 .agent-row__state {
   flex-shrink: 0;
@@ -3231,7 +3234,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text-dim);
 }
 .agent-row__state { min-width: 46px; text-align: right; }
-.agent-row__state[data-tone='running'] { color: var(--color-primary-strong); }
+.agent-row__state[data-tone='running'],
+.agent-row__state[data-tone='background'] { color: var(--color-primary-strong); }
 .agent-row__state[data-tone='failed'] { color: var(--color-red-text); }
 .agent-row__error {
   margin: 0 0 var(--space-4) 18px;

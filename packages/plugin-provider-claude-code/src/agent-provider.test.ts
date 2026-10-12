@@ -23,6 +23,7 @@ import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
 import { AgentSessionPool } from '@moxxy/agent-connection-kit';
 import { ClaudeAgentProvider, claudeCodeModels } from './agent-provider.js';
+import type { ClaudeMessage } from './sdk-types.js';
 import { ClaudeAgentSession, toolsLentToClaude } from './agent-session.js';
 import { FakeClaude, assistantText, assistantToolUse, toolResult, type ClaudeScene } from './fake-claude.testkit.js';
 
@@ -198,6 +199,28 @@ describe('approvals', () => {
     expect(verdict).toEqual({
       hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'blocked by a Moxxy rule' },
     });
+  });
+
+  it("shows a subagent's calls under the subagent only, also when Moxxy checks them before the subagent's message arrives", async () => {
+    const { session } = connect(async function* (turn) {
+      yield assistantToolUse('toolu_agent', 'Agent', { description: 'Look around', prompt: 'list files', subagent_type: 'Explore' });
+      await turn.preToolUse('Bash', { command: 'ls' }, 'toolu_sub1', 'a1');
+      await turn.canUseTool('Edit', { file_path: 'a.txt' }, 'toolu_sub2', { agentID: 'a1' });
+      yield {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'toolu_sub1', name: 'Bash', input: { command: 'ls' } }] },
+        parent_tool_use_id: 'toolu_agent',
+      } as ClaudeMessage;
+      yield assistantText('Done.');
+    });
+    session.setPermissionResolver(allowAll);
+
+    const events = await collectTurn(session, 'look around with a helper');
+
+    expect(events.filter((e) => e.type === 'tool_call_requested')).toEqual([]);
+    expect(events.filter((e) => e.type === 'plugin_event').map((e) => e.subtype)).toEqual(
+      expect.arrayContaining(['subagent_started', 'subagent_tool_call']),
+    );
   });
 
   it('takes Claude real permission mode as the conversation auto-approve, and changes Claude when the person does', async () => {

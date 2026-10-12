@@ -114,6 +114,8 @@ export type ClaudeCanUseTool = (
   options: {
     readonly signal: AbortSignal;
     readonly toolUseID?: string;
+    /** Set when the call comes from inside a subagent. */
+    readonly agentID?: string;
     readonly description?: string;
     readonly title?: string;
     readonly mcpServer?: { readonly name: string; readonly source: string };
@@ -125,6 +127,8 @@ export interface ClaudePreToolUseInput {
   readonly tool_name: string;
   readonly tool_input: unknown;
   readonly tool_use_id: string;
+  /** Set when the call comes from inside a subagent. */
+  readonly agent_id?: string;
 }
 
 export interface ClaudePreToolUseOutput {

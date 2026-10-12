@@ -262,3 +262,18 @@ export function toolImagesLabel(images: ReadonlyArray<ToolImage>): string {
   const kinds = [...new Set(images.map((image) => image.mediaType.replace(/^image\//, '').toUpperCase()))];
   return `${images.length === 1 ? 'image' : `${images.length} images`} (${[...kinds, size].join(', ')})`;
 }
+
+export type SubagentState = 'running' | 'background' | 'done' | 'failed';
+
+/** How a subagent stands: a failure outranks the rest, and one left running when its turn ended goes on in the background. */
+export function subagentState(agent: { readonly completedAtMs: number | null; readonly error: string | null; readonly backgrounded?: boolean }): SubagentState {
+  if (agent.error !== null) return 'failed';
+  if (agent.completedAtMs !== null) return 'done';
+  return agent.backgrounded === true ? 'background' : 'running';
+}
+
+/** "3 tool calls" for a subagent; null when its agent does not report its tool calls and none arrived. */
+export function subagentToolsLabel(agent: { readonly toolCallCount: number; readonly toolsUnseen?: boolean }, noun: 'call' | 'use'): string | null {
+  if (agent.toolsUnseen === true && agent.toolCallCount === 0) return null;
+  return `${agent.toolCallCount} tool ${noun}${agent.toolCallCount === 1 ? '' : 's'}`;
+}

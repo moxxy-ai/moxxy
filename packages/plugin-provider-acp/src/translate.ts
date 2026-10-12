@@ -109,6 +109,14 @@ export class AcpTurnTranslator {
     if (done && state.shown && !state.ended) {
       state.ended = true;
       const output = toolOutput(update);
+      if (state.tool === SUBAGENT_TOOL) {
+        events.push(
+          update.status === 'completed'
+            ? { type: 'subagent_completed', id: update.toolCallId, text: taskResultOf(output) }
+            : { type: 'subagent_completed', id: update.toolCallId, text: '', error: output || 'the subagent failed' },
+        );
+        return events;
+      }
       const diff = update.status === 'completed' ? fileDiffOf(state.tool, state.input, update.rawOutput, this.cwd) : undefined;
       // OpenCode writes its whole todo list each time; the list it wrote is the result shown.
       const steps = update.status === 'completed' && state.tool === 'todowrite' ? stepsFromTodos(state.input.todos) : undefined;
@@ -146,6 +154,7 @@ export class AcpTurnTranslator {
   private show(callId: string, state: CallState): AgentStepEvent[] {
     if (state.shown || this.isMoxxyTool(state.tool)) return [];
     state.shown = shownCall(state.tool, state.kind, state.input);
+    if (state.tool === SUBAGENT_TOOL) return [subagentStarted(callId, state.input)];
     return [{ type: 'tool_call', callId, name: state.shown.name, input: state.shown.input }];
   }
 
@@ -164,6 +173,21 @@ export class AcpTurnTranslator {
     this.thought = '';
     return text ? [{ type: 'reasoning', text }] : [];
   }
+}
+
+/** OpenCode's tool that hands a task to a subagent; ACP reports the task and its answer, not the subagent's own calls. */
+const SUBAGENT_TOOL = 'task';
+
+function subagentStarted(callId: string, input: Record<string, unknown>): AgentStepEvent {
+  const text = (key: string): string | undefined => (typeof input[key] === 'string' && input[key] ? (input[key] as string) : undefined);
+  const prompt = text('prompt');
+  return { type: 'subagent_started', id: callId, label: text('description') ?? 'subagent', agentType: text('subagent_type') ?? 'general', ...(prompt ? { prompt } : {}), toolsUnseen: true };
+}
+
+/** The subagent's answer inside OpenCode's `<task …><task_result>…</task_result></task>` wrapping. */
+function taskResultOf(output: string): string {
+  const found = /<task_result>\s*([\s\S]*?)\s*<\/task_result>/.exec(output);
+  return found && found[1] !== undefined ? found[1] : output;
 }
 
 /** The agent's tool under the name Moxxy knows it by, with Moxxy's input keys. */

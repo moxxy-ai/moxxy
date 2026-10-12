@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { ClaudeMessage } from './sdk-types.js';
+import { ClaudeSubagents } from './subagents.js';
 import { ClaudeTaskList } from './task-list.js';
 import { TurnTranslator, autoApproveFor, goalStatusFrom, toClaudeContent, toTokenUsage } from './translate.js';
 
@@ -176,14 +177,96 @@ describe('Claude messages as Moxxy events', () => {
     ]);
   });
 
-  it('leaves a subagent inner work out, except a result of a call it already showed', () => {
+});
+
+describe("Claude's subagents", () => {
+  const launch = (id = 'toolu_agent') =>
+    assistant([{ type: 'tool_use', id, name: 'Agent', input: { description: 'List files', prompt: 'list the files', subagent_type: 'Explore' } }]);
+  const system = (fields: Record<string, unknown>): ClaudeMessage => ({ type: 'system', ...fields }) as ClaudeMessage;
+
+  it('show a subagent Claude starts as a subagent, not as a tool call', () => {
     const t = new TurnTranslator();
 
-    expect(t.translate(assistant([{ type: 'tool_use', id: 'toolu_sub', name: 'Bash', input: {} }], 'toolu_agent'))).toEqual([]);
-    expect(t.translate(toolResult('toolu_sub', '2', false, 'toolu_agent'))).toEqual([]);
-    t.announce('toolu_sub2', 'Bash', {});
-    expect(t.translate(toolResult('toolu_sub2', '3', false, 'toolu_agent'))).toEqual([
-      { type: 'tool_result', callId: 'toolu_sub2', ok: true, output: '3' },
+    expect(t.translate(launch())).toEqual([{ type: 'subagent_started', id: 'toolu_agent', label: 'List files', agentType: 'Explore', prompt: 'list the files' }]);
+    expect(t.announce('toolu_agent', 'Agent', {})).toEqual([]);
+  });
+
+  it("show the subagent's tools under it, once, and keep their results out of the conversation", () => {
+    const t = new TurnTranslator();
+    t.translate(launch());
+
+    expect(t.translate(assistant([{ type: 'tool_use', id: 'toolu_sub', name: 'Bash', input: { command: 'ls' } }], 'toolu_agent'))).toEqual([
+      { type: 'subagent_tool_call', id: 'toolu_agent', name: 'Bash', input: { command: 'ls' } },
+    ]);
+    // Moxxy's rules are checked for a subagent's call too; that shows nothing more.
+    expect(t.announce('toolu_sub', 'Bash', { command: 'ls' })).toEqual([]);
+    expect(t.translate(toolResult('toolu_sub', 'a.txt', false, 'toolu_agent'))).toEqual([]);
+  });
+
+  it("show nothing in the main conversation for a subagent's call Moxxy checks before its message arrives", () => {
+    const t = new TurnTranslator();
+    t.translate(launch());
+
+    expect(t.announce('toolu_sub', 'Bash', { command: 'ls' }, { inSubagent: true })).toEqual([]);
+    expect(t.translate(assistant([{ type: 'tool_use', id: 'toolu_sub', name: 'Bash', input: { command: 'ls' } }], 'toolu_agent'))).toEqual([
+      { type: 'subagent_tool_call', id: 'toolu_agent', name: 'Bash', input: { command: 'ls' } },
+    ]);
+  });
+
+  it('end a subagent Claude waited for with its answer and tokens', () => {
+    const t = new TurnTranslator();
+    t.translate(launch());
+
+    const done = withToolUseResult(toolResult('toolu_agent', [{ type: 'text', text: 'Two files.' }]), { status: 'completed', totalTokens: 1200 });
+
+    expect(t.translate(done)).toEqual([{ type: 'subagent_completed', id: 'toolu_agent', text: 'Two files.', tokensUsed: 1200 }]);
+  });
+
+  it("end a subagent Claude waited for with its own report, not Claude's hand-back wrapping, even after its task note", () => {
+    const t = new TurnTranslator();
+    t.translate(launch());
+    t.translate(system({ subtype: 'task_progress', tool_use_id: 'toolu_agent', usage: { total_tokens: 13883 } }));
+
+    expect(t.translate(system({ subtype: 'task_notification', tool_use_id: 'toolu_agent', status: 'completed', summary: 'Two files.' }))).toEqual([]);
+
+    const wrapped = '[Subagent hand-back] The text below is the final report… The report follows:\n  Two files.\nagentId: a1 (use SendMessage…)\n<usage>subagent_tokens: 15846</usage>';
+    const done = withToolUseResult(toolResult('toolu_agent', [{ type: 'text', text: wrapped }]), { status: 'completed', content: [{ type: 'text', text: 'Two files.' }] });
+    expect(t.translate(done)).toEqual([{ type: 'subagent_completed', id: 'toolu_agent', text: 'Two files.', tokensUsed: 13883 }]);
+  });
+
+  it('end a subagent running in the background when Claude reports its task finished, with its last words', () => {
+    const subagents = new ClaudeSubagents();
+    const first = new TurnTranslator('', new ClaudeTaskList(), subagents);
+    first.translate(launch());
+    expect(first.translate(withToolUseResult(toolResult('toolu_agent', 'Async agent launched'), { isAsync: true, status: 'async_launched' }))).toEqual([]);
+    first.translate(assistant([{ type: 'text', text: 'Two files: a.txt, notes.txt.' }], 'toolu_agent'));
+
+    const later = new TurnTranslator('', new ClaudeTaskList(), subagents);
+    later.translate(system({ subtype: 'task_progress', tool_use_id: 'toolu_agent', usage: { total_tokens: 15199 } }));
+
+    expect(later.translate(system({ subtype: 'task_notification', tool_use_id: 'toolu_agent', status: 'completed' }))).toEqual([
+      { type: 'subagent_completed', id: 'toolu_agent', text: 'Two files: a.txt, notes.txt.', tokensUsed: 15199 },
+    ]);
+    expect(later.translate(system({ subtype: 'task_notification', tool_use_id: 'toolu_agent', status: 'completed' }))).toEqual([]);
+  });
+
+  it("end a subagent running in the background with Claude's summary when it said nothing more", () => {
+    const t = new TurnTranslator();
+    t.translate(launch());
+    t.translate(withToolUseResult(toolResult('toolu_agent', 'Async agent launched'), { isAsync: true, status: 'async_launched' }));
+
+    expect(t.translate(system({ subtype: 'task_notification', tool_use_id: 'toolu_agent', status: 'completed', summary: 'Two files.' }))).toEqual([
+      { type: 'subagent_completed', id: 'toolu_agent', text: 'Two files.' },
+    ]);
+  });
+
+  it('end a background subagent that failed with the reason', () => {
+    const t = new TurnTranslator();
+    t.translate(launch());
+    t.translate(withToolUseResult(toolResult('toolu_agent', 'Async agent launched'), { isAsync: true, status: 'async_launched' }));
+
+    expect(t.translate(system({ subtype: 'task_notification', tool_use_id: 'toolu_agent', status: 'failed', summary: 'It hit the limit.' }))).toEqual([
+      { type: 'subagent_completed', id: 'toolu_agent', text: '', error: 'It hit the limit.' },
     ]);
   });
 });

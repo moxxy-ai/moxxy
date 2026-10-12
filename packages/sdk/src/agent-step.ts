@@ -10,6 +10,8 @@ export const AGENT_CONNECTION_PLUGIN_ID = asPluginId('@moxxy/agent-connection');
 export const AGENT_SESSION_SUBTYPE = 'agent_session';
 /** The state of the agent's own goal (Claude `/goal`, Codex `thread/goal`), recorded after its turn. */
 export const AGENT_GOAL_SUBTYPE = 'goal_status';
+/** Where subagents are recorded, the agent's own as well as Moxxy's (`@moxxy/core` writes the same envelope). */
+export const SUBAGENTS_PLUGIN_ID = asPluginId('@moxxy/subagents');
 
 /** The agent session to resume for this provider: the last one recorded, if any. */
 export function agentSessionFromEvents(events: ReadonlyArray<MoxxyEvent>, provider: string): string | undefined {

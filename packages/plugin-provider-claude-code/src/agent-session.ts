@@ -36,6 +36,7 @@ import {
   toClaudeContent,
   toTokenUsage,
 } from './translate.js';
+import { ClaudeSubagents } from './subagents.js';
 import { ClaudeTaskList } from './task-list.js';
 
 export interface ClaudeSessionSettings {
@@ -90,6 +91,8 @@ type Item =
       readonly name: string;
       readonly input: Record<string, unknown>;
       readonly description?: string;
+      /** Asked from inside one of Claude's subagents. */
+      readonly inSubagent: boolean;
       readonly resolve: (result: ClaudePermissionResult) => void;
     }
   | {
@@ -97,6 +100,7 @@ type Item =
       readonly callId: string;
       readonly name: string;
       readonly input: unknown;
+      readonly inSubagent: boolean;
       readonly resolve: (output: ClaudePreToolUseOutput) => void;
     }
   | { readonly kind: 'moxxy-tool'; readonly call: AgentToolCall; readonly resolve: (outcome: AgentToolOutcome) => void };
@@ -127,6 +131,8 @@ export class ClaudeAgentSession implements LiveSession {
   private permissionMode: ClaudePermissionMode | undefined;
   /** Claude's task list, which its tools change one task at a time across turns. */
   private readonly tasks = new ClaudeTaskList();
+  /** Claude's subagents; one in the background ends after the turn that started it. */
+  private readonly subagents = new ClaudeSubagents();
   /** The conversation's auto-approve as this turn knows it: as it began, then as Claude's mode changed it. */
   private switchedOn = false;
   private model: string;
@@ -172,7 +178,7 @@ export class ClaudeAgentSession implements LiveSession {
         ...(settings.resume ? { resume: settings.resume } : {}),
         mcpServers: { [MOXXY_MCP_SERVER]: { type: 'http', url: mcp.url, headers: { Authorization: mcp.authorization } } },
         canUseTool: (name, input, options) => this.onCanUseTool(name, input, options),
-        hooks: { PreToolUse: [{ hooks: [async (input) => this.onPreToolUse(input.tool_name, input.tool_input, input.tool_use_id)] }] },
+        hooks: { PreToolUse: [{ hooks: [async (input) => this.onPreToolUse(input.tool_name, input.tool_input, input.tool_use_id, input.agent_id !== undefined)] }] },
         env: claudeEnv(),
         stderr: (data) => {
           this.stderr = (this.stderr + data).slice(-MAX_STDERR);
@@ -223,7 +229,7 @@ export class ClaudeAgentSession implements LiveSession {
       if (mode === 'goal') this.goalActive = true;
       const content = toClaudeContent(req.prompt, prefix);
       this.send(note && !prefix && typeof content !== 'string' ? [{ type: 'text', text: note }, ...content] : content);
-      const translator = new TurnTranslator(this.settings.cwd, this.tasks);
+      const translator = new TurnTranslator(this.settings.cwd, this.tasks, this.subagents);
       for (;;) {
         const item = await this.inbox.next();
         if (item.kind === 'ended') {
@@ -291,7 +297,7 @@ export class ClaudeAgentSession implements LiveSession {
         item.resolve(await req.host.runTool(item.call));
         return;
       case 'hook': {
-        yield* translator.announce(item.callId, item.name, item.input);
+        yield* translator.announce(item.callId, item.name, item.input, { inSubagent: item.inSubagent });
         const decision = await req.host.approve({ callId: item.callId, name: item.name, input: item.input, policyOnly: true });
         item.resolve(
           decision.allow
@@ -305,7 +311,7 @@ export class ClaudeAgentSession implements LiveSession {
           item.resolve(await this.answerQuestion(item.input, req));
           return;
         }
-        yield* translator.announce(item.callId, item.name, item.input);
+        yield* translator.announce(item.callId, item.name, item.input, { inSubagent: item.inSubagent });
         item.resolve(await this.decide(item, req));
         return;
     }
@@ -434,7 +440,7 @@ export class ClaudeAgentSession implements LiveSession {
   private onCanUseTool(
     name: string,
     input: Record<string, unknown>,
-    options: { readonly toolUseID?: string; readonly description?: string; readonly title?: string; readonly mcpServer?: { readonly name: string; readonly source: string } },
+    options: { readonly toolUseID?: string; readonly agentID?: string; readonly description?: string; readonly title?: string; readonly mcpServer?: { readonly name: string; readonly source: string } },
   ): Promise<ClaudePermissionResult> {
     // Moxxy asks about its own tools when it runs them; a second window would ask twice.
     const server = options.mcpServer;
@@ -444,13 +450,21 @@ export class ClaudeAgentSession implements LiveSession {
     if (!this.inTurn) return Promise.resolve({ behavior: 'deny', message: NOT_IN_A_TURN });
     const description = options.description ?? options.title;
     return new Promise((resolve) =>
-      this.inbox.push({ kind: 'approve', callId: options.toolUseID ?? randomUUID(), name, input, ...(description ? { description } : {}), resolve }),
+      this.inbox.push({
+        kind: 'approve',
+        callId: options.toolUseID ?? randomUUID(),
+        name,
+        input,
+        ...(description ? { description } : {}),
+        inSubagent: options.agentID !== undefined,
+        resolve,
+      }),
     );
   }
 
-  private onPreToolUse(name: string, input: unknown, callId: string): Promise<ClaudePreToolUseOutput> {
+  private onPreToolUse(name: string, input: unknown, callId: string, inSubagent: boolean): Promise<ClaudePreToolUseOutput> {
     if (name.startsWith(MOXXY_TOOL_PREFIX) || !this.inTurn) return Promise.resolve({});
-    return new Promise((resolve) => this.inbox.push({ kind: 'hook', callId, name, input, resolve }));
+    return new Promise((resolve) => this.inbox.push({ kind: 'hook', callId, name, input, inSubagent, resolve }));
   }
 
   /** Answer whatever is still queued once no turn can: Claude must never wait on Moxxy forever. */

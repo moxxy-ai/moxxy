@@ -250,6 +250,25 @@ describe('an agent connection turn', () => {
     expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(false);
   });
 
+  it("records the agent's own subagents the way Moxxy records its own, so every surface shows them", async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'subagent_started', id: 'sub-1', label: 'List files', agentType: 'Explore', prompt: 'list the files' };
+      yield { type: 'subagent_tool_call', id: 'sub-1', name: 'Bash', input: { command: 'ls' } };
+      yield { type: 'subagent_completed', id: 'sub-1', text: 'Two files.', tokensUsed: 1200 };
+      yield { type: 'message', text: 'It found two files.' };
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'ask a helper');
+
+    const subagents = session.log.ofType('plugin_event').filter((e) => e.pluginId === '@moxxy/subagents');
+    expect(subagents.map((e) => [e.subtype, e.payload])).toEqual([
+      ['subagent_started', { childSessionId: 'sub-1', label: 'List files', agentType: 'Explore', prompt: 'list the files' }],
+      ['subagent_tool_call', { childSessionId: 'sub-1', label: 'List files', name: 'Bash', input: { command: 'ls' } }],
+      ['subagent_completed', { childSessionId: 'sub-1', label: 'List files', text: 'Two files.', agentType: 'Explore', stopReason: 'end_turn', tokensUsed: 1200 }],
+    ]);
+  });
+
   it('adds no end-of-turn reminder after a turn that ended on a failed step: the agent decides when it is done', async () => {
     const provider = new FakeAgentProvider(async function* () {
       yield { type: 'tool_call', callId: 'toolu_3', name: 'Bash', input: { command: 'pnpm test' } };

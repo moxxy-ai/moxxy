@@ -340,6 +340,23 @@ named and a Stop button that stops the turn. The terminal shows the same as a
 line above the prompt; Esc stops it. It shows from the agent's first computer
 call in the turn until the turn ends.
 
+## Helpers an agent starts
+
+When Claude, Codex or OpenCode hands part of the work to a helper agent of its
+own, the conversation shows it the way it shows Moxxy's own sub-agents: a row
+with the task, the tools the helper ran, its answer and the tokens it used.
+
+| Agent | What Moxxy sees |
+|---|---|
+| Claude | its `Agent` tool (`Task` on older Claude Code), the helper's tool calls and its answer |
+| Codex | a subagent working in a thread of its own: its tool calls, its answer and its tokens |
+| OpenCode | its `task` tool and the helper's answer; OpenCode does not report the helper's own tool calls, so the row does not count them |
+
+A helper still working when its turn ends shows "in the background" on its row.
+What it does after that, up to its answer, shows in a row of its own at the
+point in the conversation where it happened. For now Moxxy reads Claude's
+report on a background helper with your next message.
+
 ## Using OAuth in your own plugin
 
 The `@moxxy/plugin-oauth` plugin contributes three tools:

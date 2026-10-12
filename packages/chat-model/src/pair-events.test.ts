@@ -30,6 +30,7 @@ import {
   turnStepList,
   type CompactToolMap,
 } from './pair-events.js';
+import { subagentState } from './format.js';
 import type {
   CollaborationBlock,
   LiveToolBlockData,
@@ -836,6 +837,34 @@ describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
     expect(agent0.finalPreview).toBe('first');
     // The stale event produced no new block (no matching started block post-clear).
     expect(blocks.filter((b) => b.kind === 'subagent-group')).toHaveLength(1);
+  });
+
+  it("leaves a subagent still running when the turn ends as going on in the background, settled", () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'bg1', label: 'List files' }),
+      userPrompt('next turn'),
+    ]);
+    const agent = asSubagent(blocks[0]);
+    expect(subagentState(agent)).toBe('background');
+    expect(isSettled(agent)).toBe(true);
+  });
+
+  it('shows what a background subagent did later in a row of its own where it happened, and leaves the earlier row as it was', () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'bg1', label: 'List files', agentType: 'general-purpose' }),
+      userPrompt('next turn'),
+      subagentEvent('subagent_tool_call', { childSessionId: 'bg1', name: 'Bash', input: { command: 'ls' } }),
+      subagentEvent('subagent_completed', { childSessionId: 'bg1', stopReason: 'end_turn', text: 'Two files.', tokensUsed: 900 }),
+    ]);
+    const groups = blocks.filter((b) => b.kind === 'subagent-group');
+    expect(groups).toHaveLength(2);
+    const earlier = asSubagent(groups[0]);
+    const later = asSubagent(groups[1]);
+    expect(subagentState(earlier)).toBe('background');
+    expect(earlier.toolCalls).toEqual([]);
+    expect(later).toMatchObject({ label: 'List files', agentType: 'general-purpose', continued: true, toolCallCount: 1, finalPreview: 'Two files.', tokensUsed: 900 });
+    expect(subagentState(later)).toBe('done');
+    expect(blocks.indexOf(groups[1] as (typeof blocks)[number])).toBeGreaterThan(blocks.findIndex((b) => b.kind === 'event'));
   });
 });
 

@@ -43,6 +43,7 @@ import {
   toUserInputAnswers,
   type CodexToolCall,
 } from './translate.js';
+import { CodexSubagents } from './subagents.js';
 import { readImageFile } from './view-image.js';
 
 /** A running `codex app-server`: its stdout, stdin and stderr. */
@@ -219,6 +220,8 @@ export class CodexAgentSession implements LiveSession {
   private restoredElsewhere = false;
   /** Codex turns that belong to the Moxxy turn running now. */
   private readonly myTurns = new Set<string>();
+  /** Subagents Codex started; they work in threads of their own and may outlive a turn. */
+  private readonly subagents = new CodexSubagents();
   /** The Moxxy tools Codex listed as the thread opened, the same for every turn. */
   private readonly listed: ToolDef[];
   private activeTurn: string | undefined;
@@ -499,6 +502,8 @@ export class CodexAgentSession implements LiveSession {
         continue;
       }
       if (change) continue;
+      // A subagent works in a thread of its own; its turns are not the conversation's.
+      if (isTurnEvent(item.method) && params.threadId !== this.threadId) continue;
       if (item.method === 'turn/started') {
         const turn = params.turn as CodexTurn | undefined;
         if (!turn) continue;
@@ -537,7 +542,15 @@ export class CodexAgentSession implements LiveSession {
         if (params.willRetry !== true && error && typeof error.message === 'string') this.lastError = error.message;
         continue;
       }
+      if (typeof params.threadId === 'string' && params.threadId !== this.threadId) {
+        yield* this.subagents.fromThread(item.method, params);
+        continue;
+      }
       if (!this.belongsHere(params)) continue;
+      if (isSubagentActivity(item.method, params)) {
+        yield* this.subagents.activity(params.item);
+        continue;
+      }
       yield* translator.translate(item.method, params);
     }
   }
@@ -802,4 +815,14 @@ function checklistFor(read: CodexConfigRead | undefined): Record<string, boolean
   const tools = read?.config.tools;
   if (tools && typeof tools.update_plan?.enabled === 'boolean') return {};
   return { 'tools.update_plan.enabled': true };
+}
+
+function isTurnEvent(method: string): boolean {
+  return method === 'turn/started' || method === 'turn/completed';
+}
+
+function isSubagentActivity(method: string, params: Record<string, unknown>): boolean {
+  if (method !== 'item/started' && method !== 'item/completed') return false;
+  const item = params.item as { type?: unknown } | undefined;
+  return item !== undefined && item.type === 'subAgentActivity';
 }

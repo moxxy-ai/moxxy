@@ -506,5 +506,13 @@ export type AgentStepEvent =
   | { readonly type: 'goal'; readonly status: AgentGoalStatus }
   /** The agent's own finished plan (Markdown), waiting for the person to carry it out. */
   | { readonly type: 'plan'; readonly text: string }
+  /**
+   * A helper agent the agent started itself (Claude's Agent tool, a Codex subagent, OpenCode's task),
+   * its tool calls, and its end. `id` ties them together; it need not be a Moxxy session.
+   */
+  /** `toolsUnseen` when the agent does not report the subagent's own tool calls (OpenCode). */
+  | { readonly type: 'subagent_started'; readonly id: string; readonly label: string; readonly agentType: string; readonly prompt?: string; readonly toolsUnseen?: true }
+  | { readonly type: 'subagent_tool_call'; readonly id: string; readonly name: string; readonly input: unknown }
+  | { readonly type: 'subagent_completed'; readonly id: string; readonly text: string; readonly tokensUsed?: number; readonly error?: string }
   | { readonly type: 'usage'; readonly usage: TokenUsage }
   | { readonly type: 'error'; readonly message: string; readonly retryable: boolean };

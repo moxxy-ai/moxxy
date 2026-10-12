@@ -25,8 +25,14 @@ export interface FakeTurn {
   readonly text: string;
   readonly content: ClaudeUserContent;
   readonly query: FakeQuery;
-  canUseTool(name: string, input: Record<string, unknown>, toolUseID: string, extra?: { mcpServer?: { name: string; source: string } }): Promise<ClaudePermissionResult>;
-  preToolUse(name: string, input: unknown, toolUseID: string): Promise<ClaudePreToolUseOutput>;
+  canUseTool(
+    name: string,
+    input: Record<string, unknown>,
+    toolUseID: string,
+    extra?: { mcpServer?: { name: string; source: string }; agentID?: string },
+  ): Promise<ClaudePermissionResult>;
+  /** `agentId` makes the call one from inside a subagent. */
+  preToolUse(name: string, input: unknown, toolUseID: string, agentId?: string): Promise<ClaudePreToolUseOutput>;
   callMoxxyTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown; isError?: boolean }>;
 }
 
@@ -186,11 +192,11 @@ export class FakeQuery implements ClaudeQuery {
         if (!ask) throw new Error('Claude was started without canUseTool');
         return ask(name, input, { signal: this.stop.signal, toolUseID, ...(extra ?? {}) });
       },
-      preToolUse: async (name, input, toolUseID) => {
+      preToolUse: async (name, input, toolUseID, agentId) => {
         let out: ClaudePreToolUseOutput = {};
         for (const matcher of this.options.hooks?.PreToolUse ?? []) {
           for (const hook of matcher.hooks) {
-            const verdict = await hook({ hook_event_name: 'PreToolUse', tool_name: name, tool_input: input, tool_use_id: toolUseID }, toolUseID, {
+            const verdict = await hook({ hook_event_name: 'PreToolUse', tool_name: name, tool_input: input, tool_use_id: toolUseID, ...(agentId ? { agent_id: agentId } : {}) }, toolUseID, {
               signal: this.stop.signal,
             });
             if (verdict.hookSpecificOutput) out = verdict;

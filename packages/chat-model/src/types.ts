@@ -105,6 +105,8 @@ export interface SubagentBlock {
   /** ms timestamp of completion, or null while running. */
   completedAtMs: number | null;
   toolCallCount: number;
+  /** True when the agent that ran it does not report its tool calls, so the count says nothing. */
+  readonly toolsUnseen?: boolean;
   /** Total tokens the child consumed (input + output), null until completion. */
   tokensUsed: number | null;
   /** The agent's tool calls in order (name + input), accumulated live from
@@ -116,6 +118,10 @@ export interface SubagentBlock {
   finalPreview: string | null;
   /** Error message if the agent failed (subagent_error/abort or non-OK stopReason). */
   error: string | null;
+  /** Still running when its turn ended: the agent went on without waiting for it. */
+  backgrounded?: boolean;
+  /** What a subagent from an earlier turn did after that turn ended, shown where it happened. */
+  readonly continued?: boolean;
 }
 
 /**

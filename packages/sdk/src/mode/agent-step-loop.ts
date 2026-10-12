@@ -1,4 +1,4 @@
-import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, agentSessionFromEvents } from '../agent-step.js';
+import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from '../agent-step.js';
 import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_RESTORED_SUBTYPE, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents } from '../auto-approve.js';
 import { renderEarlierConversation } from '../conversation-history.js';
 import { computeElisionState } from '../elision-state.js';
@@ -224,6 +224,8 @@ async function runRound(
   let sessionId = resumeSessionId;
   let goal: AgentGoalStatus | undefined;
   let plan: string | undefined;
+  /** The agent's own subagents started in this step, to name them in their later events (one started in an earlier turn goes unnamed). */
+  const subagents = new Map<string, { readonly label: string; readonly agentType: string }>();
   let ranTools = false;
 
   try {
@@ -333,6 +335,54 @@ async function runRound(
         case 'plan':
           plan = event.text;
           break;
+        case 'subagent_started':
+          subagents.set(event.id, { label: event.label, agentType: event.agentType });
+          await emit({
+            ...base,
+            type: 'plugin_event',
+            source: 'plugin',
+            pluginId: SUBAGENTS_PLUGIN_ID,
+            subtype: 'subagent_started',
+            payload: {
+              childSessionId: event.id,
+              label: event.label,
+              agentType: event.agentType,
+              ...(event.prompt ? { prompt: event.prompt } : {}),
+              ...(event.toolsUnseen ? { toolsUnseen: true } : {}),
+            },
+          });
+          break;
+        case 'subagent_tool_call': {
+          const sub = subagents.get(event.id);
+          await emit({
+            ...base,
+            type: 'plugin_event',
+            source: 'plugin',
+            pluginId: SUBAGENTS_PLUGIN_ID,
+            subtype: 'subagent_tool_call',
+            payload: { childSessionId: event.id, ...(sub ? { label: sub.label } : {}), name: event.name, input: event.input },
+          });
+          break;
+        }
+        case 'subagent_completed': {
+          const sub = subagents.get(event.id);
+          await emit({
+            ...base,
+            type: 'plugin_event',
+            source: 'plugin',
+            pluginId: SUBAGENTS_PLUGIN_ID,
+            subtype: 'subagent_completed',
+            payload: {
+              childSessionId: event.id,
+              ...(sub ? { label: sub.label, agentType: sub.agentType } : {}),
+              text: event.text,
+              stopReason: event.error ? 'error' : 'end_turn',
+              ...(event.tokensUsed !== undefined ? { tokensUsed: event.tokensUsed } : {}),
+              ...(event.error ? { error: event.error } : {}),
+            },
+          });
+          break;
+        }
         case 'usage':
           usage = usage ? addUsage(usage, event.usage) : event.usage;
           break;

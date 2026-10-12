@@ -155,3 +155,49 @@ describe("OpenCode's todo list", () => {
     expect((events[0] as { callId: string }).callId).toBe((events[1] as { callId: string }).callId);
   });
 });
+
+describe("OpenCode's subagents", () => {
+  const launched = (t: AcpTurnTranslator) => {
+    t.update({ sessionUpdate: 'tool_call', toolCallId: 'task1', title: 'task', kind: 'think', status: 'pending', rawInput: {} });
+    return t.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'task1',
+      status: 'in_progress',
+      rawInput: { description: 'List files', prompt: 'list the files', subagent_type: 'general' },
+    });
+  };
+
+  it('show a task OpenCode hands to a subagent as a subagent, whose own tools OpenCode does not report', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+
+    expect(launched(t)).toEqual([
+      { type: 'subagent_started', id: 'task1', label: 'List files', agentType: 'general', prompt: 'list the files', toolsUnseen: true },
+    ]);
+  });
+
+  it("end it with the subagent's answer, without OpenCode's wrapping", () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    launched(t);
+    const output = '<task id="ses_1" state="completed">\n<task_result>\nTwo files: a.txt, notes.txt.\n</task_result>\n</task>';
+
+    expect(
+      t.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'task1',
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: output } }],
+        rawOutput: { output, metadata: { sessionId: 'ses_1' } },
+      }),
+    ).toEqual([{ type: 'subagent_completed', id: 'task1', text: 'Two files: a.txt, notes.txt.' }]);
+  });
+
+  it('end it with the reason when the subagent failed', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    launched(t);
+
+    expect(
+      t.update({ sessionUpdate: 'tool_call_update', toolCallId: 'task1', status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'model refused' } }] }),
+    ).toEqual([{ type: 'subagent_completed', id: 'task1', text: '', error: 'model refused' }]);
+  });
+});
+
