@@ -11,6 +11,7 @@ import {
   type MoxxyEvent,
   type PluginEvent,
   type SkillInvokedEvent,
+  type StepStatus,
   type ToolCallDeniedEvent,
   type ToolCallRequestedEvent,
   type ToolCompactPresentation,
@@ -24,13 +25,16 @@ import {
   isSettled,
   pairToolEvents,
   questionAnswerOf,
+  stepListOf,
   toolImagesResultOf,
+  turnStepList,
   type CompactToolMap,
 } from './pair-events.js';
 import type {
   CollaborationBlock,
   LiveToolBlockData,
   SkillScopeBlock,
+  StepListBlock,
   SubagentBlock,
   SubagentGroupBlock,
   ToolCallBlockData,
@@ -907,5 +911,64 @@ describe('pairToolEvents — collab_completed malformed counts fall back to rost
     // Derived: 1 of 2 agents done — meaningful, not null/null.
     expect(collab.doneCount).toBe(1);
     expect(collab.totalCount).toBe(2);
+  });
+});
+
+describe("an agent's list of steps", () => {
+  const listed = (forModel: string, ...steps: Array<[string, StepStatus]>) => ({
+    forModel,
+    display: { kind: 'step-list', steps: steps.map(([text, status]) => ({ text, status })) },
+  });
+
+  it('folds every change of a turn into one list where the first change was, the last change being the list', () => {
+    const events = [
+      userPrompt('make three files'),
+      toolRequest('c1', 'TaskCreate', { subject: 'a' }),
+      toolResult('c1', listed('Task #1 created', ['a', 'pending'])),
+      toolRequest('b1', 'Bash', { command: 'echo a > a.txt' }),
+      toolResult('b1', ''),
+      toolRequest('u1', 'TaskUpdate', { taskId: '1', status: 'completed' }),
+      toolResult('u1', listed('Updated task #1 status', ['a', 'completed'])),
+      assistantMessage('Done.'),
+    ];
+
+    const blocks = pairToolEvents(events);
+
+    expect(blocks.map((b) => b.kind)).toEqual(['event', 'step-list', 'tool-call', 'event']);
+    const list = blocks[1] as StepListBlock;
+    expect(list.calls.map((c) => c.request.name)).toEqual(['TaskCreate', 'TaskUpdate']);
+    expect(stepListOf(list)).toEqual({ kind: 'step-list', steps: [{ text: 'a', status: 'completed' }] });
+    expect(countToolCalls(blocks)).toBe(3);
+    expect(isSettled(list)).toBe(false);
+  });
+
+  it('starts a new list in the next turn and settles the one before', () => {
+    const blocks = pairToolEvents([
+      userPrompt('one'),
+      toolRequest('c1', 'TodoWrite'),
+      toolResult('c1', listed('ok', ['a', 'in_progress'])),
+      userPrompt('two'),
+      toolRequest('c2', 'TodoWrite'),
+      toolResult('c2', listed('ok', ['a', 'completed'])),
+    ]);
+
+    const lists = blocks.filter((b): b is StepListBlock => b.kind === 'step-list');
+    expect(lists).toHaveLength(2);
+    expect(isSettled(lists[0] as StepListBlock)).toBe(true);
+    expect(stepListOf(lists[1] as StepListBlock)).toMatchObject({ steps: [{ text: 'a', status: 'completed' }] });
+  });
+
+  it('keeps a call that failed or was refused as its own row', () => {
+    const blocks = pairToolEvents([userPrompt('one'), toolRequest('c1', 'TodoWrite'), toolResult('c1', 'boom', false), toolRequest('c2', 'TaskUpdate'), toolDenied('c2', 'no')]);
+
+    expect(blocks.map((b) => b.kind)).toEqual(['event', 'tool-call', 'tool-call']);
+  });
+
+  it('says what the running turn list is, and nothing once the person writes again', () => {
+    const before = [userPrompt('one'), toolRequest('c1', 'TodoWrite'), toolResult('c1', listed('ok', ['a', 'in_progress'], ['b', 'pending']))];
+
+    expect(turnStepList(before)).toMatchObject({ steps: [{ text: 'a' }, { text: 'b' }] });
+    expect(turnStepList([...before, checkpointPrompt('lint')])).not.toBeNull();
+    expect(turnStepList([...before, userPrompt('two')])).toBeNull();
   });
 });

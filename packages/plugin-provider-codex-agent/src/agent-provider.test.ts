@@ -52,7 +52,7 @@ const allowAll: PermissionResolver = { name: 'allow-all', check: async () => ({ 
 const ASKING = { approvalPolicy: 'on-request', sandbox: { type: 'readOnly', networkAccess: false } } as const;
 
 describe('a turn on the Codex agent connection', () => {
-  it('starts Codex in the conversation folder with only Moxxy MCP server added, and shows what Codex did', async () => {
+  it("starts Codex in the conversation folder with only Moxxy's MCP server and Codex's checklist added, and shows what Codex did", async () => {
     const { codex, session } = connect(async (turn) => {
       await turn.run('echo spike-ok', 'spike-ok\n');
       turn.usage(1200, 40, 1000);
@@ -66,14 +66,39 @@ describe('a turn on the Codex agent connection', () => {
     expect(server.notifications).toContain('thread/started');
     const [start] = server.sent('thread/start');
     // Codex runs as the person set it up: no instructions, policy, sandbox or model of Moxxy's.
+    // Its checklist tool, off by default since Codex 0.152, is on so the step list shows.
     expect(Object.keys(start ?? {}).sort()).toEqual(['config', 'cwd']);
-    expect(start).toMatchObject({ cwd: '/work/app', config: { mcp_servers: { moxxy: { url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/) } } } });
+    expect(start).toMatchObject({ cwd: '/work/app', config: { mcp_servers: { moxxy: { url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/) } }, 'tools.update_plan.enabled': true } });
     expect(server.sent('turn/start')[0]).toMatchObject({ threadId: 'thread-1', input: [{ type: 'text', text: 'Run echo spike-ok', text_elements: [] }] });
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool_call_requested', name: 'Bash', input: { command: 'echo spike-ok', cwd: '/work/app' }, executedBy: 'provider' }));
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool_result', ok: true, output: 'spike-ok\n' }));
     expect(said(events)).toEqual(['You said: Run echo spike-ok']);
     expect(events).toContainEqual(expect.objectContaining({ type: 'provider_response', inputTokens: 200, outputTokens: 40, cacheReadTokens: 1000 }));
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'agent_session', payload: expect.objectContaining({ sessionId: 'thread-1' }) }));
+  });
+
+  it("leaves Codex's checklist as the person set it in their Codex config", async () => {
+    const { codex, session } = connect(async (turn) => turn.say('ok'), { planTool: false });
+
+    await collectTurn(session, 'hi');
+
+    const [start] = codex.last.sent('thread/start');
+    expect(start).toMatchObject({ config: { mcp_servers: { moxxy: expect.anything() } } });
+    expect(start ? Object.keys(start.config as object) : []).toEqual(['mcp_servers']);
+  });
+
+  it("records Codex's checklist as a step list each time Codex changes it", async () => {
+    const { session } = connect(async (turn) => {
+      turn.server.notify('turn/plan/updated', { threadId: turn.threadId, turnId: turn.id, explanation: null, plan: [{ step: 'Create a.txt', status: 'inProgress' }] });
+      turn.server.notify('turn/plan/updated', { threadId: turn.threadId, turnId: turn.id, explanation: null, plan: [{ step: 'Create a.txt', status: 'completed' }] });
+      turn.say('done');
+    });
+
+    const events = await collectTurn(session, 'make a.txt');
+
+    const lists = events.flatMap((e) => (e.type === 'tool_result' && e.ok ? [(e.output as { display?: { steps?: unknown } }).display?.steps] : []));
+    expect(lists).toEqual([[{ text: 'Create a.txt', status: 'in_progress' }], [{ text: 'Create a.txt', status: 'completed' }]]);
+    expect(events.filter((e) => e.type === 'tool_call_requested').map((e) => e.type === 'tool_call_requested' && e.name)).toEqual(['update_plan', 'update_plan']);
   });
 
   it('runs the model the person picked on the thread', async () => {

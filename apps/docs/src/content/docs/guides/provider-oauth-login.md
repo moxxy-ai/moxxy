@@ -312,6 +312,25 @@ once (Codex's computer use sends each screenshot twice).
 | Codex | an image in an MCP tool's result, or the file `view_image` names (read from disk, up to 8 MB) |
 | OpenCode | an image in the finished call's content |
 
+## The agent's list of steps
+
+When Claude, Codex or OpenCode keeps a list of steps for a task, the
+conversation shows it as one list per turn, updated in place as the agent
+ticks steps off: done, in progress, waiting. The desktop also says, above the
+message field while the turn runs, which step the agent is on. The terminal
+draws the list as lines marked ✓, ● and ○.
+
+| Agent | Where the list comes from |
+|---|---|
+| Claude | its task tools (`TaskCreate`, `TaskUpdate`, `TaskList`), or `TodoWrite` on older Claude Code |
+| Codex | the plan it updates during a turn (`turn/plan/updated`) |
+
+Codex has kept its checklist tool off by default since 0.152. Moxxy turns it
+on for the conversations it starts (`tools.update_plan.enabled`, for that
+conversation only; your Codex config is not written), unless your config sets
+`[tools.update_plan] enabled` either way, in which case your choice holds.
+| OpenCode | its `todowrite` tool, or a plan sent over ACP |
+
 ## Using OAuth in your own plugin
 
 The `@moxxy/plugin-oauth` plugin contributes three tools:

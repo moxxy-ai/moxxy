@@ -51,6 +51,7 @@ export interface CodexConfigRead {
       readonly exclude_slash_tmp: boolean;
     } | null;
     readonly approvals_reviewer?: CodexApprovalsReviewer | null;
+    readonly tools?: { readonly update_plan?: { readonly enabled?: boolean } | null } | null;
   };
 }
 

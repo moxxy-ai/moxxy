@@ -1,6 +1,15 @@
 import type { MoxxyEvent, PluginEvent, ToolCompactPresentation } from '@moxxy/sdk';
 import { assertDefined, invariant } from './assert.js';
-import { isFileDiffDisplay, isQuestionAnswerDisplay, toolImagesOf, type QuestionAnswerDisplay, type ToolImage } from '@moxxy/sdk/tool-display';
+import {
+  isFileDiffDisplay,
+  isQuestionAnswerDisplay,
+  isStepListDisplay,
+  isToolDisplayResult,
+  toolImagesOf,
+  type QuestionAnswerDisplay,
+  type StepListDisplay,
+  type ToolImage,
+} from '@moxxy/sdk/tool-display';
 import type {
   Block,
   CollabAgentView,
@@ -8,6 +17,7 @@ import type {
   LiveToolBlockData,
   LiveToolCall,
   SkillScopeBlock,
+  StepListBlock,
   SubagentBlock,
   SubagentGroupBlock,
   ToolCallBlockData,
@@ -388,6 +398,8 @@ export interface FoldState {
   // Open collaborative-run block, if any. Opened on collab_started; collab_*
   // events mutate it in place; reset at the turn boundary.
   readonly collab: { current: CollaborationBlock | null };
+  // This turn's list of steps, once an agent call returned one; later changes join it.
+  openSteps: StepListBlock | null;
 }
 
 /** A fresh, empty fold state for the given compact-tool map. */
@@ -405,6 +417,7 @@ export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MA
     subagents: new Map<string, SubagentBlock>(),
     subagentGroup: { current: null },
     collab: { current: null },
+    openSteps: null,
   };
 }
 
@@ -502,6 +515,8 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     // block). The blocks themselves stay reachable from `root`.
     s.subagents.clear();
     s.collab.current = null;
+    if (s.openSteps) s.openSteps.closed = true;
+    s.openSteps = null;
     s.root.push({ kind: 'event', id: e.id, event: e });
     return;
   }
@@ -585,6 +600,7 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     const target = s.callTargets.get(e.callId);
     if (target) {
       target.outcome = e;
+      if (isToolCallBlock(target) && stepListOfCall(target)) joinStepList(s, target);
       return;
     }
   }
@@ -653,6 +669,69 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     return;
   }
   pushBlock({ kind: 'event', id: e.id, event: e });
+}
+
+function isToolCallBlock(target: CallTarget): target is ToolCallBlockData {
+  return (target as { kind?: unknown }).kind === 'tool-call';
+}
+
+/** The list of steps a call's result carries, or null. */
+export function stepListOfCall(call: ToolCallBlockData): StepListDisplay | null {
+  const outcome = call.outcome;
+  if (outcome === null || outcome.type !== 'tool_result' || !outcome.ok) return null;
+  const output = outcome.output;
+  return isToolDisplayResult(output) && isStepListDisplay(output.display) ? output.display : null;
+}
+
+/** The list as it stands: the last call of the turn that returned one. */
+export function stepListOf(block: StepListBlock): StepListDisplay | null {
+  for (let i = block.calls.length - 1; i >= 0; i -= 1) {
+    const call = block.calls[i];
+    const list = call ? stepListOfCall(call) : null;
+    if (list) return list;
+  }
+  return null;
+}
+
+/**
+ * The list of steps of the turn running now (since the person's last prompt),
+ * as it stands, or null when no agent returned one in it.
+ */
+export function turnStepList(events: ReadonlyArray<MoxxyEvent>): StepListDisplay | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i];
+    if (!e) continue;
+    if (e.type === 'user_prompt' && e.origin?.kind !== 'checkpoint') return null;
+    if (e.type !== 'tool_result' || !e.ok) continue;
+    if (isToolDisplayResult(e.output) && isStepListDisplay(e.output.display)) return e.output.display;
+  }
+  return null;
+}
+
+/**
+ * A call whose result is a list of steps leaves its own row: the first of the
+ * turn becomes the turn's list where it stood, later ones join that list.
+ */
+function joinStepList(s: FoldState, call: ToolCallBlockData): void {
+  const open = s.openSteps;
+  if (open) {
+    replaceCallBlock(s.root, call.request.callId, null);
+    open.calls.push(call);
+    return;
+  }
+  const list: StepListBlock = { kind: 'step-list', id: call.id, calls: [call], closed: false };
+  if (replaceCallBlock(s.root, call.request.callId, list)) s.openSteps = list;
+}
+
+/** Swap (or with `null` remove) a call's row, at the top level or inside a skill scope. */
+function replaceCallBlock(list: Block[], callId: string, replacement: Block | null): boolean {
+  const index = list.findIndex((b) => b.kind === 'tool-call' && b.request.callId === callId);
+  if (index >= 0) {
+    if (replacement) list.splice(index, 1, replacement);
+    else list.splice(index, 1);
+    return true;
+  }
+  return list.some((b) => b.kind === 'skill-scope' && replaceCallBlock(b.children, callId, replacement));
 }
 
 export function pairToolEvents(
@@ -883,6 +962,8 @@ export function isSettled(block: Block): boolean {
   if (block.kind === 'live-tools') {
     return block.closed && block.calls.every((c) => c.outcome !== null);
   }
+  // A later change in the same turn joins the list.
+  if (block.kind === 'step-list') return block.closed;
   return true;
 }
 
@@ -963,6 +1044,13 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
         b.contracts.map((x) => `${x.status}|${x.version}|${x.title}|${x.owner}`).join(',')
     );
   }
+  if (a.kind === 'step-list' && b.kind === 'step-list') {
+    if (a.closed !== b.closed || a.calls.length !== b.calls.length) return false;
+    return a.calls.every((call, i) => {
+      const other = b.calls[i];
+      return other !== undefined && call.request === other.request && call.outcome === other.outcome;
+    });
+  }
   if (a.kind === 'live-tools' && b.kind === 'live-tools') {
     if (a.closed !== b.closed) return false;
     if (a.calls.length !== b.calls.length) return false;
@@ -985,6 +1073,7 @@ export function countToolCalls(blocks: ReadonlyArray<Block>): number {
     if (b.kind === 'tool-call') n += 1;
     else if (b.kind === 'skill-scope') n += countToolCalls(b.children);
     else if (b.kind === 'live-tools') n += b.calls.length;
+    else if (b.kind === 'step-list') n += b.calls.length;
     else if (b.kind === 'subagent-group') {
       for (const a of b.agents) n += a.toolCallCount;
     }

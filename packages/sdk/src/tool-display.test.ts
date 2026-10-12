@@ -6,11 +6,17 @@ import {
   imageToolOutput,
   isFileDiffDisplay,
   isQuestionAnswerDisplay,
+  isStepListDisplay,
   isToolDisplayResult,
   questionAnswerLines,
+  stepListOutput,
+  stepListProgress,
+  stepStatusOf,
+  stepsFromTodos,
   toDiffRows,
   toolImagesOf,
   type QuestionAnswerDisplay,
+  type StepListDisplay,
   type FileDiffDisplay,
 } from './tool-display.js';
 
@@ -164,5 +170,45 @@ describe('images in a tool result', () => {
 
     expect(imageToolOutput('', [shot, shot, other, shot])).toEqual({ forModel: '', mediaType: 'image/jpeg', base64: 'SAME', moreImages: [other] });
     expect(imageToolOutput('', [shot, shot])).toEqual({ forModel: '', mediaType: 'image/jpeg', base64: 'SAME' });
+  });
+});
+
+describe("an agent's list of steps", () => {
+  it('reads a TodoWrite-style list, leaving out items it cannot show', () => {
+    expect(
+      stepsFromTodos([
+        { content: 'Create a.txt', status: 'completed', priority: 'high' },
+        { content: ' Create b.txt ', status: 'in_progress' },
+        { content: 'Create c.txt', status: 'pending' },
+        { content: '', status: 'pending' },
+        { content: 'Odd', status: 'someday' },
+      ]),
+    ).toEqual([
+      { text: 'Create a.txt', status: 'completed' },
+      { text: 'Create b.txt', status: 'in_progress' },
+      { text: 'Create c.txt', status: 'pending' },
+    ]);
+    expect(stepsFromTodos('nope')).toBeUndefined();
+  });
+
+  it("takes Codex's inProgress for in progress", () => {
+    expect(stepStatusOf('inProgress')).toBe('in_progress');
+    expect(stepStatusOf('done')).toBeUndefined();
+  });
+
+  it('is a display a tool result can carry, and says how far it is', () => {
+    const output = stepListOutput('Updated task #1 status', [
+      { text: 'a', status: 'completed' },
+      { text: 'b', status: 'in_progress' },
+      { text: 'c', status: 'pending' },
+    ]);
+
+    expect(isToolDisplayResult(output)).toBe(true);
+    expect(isStepListDisplay({ kind: 'step-list', steps: [{ text: 'a', status: 'inProgress' }] })).toBe(false);
+    expect(stepListProgress(output.display as StepListDisplay)).toEqual({ done: 1, total: 3, current: { text: 'b', status: 'in_progress' } });
+  });
+
+  it('has no current step once every step is done', () => {
+    expect(stepListProgress({ kind: 'step-list', steps: [{ text: 'a', status: 'completed' }, { text: 'b', status: 'cancelled' }] })).toEqual({ done: 2, total: 2 });
   });
 });

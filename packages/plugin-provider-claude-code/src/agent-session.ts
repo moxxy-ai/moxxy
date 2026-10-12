@@ -36,6 +36,7 @@ import {
   toClaudeContent,
   toTokenUsage,
 } from './translate.js';
+import { ClaudeTaskList } from './task-list.js';
 
 export interface ClaudeSessionSettings {
   readonly sdk: ClaudeAgentSdk;
@@ -124,6 +125,8 @@ export class ClaudeAgentSession implements LiveSession {
   /** A turn ended before Claude's `result` (its reader stopped early); the next turn waits it out. */
   private owesResult = false;
   private permissionMode: ClaudePermissionMode | undefined;
+  /** Claude's task list, which its tools change one task at a time across turns. */
+  private readonly tasks = new ClaudeTaskList();
   /** The conversation's auto-approve as this turn knows it: as it began, then as Claude's mode changed it. */
   private switchedOn = false;
   private model: string;
@@ -220,7 +223,7 @@ export class ClaudeAgentSession implements LiveSession {
       if (mode === 'goal') this.goalActive = true;
       const content = toClaudeContent(req.prompt, prefix);
       this.send(note && !prefix && typeof content !== 'string' ? [{ type: 'text', text: note }, ...content] : content);
-      const translator = new TurnTranslator(this.settings.cwd);
+      const translator = new TurnTranslator(this.settings.cwd, this.tasks);
       for (;;) {
         const item = await this.inbox.next();
         if (item.kind === 'ended') {

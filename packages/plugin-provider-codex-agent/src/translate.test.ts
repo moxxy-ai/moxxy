@@ -123,3 +123,38 @@ describe("Codex's images", () => {
     expect(read).toEqual(['/repo/shot.png']);
   });
 });
+
+describe("Codex's checklist", () => {
+  it('shows each plan update as a call whose result is the whole list, with why Codex changed it', () => {
+    const translator = new TurnTranslator();
+    const plan = [
+      { step: 'Create a.txt', status: 'completed' },
+      { step: 'Create b.txt', status: 'inProgress' },
+      { step: 'Create c.txt', status: 'pending' },
+    ];
+
+    const events = translator.translate('turn/plan/updated', { threadId: 't1', turnId: 'turn-1', explanation: 'a.txt is done', plan });
+
+    expect(events).toEqual([
+      { type: 'tool_call', callId: 'plan-turn-1-1', name: 'update_plan', input: { plan, explanation: 'a.txt is done' } },
+      {
+        type: 'tool_result',
+        callId: 'plan-turn-1-1',
+        ok: true,
+        output: {
+          forModel: '[x] Create a.txt\n[ ] Create b.txt\n[ ] Create c.txt',
+          display: {
+            kind: 'step-list',
+            explanation: 'a.txt is done',
+            steps: [
+              { text: 'Create a.txt', status: 'completed' },
+              { text: 'Create b.txt', status: 'in_progress' },
+              { text: 'Create c.txt', status: 'pending' },
+            ],
+          },
+        },
+      },
+    ]);
+    expect(translator.translate('turn/plan/updated', { threadId: 't1', turnId: 'turn-1', explanation: null, plan })[0]).toMatchObject({ callId: 'plan-turn-1-2' });
+  });
+});

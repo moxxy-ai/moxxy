@@ -130,6 +130,7 @@ pane.
 | What the person said | A bubble on the right, filled with the action colour. A prompt over 12 lines opens clamped, with a control that says how many lines it holds. Attachments sit above the bubble. |
 | What the agent said | A bubble on the left, in its own neutral tone. Code, tables and quotes inside it are tinted against the bubble, and each has a copy control in its corner (shown for the block under the pointer or holding focus, always on a touch screen). A table copies as tab-separated rows. |
 | Tool calls, reasoning, sub-agents | Quiet lines down the left, no wider than a bubble. The ones with a body open in place. The images a tool returned (screenshots an agent looked at, an image file it read) show under its line as a wrapping row of thumbnails drawn like attached images, every one of them, and each opens in the same preview; opening the line shows the text beside them, never an image as text (`chat/blocks/ToolImages.tsx`). |
+| An agent's list of steps | One card per turn, drawn where the agent first wrote the list and updated in place each time it changes it: a "Steps" head with how many are done, then one row per step with a round mark (green tick done, accent dot in progress, empty ring waiting, struck through when dropped). The calls that changed the list never show as lines of their own; they sit under the card in the turn's activity (`chat/blocks/StepList.tsx`). |
 | Triggers, stops, errors | A note with a short label. |
 
 Under a message sit its time and, for an answer, copy, read aloud and feedback.
@@ -149,6 +150,12 @@ mode other than the default one, auto-approve on, or a goal waiting for its
 objective. It says it the way a run says its state, as a toned dot and a line
 of text (`.status-chip`), never as a filled capsule: amber for what runs
 without asking, the accent for a goal. The model is read in the header.
+
+While a turn runs and the agent keeps a list of steps, a thin bar sits above
+the composer card and says where it is: "Step 2 of 3" and the step's text, or
+how many are done once none is left. Pressing it shows the whole list under it.
+It goes when the turn ends (`chat/composer/TurnStepsBar.tsx`,
+`chat/useTurnSteps.ts`).
 
 Files reach the composer four ways: the add menu, the file browser, a paste,
 and a drop anywhere on the conversation, which says it will take them while

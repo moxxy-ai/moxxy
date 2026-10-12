@@ -15,6 +15,10 @@
  * lines of context around each edit) — never the whole file — so the payload
  * stays bounded regardless of file size. Channels render it as a classic diff:
  * line numbers, +/- markers, green/red line backgrounds.
+ *
+ * `step-list` is an agent's own list of steps (Claude's tasks or TodoWrite,
+ * Codex's plan, OpenCode's todos) as it stands after a change: every step,
+ * not only the changed one, so the last list of a turn is the whole picture.
  */
 
 import { invariant } from './assert.js';
@@ -70,8 +74,23 @@ export interface QuestionAnswerDisplay {
   readonly questions: ReadonlyArray<AnsweredQuestion>;
 }
 
+export type StepStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+
+export interface ListedStep {
+  readonly text: string;
+  readonly status: StepStatus;
+}
+
+/** An agent's list of steps after a change to it. */
+export interface StepListDisplay {
+  readonly kind: 'step-list';
+  readonly steps: ReadonlyArray<ListedStep>;
+  /** Why the agent changed its plan, when it said so (Codex). */
+  readonly explanation?: string;
+}
+
 /** Extensible union of structured tool-result payloads. */
-export type ToolDisplay = FileDiffDisplay | QuestionAnswerDisplay;
+export type ToolDisplay = FileDiffDisplay | QuestionAnswerDisplay | StepListDisplay;
 
 /**
  * The shape a tool returns when it wants a rich, channel-rendered result.
@@ -92,7 +111,57 @@ export function isToolDisplayResult(x: unknown): x is ToolDisplayResult {
 }
 
 export function isToolDisplay(x: unknown): x is ToolDisplay {
-  return isFileDiffDisplay(x) || isQuestionAnswerDisplay(x);
+  return isFileDiffDisplay(x) || isQuestionAnswerDisplay(x) || isStepListDisplay(x);
+}
+
+export function isStepListDisplay(x: unknown): x is StepListDisplay {
+  if (typeof x !== 'object' || x === null) return false;
+  const d = x as { kind?: unknown; steps?: unknown };
+  if (d.kind !== 'step-list' || !Array.isArray(d.steps)) return false;
+  return d.steps.every((step: unknown) => {
+    if (typeof step !== 'object' || step === null) return false;
+    const item = step as { text?: unknown; status?: unknown };
+    return typeof item.text === 'string' && stepStatusOf(item.status) === item.status;
+  });
+}
+
+/** An agent's word for a step's state, as Moxxy's: `in_progress` and Codex's `inProgress` alike. */
+export function stepStatusOf(raw: unknown): StepStatus | undefined {
+  switch (raw) {
+    case 'pending':
+    case 'completed':
+    case 'cancelled':
+    case 'in_progress':
+      return raw;
+    case 'inProgress':
+      return 'in_progress';
+    default:
+      return undefined;
+  }
+}
+
+/** The steps of a TodoWrite-style list (`{ content, status }` items, as Claude and OpenCode write them). */
+export function stepsFromTodos(todos: unknown): ListedStep[] | undefined {
+  if (!Array.isArray(todos)) return undefined;
+  const steps = todos.flatMap((todo: unknown): ListedStep[] => {
+    if (typeof todo !== 'object' || todo === null) return [];
+    const item = todo as { content?: unknown; status?: unknown };
+    const status = stepStatusOf(item.status);
+    return typeof item.content === 'string' && item.content.trim() && status ? [{ text: item.content.trim(), status }] : [];
+  });
+  return steps;
+}
+
+/** A tool output whose result is the agent's list of steps as it now stands. */
+export function stepListOutput(forModel: string, steps: ReadonlyArray<ListedStep>, explanation?: string): ToolDisplayResult {
+  return { forModel, display: { kind: 'step-list', steps, ...(explanation ? { explanation } : {}) } };
+}
+
+/** How far a list is: steps done (completed or cancelled), all steps, and the one being worked on or next. */
+export function stepListProgress(d: StepListDisplay): { readonly done: number; readonly total: number; readonly current?: ListedStep } {
+  const done = d.steps.filter((step) => step.status === 'completed' || step.status === 'cancelled').length;
+  const current = d.steps.find((step) => step.status === 'in_progress') ?? d.steps.find((step) => step.status === 'pending');
+  return { done, total: d.steps.length, ...(current ? { current } : {}) };
 }
 
 export function isQuestionAnswerDisplay(x: unknown): x is QuestionAnswerDisplay {

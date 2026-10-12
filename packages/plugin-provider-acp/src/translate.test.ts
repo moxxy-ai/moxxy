@@ -107,3 +107,51 @@ describe("OpenCode's images", () => {
     expect(result).toMatchObject({ output: { base64: 'ONE', moreImages: [{ mediaType: 'image/png', base64: 'TWO' }] } });
   });
 });
+
+describe("OpenCode's todo list", () => {
+  it('shows the list OpenCode wrote as the result of its todowrite call', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    t.update({ sessionUpdate: 'tool_call', toolCallId: 'td1', title: 'todowrite', kind: 'other', status: 'pending', rawInput: {} });
+    const todos = [
+      { content: 'Create a.txt containing a', status: 'completed', priority: 'high' },
+      { content: 'Create b.txt containing b', status: 'in_progress', priority: 'high' },
+    ];
+    const shown = t.update({ sessionUpdate: 'tool_call_update', toolCallId: 'td1', status: 'in_progress', kind: 'other', title: 'todowrite', rawInput: { todos } });
+
+    const [result] = t.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'td1',
+      status: 'completed',
+      title: '1 todos',
+      content: [{ type: 'content', content: { type: 'text', text: JSON.stringify(todos, null, 2) } }],
+      rawOutput: { output: JSON.stringify(todos, null, 2), metadata: {} },
+    });
+
+    expect(shown).toEqual([{ type: 'tool_call', callId: 'td1', name: 'TodoWrite', input: { todos } }]);
+    expect(result).toMatchObject({
+      type: 'tool_result',
+      ok: true,
+      output: {
+        display: {
+          kind: 'step-list',
+          steps: [
+            { text: 'Create a.txt containing a', status: 'completed' },
+            { text: 'Create b.txt containing b', status: 'in_progress' },
+          ],
+        },
+      },
+    });
+  });
+
+  it("shows an ACP agent's plan as a call of its own", () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+
+    const events = t.update({ sessionUpdate: 'plan', entries: [{ content: 'Read the code', priority: 'high', status: 'pending' }] });
+
+    expect(events).toMatchObject([
+      { type: 'tool_call', name: 'update_plan' },
+      { type: 'tool_result', ok: true, output: { display: { kind: 'step-list', steps: [{ text: 'Read the code', status: 'pending' }] } } },
+    ]);
+    expect((events[0] as { callId: string }).callId).toBe((events[1] as { callId: string }).callId);
+  });
+});

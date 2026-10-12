@@ -13,7 +13,8 @@ export type Block =
   | SubagentBlock
   | SubagentGroupBlock
   | LiveToolBlockData
-  | CollaborationBlock;
+  | CollaborationBlock
+  | StepListBlock;
 
 /** One agent on a collaborative team (from collab_agent_* + roster events). */
 export interface CollabAgentView {
@@ -143,6 +144,20 @@ export interface ToolCallBlockData {
   readonly id: string;
   readonly request: ToolCallRequestedEvent;
   outcome: ToolResultEvent | { type: 'denied'; reason: string } | null;
+}
+
+/**
+ * An agent's list of steps for one turn: every call that changed it this turn
+ * (Claude's tasks, Codex's plan, OpenCode's todos), shown as one list where the
+ * first of them was. Each call's result carries the whole list, so the last
+ * one is the list as it stands.
+ */
+export interface StepListBlock {
+  kind: 'step-list';
+  readonly id: string;
+  readonly calls: ToolCallBlockData[];
+  /** Set once the turn ends: no later change can join the list. */
+  closed: boolean;
 }
 
 export interface SkillScopeBlock {

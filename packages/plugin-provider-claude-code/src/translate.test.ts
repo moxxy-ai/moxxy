@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { ClaudeMessage } from './sdk-types.js';
+import { ClaudeTaskList } from './task-list.js';
 import { TurnTranslator, autoApproveFor, goalStatusFrom, toClaudeContent, toTokenUsage } from './translate.js';
 
 const init = (permissionMode: string): ClaudeMessage =>
@@ -218,5 +219,91 @@ describe('the person message for Claude', () => {
 
   it('starts the agent own goal with `/goal` in front of the text', () => {
     expect(toClaudeContent([{ type: 'text', text: 'make goal.txt' }], '/goal ')).toEqual([{ type: 'text', text: '/goal make goal.txt' }]);
+  });
+});
+
+describe("Claude's list of steps", () => {
+  const call = (t: TurnTranslator, id: string, name: string, input: unknown) => t.translate(assistant([{ type: 'tool_use', id, name, input }]));
+  const finish = (t: TurnTranslator, id: string, text: string, result: unknown) => t.translate(withToolUseResult(toolResult(id, text), result));
+  const stepsOf = (events: ReturnType<TurnTranslator['translate']>) => (events[0] as { output: { display: { steps: unknown } } }).output.display.steps;
+
+  // As Claude Code 2.1.296 with claude-haiku-4-5 sent them, live.
+  it('follows the tasks Claude creates and updates one at a time, as a whole list after each call', () => {
+    const t = new TurnTranslator('/repo');
+    call(t, 'c1', 'TaskCreate', { subject: "Create a.txt containing 'a'", description: 'Write file a.txt' });
+    call(t, 'c2', 'TaskCreate', { subject: "Create b.txt containing 'b'", description: 'Write file b.txt' });
+    finish(t, 'c1', "Task #1 created successfully: Create a.txt containing 'a'", { task: { id: '1', subject: "Create a.txt containing 'a'" } });
+    const created = finish(t, 'c2', "Task #2 created successfully: Create b.txt containing 'b'", { task: { id: '2', subject: "Create b.txt containing 'b'" } });
+    call(t, 'u1', 'TaskUpdate', { taskId: '1', status: 'completed' });
+
+    const updated = finish(t, 'u1', 'Updated task #1 status', { success: true, taskId: '1', updatedFields: ['status'], statusChange: { from: 'pending', to: 'completed' } });
+
+    expect(stepsOf(created)).toEqual([
+      { text: "Create a.txt containing 'a'", status: 'pending' },
+      { text: "Create b.txt containing 'b'", status: 'pending' },
+    ]);
+    expect(updated).toEqual([
+      {
+        type: 'tool_result',
+        callId: 'u1',
+        ok: true,
+        output: {
+          forModel: 'Updated task #1 status',
+          display: {
+            kind: 'step-list',
+            steps: [
+              { text: "Create a.txt containing 'a'", status: 'completed' },
+              { text: "Create b.txt containing 'b'", status: 'pending' },
+            ],
+          },
+        },
+      },
+    ]);
+  });
+
+  it('keeps the list across turns, drops a deleted task, and takes TaskList as the whole list', () => {
+    const tasks = new ClaudeTaskList();
+    const first = new TurnTranslator('/repo', tasks);
+    call(first, 'c1', 'TaskCreate', { subject: 'One' });
+    finish(first, 'c1', 'Task #1 created', { task: { id: '1', subject: 'One' } });
+    call(first, 'c2', 'TaskCreate', { subject: 'Two' });
+    finish(first, 'c2', 'Task #2 created', { task: { id: '2', subject: 'Two' } });
+
+    const next = new TurnTranslator('/repo', tasks);
+    call(next, 'u2', 'TaskUpdate', { taskId: '2', status: 'deleted' });
+    expect(stepsOf(finish(next, 'u2', 'Updated task #2', { success: true, taskId: '2' }))).toEqual([{ text: 'One', status: 'pending' }]);
+    call(next, 'l1', 'TaskList', {});
+    const listed = finish(next, 'l1', '#1 [in_progress] One\n#3 [pending] Three', {
+      tasks: [
+        { id: '1', subject: 'One', status: 'in_progress' },
+        { id: '3', subject: 'Three', status: 'pending' },
+      ],
+    });
+    expect(stepsOf(listed)).toEqual([
+      { text: 'One', status: 'in_progress' },
+      { text: 'Three', status: 'pending' },
+    ]);
+  });
+
+  it('leaves the text of an update to a task it never saw created, as after Moxxy started a new Claude', () => {
+    const t = new TurnTranslator('/repo');
+    call(t, 'u9', 'TaskUpdate', { taskId: '9', status: 'completed' });
+
+    expect(finish(t, 'u9', 'Updated task #9 status', { success: true, taskId: '9' })).toEqual([{ type: 'tool_result', callId: 'u9', ok: true, output: 'Updated task #9 status' }]);
+  });
+
+  it('reads an older Claude TodoWrite list from what it wrote', () => {
+    const t = new TurnTranslator('/repo');
+    call(t, 'w1', 'TodoWrite', {
+      todos: [
+        { content: 'Create a.txt', status: 'completed', activeForm: 'Creating a.txt' },
+        { content: 'Create b.txt', status: 'in_progress', activeForm: 'Creating b.txt' },
+      ],
+    });
+
+    expect(stepsOf(finish(t, 'w1', 'Todos have been modified successfully.', { oldTodos: [], newTodos: [] }))).toEqual([
+      { text: 'Create a.txt', status: 'completed' },
+      { text: 'Create b.txt', status: 'in_progress' },
+    ]);
   });
 });

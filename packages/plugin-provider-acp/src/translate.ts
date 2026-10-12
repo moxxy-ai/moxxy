@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import type { AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage, ToolImage } from '@moxxy/sdk';
-import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, parseUnifiedDiff } from '@moxxy/sdk';
+import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, parseUnifiedDiff, stepListOutput, stepsFromTodos } from '@moxxy/sdk';
 import type { AcpContentBlock, AcpSessionUpdate, AcpToolCall, AcpToolKind, AcpUsage } from './protocol.js';
 
 /** A tool the agent runs itself, as Moxxy names it (`Bash`, `Read`, … so Moxxy's rules and formatting apply). */
@@ -28,6 +29,9 @@ export class AcpTurnTranslator {
   private readonly calls = new Map<string, CallState>();
   private text = '';
   private thought = '';
+  /** Plans the agent reported this prompt; each is shown as a call of its own. */
+  private plans = 0;
+  private readonly planPrefix = randomUUID().slice(0, 8);
 
   /** `cwd`: the project folder, which the paths of file diffs are shown relative to. */
   constructor(
@@ -55,6 +59,8 @@ export class AcpTurnTranslator {
         return this.toolCall(update as AcpToolCall, true);
       case 'tool_call_update':
         return this.toolCall(update as AcpToolCall, false);
+      case 'plan':
+        return this.plan(update.entries);
       default:
         return [];
     }
@@ -104,8 +110,14 @@ export class AcpTurnTranslator {
       state.ended = true;
       const output = toolOutput(update);
       const diff = update.status === 'completed' ? fileDiffOf(state.tool, state.input, update.rawOutput, this.cwd) : undefined;
-      const images = diff ? [] : toolImages(update);
-      const shown = diff ? { forModel: output, display: diff } : images.length > 0 ? imageToolOutput(output, images) : output;
+      // OpenCode writes its whole todo list each time; the list it wrote is the result shown.
+      const steps = update.status === 'completed' && state.tool === 'todowrite' ? stepsFromTodos(state.input.todos) : undefined;
+      const images = diff || steps ? [] : toolImages(update);
+      const shown =
+        steps ? stepListOutput(output, steps)
+        : diff ? { forModel: output, display: diff }
+        : images.length > 0 ? imageToolOutput(output, images)
+        : output;
       events.push(
         update.status === 'completed'
           ? { type: 'tool_result', callId: update.toolCallId, ok: true, output: shown }
@@ -113,6 +125,22 @@ export class AcpTurnTranslator {
       );
     }
     return events;
+  }
+
+  /** An ACP agent's plan (`entries` of `{ content, status }`), whole each time, shown as a call of its own. */
+  private plan(entries: unknown): AgentStepEvent[] {
+    const steps = stepsFromTodos(entries);
+    if (!steps) return [];
+    this.plans += 1;
+    // Unique in the conversation: a later prompt starts counting again.
+    const callId = `plan-${this.planPrefix}-${this.plans}`;
+    const forModel = steps.map((step) => `${step.status === 'completed' ? '[x]' : '[ ]'} ${step.text}`).join('\n');
+    return [
+      ...this.flushThought(),
+      ...this.flushText('tool_use'),
+      { type: 'tool_call', callId, name: 'update_plan', input: { entries } },
+      { type: 'tool_result', callId, ok: true, output: stepListOutput(forModel, steps) },
+    ];
   }
 
   private show(callId: string, state: CallState): AgentStepEvent[] {

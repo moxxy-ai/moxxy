@@ -1,5 +1,5 @@
 import type { AgentStepEvent, ContentBlock, FileDiffDisplay, QuestionAnswers, QuestionItem, TokenUsage, ToolImage } from '@moxxy/sdk';
-import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, parseUnifiedDiff } from '@moxxy/sdk';
+import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, parseUnifiedDiff, stepListOutput, stepStatusOf, type ListedStep } from '@moxxy/sdk';
 import { MOXXY_MCP_SERVER } from './constants.js';
 import {
   knownItem,
@@ -25,6 +25,8 @@ export interface CodexToolCall {
 export class TurnTranslator {
   private readonly announced = new Set<string>();
   private readonly calls = new Map<string, CodexToolCall>();
+  /** Plan updates shown this turn; each is a call of its own. */
+  private plans = 0;
   /** Questions Codex asked in its message (plan mode), answered once its turn ends. */
   questions: ReadonlyArray<CodexAsyncQuestion> = [];
 
@@ -67,6 +69,8 @@ export class TurnTranslator {
         const item = knownItem(p.item);
         return item ? this.completed(item) : [];
       }
+      case 'turn/plan/updated':
+        return this.planUpdated(p);
       case 'thread/tokenUsage/updated': {
         const last = (p.tokenUsage as { last?: CodexTokenUsage } | undefined)?.last;
         return last ? [{ type: 'usage', usage: toTokenUsage(last) }] : [];
@@ -74,6 +78,28 @@ export class TurnTranslator {
       default:
         return [];
     }
+  }
+
+  /**
+   * Codex's checklist (its `update_plan` tool) as it stands after a change.
+   * Codex reports it as a notification, not an item, so it is shown as a call
+   * of its own; the plan of plan mode is a `plan` item instead.
+   */
+  private planUpdated(p: Record<string, unknown>): AgentStepEvent[] {
+    if (!Array.isArray(p.plan)) return [];
+    const steps = p.plan.flatMap((item: unknown): ListedStep[] => {
+      const step = (item ?? {}) as { step?: unknown; status?: unknown };
+      const status = stepStatusOf(step.status);
+      return typeof step.step === 'string' && step.step.trim() && status ? [{ text: step.step.trim(), status }] : [];
+    });
+    const explanation = typeof p.explanation === 'string' && p.explanation.trim() ? p.explanation.trim() : undefined;
+    this.plans += 1;
+    const callId = `plan-${String(p.turnId ?? 'turn')}-${this.plans}`;
+    const forModel = steps.map((step) => `${step.status === 'completed' ? '[x]' : '[ ]'} ${step.text}`).join('\n');
+    return [
+      ...this.announce(callId, { name: 'update_plan', input: { plan: p.plan, ...(explanation ? { explanation } : {}) } }),
+      { type: 'tool_result', callId, ok: true, output: stepListOutput(forModel, steps, explanation) },
+    ];
   }
 
   private completed(item: CodexItem): AgentStepEvent[] {

@@ -74,6 +74,8 @@ export interface FakeCodexDefaults {
   readonly approvalsReviewer?: CodexApprovalsReviewer;
   /** `model_reasoning_summary` from the person's config; unset leaves the model's default. */
   readonly reasoningSummary?: string;
+  /** `tools.update_plan.enabled` from the person's config; unset leaves Codex's default (off). */
+  readonly planTool?: boolean;
   /** How many `thread/resume` calls fail first, as a Codex briefly unable to read its threads. */
   readonly resumeFailures?: number;
   /** Refuse `turn/steer`, as Codex does for a turn that cannot take more input. */
@@ -225,6 +227,7 @@ export class FakeCodexServer {
               approvals_reviewer: this.codex.defaults.approvalsReviewer ?? 'user',
               approval_policy: this.codex.defaults.approvalPolicy ?? 'never',
               sandbox_mode: modeOfSandbox(this.codex.defaults.sandbox ?? { type: 'dangerFullAccess' }),
+              tools: this.codex.defaults.planTool === undefined ? null : { update_plan: { enabled: this.codex.defaults.planTool } },
             },
           },
         };

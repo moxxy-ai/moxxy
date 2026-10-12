@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useActionCatalog, useChat } from '@moxxy/client-core';
+import { useTurnSteps } from './useTurnSteps';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
@@ -112,6 +113,7 @@ export function ChatSurface({
   workPanel,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
+  const turnSteps = useTurnSteps(chat.events, chat.activeTurnId !== null);
   const actionCatalog = useActionCatalog(workspaceId);
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
@@ -336,6 +338,7 @@ export function ChatSurface({
           sending={chat.sending}
           compacting={chat.compacting}
           activeTurnId={chat.activeTurnId}
+          turnSteps={turnSteps}
           workspaceId={workspaceId}
           onOpenVoiceCall={voiceCall.open}
           onSend={(p, atts) => void chat.send(p, atts)}

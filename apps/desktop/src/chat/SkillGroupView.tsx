@@ -41,7 +41,7 @@ function collectTools(children: ReadonlyArray<FoldedBlock>): ToolRowData[] {
         outcome: child.outcome,
         requestedAt: child.request.ts,
       });
-    } else if (child.kind === 'live-tools') {
+    } else if (child.kind === 'live-tools' || child.kind === 'step-list') {
       for (const call of child.calls) {
         out.push({
           id: call.id,

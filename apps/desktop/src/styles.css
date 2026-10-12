@@ -3110,6 +3110,94 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .mode-note[data-tone='warn'] .mode-note__dot { background: var(--color-amber); opacity: 1; }
 .mode-note[data-tone='good'] .mode-note__dot { background: var(--color-green); opacity: 1; }
 
+/* An agent's own list of steps for a turn: a quiet card, one line per step. */
+.step-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 100%;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-block);
+  background: var(--color-card-bg);
+}
+.step-list__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  font-size: var(--type-label);
+}
+.step-list__title { color: var(--color-text); font-weight: 600; }
+.step-list__count { color: var(--color-text-dim); }
+.step-list__why { margin: 0; font-size: var(--type-label); color: var(--color-text-muted); }
+.step-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  min-width: 0;
+  font-size: var(--type-row);
+  color: var(--color-text);
+}
+.step-list__text { min-width: 0; overflow-wrap: anywhere; }
+.step-list__mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid var(--color-text-dim);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.step-list__item[data-status='completed'] { color: var(--color-text-muted); }
+.step-list__item[data-status='completed'] .step-list__mark {
+  border-color: var(--color-green);
+  color: var(--color-green);
+}
+.step-list__item[data-status='in_progress'] .step-list__mark {
+  border-color: var(--color-primary);
+  background: radial-gradient(circle, var(--color-primary) 0 3px, transparent 3.5px);
+}
+.step-list__item[data-status='cancelled'] { color: var(--color-text-dim); }
+.step-list__item[data-status='cancelled'] .step-list__text { text-decoration: line-through; }
+
+/* Where the agent is in its list while the turn runs, just above the composer card. */
+.turn-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: 0 var(--space-4);
+}
+.turn-steps__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+  min-height: 18px;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+  text-align: left;
+}
+.turn-steps__count { flex: 0 0 auto; color: var(--color-text); }
+.turn-steps__current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turn-steps > .step-list__items { padding-left: var(--space-2); }
+
 /* The agents of a fan-out, one row each. */
 .agent-row { display: flex; flex-direction: column; min-width: 0; }
 .agent-row__head {

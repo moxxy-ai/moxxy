@@ -41,6 +41,8 @@ import { useAttachmentImagePreviews } from './image-preview/useAttachmentImagePr
 import type { ImagePreviewItem } from './image-preview/types';
 import { DEFAULT_MODE, modeMeta } from './modes/mode-meta';
 import { useActiveMode } from './modes/useActiveMode';
+import { TurnStepsBar } from './composer/TurnStepsBar';
+import type { StepListDisplay } from '@moxxy/sdk/tool-display';
 
 /** Past this height the composer textarea stops growing and scrolls
  *  internally (≈ 8 lines at the composer's font/line metrics). */
@@ -55,6 +57,8 @@ interface ComposerProps {
   /** Runner is compacting the context — lock the composer entirely. */
   readonly compacting: boolean;
   readonly activeTurnId: string | null;
+  /** The agent's list of steps in the running turn, said above the field. */
+  readonly turnSteps?: StepListDisplay | null;
   readonly workspaceId: string;
   /** While a voice conversation is open the rail owns the microphone, so the
    *  composer hides its dictation button and the menu entry that would start a
@@ -95,6 +99,7 @@ export function Composer({
   sending,
   compacting,
   activeTurnId,
+  turnSteps = null,
   workspaceId,
   voiceModeActive = false,
   onOpenVoiceCall,
@@ -329,6 +334,7 @@ export function Composer({
         send();
       }}
     >
+      {turnSteps ? <TurnStepsBar steps={turnSteps} /> : null}
       <div className="cmdbar__card">
         <ComposerStatus
           mode={mode}

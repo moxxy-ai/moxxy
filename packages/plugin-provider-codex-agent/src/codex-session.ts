@@ -343,8 +343,11 @@ export class CodexAgentSession implements LiveSession {
     });
     this.client.notify('initialized');
     const { cwd, resume } = this.settings;
-    const config = { mcp_servers: { [MOXXY_MCP_SERVER]: { url: this.mcp.url, http_headers: { Authorization: this.mcp.authorization } } } };
     const read = await this.client.request<CodexConfigRead>('config/read', { cwd }).catch(() => undefined);
+    const config = {
+      mcp_servers: { [MOXXY_MCP_SERVER]: { url: this.mcp.url, http_headers: { Authorization: this.mcp.authorization } } },
+      ...checklistFor(read),
+    };
     this.ownSummary = read ? (read.config.model_reasoning_summary ?? null) : undefined;
     // Codex lists Moxxy's tools when the thread opens and keeps that list for the thread.
     this.mcp.setHandler(idleToolsHandler(this.listed));
@@ -788,4 +791,15 @@ function messageOf(err: unknown): string {
 /** Codex's answer to resuming a thread it no longer has, or never could have. */
 function threadGone(error: unknown): boolean {
   return error instanceof JsonRpcError && /no rollout found|invalid session id/i.test(error.message);
+}
+
+/**
+ * Codex's checklist (`update_plan`) is off by default since 0.152; Moxxy turns it on for its
+ * own threads so the step list shows, unless the person chose either way in their config.
+ * A dotted key changes only that setting, never the rest of the person's `[tools]`.
+ */
+function checklistFor(read: CodexConfigRead | undefined): Record<string, boolean> {
+  const tools = read?.config.tools;
+  if (tools && typeof tools.update_plan?.enabled === 'boolean') return {};
+  return { 'tools.update_plan.enabled': true };
 }

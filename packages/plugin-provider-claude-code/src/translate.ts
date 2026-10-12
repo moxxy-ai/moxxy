@@ -1,6 +1,7 @@
 import type { AgentGoalStatus, AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage } from '@moxxy/sdk';
-import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, type ToolImage } from '@moxxy/sdk';
+import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, stepListOutput, type ToolImage } from '@moxxy/sdk';
 import type { ClaudeContentBlock, ClaudeMessage, ClaudePermissionMode, ClaudeUsage, ClaudeUserContent } from './sdk-types.js';
+import { ClaudeTaskList } from './task-list.js';
 
 /** The name Moxxy's MCP server has in Claude; its tools appear as `mcp__moxxy__<name>`. */
 export const MOXXY_MCP_SERVER = 'moxxy';
@@ -13,16 +14,22 @@ export const MOXXY_TOOL_PREFIX = `mcp__${MOXXY_MCP_SERVER}__`;
  * of a call that was already shown because Claude asked to approve it.
  */
 export class TurnTranslator {
-  private readonly announced = new Set<string>();
+  private readonly announced = new Map<string, { readonly name: string; readonly input: unknown }>();
   private readonly moxxyCalls = new Set<string>();
 
-  /** `cwd`: the project folder, which the paths of file diffs are shown relative to. */
-  constructor(private readonly cwd = '') {}
+  /**
+   * `cwd`: the project folder, which the paths of file diffs are shown relative to.
+   * `tasks`: Claude's task list, which outlives a turn.
+   */
+  constructor(
+    private readonly cwd = '',
+    private readonly tasks = new ClaudeTaskList(),
+  ) {}
 
   /** Show a call before Moxxy decides on it, unless it is already shown. */
   announce(callId: string, name: string, input: unknown): AgentStepEvent[] {
     if (this.announced.has(callId) || name.startsWith(MOXXY_TOOL_PREFIX)) return [];
-    this.announced.add(callId);
+    this.announced.set(callId, { name, input });
     return [{ type: 'tool_call', callId, name, input }];
   }
 
@@ -70,14 +77,20 @@ export class TurnTranslator {
     const diff = results.length === 1 ? this.fileDiffOf(message.tool_use_result) : undefined;
     const events: AgentStepEvent[] = [];
     for (const block of results) {
-      if (this.moxxyCalls.has(block.tool_use_id) || !this.announced.has(block.tool_use_id)) continue;
+      const call = this.announced.get(block.tool_use_id);
+      if (this.moxxyCalls.has(block.tool_use_id) || !call) continue;
       const text = resultText(block.content);
       if (block.is_error) {
         events.push({ type: 'tool_result', callId: block.tool_use_id, ok: false, error: text });
         continue;
       }
-      const images = diff ? [] : resultImages(block.content);
-      const output = diff ? { forModel: text, display: diff } : images.length > 0 ? imageToolOutput(text, images) : text;
+      const steps = this.tasks.apply(call.name, call.input, results.length === 1 ? message.tool_use_result : undefined);
+      const images = diff || steps ? [] : resultImages(block.content);
+      const output =
+        steps ? stepListOutput(text, steps)
+        : diff ? { forModel: text, display: diff }
+        : images.length > 0 ? imageToolOutput(text, images)
+        : text;
       events.push({ type: 'tool_result', callId: block.tool_use_id, ok: true, output });
     }
     return events;
