@@ -69,6 +69,11 @@ export function toolsLentToClaude(tools: ReadonlyArray<ToolDef>): ToolDef[] {
 }
 
 /** The permission mode a new Claude starts in; `undefined` keeps the mode from the person's Claude settings. */
+/** Modes in which Claude acts without asking the person: `auto` lets its own classifier decide. */
+function runsWithoutAsking(mode: ClaudePermissionMode | undefined): boolean {
+  return mode === 'bypassPermissions' || mode === 'auto';
+}
+
 export function startingPermissionMode(mode: AgentMode, autoApprove: boolean): ClaudePermissionMode | undefined {
   if (mode === 'plan') return 'plan';
   if (mode === 'goal' || autoApprove) return 'bypassPermissions';
@@ -119,6 +124,8 @@ export class ClaudeAgentSession implements LiveSession {
   /** A turn ended before Claude's `result` (its reader stopped early); the next turn waits it out. */
   private owesResult = false;
   private permissionMode: ClaudePermissionMode | undefined;
+  /** The conversation's auto-approve as this turn knows it: as it began, then as Claude's mode changed it. */
+  private switchedOn = false;
   private model: string;
   private goalActive = false;
   private stderr = '';
@@ -188,6 +195,7 @@ export class ClaudeAgentSession implements LiveSession {
   async *turn(req: AgentStepRequest): AsyncGenerator<AgentStepEvent> {
     const mode = agentModeFor(req.mode);
     this.inTurn = true;
+    this.switchedOn = req.autoApprove;
     const interrupt = () => void this.query.interrupt().catch(() => undefined);
     req.signal.addEventListener('abort', interrupt, { once: true });
     const all = toolsLentToClaude(req.allTools ?? req.tools);
@@ -225,11 +233,25 @@ export class ClaudeAgentSession implements LiveSession {
             yield* resultEvents(item.message, req.signal.aborted);
             break;
           }
-          if (isInit(item.message)) this.permissionMode = item.message.permissionMode ?? this.permissionMode;
-          else if (isModeChange(item.message)) this.permissionMode = item.message.permissionMode;
+          const reported = isInit(item.message) || isModeChange(item.message) ? item.message.permissionMode : undefined;
+          // Only the person lets Claude act without asking: a mode that does, set outside Moxxy while auto-approve is off, is set back.
+          // A mode not known yet is the person's own Claude setup, shown as it is.
+          const was = this.permissionMode;
+          const restore = reported !== undefined && was !== undefined && mode !== 'goal' && !this.switchedOn && runsWithoutAsking(reported) && !runsWithoutAsking(was);
+          if (restore) {
+            await this.setPermissionMode(was);
+            yield { type: 'auto_approve_restored' };
+          } else if (reported !== undefined) {
+            this.permissionMode = reported;
+          }
           for (const event of translator.translate(item.message)) {
-            // In goal mode Claude runs bypassPermissions for the goal, not because the person chose auto-approve.
-            if (event.type === 'auto_approve' && mode === 'goal') continue;
+            if (event.type === 'auto_approve') {
+              // In goal mode Claude runs bypassPermissions for the goal, not because the person chose auto-approve.
+              if (mode === 'goal' || restore) continue;
+              this.switchedOn = event.enabled;
+              yield isModeChange(item.message) ? { ...event, elsewhere: true } : event;
+              continue;
+            }
             yield event;
           }
           continue;
@@ -296,7 +318,7 @@ export class ClaudeAgentSession implements LiveSession {
     );
     if (!decision.allow) return { behavior: 'deny', message: decision.reason };
     // An approved plan runs at once; with auto-approve on, without asking again.
-    if (plan !== undefined && req.autoApprove) void this.setPermissionMode('bypassPermissions');
+    if (plan !== undefined && this.switchedOn) void this.setPermissionMode('bypassPermissions');
     return { behavior: 'allow', updatedInput: item.input };
   }
 
@@ -333,8 +355,9 @@ export class ClaudeAgentSession implements LiveSession {
   }
 
   private async setPermissionMode(mode: ClaudePermissionMode): Promise<void> {
-    await this.query.setPermissionMode(mode);
+    // Known before Claude reports it back, so the report is not taken for a change made elsewhere.
     this.permissionMode = mode;
+    await this.query.setPermissionMode(mode);
   }
 
   /** After a goal turn: ask `/goal` once whether the goal is still open. Its answer is not shown. */

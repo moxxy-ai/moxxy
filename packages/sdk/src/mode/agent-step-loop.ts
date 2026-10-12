@@ -1,5 +1,5 @@
 import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, agentSessionFromEvents } from '../agent-step.js';
-import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents } from '../auto-approve.js';
+import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_RESTORED_SUBTYPE, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents } from '../auto-approve.js';
 import { renderEarlierConversation } from '../conversation-history.js';
 import { computeElisionState } from '../elision-state.js';
 import type { MoxxyEvent, UserPromptEvent } from '../events.js';
@@ -305,9 +305,19 @@ async function runRound(
               source: 'system',
               pluginId: AUTO_APPROVE_PLUGIN_ID,
               subtype: AUTO_APPROVE_SUBTYPE,
-              payload: { enabled: event.enabled },
+              payload: { enabled: event.enabled, ...(event.elsewhere ? { elsewhere: true } : {}) },
             });
           }
+          break;
+        case 'auto_approve_restored':
+          await emit({
+            ...base,
+            type: 'plugin_event',
+            source: 'system',
+            pluginId: AUTO_APPROVE_PLUGIN_ID,
+            subtype: AUTO_APPROVE_RESTORED_SUBTYPE,
+            payload: { provider: ctx.provider.name },
+          });
           break;
         case 'goal':
           goal = event.status;

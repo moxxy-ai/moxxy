@@ -226,11 +226,54 @@ describe('approvals', () => {
     await collectTurn(session, 'second');
 
     claude.last.changeModeElsewhere('default');
-    await collectTurn(session, 'third');
+    const events = await collectTurn(session, 'third');
 
     expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(false);
     expect(claude.last.modeChanges).toEqual(['bypassPermissions']);
     expect(claude.last.permissionMode).toBe('default');
+    expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'auto_approve', payload: { enabled: false, elsewhere: true } }));
+  });
+
+  it('sets Claude back to asking when its mode is switched to bypass permissions outside Moxxy between turns', async () => {
+    const { claude, session } = connect(async function* () {
+      yield assistantText('ok');
+    });
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'first');
+
+    claude.last.changeModeElsewhere('bypassPermissions');
+    const events = await collectTurn(session, 'second');
+
+    expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(false);
+    expect(claude.last.modeChanges).toEqual(['default']);
+    expect(claude.last.permissionMode).toBe('default');
+    expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'auto_approve_restored' }));
+  });
+
+  it('sets Claude back at once when its mode is loosened outside Moxxy in the middle of a turn', async () => {
+    const { claude, session } = connect(async function* (turn) {
+      if (turn.text === 'second') turn.query.changeModeElsewhere('auto');
+      yield assistantText('ok');
+    });
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'first');
+
+    await collectTurn(session, 'second');
+
+    expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(false);
+    expect(claude.last.permissionMode).toBe('default');
+  });
+
+  it("shows the person's own Claude setup as it is when it starts in bypass permissions", async () => {
+    const scene: ClaudeScene = async function* () {
+      yield assistantText('ok');
+    };
+    const { session } = connect(scene, { claude: new FakeClaude(scene, 'bypassPermissions') });
+    session.setPermissionResolver(allowAll);
+
+    await collectTurn(session, 'first');
+
+    expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(true);
   });
 
   it('keeps the auto-approve the person chose when a new Claude resumes the session', async () => {

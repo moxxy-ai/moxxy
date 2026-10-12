@@ -122,6 +122,17 @@ describe('readModeEvents — a step in between', () => {
     expect(read.notes.get(done.id)).toEqual({ text: 'Research complete. 4 findings over 2 rounds, 1 failed.', tone: 'good' });
   });
 
+  it("notes an agent's approvals changed outside Moxxy, and a change Moxxy set back, but not the person's own switch", () => {
+    const AUTO_APPROVE = '@moxxy/auto-approve';
+    const own = plugin('t1', AUTO_APPROVE, 'auto_approve', { enabled: true });
+    const elsewhere = plugin('t1', AUTO_APPROVE, 'auto_approve', { enabled: false, elsewhere: true });
+    const restored = plugin('t1', AUTO_APPROVE, 'auto_approve_restored', { provider: 'codex-agent' });
+    const read = readModeEvents([own, elsewhere, restored]);
+    expect(read.notes.has(own.id)).toBe(false);
+    expect(read.notes.get(elsewhere.id)).toEqual({ text: 'Auto-approve is off: the agent was set to ask before it acts, outside Moxxy.', tone: 'info' });
+    expect(read.notes.get(restored.id)).toMatchObject({ tone: 'warn', text: expect.stringContaining('only you can turn on auto-approve') });
+  });
+
   it('keeps quiet about bookkeeping', () => {
     const read = readModeEvents([
       ev('mode_iteration', 't1', { strategy: 'research', iteration: 0, routing: 'unresolved', source: 'system' }),

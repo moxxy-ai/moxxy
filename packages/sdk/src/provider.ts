@@ -490,8 +490,16 @@ export type AgentStepEvent =
   | { readonly type: 'tool_result'; readonly callId: string; readonly ok: boolean; readonly output?: unknown; readonly error?: string }
   /** The agent's own session id, kept to resume it. */
   | { readonly type: 'session'; readonly sessionId: string }
-  /** The agent's real approval policy; it becomes the conversation's auto-approve. */
-  | { readonly type: 'auto_approve'; readonly enabled: boolean }
+  /**
+   * The agent's real approval policy; it becomes the conversation's auto-approve.
+   * `elsewhere` when it changed without Moxxy (a hook, another client, the agent itself).
+   */
+  | { readonly type: 'auto_approve'; readonly enabled: boolean; readonly elsewhere?: true }
+  /**
+   * Something outside Moxxy let the agent act without asking while auto-approve
+   * was off, and the connection set it back: only the person turns auto-approve on.
+   */
+  | { readonly type: 'auto_approve_restored' }
   /** The state of the agent's own goal after its turn: still open, or met. */
   | { readonly type: 'goal'; readonly status: AgentGoalStatus }
   /** The agent's own finished plan (Markdown), waiting for the person to carry it out. */

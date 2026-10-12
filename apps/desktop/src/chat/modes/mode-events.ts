@@ -61,9 +61,11 @@ const PLAN = '@moxxy/mode-plan';
 const GOAL = '@moxxy/mode-goal';
 const RESEARCH = '@moxxy/mode-deep-research';
 const SUBAGENTS = '@moxxy/subagents';
+/** An agent connection reports auto-approve changed or set back outside Moxxy under the switch's own plugin id. */
+const AUTO_APPROVE = '@moxxy/auto-approve';
 
 /** The plugins whose events this module reads. */
-export const MODE_PLUGIN_IDS: ReadonlyArray<string> = [PLAN, GOAL, RESEARCH];
+export const MODE_PLUGIN_IDS: ReadonlyArray<string> = [PLAN, GOAL, RESEARCH, AUTO_APPROVE];
 
 const MODE_LABEL: Record<string, string> = { default: 'Default', goal: 'Goal' };
 
@@ -132,6 +134,19 @@ function outcomeFor(event: PluginEvent): ModeOutcome | null {
 
 function noteFor(event: PluginEvent): ModeNote | null {
   const payload = record(event.payload);
+  if (event.pluginId === AUTO_APPROVE) {
+    // Only a change made outside Moxxy is said; the person's own switch shows in the composer.
+    if (event.subtype === 'auto_approve' && payload.elsewhere === true && payload.enabled === false) {
+      return { text: 'Auto-approve is off: the agent was set to ask before it acts, outside Moxxy.', tone: 'info' };
+    }
+    if (event.subtype === 'auto_approve_restored') {
+      return {
+        text: 'Something outside Moxxy let the agent act without asking. Moxxy set it back to asking: only you can turn on auto-approve.',
+        tone: 'warn',
+      };
+    }
+    return null;
+  }
   if (event.pluginId === GOAL) {
     if (event.subtype === 'goal_started') {
       return { text: 'Goal run started. Tool calls are approved automatically.', tone: 'info' };

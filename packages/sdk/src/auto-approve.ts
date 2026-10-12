@@ -9,6 +9,11 @@ import { asPluginId } from './ids.js';
  */
 export const AUTO_APPROVE_PLUGIN_ID = asPluginId('@moxxy/auto-approve');
 export const AUTO_APPROVE_SUBTYPE = 'auto_approve';
+/**
+ * An agent connection undid a change made outside Moxxy that let the agent act
+ * without asking: a note for the person, not a switch (the state stays as it was).
+ */
+export const AUTO_APPROVE_RESTORED_SUBTYPE = 'auto_approve_restored';
 
 /** The on/off an event records, or null when it isn't an auto-approve switch. */
 export function autoApproveSwitch(event: MoxxyEvent): boolean | null {

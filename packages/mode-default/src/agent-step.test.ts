@@ -12,6 +12,7 @@ import {
   AGENT_CONNECTION_PLUGIN_ID,
   AGENT_GOAL_SUBTYPE,
   AGENT_SESSION_SUBTYPE,
+  AUTO_APPROVE_PLUGIN_ID,
   autoApproveFromEvents,
   defineMode,
   definePlugin,
@@ -227,6 +228,26 @@ describe('an agent connection turn', () => {
     expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(true);
     await collectTurn(session, 'second');
     expect(provider.steps[1]?.autoApprove).toBe(true);
+  });
+
+  it('records why auto-approve changed outside Moxxy, and a change Moxxy set back, for the conversation to say so', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'auto_approve', enabled: true };
+      yield { type: 'auto_approve', enabled: false, elsewhere: true };
+      yield { type: 'auto_approve_restored' };
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'first');
+
+    const notes = session.log.ofType('plugin_event').filter((e) => e.pluginId === AUTO_APPROVE_PLUGIN_ID);
+    expect(notes.map((e) => [e.subtype, e.payload])).toEqual([
+      ['auto_approve', { enabled: true }],
+      ['auto_approve', { enabled: false, elsewhere: true }],
+      ['auto_approve_restored', { provider: provider.name }],
+    ]);
+    expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(false);
   });
 
   it('adds no end-of-turn reminder after a turn that ended on a failed step: the agent decides when it is done', async () => {

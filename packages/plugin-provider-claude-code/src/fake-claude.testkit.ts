@@ -44,7 +44,11 @@ export class FakeClaude implements ClaudeAgentSdk {
   /** The sessions Claude keeps on disk, as `getSessionInfo` finds them. */
   readonly saved = new Set<string>();
   private sessions = 0;
-  constructor(private readonly scene: ClaudeScene) {}
+  /** `ownMode`: the mode the person's own Claude settings start in when Moxxy names none. */
+  constructor(
+    private readonly scene: ClaudeScene,
+    private readonly ownMode: ClaudePermissionMode = 'default',
+  ) {}
 
   async getSessionInfo(sessionId: string): Promise<{ sessionId: string } | undefined> {
     return this.saved.has(sessionId) ? { sessionId } : undefined;
@@ -54,7 +58,7 @@ export class FakeClaude implements ClaudeAgentSdk {
     this.sessions += 1;
     const sessionId = params.options.resume ?? `claude-session-${this.sessions}`;
     this.saved.add(sessionId);
-    const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene);
+    const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene, this.ownMode);
     this.queries.push(query);
     return query;
   }
@@ -86,8 +90,9 @@ export class FakeQuery implements ClaudeQuery {
     readonly options: ClaudeQueryOptions,
     readonly sessionId: string,
     private readonly scene: ClaudeScene,
+    ownMode: ClaudePermissionMode = 'default',
   ) {
-    this.permissionMode = options.permissionMode ?? 'default';
+    this.permissionMode = options.permissionMode ?? ownMode;
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<ClaudeMessage> {

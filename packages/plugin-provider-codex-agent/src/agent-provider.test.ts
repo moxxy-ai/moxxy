@@ -351,7 +351,7 @@ describe('approvals: one state with Codex own policy', () => {
     expect(codex.last.thread).toMatchObject(ASKING);
   });
 
-  it('follows a change of the thread approvals in the middle of a turn', async () => {
+  it('follows a change of the thread approvals in the middle of a turn, and says it came from outside Moxxy', async () => {
     const { codex, session } = connect(async (turn) => {
       if (turn.text === 'two') turn.server.changeSettingsElsewhere(ASKING);
       turn.say('ok');
@@ -360,9 +360,77 @@ describe('approvals: one state with Codex own policy', () => {
 
     const events = await collectTurn(session, 'two');
 
-    expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', payload: expect.objectContaining({ enabled: false }) }));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'auto_approve', payload: { enabled: false, elsewhere: true } }));
     expect(autoApproveOf(session)).toBe(false);
     expect(codex.last.thread).toMatchObject(ASKING);
+  });
+
+  it('keeps a tighter way of asking set outside Moxxy rather than loosen it back on the next turn', async () => {
+    const UNTRUSTED = { approvalPolicy: 'untrusted', sandbox: { type: 'readOnly', networkAccess: false } } as const;
+    const { codex, session } = connect(async (turn) => turn.say('ok'));
+    await collectTurn(session, 'one');
+
+    codex.last.changeSettingsElsewhere(UNTRUSTED);
+    await collectTurn(session, 'two');
+    await collectTurn(session, 'three');
+
+    expect(autoApproveOf(session)).toBe(false);
+    expect(codex.last.thread).toMatchObject(UNTRUSTED);
+  });
+
+  it('sets the thread back to asking when something outside Moxxy lets Codex run without asking between turns', async () => {
+    const { codex, session } = connect(async (turn) => turn.say('ok'));
+    await collectTurn(session, 'one');
+    await session.setAutoApprove(false);
+    await collectTurn(session, 'two');
+
+    codex.last.changeSettingsElsewhere({ approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } });
+    const events = await collectTurn(session, 'three');
+
+    expect(autoApproveOf(session)).toBe(false);
+    expect(codex.last.thread).toMatchObject(ASKING);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'auto_approve_restored' }));
+  });
+
+  it('sets the thread back to asking at once when it is loosened outside Moxxy in the middle of a turn', async () => {
+    const { codex, session } = connect(async (turn) => {
+      if (turn.text === 'three') turn.server.changeSettingsElsewhere({ approvalPolicy: 'never', sandbox: { type: 'workspaceWrite', writableRoots: [], networkAccess: false } });
+      turn.say('ok');
+    });
+    await collectTurn(session, 'one');
+    await session.setAutoApprove(false);
+    await collectTurn(session, 'two');
+
+    const events = await collectTurn(session, 'three');
+
+    expect(autoApproveOf(session)).toBe(false);
+    expect(codex.last.thread).toMatchObject(ASKING);
+    expect(events.filter((e) => e.type === 'plugin_event' && e.subtype === 'auto_approve_restored')).toHaveLength(1);
+  });
+
+  it("gives the person's answers back when Codex's own reviewer is put in their place outside Moxxy", async () => {
+    const { codex, session } = connect(async (turn) => turn.say('ok'));
+    await collectTurn(session, 'one');
+    await session.setAutoApprove(false);
+    await collectTurn(session, 'two');
+
+    codex.last.changeSettingsElsewhere({ approvalsReviewer: 'auto_review' });
+    await collectTurn(session, 'three');
+
+    expect(codex.last.thread).toMatchObject({ ...ASKING, approvalsReviewer: 'user' });
+  });
+
+  it('keeps plan mode read-only when something outside Moxxy gives Codex full access during it', async () => {
+    const { codex, session } = connect(async (turn) => {
+      turn.server.changeSettingsElsewhere({ approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } });
+      turn.say('plan');
+    });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive('plan');
+
+    await collectTurn(session, 'plan it');
+
+    expect(codex.last.thread).toMatchObject({ approvalPolicy: 'never', sandbox: { type: 'readOnly' } });
   });
 
   it("does not take Moxxy's own changes, nor plan mode's read-only, for a change of auto-approve", async () => {

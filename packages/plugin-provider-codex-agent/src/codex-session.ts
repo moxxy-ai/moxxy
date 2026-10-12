@@ -97,6 +97,29 @@ export function isAuto(policy: Policy): boolean {
   return policy.approvalPolicy === 'never' && policy.sandbox.type === 'dangerFullAccess';
 }
 
+/** How much each approval policy asks; a granular one is ranked only against itself. */
+const APPROVAL_RANK: Record<string, number> = { never: 0, 'on-request': 1, untrusted: 2 };
+/** How much each sandbox holds back; an external one is ranked only against itself. */
+const SANDBOX_RANK: Record<string, number> = { dangerFullAccess: 0, workspaceWrite: 1, readOnly: 2 };
+
+/**
+ * Whether `now` holds Codex back at least as much as `was` did: it asks at
+ * least as often, in a sandbox at least as tight, and still asks the person
+ * where they were asked. Anything not plainly so counts as looser.
+ */
+function holdsBackAsMuch(now: Policy & { readonly reviewer: CodexApprovalsReviewer }, was: Policy & { readonly reviewer: CodexApprovalsReviewer }): boolean {
+  const atLeast = (a: number | undefined, b: number | undefined, same: boolean) => same || (a !== undefined && b !== undefined && a > b);
+  const approvals = atLeast(rankOf(APPROVAL_RANK, now.approvalPolicy), rankOf(APPROVAL_RANK, was.approvalPolicy), same(now.approvalPolicy, was.approvalPolicy));
+  const sandbox = atLeast(SANDBOX_RANK[now.sandbox.type], SANDBOX_RANK[was.sandbox.type], same(now.sandbox, was.sandbox));
+  // Under `never` nobody is asked, so who would answer does not count.
+  const person = now.approvalPolicy === 'never' || was.approvalPolicy === 'never' || now.reviewer === 'user' || was.reviewer !== 'user';
+  return approvals && sandbox && person;
+}
+
+function rankOf(ranks: Record<string, number>, policy: CodexApprovalPolicy): number | undefined {
+  return typeof policy === 'string' ? ranks[policy] : undefined;
+}
+
 /** The sandbox a config's `sandbox_mode` gives a thread. */
 function sandboxOf(mode: SandboxMode, workspace: CodexConfigRead['config']['sandbox_workspace_write']): CodexSandboxPolicy {
   if (mode === 'danger-full-access') return { type: 'dangerFullAccess' };
@@ -184,8 +207,16 @@ export class CodexAgentSession implements LiveSession {
   /** The thread is new while the conversation may already have run: its first message carries the conversation so far. */
   private newThread: NewSessionReason | undefined;
   private goal: CodexGoal | undefined;
-  /** Auto-approve as the thread's approvals changed without Moxxy, waiting for a turn to show it. */
-  private changedElsewhere: boolean | undefined;
+  /**
+   * How Codex asks while auto-approve is off: ASKING on a Codex set up to run
+   * without asking, else the person's own setup, or tighter if something
+   * outside Moxxy tightened it since (Moxxy never loosens that back by itself).
+   */
+  private asking: Policy = ASKING;
+  /** Something outside Moxxy made Codex ask while auto-approve was on; the switch shows it on the next turn. */
+  private turnedOffElsewhere = false;
+  /** Moxxy set back a change made outside it between turns; the next turn says so. */
+  private restoredElsewhere = false;
   /** Codex turns that belong to the Moxxy turn running now. */
   private readonly myTurns = new Set<string>();
   /** The Moxxy tools Codex listed as the thread opened, the same for every turn. */
@@ -268,10 +299,14 @@ export class CodexAgentSession implements LiveSession {
         yield { type: 'auto_approve', enabled: isAuto(this.original) };
         if (!autoApprove) autoApprove = isAuto(this.original);
       }
-      if (this.changedElsewhere !== undefined && mode !== 'goal' && mode !== 'plan') {
-        yield { type: 'auto_approve', enabled: this.changedElsewhere };
-        autoApprove = this.changedElsewhere;
-        this.changedElsewhere = undefined;
+      if (this.turnedOffElsewhere && mode !== 'goal' && mode !== 'plan') {
+        yield { type: 'auto_approve', enabled: false, elsewhere: true };
+        autoApprove = false;
+        this.turnedOffElsewhere = false;
+      }
+      if (this.restoredElsewhere) {
+        yield { type: 'auto_approve_restored' };
+        this.restoredElsewhere = false;
       }
       await this.apply(this.wanted(req, mode, autoApprove));
       if (this.newThread) {
@@ -344,6 +379,7 @@ export class CodexAgentSession implements LiveSession {
     };
     this.originalTier = thread.serviceTier && thread.serviceTier !== STANDARD_TIER ? thread.serviceTier : null;
     this.originalReviewer = (own && own.approvals_reviewer) ?? thread.approvalsReviewer ?? 'user';
+    this.asking = isAuto(this.original) ? ASKING : this.original;
     this.current = {
       ...running,
       model: thread.model,
@@ -362,8 +398,7 @@ export class CodexAgentSession implements LiveSession {
     const policy =
       mode === 'plan' ? PLANNING
       : mode === 'goal' || autoApprove ? (ownAuto ? this.original : AUTO)
-      : ownAuto ? ASKING
-      : this.original;
+      : this.asking;
     return {
       ...policy,
       model: req.model || this.current.model,
@@ -448,13 +483,19 @@ export class CodexAgentSession implements LiveSession {
       }
       const params = (item.params ?? {}) as Record<string, unknown>;
       this.noteGoal(item.method, params);
-      const shown = this.noteSettings(item.method, params);
-      if (shown !== undefined) {
+      const change = this.noteSettings(item.method, params);
+      if (change === 'turned-off') {
         // Goal and plan mode run Codex their own way; the switch shows the change on the next turn outside them.
-        if (mode === 'goal' || mode === 'plan') this.changedElsewhere = shown;
-        else yield { type: 'auto_approve', enabled: shown };
+        if (mode === 'goal' || mode === 'plan') this.turnedOffElsewhere = true;
+        else yield { type: 'auto_approve', enabled: false, elsewhere: true };
         continue;
       }
+      if (change === 'loosened') {
+        await this.restore();
+        yield { type: 'auto_approve_restored' };
+        continue;
+      }
+      if (change) continue;
       if (item.method === 'turn/started') {
         const turn = params.turn as CodexTurn | undefined;
         if (!turn) continue;
@@ -620,24 +661,40 @@ export class CodexAgentSession implements LiveSession {
       return;
     }
     this.noteGoal(method, params);
-    const shown = this.noteSettings(method, params);
-    if (shown !== undefined) this.changedElsewhere = shown;
+    const change = this.noteSettings(method, params);
+    if (change === 'turned-off') this.turnedOffElsewhere = true;
+    if (change === 'loosened') {
+      this.restoredElsewhere = true;
+      void this.restore().catch(() => undefined);
+    }
   }
 
   /**
-   * The auto-approve the thread's approvals now give when they changed without
-   * Moxxy (another client, a hook), else undefined. Codex reports Moxxy's own
-   * changes too; those match what Moxxy set and are passed over.
+   * A change of the thread's approvals made without Moxxy (another client, a
+   * hook): only the person loosens them. A change that holds Codex back at
+   * least as much is `kept` (`turned-off` when auto-approve was on), a looser
+   * one is `loosened` and set back. Codex reports Moxxy's own changes too; those
+   * match what Moxxy set and are passed over.
    */
-  private noteSettings(method: string, params: unknown): boolean | undefined {
+  private noteSettings(method: string, params: unknown): 'turned-off' | 'kept' | 'loosened' | undefined {
     if (method !== 'thread/settings/updated') return undefined;
     const update = params as { threadId?: unknown; threadSettings?: CodexThreadSettingsReport } | undefined;
     if (!update || update.threadId !== this.threadId || !update.threadSettings) return undefined;
     const settings = update.threadSettings;
-    const running: Policy = { approvalPolicy: settings.approvalPolicy, sandbox: settings.sandboxPolicy };
-    if (same(running.approvalPolicy, this.current.approvalPolicy) && same(running.sandbox, this.current.sandbox)) return undefined;
-    this.current = { ...this.current, ...running, reviewer: settings.approvalsReviewer };
-    return isAuto(running);
+    const now = { approvalPolicy: settings.approvalPolicy, sandbox: settings.sandboxPolicy, reviewer: settings.approvalsReviewer };
+    const was = this.current;
+    if (same(now.approvalPolicy, was.approvalPolicy) && same(now.sandbox, was.sandbox) && now.reviewer === was.reviewer) return undefined;
+    if (!holdsBackAsMuch(now, was)) return 'loosened';
+    this.current = { ...was, ...now };
+    if (isAuto(now)) return 'kept';
+    this.asking = { approvalPolicy: now.approvalPolicy, sandbox: now.sandbox };
+    return isAuto(was) ? 'turned-off' : 'kept';
+  }
+
+  /** Put the thread's approvals back as Moxxy last set them. */
+  private async restore(): Promise<void> {
+    const { approvalPolicy, sandbox, reviewer } = this.current;
+    await this.client.request('thread/settings/update', { threadId: this.threadId, approvalPolicy, sandboxPolicy: sandbox, approvalsReviewer: reviewer });
   }
 
   /** Keep the goal's state, whether or not a turn is reading. */

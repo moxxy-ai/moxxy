@@ -151,10 +151,15 @@ export class FakeCodexServer {
   }
 
   /** The thread's approvals change without Moxxy asking (another client, a hook); Codex reports it as it does any change. */
-  changeSettingsElsewhere(changes: { readonly approvalPolicy?: CodexApprovalPolicy; readonly sandbox?: CodexSandboxPolicy }): void {
+  changeSettingsElsewhere(changes: {
+    readonly approvalPolicy?: CodexApprovalPolicy;
+    readonly sandbox?: CodexSandboxPolicy;
+    readonly approvalsReviewer?: CodexApprovalsReviewer;
+  }): void {
     const thread = this.thread;
     if (changes.approvalPolicy) thread.approvalPolicy = changes.approvalPolicy;
     if (changes.sandbox) thread.sandbox = changes.sandbox;
+    if (changes.approvalsReviewer) thread.approvalsReviewer = changes.approvalsReviewer;
     this.notify('thread/settings/updated', { threadId: thread.id, threadSettings: threadSettingsOf(thread) });
   }
 
