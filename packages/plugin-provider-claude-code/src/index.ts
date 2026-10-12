@@ -1,5 +1,5 @@
 import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
-import { CLAUDE_CODE_PROVIDER_ID, CLAUDE_CODE_SERVICE_NAME } from './constants.js';
+import { CLAUDE_AGENT_NAME, CLAUDE_CODE_PROVIDER_ID, CLAUDE_CODE_SERVICE_NAME } from './constants.js';
 import {
   claudeCodeModels,
   claudeSessions,
@@ -18,7 +18,7 @@ import { ensureClaudeAgentSdk } from './sdk-install.js';
 
 export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
-  agentName: 'Claude',
+  agentName: CLAUDE_AGENT_NAME,
   models: claudeCodeModels,
   createClient: (config) => createClaudeCodeClient(providerConfigFrom(config)),
   async resolveCredentials({ providerConfig, host }) {

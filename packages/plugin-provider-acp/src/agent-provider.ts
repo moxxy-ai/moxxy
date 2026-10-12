@@ -71,6 +71,7 @@ export function acpSessions(): AgentSessionPool<AcpAgentSession> {
  */
 export class AcpAgentProvider implements LLMProvider {
   readonly name: string;
+  readonly agentName: string;
   readonly models: ModelDescriptor[];
   /** No plan hand-off and no goal of its own: Moxxy's plan and goal modes steer it. */
   readonly agentOwns = { plan: false, goal: false } as const;
@@ -82,6 +83,7 @@ export class AcpAgentProvider implements LLMProvider {
   constructor(private readonly config: AcpAgentProviderConfig = {}) {
     this.agent = config.agent ?? OPENCODE_AGENT;
     this.name = this.agent.providerId;
+    this.agentName = this.agent.label;
     this.defaultModel = config.model ?? config.defaultModel ?? this.agent.defaultModel;
     const ids = config.models && config.models.length > 0 ? config.models : [this.defaultModel];
     this.models = [...new Set([this.defaultModel, ...ids])].map(acpModel);

@@ -70,3 +70,27 @@ describe('formatUserPromptRows', () => {
     expect(rows.every((row) => row.length === 24)).toBe(true);
   });
 });
+
+describe("EventLine for an agent's account limit", () => {
+  const limit = (state: 'reached' | 'near') =>
+    ({
+      id: asEventId('e3'),
+      seq: 30,
+      ts: 1,
+      type: 'plugin_event',
+      sessionId: asSessionId('s1'),
+      turnId: asTurnId('t3'),
+      source: 'system',
+      pluginId: '@moxxy/agent-connection' as never,
+      subtype: 'account_limit',
+      payload: { provider: 'claude-code', agent: 'Claude', limit: { state } },
+    }) satisfies MoxxyEvent;
+
+  it('says where the turn stopped that the limit is used up', () => {
+    expect(JSON.stringify(EventLine({ event: limit('reached') }))).toContain("Claude's usage limit is used up");
+  });
+
+  it('leaves a limit with room left to the line above the prompt', () => {
+    expect(EventLine({ event: limit('near') })).toBeNull();
+  });
+});

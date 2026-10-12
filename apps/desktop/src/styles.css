@@ -3200,6 +3200,14 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .turn-steps > .step-list__items { padding-left: var(--space-2); }
 
+/* The agent's account limit above the message box: amber while nearly used up, red once it is. */
+.account-limit {
+  padding: 0 var(--space-4);
+  color: var(--color-amber-text);
+  font-size: var(--type-label);
+}
+.account-limit[data-state='reached'] { color: var(--color-red-text); }
+
 /* The agents of a fan-out, one row each. */
 .agent-row { display: flex; flex-direction: column; min-width: 0; }
 .agent-row__head {

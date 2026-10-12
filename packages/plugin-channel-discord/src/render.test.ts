@@ -27,6 +27,12 @@ describe('DiscordTurnRenderer', () => {
     expect(r.snapshot()).toContain('denied: denied by user');
   });
 
+  it("says the agent's limit is used up and when it resets, as the desktop does", () => {
+    const r = new DiscordTurnRenderer();
+    r.accept(ev({ type: 'plugin_event', pluginId: '@moxxy/agent-connection', subtype: 'account_limit', payload: { provider: 'codex-agent', agent: 'Codex', limit: { state: 'reached', windowMinutes: 300 } } }));
+    expect(r.snapshot()).toContain("⛔ **Codex's 5-hour limit is used up**");
+  });
+
   it('surfaces error events', () => {
     const r = new DiscordTurnRenderer();
     r.accept(ev({ type: 'error', kind: 'provider', message: 'boom' }));

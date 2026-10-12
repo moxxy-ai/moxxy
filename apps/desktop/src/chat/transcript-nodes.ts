@@ -1,6 +1,7 @@
 import type { RenderNode } from '@moxxy/client-core';
 import type { ToolCallBlockData } from '@moxxy/chat-model';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
 import { MODE_SIGNAL_TOOLS } from './modes/mode-events';
 
 const VISIBLE_EVENT_TYPES: ReadonlySet<MoxxyEvent['type']> = new Set([
@@ -35,6 +36,12 @@ export function visibleTranscriptNodes(
     if (node.block.kind === 'tool-call') return !isQuietSignal(node.block);
     if (node.block.kind !== 'event') return true;
     const event = node.block.event;
-    return VISIBLE_EVENT_TYPES.has(event.type) || (event.type === 'plugin_event' && notes.has(event.id));
+    return VISIBLE_EVENT_TYPES.has(event.type) || (event.type === 'plugin_event' && (notes.has(event.id) || isUsedUpLimit(event)));
   });
+}
+
+/** An agent's used-up account limit is said where the turn stopped; one with room left is the bar's. */
+function isUsedUpLimit(event: MoxxyEvent): boolean {
+  const limit = accountLimitOfEvent(event);
+  return limit !== undefined && limit.limit.state === 'reached';
 }

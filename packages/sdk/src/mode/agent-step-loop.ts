@@ -1,3 +1,4 @@
+import { AGENT_ACCOUNT_LIMIT_SUBTYPE, recordedAccountLimit, sameAccountLimit } from '../agent-account-limit.js';
 import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from '../agent-step.js';
 import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_RESTORED_SUBTYPE, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents } from '../auto-approve.js';
 import { renderEarlierConversation } from '../conversation-history.js';
@@ -97,7 +98,8 @@ export async function* runAgentStepLoop(ctx: ModeContext, opts: ReactLoopOptions
       return;
     }
     if (round.error) {
-      yield await emitError(ctx, 'fatal', `${opts.errorPrefix ?? ''}${round.error}`);
+      // A reached account limit is already recorded and says why the agent stopped.
+      if (!round.limitReached) yield await emitError(ctx, 'fatal', `${opts.errorPrefix ?? ''}${round.error}`);
       return;
     }
 
@@ -181,6 +183,8 @@ interface Round {
   readonly endsTurn?: string;
   readonly goal?: AgentGoalStatus;
   readonly plan?: string;
+  /** The agent reported its account limit reached: the turn ends on that, not on the error it came with. */
+  readonly limitReached?: true;
 }
 
 async function runRound(
@@ -227,6 +231,8 @@ async function runRound(
   let sessionId = resumeSessionId;
   let goal: AgentGoalStatus | undefined;
   let plan: string | undefined;
+  let limit = recordedAccountLimit(ctx.log.ofType('plugin_event'), ctx.provider.name)?.limit;
+  let limitReached = false;
   /** The agent's own subagents started in this step, to name them in their later events (one started in an earlier turn goes unnamed). */
   const subagents = new Map<string, { readonly label: string; readonly agentType: string }>();
   let ranTools = false;
@@ -339,6 +345,19 @@ async function runRound(
         case 'plan':
           plan = event.text;
           break;
+        case 'account_limit':
+          if (event.limit.state === 'reached') limitReached = true;
+          if (sameAccountLimit(limit, event.limit)) break;
+          limit = event.limit;
+          await emit({
+            ...base,
+            type: 'plugin_event',
+            source: 'system',
+            pluginId: AGENT_CONNECTION_PLUGIN_ID,
+            subtype: AGENT_ACCOUNT_LIMIT_SUBTYPE,
+            payload: { provider: ctx.provider.name, ...(ctx.provider.agentName ? { agent: ctx.provider.agentName } : {}), limit: event.limit },
+          });
+          break;
         case 'subagent_started':
           subagents.set(event.id, { label: event.label, agentType: event.agentType });
           await emit({
@@ -432,6 +451,7 @@ async function runRound(
     ...(endsTurn !== undefined ? { endsTurn } : {}),
     ...(goal ? { goal } : {}),
     ...(plan !== undefined ? { plan } : {}),
+    ...(limitReached ? { limitReached: true as const } : {}),
   };
 }
 

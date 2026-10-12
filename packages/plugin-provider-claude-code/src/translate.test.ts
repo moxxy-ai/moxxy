@@ -390,3 +390,38 @@ describe("Claude's list of steps", () => {
     ]);
   });
 });
+
+describe("Claude's account limit", () => {
+  /** As Claude Code 2.1.296 sent it on a Pro plan with 92% of the week used. */
+  const rateLimit = (info: Record<string, unknown>): ClaudeMessage => ({ type: 'rate_limit_event', rate_limit_info: info, session_id: 's-1' }) as unknown as ClaudeMessage;
+  const week = { rateLimitType: 'seven_day', resetsAt: 1792216800, utilization: 0.92, overageStatus: 'rejected', isUsingOverage: false };
+
+  it('reads how much of the window is used and when it resets', () => {
+    const t = new TurnTranslator();
+    expect(t.translate(rateLimit({ status: 'allowed_warning', ...week }))).toEqual([
+      { type: 'account_limit', limit: { state: 'near', resetsAt: 1792216800_000, windowMinutes: 10080, usedPercent: 92 } },
+    ]);
+    expect(t.translate(rateLimit({ status: 'allowed', rateLimitType: 'five_hour', resetsAt: 1791822600, utilization: 0.4 }))).toEqual([
+      { type: 'account_limit', limit: { state: 'ok', resetsAt: 1791822600_000, windowMinutes: 300, usedPercent: 40 } },
+    ]);
+  });
+
+  it('counts a used-up window as reached unless Claude goes on with extra usage', () => {
+    expect(new TurnTranslator().translate(rateLimit({ status: 'rejected', ...week, utilization: 1 }))).toEqual([
+      { type: 'account_limit', limit: { state: 'reached', resetsAt: 1792216800_000, windowMinutes: 10080, usedPercent: 100 } },
+    ]);
+    const extra = new TurnTranslator().translate(rateLimit({ status: 'rejected', ...week, utilization: 1, overageStatus: 'allowed', isUsingOverage: true }));
+    expect(extra).toEqual([{ type: 'account_limit', limit: expect.objectContaining({ state: 'near' }) }]);
+  });
+
+  it("shows Claude's own limit message as the reached limit, with the reset Claude reported, not as its answer", () => {
+    const t = new TurnTranslator();
+    t.translate(rateLimit({ status: 'rejected', ...week, utilization: 1 }));
+    const limitMessage = { ...(assistant([{ type: 'text', text: "You've hit your limit · resets Oct 18, 6pm" }], null, '<synthetic>') as object), error: 'rate_limit' } as unknown as ClaudeMessage;
+
+    expect(t.translate(limitMessage)).toEqual([
+      { type: 'account_limit', limit: { state: 'reached', resetsAt: 1792216800_000, windowMinutes: 10080, usedPercent: 100 } },
+    ]);
+    expect(new TurnTranslator().translate(limitMessage)).toEqual([{ type: 'account_limit', limit: { state: 'reached' } }]);
+  });
+});

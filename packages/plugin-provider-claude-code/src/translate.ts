@@ -1,6 +1,7 @@
-import type { AgentGoalStatus, AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage } from '@moxxy/sdk';
+import type { AgentAccountLimit, AgentGoalStatus, AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage } from '@moxxy/sdk';
 import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, stepListOutput, type ToolImage } from '@moxxy/sdk';
 import type { ClaudeContentBlock, ClaudeMessage, ClaudePermissionMode, ClaudeUsage, ClaudeUserContent } from './sdk-types.js';
+import { accountLimitFrom } from './account-limit.js';
 import { ClaudeSubagents } from './subagents.js';
 import { ClaudeTaskList } from './task-list.js';
 
@@ -16,6 +17,8 @@ export const MOXXY_TOOL_PREFIX = `mcp__${MOXXY_MCP_SERVER}__`;
 export class TurnTranslator {
   private readonly announced = new Map<string, { readonly name: string; readonly input: unknown }>();
   private readonly moxxyCalls = new Set<string>();
+  /** The plan limit Claude last reported, whose reset its own limit message leaves out. */
+  private limit: AgentAccountLimit | undefined;
 
   /**
    * `cwd`: the project folder, which the paths of file diffs are shown relative to.
@@ -48,12 +51,21 @@ export class TurnTranslator {
       case 'stream_event':
         return isMainThread(message) ? fromDelta(message) : [];
       case 'assistant':
+        if (message.error === 'rate_limit' && isMainThread(message)) return [this.limitReached()];
         return isMainThread(message) ? this.fromAssistant(message) : this.fromSubagent(message);
+      case 'rate_limit_event':
+        this.limit = accountLimitFrom(message.rate_limit_info);
+        return [{ type: 'account_limit', limit: this.limit }];
       case 'user':
         return this.fromToolResults(message);
       default:
         return [];
     }
+  }
+
+  /** Claude Code's own "You've hit your limit" message: the limit is reached, whatever Claude last reported. */
+  private limitReached(): AgentStepEvent {
+    return { type: 'account_limit', limit: this.limit ? { ...this.limit, state: 'reached' } : { state: 'reached' } };
   }
 
   private fromInit(message: { session_id: string; permissionMode?: ClaudePermissionMode }): AgentStepEvent[] {

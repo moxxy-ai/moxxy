@@ -58,6 +58,17 @@ export interface ClaudeUsage {
   readonly cache_creation_input_tokens?: number;
 }
 
+/** The plan limit Claude reports for a claude.ai sign-in (absent on an API key). `resetsAt` is in epoch seconds. */
+export interface ClaudeRateLimitInfo {
+  readonly status: 'allowed' | 'allowed_warning' | 'rejected';
+  readonly resetsAt?: number;
+  readonly rateLimitType?: string;
+  /** 0–1. */
+  readonly utilization?: number;
+  readonly overageStatus?: 'allowed' | 'allowed_warning' | 'rejected';
+  readonly isUsingOverage?: boolean;
+}
+
 /** Claude's messages Moxxy reads; others (status, hooks, task notes) arrive too and are passed over. */
 export type ClaudeMessage =
   | {
@@ -73,7 +84,10 @@ export type ClaudeMessage =
       readonly message: { readonly model?: string; readonly content: ReadonlyArray<ClaudeContentBlock> };
       readonly parent_tool_use_id: string | null;
       readonly session_id?: string;
+      /** Set on a message Claude Code wrote itself about a failed request (`rate_limit` when the plan's limit is used up). */
+      readonly error?: string;
     }
+  | { readonly type: 'rate_limit_event'; readonly rate_limit_info: ClaudeRateLimitInfo; readonly session_id?: string }
   | {
       readonly type: 'user';
       readonly message: { readonly content: string | ReadonlyArray<ClaudeContentBlock> };

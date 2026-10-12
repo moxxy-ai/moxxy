@@ -15,6 +15,7 @@ import {
   imagesLine,
   stepListHeading,
   unifiedDiffText,
+  usedUpLimitText,
 } from '@moxxy/channel-kit';
 
 /**
@@ -123,13 +124,17 @@ export class DiscordTurnRenderer {
       case 'skill_invoked':
         this.notices.push(`💡 skill: **${event.name}**`);
         break;
-      case 'plugin_event':
+      case 'plugin_event': {
         if (event.pluginId === '@moxxy/subagents' && event.subtype === 'subagent_started') {
           const payload = (event.payload ?? {}) as Record<string, unknown>;
           const label = typeof payload.label === 'string' ? payload.label : 'agent';
           this.notices.push(`🤖 spawned agent **${label}**`);
         }
+        // The agent's used-up account limit ends the turn in place of an error.
+        const limit = usedUpLimitText(event);
+        if (limit) this.errorLine = `⛔ **${limit}**`;
         break;
+      }
       case 'error':
         this.errorLine = `❗ **${event.kind}**: ${event.message}`;
         break;

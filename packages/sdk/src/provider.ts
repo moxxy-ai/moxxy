@@ -2,6 +2,7 @@ import type { HostedTool, ToolDef } from './tool.js';
 import type { ReasoningReplayItem } from './events.js';
 import type { StopReason } from './provider-utils.js';
 import type { QuestionItem, QuestionOutcome } from './question.js';
+import type { AgentAccountLimit } from './agent-account-limit.js';
 
 export interface ProviderMessage {
   readonly role: 'system' | 'user' | 'assistant' | 'tool_result';
@@ -175,6 +176,8 @@ export interface ModelDescriptor {
 export interface LLMProvider {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"), the same as its `ProviderDef.agentName`. */
+  readonly agentName?: string;
   /**
    * Optional provider-owned metadata preparation for a dynamically selected
    * model. The runtime awaits it before it calculates context budgets, so a
@@ -536,5 +539,7 @@ export type AgentStepEvent =
   | { readonly type: 'subagent_started'; readonly id: string; readonly label: string; readonly agentType: string; readonly prompt?: string; readonly toolsUnseen?: true }
   | { readonly type: 'subagent_tool_call'; readonly id: string; readonly name: string; readonly input: unknown }
   | { readonly type: 'subagent_completed'; readonly id: string; readonly text: string; readonly tokensUsed?: number; readonly error?: string }
+  /** How much of the person's account the agent may still use; a reached limit ends the turn without a raw error. */
+  | { readonly type: 'account_limit'; readonly limit: AgentAccountLimit }
   | { readonly type: 'usage'; readonly usage: TokenUsage }
   | { readonly type: 'error'; readonly message: string; readonly retryable: boolean };

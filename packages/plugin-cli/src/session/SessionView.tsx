@@ -9,7 +9,8 @@ import {
 import { ChatView } from '../components/ChatView.js';
 import { StatusLine } from '../components/StatusLine.js';
 import { AgentComputerLine } from '../components/AgentComputerLine.js';
-import { turnComputerUse } from '@moxxy/chat-model';
+import { AccountLimitLine } from '../components/AccountLimitLine.js';
+import { conversationAccountLimit, turnComputerUse } from '@moxxy/chat-model';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
@@ -217,6 +218,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const sessionInfo = session.getInfo();
   const agentName = sessionInfo.providers.find((p) => p.name === sessionInfo.activeProvider)?.agentName;
   const agentComputer = turn.busy ? turnComputerUse(stream.events) : null;
+  const nowMs = Date.now();
+  const accountLimit = conversationAccountLimit(stream.events, sessionInfo.activeProvider, nowMs);
   const slashSuggestions = React.useMemo(
     () =>
       buildSlashSuggestions(session, {
@@ -473,6 +476,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         {...(getChannels ? { getChannels } : {})}
         onClose={() => setOverlay(null)}
       />
+      {accountLimit ? <AccountLimitLine limit={accountLimit} nowMs={nowMs} /> : null}
       {agentComputer ? <AgentComputerLine use={agentComputer} agentName={agentName} /> : null}
       <InteractiveZone
         session={session}

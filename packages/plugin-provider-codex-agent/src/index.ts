@@ -1,12 +1,12 @@
 import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
-import { CODEX_AGENT_PROVIDER_ID, CODEX_SERVICE_NAME } from './constants.js';
+import { CODEX_AGENT_NAME, CODEX_AGENT_PROVIDER_ID, CODEX_SERVICE_NAME } from './constants.js';
 import { codexAgentModels, codexSessions, createCodexAgentClient, type CodexAgentProviderConfig } from './agent-provider.js';
 import { codexTarget } from './executable.js';
 import { authError, checkCodexAuth, codexLogin, codexLogout, codexStatus, resolveCodexExecutable } from './login.js';
 
 export const codexAgentProviderDef = defineProvider({
   name: CODEX_AGENT_PROVIDER_ID,
-  agentName: 'Codex',
+  agentName: CODEX_AGENT_NAME,
   models: codexAgentModels,
   createClient: (config) => createCodexAgentClient(providerConfigFrom(config)),
   async resolveCredentials({ providerConfig, host }) {

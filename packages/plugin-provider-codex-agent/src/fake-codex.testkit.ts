@@ -42,7 +42,8 @@ export interface FakeCodexTurn {
   steered(): Promise<string>;
 }
 
-export type CodexScene = (turn: FakeCodexTurn) => Promise<void | { readonly status: 'failed'; readonly error: string }>;
+/** A scene's failed turn; `errorInfo` is Codex's code for it (`usageLimitExceeded`). */
+export type CodexScene = (turn: FakeCodexTurn) => Promise<void | { readonly status: 'failed'; readonly error: string; readonly errorInfo?: string }>;
 
 export interface FakeThread {
   readonly id: string;
@@ -351,7 +352,8 @@ export class FakeCodexServer {
     this.active = undefined;
     if (this.closed) return;
     const status = stop.signal.aborted ? 'interrupted' : outcome && outcome !== 'stopped' ? outcome.status : 'completed';
-    const error = outcome && outcome !== 'stopped' ? { message: outcome.error } : null;
+    const error =
+      outcome && outcome !== 'stopped' ? { message: outcome.error, codexErrorInfo: outcome.errorInfo ?? null, additionalDetails: null } : null;
     this.notify('turn/completed', { threadId: thread.id, turn: { id, items: [], status, error } });
     // A goal still open keeps going on its own, as Codex's goal runtime does.
     if (status === 'completed' && thread.goal?.status === 'active') {

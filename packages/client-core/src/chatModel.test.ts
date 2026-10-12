@@ -402,6 +402,13 @@ describe('isRenderedEvent plugin registry seam', () => {
     expect(isRenderedEvent(pluginEvent('@moxxy/something-else'))).toBe(false);
   });
 
+  it("keeps an agent's account limit in the chat, and none of the connection's other bookkeeping", () => {
+    const connection = (subtype: string): MoxxyEvent =>
+      evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype, payload: { provider: 'claude-code', limit: { state: 'near' } } });
+    expect(isRenderedEvent(connection('account_limit'))).toBe(true);
+    expect(isRenderedEvent(connection('agent_session'))).toBe(false);
+  });
+
   it('registerRenderablePlugin opts a plugin in without editing the core module', () => {
     const id = '@moxxy/plugin-author-test';
     expect(isRenderedEvent(pluginEvent(id))).toBe(false);

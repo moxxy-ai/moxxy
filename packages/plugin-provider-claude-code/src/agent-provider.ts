@@ -10,7 +10,7 @@ import {
   type TokenUsage,
 } from '@moxxy/sdk';
 import { AgentSessionPool, agentModeFor, transcript, type AgentSessionLease } from '@moxxy/agent-connection-kit';
-import { CLAUDE_CODE_PROVIDER_ID } from './constants.js';
+import { CLAUDE_AGENT_NAME, CLAUDE_CODE_PROVIDER_ID } from './constants.js';
 import { ClaudeAgentSession, claudeEnv, startingPermissionMode, type ClaudeSessionSettings } from './agent-session.js';
 import { ensureClaudeAgentSdk } from './sdk-install.js';
 import type { ClaudeAgentSdk, ClaudeEffort } from './sdk-types.js';
@@ -68,6 +68,7 @@ export function claudeSessions(): AgentSessionPool<ClaudeAgentSession> {
  */
 export class ClaudeAgentProvider implements LLMProvider {
   readonly name = CLAUDE_CODE_PROVIDER_ID;
+  readonly agentName = CLAUDE_AGENT_NAME;
   /** Its own plan mode and goal: Moxxy shows the plan and ends the goal when the agent says so. */
   readonly agentOwns = { plan: true, goal: true } as const;
   readonly models = claudeCodeModels;

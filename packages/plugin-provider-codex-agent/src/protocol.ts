@@ -79,7 +79,22 @@ export type CodexTurnStatus = 'completed' | 'interrupted' | 'failed' | 'inProgre
 export interface CodexTurn {
   readonly id: string;
   readonly status: CodexTurnStatus;
-  readonly error?: { readonly message: string } | null;
+  /** `codexErrorInfo` is Codex's code for the failure: a string (`usageLimitExceeded`) or an object for some. */
+  readonly error?: { readonly message: string; readonly codexErrorInfo?: unknown } | null;
+}
+
+/** `resetsAt` is in epoch seconds. */
+export interface CodexRateLimitWindow {
+  readonly usedPercent: number;
+  readonly windowDurationMins: number | null;
+  readonly resetsAt: number | null;
+}
+
+/** `account/rateLimits/updated`: a sparse update, where a missing window keeps the one seen before. */
+export interface CodexRateLimitSnapshot {
+  readonly primary?: CodexRateLimitWindow | null;
+  readonly secondary?: CodexRateLimitWindow | null;
+  readonly rateLimitReachedType?: string | null;
 }
 
 export type CodexGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete';

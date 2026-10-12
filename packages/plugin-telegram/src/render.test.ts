@@ -151,6 +151,23 @@ describe('TurnRenderer', () => {
     expect(frame.diffHtml).not.toContain('<Foo');
   });
 
+  it("says in the footer that the agent's limit is used up and when it resets, as the desktop does", () => {
+    const r = new TurnRenderer();
+    const out = r.accept(
+      baseEvent(
+        {
+          type: 'plugin_event',
+          source: 'system',
+          pluginId: asPluginId('@moxxy/agent-connection'),
+          subtype: 'account_limit',
+          payload: { provider: 'codex-agent', agent: 'Codex', limit: { state: 'reached', windowMinutes: 10080 } },
+        },
+        0,
+      ),
+    );
+    expect(out.errorHtml).toBe("⛔ <b>Codex's weekly limit is used up</b>");
+  });
+
   it('appends an error footer when an error event arrives', () => {
     const r = new TurnRenderer();
     const out = r.accept(baseEvent({ type: 'error', kind: 'fatal', message: 'boom', source: 'system' }, 0));

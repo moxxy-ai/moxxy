@@ -1,4 +1,6 @@
+import { accountLimitText } from '@moxxy/chat-model';
 import {
+  accountLimitOfEvent,
   agentComputerUseOf,
   isStepListDisplay,
   isToolDisplayResult,
@@ -122,4 +124,10 @@ export function unifiedDiffText(d: FileDiffDisplay): string {
       ].join('\n'),
     )
     .join('\n\n');
+}
+
+/** "Codex's weekly limit is used up · resets at 18:00" for an event recording a used-up account limit, else undefined. */
+export function usedUpLimitText(event: MoxxyEvent): string | undefined {
+  const limit = accountLimitOfEvent(event);
+  return limit && limit.limit.state === 'reached' ? accountLimitText(limit, event.ts ?? Date.now()) : undefined;
 }

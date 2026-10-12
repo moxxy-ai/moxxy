@@ -67,3 +67,29 @@ describe('EventBlockView — ambient trigger marker', () => {
     expect(screen.queryByTestId('block-trigger')).toBeNull();
   });
 });
+
+describe("EventBlockView — an agent's account limit", () => {
+  const limitEvent = (limit: Record<string, unknown>): MoxxyEvent =>
+    ({
+      type: 'plugin_event',
+      id: 'e2' as MoxxyEvent['id'],
+      seq: 2,
+      ts: new Date(2026, 9, 12, 14, 0).getTime(),
+      sessionId: 's1' as MoxxyEvent['sessionId'],
+      turnId: 't1' as MoxxyEvent['turnId'],
+      source: 'system',
+      pluginId: '@moxxy/agent-connection',
+      subtype: 'account_limit',
+      payload: { provider: 'claude-code', agent: 'Claude', limit },
+    }) as unknown as MoxxyEvent;
+
+  it('says in the conversation that the limit is used up and when it resets, in place of the raw error', () => {
+    render(<EventBlockView event={limitEvent({ state: 'reached', windowMinutes: 300, resetsAt: new Date(2026, 9, 12, 18, 0).getTime() })} />);
+    expect(screen.getByRole('alert').textContent).toBe("Claude's 5-hour limit is used up · resets at 18:00");
+  });
+
+  it('leaves a limit with room left to the bar above the message box', () => {
+    const { container } = render(<EventBlockView event={limitEvent({ state: 'near', usedPercent: 92 })} />);
+    expect(container.textContent).toBe('');
+  });
+});

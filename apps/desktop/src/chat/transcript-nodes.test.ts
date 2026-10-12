@@ -36,4 +36,12 @@ describe('visibleTranscriptNodes', () => {
     }))
       .toEqual(['event-1', 'event-3']);
   });
+
+  it("keeps the line of an agent's used-up account limit, and none for a limit with room left", () => {
+    const limit = (state: string, sequence: number) =>
+      event('plugin_event', { pluginId: '@moxxy/agent-connection', subtype: 'account_limit', payload: { provider: 'claude-code', limit: { state } } }, sequence);
+    const nodes = buildRenderNodes([limit('near', 1), limit('reached', 2)], []);
+
+    expect(visibleTranscriptNodes(nodes).map((node) => (node.kind === 'block' ? node.block.id : node.kind))).toEqual(['event-2']);
+  });
 });

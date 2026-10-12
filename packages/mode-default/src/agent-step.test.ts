@@ -9,6 +9,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
+  AGENT_ACCOUNT_LIMIT_SUBTYPE,
   AGENT_CONNECTION_PLUGIN_ID,
   AGENT_GOAL_SUBTYPE,
   AGENT_SESSION_SUBTYPE,
@@ -340,6 +341,45 @@ describe('an agent connection turn', () => {
     const events = await collectTurn(session, 'hi');
 
     expect(events).toContainEqual(expect.objectContaining({ type: 'error', kind: 'fatal', message: 'claude exited with code 1' }));
+  });
+});
+
+describe("the agent's account limit", () => {
+  const limitsIn = (events: ReadonlyArray<MoxxyEvent>) =>
+    events.filter((e) => e.type === 'plugin_event' && e.subtype === AGENT_ACCOUNT_LIMIT_SUBTYPE).map((e) => (e as { payload: unknown }).payload);
+
+  it('records the limit the agent reports, again only when it reads differently', async () => {
+    let used = 91.2;
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'account_limit', limit: { state: 'near', usedPercent: used, windowMinutes: 10080, resetsAt: 9_000_000 } };
+      yield { type: 'message', text: 'Hi.' };
+    });
+    const session = sessionWith(provider);
+
+    const first = await collectTurn(session, 'hi');
+    used = 91.6;
+    const same = await collectTurn(session, 'hi again');
+    used = 93;
+    const more = await collectTurn(session, 'and again');
+
+    expect(limitsIn(first)).toEqual([
+      { provider: 'fake-agent', limit: { state: 'near', usedPercent: 91.2, windowMinutes: 10080, resetsAt: 9_000_000 } },
+    ]);
+    expect(limitsIn(same)).toEqual([]);
+    expect(limitsIn(more)).toHaveLength(1);
+  });
+
+  it('ends the turn on a reached limit with the limit alone, not the raw error the agent gave with it', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'account_limit', limit: { state: 'reached', windowMinutes: 300, resetsAt: 9_000_000 } };
+      yield { type: 'error', message: "Claude Code: You've hit your limit · resets 6pm", retryable: false };
+    });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'hi');
+
+    expect(limitsIn(events)).toEqual([{ provider: 'fake-agent', limit: { state: 'reached', windowMinutes: 300, resetsAt: 9_000_000 } }]);
+    expect(types(events)).not.toContain('error');
   });
 });
 

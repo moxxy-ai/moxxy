@@ -339,3 +339,24 @@ describe('an agent helper that outlives its turn', () => {
     });
   });
 });
+
+describe("an agent's account limit", () => {
+  const limit = (id: string, state: string) => ({
+    id,
+    type: 'plugin_event',
+    pluginId: '@moxxy/agent-connection',
+    subtype: 'account_limit',
+    ts: new Date(2026, 9, 12, 14, 0).getTime(),
+    payload: { provider: 'codex-agent', agent: 'Codex', limit: { state, windowMinutes: 300, resetsAt: new Date(2026, 9, 12, 18, 0).getTime() } },
+  });
+
+  it('says where the turn stopped that the limit is used up and when it resets, as the desktop does', () => {
+    expect(buildChatTranscript([limit('l1', 'reached')])).toEqual([
+      { id: 'l1', kind: 'error', label: 'Limit', text: "Codex's 5-hour limit is used up · resets at 18:00" },
+    ]);
+  });
+
+  it('shows nothing in the conversation for a limit with room left', () => {
+    expect(buildChatTranscript([limit('l2', 'near')])).toEqual([]);
+  });
+});

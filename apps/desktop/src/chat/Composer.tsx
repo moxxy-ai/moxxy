@@ -42,6 +42,8 @@ import type { ImagePreviewItem } from './image-preview/types';
 import { DEFAULT_MODE, modeMeta } from './modes/mode-meta';
 import { useActiveMode } from './modes/useActiveMode';
 import { TurnStepsBar } from './composer/TurnStepsBar';
+import { AccountLimitBar } from './composer/AccountLimitBar';
+import type { AccountLimitView } from './useAccountLimit';
 import type { StepListDisplay } from '@moxxy/sdk/tool-display';
 
 /** Past this height the composer textarea stops growing and scrolls
@@ -59,6 +61,8 @@ interface ComposerProps {
   readonly activeTurnId: string | null;
   /** The agent's list of steps in the running turn, said above the field. */
   readonly turnSteps?: StepListDisplay | null;
+  /** The active agent's account limit while it holds, said above the field. */
+  readonly accountLimit?: AccountLimitView | null;
   readonly workspaceId: string;
   /** While a voice conversation is open the rail owns the microphone, so the
    *  composer hides its dictation button and the menu entry that would start a
@@ -100,6 +104,7 @@ export function Composer({
   compacting,
   activeTurnId,
   turnSteps = null,
+  accountLimit = null,
   workspaceId,
   voiceModeActive = false,
   onOpenVoiceCall,
@@ -334,6 +339,7 @@ export function Composer({
         send();
       }}
     >
+      {accountLimit ? <AccountLimitBar limit={accountLimit.limit} nowMs={accountLimit.nowMs} /> : null}
       {turnSteps ? <TurnStepsBar steps={turnSteps} /> : null}
       <div className="cmdbar__card">
         <ComposerStatus

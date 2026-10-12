@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import type { Readable, Writable } from 'node:stream';
-import type { AgentApprovalDecision, AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome, ToolDef } from '@moxxy/sdk';
+import type { AgentAccountLimit, AgentApprovalDecision, AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome, ToolDef } from '@moxxy/sdk';
 import {
   Inbox,
   JsonRpcError,
@@ -25,6 +25,7 @@ import type {
   CodexApprovalsReviewer,
   CodexConfigRead,
   CodexGoal,
+  CodexRateLimitSnapshot,
   CodexSandboxPolicy,
   CodexThreadResponse,
   CodexThreadSettingsReport,
@@ -43,6 +44,7 @@ import {
   toUserInputAnswers,
   type CodexToolCall,
 } from './translate.js';
+import { accountLimitFrom, failedOnUsageLimit } from './account-limit.js';
 import { CodexSubagents } from './subagents.js';
 import { readImageFile } from './view-image.js';
 
@@ -226,6 +228,9 @@ export class CodexAgentSession implements LiveSession {
   private readonly listed: ToolDef[];
   private activeTurn: string | undefined;
   private lastError: string | undefined;
+  private lastErrorInfo: unknown;
+  /** The account limit Codex last reported; its updates leave out what has not changed. */
+  private limit: AgentAccountLimit | undefined;
   private stderr = '';
 
   static async start(settings: CodexSessionSettings): Promise<CodexAgentSession> {
@@ -281,6 +286,7 @@ export class CodexAgentSession implements LiveSession {
     this.myTurns.clear();
     this.activeTurn = undefined;
     this.lastError = undefined;
+    this.lastErrorInfo = undefined;
     const onAbort = () => {
       this.inbox.push({ kind: 'stop' });
       void this.interrupt();
@@ -502,6 +508,14 @@ export class CodexAgentSession implements LiveSession {
         continue;
       }
       if (change) continue;
+      if (item.method === 'account/rateLimits/updated') {
+        const limit = accountLimitFrom((params.rateLimits ?? {}) as CodexRateLimitSnapshot);
+        if (limit) {
+          this.limit = limit;
+          yield { type: 'account_limit', limit };
+        }
+        continue;
+      }
       // A subagent works in a thread of its own; its turns are not the conversation's.
       if (isTurnEvent(item.method) && params.threadId !== this.threadId) continue;
       if (item.method === 'turn/started') {
@@ -520,6 +534,10 @@ export class CodexAgentSession implements LiveSession {
         finished.add(turn.id);
         if (this.activeTurn === turn.id) this.activeTurn = undefined;
         if (turn.status === 'failed') {
+          if (failedOnUsageLimit(turn.error?.codexErrorInfo ?? this.lastErrorInfo)) {
+            this.limit = this.limit ? { ...this.limit, state: 'reached' } : { state: 'reached' };
+            yield { type: 'account_limit', limit: this.limit };
+          }
           yield { type: 'error', message: `Codex: ${turn.error?.message ?? this.lastError ?? 'the turn failed'}`, retryable: false };
           return;
         }
@@ -538,8 +556,11 @@ export class CodexAgentSession implements LiveSession {
         return;
       }
       if (item.method === 'error') {
-        const error = params.error as { message?: unknown } | undefined;
-        if (params.willRetry !== true && error && typeof error.message === 'string') this.lastError = error.message;
+        const error = params.error as { message?: unknown; codexErrorInfo?: unknown } | undefined;
+        if (params.willRetry !== true && error && typeof error.message === 'string') {
+          this.lastError = error.message;
+          this.lastErrorInfo = error.codexErrorInfo;
+        }
         continue;
       }
       if (typeof params.threadId === 'string' && params.threadId !== this.threadId) {

@@ -103,5 +103,6 @@ export {
   imagesLine,
   stepListHeading,
   unifiedDiffText,
+  usedUpLimitText,
 } from './agent-work.js';
 export { imageUploads, type ImageUpload, type ImageUploadLimits } from './tool-images.js';

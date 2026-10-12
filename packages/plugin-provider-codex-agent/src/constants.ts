@@ -1,5 +1,7 @@
 /** Provider name in the registry / model picker / provider config. */
 export const CODEX_AGENT_PROVIDER_ID = 'codex-agent';
+/** The agent's name as the person knows it. */
+export const CODEX_AGENT_NAME = 'Codex';
 
 /** Human-readable upstream service, shown in login and setup surfaces. */
 export const CODEX_SERVICE_NAME = 'ChatGPT subscription (Codex)';

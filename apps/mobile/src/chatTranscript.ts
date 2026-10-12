@@ -1,4 +1,7 @@
+import type { MoxxyEvent } from '@moxxy/sdk';
+import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
 import { isQuestionAnswerDisplay, questionAnswerLines } from '@moxxy/sdk/tool-display';
+import { accountLimitText } from '@moxxy/chat-model/account-limit';
 import { boolOf, textOf } from './utils/record';
 import type { PromptAttachment } from './clientFrames';
 
@@ -451,6 +454,21 @@ export function buildCommittedChatTranscript(
       }
       tools = upsertTool(tools, event, type, index);
       continue;
+    }
+
+    if (type === 'plugin_event') {
+      // An agent's used-up account limit says where the turn stopped, in place of its raw error.
+      const limit = accountLimitOfEvent(event as unknown as MoxxyEvent);
+      if (limit) {
+        if (limit.limit.state === 'reached') {
+          flushAssistant();
+          flushTools();
+          flushSystem();
+          closeSubagentRun();
+          pushItem({ id: eventId(event, `limit-${index}`), kind: 'error', label: 'Limit', text: accountLimitText(limit, typeof event.ts === 'number' ? event.ts : Date.now()) });
+        }
+        continue;
+      }
     }
 
     if (type === 'error' || type === 'abort' || type === 'turn_error') {

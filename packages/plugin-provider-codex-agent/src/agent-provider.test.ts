@@ -919,6 +919,74 @@ describe('stopping and failing', () => {
   });
 });
 
+describe("Codex's account limit", () => {
+  /** As Codex 0.155.1 sent it on a Plus plan: one weekly window. `resetsAt` is in epoch seconds. */
+  const rateLimits = (usedPercent: number, extra: Record<string, unknown> = {}) => ({
+    rateLimits: {
+      limitId: 'codex',
+      limitName: null,
+      primary: { usedPercent, windowDurationMins: 10080, resetsAt: 1792310000 },
+      secondary: null,
+      credits: { hasCredits: false, unlimited: false, balance: '0' },
+      planType: 'plus',
+      rateLimitReachedType: null,
+      ...extra,
+    },
+  });
+  const limitsIn = (events: ReadonlyArray<MoxxyEvent>) =>
+    events.flatMap((e) => (e.type === 'plugin_event' && e.subtype === 'account_limit' ? [(e.payload as { limit: unknown }).limit] : []));
+
+  it('reads how much of the window is used and when it resets, near from three quarters', async () => {
+    let used = 10;
+    const { session } = connect(async (turn) => {
+      turn.server.notify('account/rateLimits/updated', rateLimits(used));
+      turn.say('hi');
+    });
+
+    const first = await collectTurn(session, 'hi');
+    used = 80;
+    const second = await collectTurn(session, 'hi');
+
+    expect(limitsIn(first)).toEqual([{ state: 'ok', usedPercent: 10, windowMinutes: 10080, resetsAt: 1792310000_000 }]);
+    expect(limitsIn(second)).toEqual([{ state: 'near', usedPercent: 80, windowMinutes: 10080, resetsAt: 1792310000_000 }]);
+  });
+
+  it('keeps the window it knows when a rolling update leaves it out', async () => {
+    let update = rateLimits(80);
+    const { session } = connect(async (turn) => {
+      turn.server.notify('account/rateLimits/updated', update);
+      turn.say('hi');
+    });
+
+    await collectTurn(session, 'hi');
+    update = rateLimits(0, { primary: null });
+    const second = await collectTurn(session, 'hi');
+
+    expect(limitsIn(second)).toEqual([]);
+  });
+
+  it('ends a turn Codex failed on its usage limit with the limit, not the raw error', async () => {
+    const { session } = connect(async (turn) => {
+      turn.server.notify('account/rateLimits/updated', rateLimits(100, { rateLimitReachedType: 'rate_limit_reached' }));
+      return { status: 'failed', error: "You've hit your usage limit.", errorInfo: 'usageLimitExceeded' };
+    });
+
+    const events = await collectTurn(session, 'hi');
+
+    expect(limitsIn(events)).toEqual([{ state: 'reached', usedPercent: 100, windowMinutes: 10080, resetsAt: 1792310000_000 }]);
+    expect(events).toContainEqual(expect.objectContaining({ subtype: 'account_limit', payload: expect.objectContaining({ provider: 'codex-agent', agent: 'Codex' }) }));
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('knows the limit is reached from the failure alone when Codex sent no update before it', async () => {
+    const { session } = connect(async () => ({ status: 'failed', error: "You've hit your usage limit.", errorInfo: 'usageLimitExceeded' }));
+
+    const events = await collectTurn(session, 'hi');
+
+    expect(limitsIn(events)).toEqual([{ state: 'reached' }]);
+  });
+});
+
 describe('one-off text calls', () => {
   it('asks Codex for plain text on a read-only thread it does not keep', async () => {
     const codex = new FakeCodex(async (turn) => turn.say(`summary of: ${turn.text.slice(0, 19)}`));

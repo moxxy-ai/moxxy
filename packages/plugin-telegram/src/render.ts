@@ -14,6 +14,7 @@ import {
   imagesLine,
   stepListHeading,
   unifiedDiffText,
+  usedUpLimitText,
 } from '@moxxy/channel-kit';
 
 const TELEGRAM_MESSAGE_LIMIT = 4000; // 4096 minus a safety margin
@@ -165,13 +166,17 @@ export class TurnRenderer {
       case 'skill_created':
         this.notices.push(`💡 created skill: <b>${escape(event.name)}</b>`);
         break;
-      case 'plugin_event':
+      case 'plugin_event': {
         if (event.pluginId === '@moxxy/subagents' && event.subtype === 'subagent_started') {
           const payload = (event.payload ?? {}) as Record<string, unknown>;
           const label = typeof payload.label === 'string' ? payload.label : 'agent';
           this.notices.push(`🤖 spawned agent <b>${escape(label)}</b>`);
         }
+        // The agent's used-up account limit ends the turn in place of an error.
+        const limit = usedUpLimitText(event);
+        if (limit) this.errorLine = `⛔ <b>${escape(limit)}</b>`;
         break;
+      }
       case 'error':
         this.errorLine = `❗ <b>${escape(event.kind)}</b>: ${escape(event.message)}`;
         break;

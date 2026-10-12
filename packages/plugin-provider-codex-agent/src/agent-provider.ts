@@ -9,7 +9,7 @@ import {
   type TokenUsage,
 } from '@moxxy/sdk';
 import { AgentSessionPool, Inbox, JsonRpcLineClient, transcript, type AgentSessionLease } from '@moxxy/agent-connection-kit';
-import { CODEX_AGENT_PROVIDER_ID } from './constants.js';
+import { CODEX_AGENT_NAME, CODEX_AGENT_PROVIDER_ID } from './constants.js';
 import { CodexAgentSession, type StartCodexAppServer } from './codex-session.js';
 import { spawnCodexAppServer } from './executable.js';
 import type { CodexThreadResponse, CodexTokenUsage, CodexTurn } from './protocol.js';
@@ -70,6 +70,7 @@ export function codexSessions(): AgentSessionPool<CodexAgentSession> {
  */
 export class CodexAgentProvider implements LLMProvider {
   readonly name = CODEX_AGENT_PROVIDER_ID;
+  readonly agentName = CODEX_AGENT_NAME;
   /** Its own plan mode and goal: Moxxy shows the plan and ends the goal when the agent says so. */
   readonly agentOwns = { plan: true, goal: true } as const;
   readonly models = codexAgentModels;

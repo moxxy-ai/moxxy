@@ -340,6 +340,17 @@ named and a Stop button that stops the turn. The terminal shows the same as a
 line above the prompt; Esc stops it. It shows from the agent's first computer
 call in the turn until the turn ends.
 
+## Your account's usage limit
+
+Claude and Codex tell Moxxy how much of your plan's usage they have left and
+when it resets. From three quarters of a window used, a line above the message
+box says so, for example "Claude has used 94% of its weekly limit · resets Sat
+at 08:00". Once the limit is used up, the turn ends with a note saying which
+limit and when it comes back, instead of the agent's raw error, and the line
+turns red until the window resets. The terminal shows the same line and note;
+the phone app, Telegram and Discord show the note when a turn stops on the
+limit. OpenCode does not report a limit, so nothing shows for it.
+
 ## Helpers an agent starts
 
 When Claude, Codex or OpenCode hands part of the work to a helper agent of its

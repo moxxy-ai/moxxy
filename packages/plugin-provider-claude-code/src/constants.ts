@@ -1,5 +1,7 @@
 /** Provider name in the registry / model picker / provider config. */
 export const CLAUDE_CODE_PROVIDER_ID = 'claude-code';
+/** The agent's name as the person knows it. */
+export const CLAUDE_AGENT_NAME = 'Claude';
 
 /** Human-readable upstream service, shown in login and setup surfaces. */
 export const CLAUDE_CODE_SERVICE_NAME = 'Claude Code subscription';
