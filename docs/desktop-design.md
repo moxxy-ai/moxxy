@@ -197,7 +197,7 @@ so no mode has a look of its own.
 | Mode menu | the add menu | Each mode by name with its one-line hint under it. |
 | Outcome card | `chat/modes/ModeOutcomeCard.tsx` | What a mode hands back (a plan, a finished or paused goal, a research plan, a follow-up round) is a card with a title and its facts as chips, then the text. The signal tool call that precedes it is not drawn unless it failed. |
 | Plan answers | `chat/modes/plan-next.ts` | The plan nothing has followed offers "Implement" and "Run as goal", the one it recommends filled. Each switches the session's mode first and then sends the prompt, so the prompt cannot run as another round of planning. A goal run starts from the default mode, which is where it hands back. They are not offered while a turn runs, while a question waits, or on an older plan. |
-| Step note | `chat/modes/ModeNoteLine.tsx` | A phase of the run (goal started, research round, research complete) is one quiet line with a toned dot. An agent's approvals changed outside Moxxy use the same line: the switch turned off (info), or a looser change Moxxy set back (warn). |
+| Step note | `chat/modes/ModeNoteLine.tsx` | A phase of the run (goal started, research round, research complete) is one quiet line with a toned dot. |
 | Agents | `chat/blocks/SubagentGroupView.tsx` | A fan-out lists its agents as rows: a state light, what the agent is working on, its tool and token counts, and its state. A research agent is named by its question. |
 
 `chat/modes/mode-events.ts` reads the modes' own events out of the run's log

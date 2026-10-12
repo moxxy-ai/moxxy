@@ -106,10 +106,10 @@ What carries over, and what does not:
   hooks) apply to Claude's tools too. Turning on auto-approve switches *this
   conversation's* Claude to bypass mode; Claude's own settings are never edited.
   The switch shows the mode Claude really runs in. Something outside Moxxy may
-  only make Claude ask more: such a change turns the switch off at once, with a
-  note in the conversation. A change that would let Claude act without asking
-  while the switch is off (bypass or auto mode) is set back at once, also with
-  a note, because only you turn auto-approve on.
+  only make Claude ask more: such a change turns the switch off at once. A
+  change that would let Claude act without asking while the switch is off
+  (bypass or auto mode) is set back at once, because only you turn
+  auto-approve on.
 - **Modes.** Plan mode runs Claude in its plan mode and shows its plan for
   approval. Goal mode uses Claude's own `/goal`, and ends when Claude says the
   goal is met.
@@ -158,8 +158,7 @@ Moxxy runs your installed `codex` (from `PATH`, or
   reports it, and the same rule applies as for Claude: a change that makes
   Codex ask more is kept and turns the switch off; a looser one (fewer
   approvals, a wider sandbox, or Codex's own reviewer in place of you) is set
-  back. Either way the conversation says so.
-  Codex's answer to an approval carries
+  back. Codex's answer to an approval carries
   no reason, so when you decline, Moxxy hands your reason to its running turn
   (or its next message, if the turn can no longer take input). While
   auto-approve is off, you answer those approvals, not Codex's own reviewer
