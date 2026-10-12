@@ -36,18 +36,18 @@ jobs:
           exit $LASTEXITCODE
       - name: Upload repeated test report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: computer-use-repeat-report
           path: ${{ runner.temp }}/computer-use-repeat-report/report.*
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: computer-use-report
           path: ${{ runner.temp }}/computer-use-report/report.*
       - name: Upload native test components
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: moxxy-computer-native
           path: packages/plugin-computer-control/bin/win32-x64/
@@ -60,7 +60,7 @@ jobs:
           Copy-Item packages/plugin-computer-control/native/build/Release/moxxy-computer-fixture.exe "$env:RUNNER_TEMP/computer-use-kit/"
           Copy-Item packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1 "$env:RUNNER_TEMP/computer-use-kit/"
       - name: Upload portable test kit
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: moxxy-computer-use-windows-x64
           path: ${{ runner.temp }}/computer-use-kit/
@@ -150,11 +150,11 @@ jobs:
           }
       - name: Upload installed resource test report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installed-computer-report
           path: ${{ runner.temp }}/installed-computer-report/report.*
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: moxxy-computer-use-test-installer
           path: apps/desktop/release/*-setup.exe

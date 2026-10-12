@@ -358,7 +358,7 @@ jobs:
 
       - name: Upload app update bundle
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-update-bundle
           path: |
@@ -492,7 +492,7 @@ jobs:
 
       - name: Upload signing status
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-signing-status
           path: ${{ runner.temp }}/signing-status/signing-status.txt
@@ -545,7 +545,7 @@ jobs:
           node apps/desktop/scripts/smoke-windows-installer.mjs $installer "$env:RUNNER_TEMP\moxxy-installer-smoke"
 
       - name: Upload installers
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-${{ matrix.artifact }}
           path: |
