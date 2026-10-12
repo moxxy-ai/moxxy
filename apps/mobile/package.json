@@ -14,7 +14,7 @@
     "eas-build-post-install": "pnpm --filter \"@moxxy/workspaces-app^...\" run build"
   },
   "dependencies": {
-    "@expo/metro-runtime": "~6.1.2",
+    "@expo/metro-runtime": "~57.0.16",
     "@moxxy/chat-model": "workspace:*",
     "@moxxy/client-core": "workspace:*",
     "@moxxy/client-transport-ws": "workspace:*",
