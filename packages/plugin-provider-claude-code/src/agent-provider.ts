@@ -2,6 +2,7 @@ import {
   estimateTextTokens,
   type AgentStepEvent,
   type AgentStepRequest,
+  type AgentTurnStart,
   type LLMProvider,
   type ModelDescriptor,
   type ProviderEvent,
@@ -72,6 +73,7 @@ export class ClaudeAgentProvider implements LLMProvider {
   readonly models = claudeCodeModels;
   private readonly defaultModel: string;
   private readonly loadSdk: () => Promise<ClaudeAgentSdk>;
+  private readonly agentTurnListeners = new Set<(start: AgentTurnStart) => void>();
 
   constructor(private readonly config: ClaudeAgentProviderConfig = {}) {
     this.defaultModel = config.model ?? config.defaultModel ?? CLAUDE_CODE_DEFAULT_MODEL;
@@ -92,6 +94,12 @@ export class ClaudeAgentProvider implements LLMProvider {
       if (lease.session.isAlive) lease.release();
       else await lease.discard();
     }
+  }
+
+  /** Claude takes up a turn by itself once a task it ran in the background finished. */
+  onAgentTurn(listener: (start: AgentTurnStart) => void): () => void {
+    this.agentTurnListeners.add(listener);
+    return () => this.agentTurnListeners.delete(listener);
   }
 
   /** One-off text (summaries, skill drafts): Claude with no tools, keeping no session. */
@@ -172,6 +180,9 @@ export class ClaudeAgentProvider implements LLMProvider {
       ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
       ...(permissionMode ? { permissionMode } : {}),
       tools: req.allTools ?? req.tools,
+      onAgentTurn: (name) => {
+        for (const listener of [...this.agentTurnListeners]) listener({ sessionId: req.sessionId, name });
+      },
     };
   }
 }

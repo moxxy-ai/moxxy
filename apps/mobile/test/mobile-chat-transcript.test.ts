@@ -306,3 +306,36 @@ describe('mobile chat transcript model', () => {
     expect(transcript.some((item) => item.kind === 'reasoning')).toBe(false);
   });
 });
+
+describe('turns something other than the person started', () => {
+  it('shows one as a marker saying what started it, not as the person message', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'List files finished in the background', origin: { kind: 'agent', name: 'List files finished in the background' } },
+    ]);
+
+    expect(transcript).toEqual([{ id: 'u1', kind: 'trigger', label: 'Agent continued', name: 'List files finished in the background' }]);
+  });
+});
+
+describe('an agent helper that outlives its turn', () => {
+  const sub = (id: string, subtype: string, payload: Record<string, unknown>) => ({ id, type: 'plugin_event', pluginId: '@moxxy/subagents', subtype, payload });
+
+  it('says it went on in the background, and shows what it did later in a row of its own', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'List the files in the background' },
+      sub('s1', 'subagent_started', { childSessionId: 'bg1', label: 'List files', agentType: 'general-purpose' }),
+      { id: 'u2', type: 'user_prompt', text: 'List files finished in the background', origin: { kind: 'agent', name: 'List files finished in the background' } },
+      sub('s2', 'subagent_tool_call', { childSessionId: 'bg1', name: 'Bash', input: { command: 'ls' } }),
+      sub('s3', 'subagent_completed', { childSessionId: 'bg1', text: 'Two files.' }),
+    ]);
+
+    const groups = transcript.filter((item) => item.kind === 'subagent-group');
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({ status: 'background', summary: '1 general-purpose agent in the background', agents: [{ status: 'background', toolCallCount: 0 }] });
+    expect(groups[1]).toMatchObject({
+      status: 'done',
+      summary: '1 general-purpose agent finished in the background',
+      agents: [{ label: 'List files', continued: true, status: 'done', toolCallCount: 1, finalPreview: 'Two files.' }],
+    });
+  });
+});

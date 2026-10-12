@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome, ToolDef } from '@moxxy/sdk';
+import type { AgentStepEvent, AgentStepHost, AgentStepRequest, AgentToolCall, AgentToolOutcome, ToolDef } from '@moxxy/sdk';
 import {
   Inbox,
   agentModeFor,
@@ -50,6 +50,8 @@ export interface ClaudeSessionSettings {
   readonly permissionMode?: ClaudePermissionMode;
   /** Every Moxxy tool of the conversation: Claude reads the list as it starts, and again on a notice. */
   readonly tools?: ReadonlyArray<ToolDef>;
+  /** Claude took up a turn by itself while no Moxxy turn runs; `name` says what for. */
+  readonly onAgentTurn?: (name: string) => void;
 }
 
 /**
@@ -106,6 +108,7 @@ type Item =
   | { readonly kind: 'moxxy-tool'; readonly call: AgentToolCall; readonly resolve: (outcome: AgentToolOutcome) => void };
 
 const NOT_IN_A_TURN = 'Nobody is in the Moxxy conversation right now to answer this.';
+const NO_RULES_YET = 'Moxxy could not check this call against its rules: no turn has run in this conversation yet.';
 /** In goal mode `/goal` must start the message, so the conversation so far goes first, on its own. */
 const READ_ONLY_REPLY = 'Reply with OK only: the person\'s message follows next.';
 class SessionGone extends Error {}
@@ -128,6 +131,14 @@ export class ClaudeAgentSession implements LiveSession {
   private inTurn = false;
   /** A turn ended before Claude's `result` (its reader stopped early); the next turn waits it out. */
   private owesResult = false;
+  /** Claude took up a turn by itself and no Moxxy turn has read it yet. */
+  private agentTurnPending = false;
+  /** Claude's tasks by id, named as they started, to say which one finished. */
+  private readonly taskNames = new Map<string, string>();
+  /** The task whose end Claude takes up next, once it finished in the background. */
+  private finishedTask: string | undefined;
+  /** The last turn's host: Moxxy's rules for a call made while no turn runs (a helper in the background). */
+  private lastHost: AgentStepHost | undefined;
   private permissionMode: ClaudePermissionMode | undefined;
   /** Claude's task list, which its tools change one task at a time across turns. */
   private readonly tasks = new ClaudeTaskList();
@@ -202,8 +213,12 @@ export class ClaudeAgentSession implements LiveSession {
   }
 
   async *turn(req: AgentStepRequest): AsyncGenerator<AgentStepEvent> {
+    // Claude's own turn was already read by a turn of the person's.
+    if (req.continuesAgentTurn && !this.agentTurnPending) return;
+    const ownTurn = req.continuesAgentTurn === true;
     const mode = agentModeFor(req.mode);
     this.inTurn = true;
+    this.lastHost = req.host;
     this.switchedOn = req.autoApprove;
     const interrupt = () => void this.query.interrupt().catch(() => undefined);
     req.signal.addEventListener('abort', interrupt, { once: true });
@@ -217,18 +232,20 @@ export class ClaudeAgentSession implements LiveSession {
     try {
       // The conversation gained or lost a tool since Claude read the list: it reads it again on this notice.
       await this.mcp.announceTools({ signal: req.signal });
-      if (this.owesResult && !(await this.settlePrevious())) {
-        yield this.endedError();
-        return;
+      if (!ownTurn) {
+        if (this.owesResult && !(await this.settlePrevious())) {
+          yield this.endedError();
+          return;
+        }
+        await this.align(req, mode);
+        const note = this.newSession ? earlierConversationNote(this.newSession, req.earlierConversation?.()) : undefined;
+        this.newSession = undefined;
+        const prefix = mode === 'goal' && !this.goalActive ? '/goal ' : '';
+        if (note && prefix) await this.silently(`${note}\n\n${READ_ONLY_REPLY}`);
+        if (mode === 'goal') this.goalActive = true;
+        const content = toClaudeContent(req.prompt, prefix);
+        this.send(note && !prefix && typeof content !== 'string' ? [{ type: 'text', text: note }, ...content] : content);
       }
-      await this.align(req, mode);
-      const note = this.newSession ? earlierConversationNote(this.newSession, req.earlierConversation?.()) : undefined;
-      this.newSession = undefined;
-      const prefix = mode === 'goal' && !this.goalActive ? '/goal ' : '';
-      if (note && prefix) await this.silently(`${note}\n\n${READ_ONLY_REPLY}`);
-      if (mode === 'goal') this.goalActive = true;
-      const content = toClaudeContent(req.prompt, prefix);
-      this.send(note && !prefix && typeof content !== 'string' ? [{ type: 'text', text: note }, ...content] : content);
       const translator = new TurnTranslator(this.settings.cwd, this.tasks, this.subagents);
       for (;;) {
         const item = await this.inbox.next();
@@ -237,6 +254,14 @@ export class ClaudeAgentSession implements LiveSession {
           return;
         }
         if (item.kind === 'message') {
+          if (isOwnResult(item.message)) {
+            this.agentTurnPending = false;
+            this.finishedTask = undefined;
+            if (ownTurn) {
+              yield* resultEvents(item.message, req.signal.aborted);
+              break;
+            }
+          }
           if (isPersonResult(item.message)) {
             this.owesResult = false;
             yield* resultEvents(item.message, req.signal.aborted);
@@ -267,7 +292,7 @@ export class ClaudeAgentSession implements LiveSession {
         }
         yield* this.handle(item, req, translator);
       }
-      if (mode === 'goal' && !req.signal.aborted) {
+      if (mode === 'goal' && !ownTurn && !req.signal.aborted) {
         const status = await this.goalStatus();
         if (status === 'complete') this.goalActive = false;
         if (status) yield { type: 'goal', status };
@@ -300,9 +325,7 @@ export class ClaudeAgentSession implements LiveSession {
         yield* translator.announce(item.callId, item.name, item.input, { inSubagent: item.inSubagent });
         const decision = await req.host.approve({ callId: item.callId, name: item.name, input: item.input, policyOnly: true });
         item.resolve(
-          decision.allow
-            ? {}
-            : { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: decision.reason } },
+          decision.allow ? {} : refusedByRules(decision.reason),
         );
         return;
       }
@@ -428,7 +451,10 @@ export class ClaudeAgentSession implements LiveSession {
 
   private async pump(): Promise<void> {
     try {
-      for await (const message of this.query) this.inbox.push({ kind: 'message', message });
+      for await (const message of this.query) {
+        this.inbox.push({ kind: 'message', message });
+        this.notice(message);
+      }
       this.inbox.push({ kind: 'ended' });
     } catch (err) {
       this.inbox.push({ kind: 'ended', error: err instanceof Error ? err.message : String(err) });
@@ -463,20 +489,60 @@ export class ClaudeAgentSession implements LiveSession {
   }
 
   private onPreToolUse(name: string, input: unknown, callId: string, inSubagent: boolean): Promise<ClaudePreToolUseOutput> {
-    if (name.startsWith(MOXXY_TOOL_PREFIX) || !this.inTurn) return Promise.resolve({});
+    if (name.startsWith(MOXXY_TOOL_PREFIX)) return Promise.resolve({});
+    if (!this.inTurn) return this.checkRulesBetweenTurns(name, input, callId);
     return new Promise((resolve) => this.inbox.push({ kind: 'hook', callId, name, input, inSubagent, resolve }));
   }
 
-  /** Answer whatever is still queued once no turn can: Claude must never wait on Moxxy forever. */
-  private dismissQueued(): void {
-    for (const item of this.inbox.drain()) {
-      if (item.kind === 'message' || item.kind === 'ended') {
-        if (item.kind === 'message' && isPersonResult(item.message)) this.owesResult = false;
-        if (item.kind === 'ended') this.inbox.push(item);
-        continue;
+  /** A call made while no turn runs (a helper in the background) still meets Moxxy's rules. */
+  private async checkRulesBetweenTurns(name: string, input: unknown, callId: string): Promise<ClaudePreToolUseOutput> {
+    const host = this.lastHost;
+    if (!host) return refusedByRules(NO_RULES_YET);
+    const decision = await host.approve({ callId, name, input, policyOnly: true });
+    return decision.allow ? {} : refusedByRules(decision.reason);
+  }
+
+  /**
+   * Watch what Claude sends whether or not a turn runs: which task finished,
+   * and Claude taking up a turn by itself (its `init` while Moxxy is idle),
+   * which the conversation opens a turn for.
+   */
+  private notice(message: ClaudeMessage): void {
+    if (message.type === 'system') {
+      const note = message as { subtype?: unknown; task_id?: unknown; description?: unknown };
+      if (note.subtype === 'task_started' && typeof note.task_id === 'string' && typeof note.description === 'string') {
+        this.taskNames.set(note.task_id, note.description);
       }
-      refuse(item);
+      if (note.subtype === 'task_notification' && typeof note.task_id === 'string') {
+        this.finishedTask = this.taskNames.get(note.task_id) ?? this.finishedTask;
+      }
     }
+    if (this.closed || this.inTurn || this.owesResult || this.agentTurnPending || !isInit(message)) return;
+    this.agentTurnPending = true;
+    const name = this.finishedTask ? `${this.finishedTask} finished in the background` : 'A background task finished';
+    this.settings.onAgentTurn?.(name);
+  }
+
+  /**
+   * Answer whatever is still queued once no turn can: Claude must never wait on
+   * Moxxy forever. What is left of a turn whose reader stopped early is dropped,
+   * up to its result; what Claude sent after it is its own (a helper in the
+   * background, a turn it took up) and stays for the next reader.
+   */
+  private dismissQueued(): void {
+    const kept: ClaudeMessage[] = [];
+    let ended: Extract<Item, { kind: 'ended' }> | undefined;
+    for (const item of this.inbox.drain()) {
+      if (item.kind === 'ended') ended = item;
+      else if (item.kind !== 'message') refuse(item);
+      else if (!this.owesResult) kept.push(item.message);
+      else if (isPersonResult(item.message)) this.owesResult = false;
+    }
+    for (const message of kept) {
+      this.inbox.push({ kind: 'message', message });
+      this.notice(message);
+    }
+    if (ended) this.inbox.push(ended);
   }
 
   private endedError(error?: string): AgentStepEvent {
@@ -528,6 +594,15 @@ function* resultEvents(message: Extract<ClaudeMessage, { type: 'result' }>, stop
   if (!message.is_error || stopped) return;
   const detail = message.errors && message.errors.length > 0 ? message.errors.join('; ') : (message.result ?? message.subtype);
   yield { type: 'error', message: `Claude Code: ${detail}`, retryable: false };
+}
+
+/** The `result` of a turn Claude took up by itself. */
+function isOwnResult(message: ClaudeMessage): message is Extract<ClaudeMessage, { type: 'result' }> {
+  return message.type === 'result' && 'is_error' in message && !isPersonResult(message);
+}
+
+function refusedByRules(reason: string): ClaudePreToolUseOutput {
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
 }
 
 function isPersonResult(message: ClaudeMessage): message is Extract<ClaudeMessage, { type: 'result' }> {

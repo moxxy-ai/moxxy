@@ -595,7 +595,7 @@ export class RunnerServer {
   private trackLocalTurns(): void {
     const runTurn = this.session.runTurn.bind(this.session);
     this.session.runTurn = (prompt, opts = {}) =>
-      this.scope.getStore() ? runTurn(prompt, opts) : this.runLocalTurn(runTurn, prompt, opts);
+      this.liveScope() ? runTurn(prompt, opts) : this.runLocalTurn(runTurn, prompt, opts);
   }
 
   private async *runLocalTurn(
@@ -651,11 +651,22 @@ export class RunnerServer {
     };
   }
 
+  /**
+   * The client turn the current code runs in. Work a client's turn set going
+   * keeps that turn's async context after the turn ended (a vendor agent's
+   * process, reading on between turns), so a scope whose turn is over is no
+   * scope: what runs in it is the runner's own, not that client's.
+   */
+  private liveScope(): TurnScope | undefined {
+    const scope = this.scope.getStore();
+    return scope && this.turnControllers.has(scope.turnId) ? scope : undefined;
+  }
+
   private async resolvePermission(
     call: PendingToolCall,
     ctx: PermissionContext,
   ): Promise<PermissionDecision> {
-    const scope = this.scope.getStore();
+    const scope = this.liveScope();
     if (scope && scope.client.handlesPermission && !scope.client.peer.isClosed) {
       try {
         return await scope.client.peer.request<PermissionDecision>(
@@ -674,7 +685,7 @@ export class RunnerServer {
   }
 
   private async resolveApproval(request: ApprovalRequest): Promise<ApprovalDecision> {
-    const scope = this.scope.getStore();
+    const scope = this.liveScope();
     if (scope) {
       if (scope.client.handlesApproval && !scope.client.peer.isClosed) {
         try {

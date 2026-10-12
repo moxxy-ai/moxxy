@@ -6,7 +6,7 @@
  * The agent is the external boundary, so it is the only stand-in here; the
  * session, the mode and the loop are real.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   AGENT_CONNECTION_PLUGIN_ID,
@@ -340,6 +340,38 @@ describe('an agent connection turn', () => {
     const events = await collectTurn(session, 'hi');
 
     expect(events).toContainEqual(expect.objectContaining({ type: 'error', kind: 'fatal', message: 'claude exited with code 1' }));
+  });
+});
+
+describe('a turn the agent starts by itself', () => {
+  it('opens a Moxxy turn marked as the agent continuing, which reads the agent turn and sends it nothing', async () => {
+    const provider = new FakeAgentProvider(async function* (req) {
+      yield { type: 'message', text: req.continuesAgentTurn ? 'The background task found two files.' : 'Started it in the background.' };
+    });
+    const session = sessionWith(provider);
+    await collectTurn(session, 'Start a background task');
+
+    provider.startAgentTurn(String(session.id), 'List files finished in the background');
+    await vi.waitFor(() => expect(session.log.ofType('assistant_message')).toHaveLength(2));
+
+    const prompts = session.log.ofType('user_prompt');
+    expect(prompts.at(-1)).toMatchObject({ text: 'List files finished in the background', origin: { kind: 'agent', name: 'List files finished in the background' } });
+    expect(provider.steps.at(-1)?.continuesAgentTurn).toBe(true);
+    expect(provider.steps[0]?.continuesAgentTurn).toBeUndefined();
+    expect(session.log.ofType('assistant_message').at(-1)).toMatchObject({ content: 'The background task found two files.', turnId: prompts.at(-1)?.turnId });
+  });
+
+  it('ignores a turn the agent started in another conversation', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    provider.startAgentTurn('another-conversation', 'Something finished');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(session.log.ofType('user_prompt')).toHaveLength(0);
+    expect(provider.steps).toHaveLength(0);
   });
 });
 

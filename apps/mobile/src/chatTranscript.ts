@@ -10,7 +10,18 @@ export type TranscriptItem =
   | ErrorTranscriptItem
   | SubagentGroupTranscriptItem
   | SystemGroupTranscriptItem
-  | AnsweredTranscriptItem;
+  | AnsweredTranscriptItem
+  | TriggerTranscriptItem;
+
+/** A turn something other than the person started (an agent continuing, a webhook, a schedule): what started it. */
+export interface TriggerTranscriptItem {
+  readonly id: string;
+  readonly kind: 'trigger';
+  readonly label: string;
+  readonly name: string;
+}
+
+export type SubagentStatus = 'running' | 'background' | 'done' | 'failed';
 
 /** A Question the person answered: what was asked and what they chose, one line each. */
 export interface AnsweredTranscriptItem {
@@ -65,7 +76,7 @@ export interface SubagentGroupTranscriptItem {
   readonly kind: 'subagent-group';
   readonly title: 'Subagents';
   readonly collapsed: true;
-  status: 'running' | 'done' | 'failed';
+  status: SubagentStatus;
   summary: string;
   readonly agents: SubagentTranscriptItem[];
 }
@@ -74,7 +85,10 @@ export interface SubagentTranscriptItem {
   readonly id: string;
   readonly label: string;
   readonly agentType: string;
-  status: 'running' | 'done' | 'failed';
+  /** `background`: still working when its turn ended; what it does later is a row of its own (`continued`). */
+  status: SubagentStatus;
+  /** What a helper from an earlier turn did after that turn ended, shown where it happened. */
+  readonly continued?: true;
   toolCallCount: number;
   tokensUsed: number | null;
   responseText: string;
@@ -153,6 +167,8 @@ export function buildCommittedChatTranscript(
   let systemEvents: SystemEventSummary[] = [];
   const subagents = new Map<string, SubagentTranscriptItem>();
   const subagentGroupsByChildId = new Map<string, SubagentGroupTranscriptItem>();
+  // Helpers of earlier turns still working when their turn ended, by child id.
+  const backgroundSubagents = new Map<string, SubagentTranscriptItem>();
   let currentSubagentGroup: SubagentGroupTranscriptItem | null = null;
 
   const pushItem = (item: TranscriptItem): void => {
@@ -206,6 +222,60 @@ export function buildCommittedChatTranscript(
     currentSubagentGroup = null;
   };
 
+  /** A new turn: a helper still working goes on in the background; what it does later gets a row of its own. */
+  const endTurnForSubagents = (): void => {
+    for (const [childSessionId, agent] of subagents) {
+      const group = subagentGroupsByChildId.get(childSessionId);
+      if (agent.status !== 'running' || !group) continue;
+      agent.status = 'background';
+      refreshSubagentGroup(group);
+      backgroundSubagents.set(childSessionId, agent);
+    }
+    subagents.clear();
+    subagentGroupsByChildId.clear();
+  };
+
+  const addSubagent = (event: Record<string, unknown>, payload: Record<string, unknown>, agent: SubagentTranscriptItem): SubagentGroupTranscriptItem => {
+    if (!currentSubagentGroup) {
+      currentSubagentGroup = {
+        id: `subagents:${firstText(event.groupId, payload.groupId, eventId(event, `subagents-${items.length}`))}`,
+        kind: 'subagent-group',
+        title: 'Subagents',
+        collapsed: true,
+        status: 'running',
+        summary: '',
+        agents: [],
+      };
+      pushItem(currentSubagentGroup);
+    }
+    currentSubagentGroup.agents.push(agent);
+    subagents.set(agent.id, agent);
+    subagentGroupsByChildId.set(agent.id, currentSubagentGroup);
+    refreshSubagentGroup(currentSubagentGroup);
+    return currentSubagentGroup;
+  };
+
+  /** A helper of an earlier turn reporting again: its row there stays as it was. */
+  const continuedSubagent = (event: Record<string, unknown>, payload: Record<string, unknown>, childSessionId: string): void => {
+    const earlier = backgroundSubagents.get(childSessionId);
+    if (!earlier) return;
+    backgroundSubagents.delete(childSessionId);
+    addSubagent(event, payload, {
+      id: childSessionId,
+      label: earlier.label,
+      agentType: earlier.agentType,
+      status: 'running',
+      continued: true,
+      toolCallCount: 0,
+      tokensUsed: null,
+      responseText: '',
+      finalPreview: null,
+      stopReason: null,
+      error: null,
+      toolCalls: [],
+    });
+  };
+
   const handleSubagentEvent = (event: Record<string, unknown>): void => {
     const payload = isRecord(event.payload) ? event.payload : event;
     const subtype = firstText(event.subtype, payload.type, payload.eventType);
@@ -228,25 +298,11 @@ export function buildCommittedChatTranscript(
         error: null,
         toolCalls: [],
       };
-      subagents.set(childSessionId, agent);
-      if (!currentSubagentGroup) {
-        currentSubagentGroup = {
-          id: `subagents:${firstText(event.groupId, payload.groupId, eventId(event, `subagents-${items.length}`))}`,
-          kind: 'subagent-group',
-          title: 'Subagents',
-          collapsed: true,
-          status: 'running',
-          summary: '',
-          agents: [],
-        };
-        pushItem(currentSubagentGroup);
-      }
-      currentSubagentGroup.agents.push(agent);
-      subagentGroupsByChildId.set(childSessionId, currentSubagentGroup);
-      refreshSubagentGroup(currentSubagentGroup);
+      addSubagent(event, payload, agent);
       return;
     }
 
+    if (!subagents.has(childSessionId)) continuedSubagent(event, payload, childSessionId);
     const agent = subagents.get(childSessionId);
     const group = subagentGroupsByChildId.get(childSessionId);
     if (!agent || !group) return;
@@ -363,6 +419,14 @@ export function buildCommittedChatTranscript(
       flushTools();
       flushSystem();
       closeSubagentRun();
+      const origin = isRecord(event.origin) ? event.origin : undefined;
+      const startedBy = origin ? firstText(origin.kind) : '';
+      // A checkpoint's note comes in the middle of a turn; anything else opens one.
+      if (startedBy !== 'checkpoint') endTurnForSubagents();
+      if (origin && startedBy) {
+        pushItem({ id: eventId(event, `trigger-${index}`), kind: 'trigger', label: triggerLabel(startedBy), name: firstText(origin.name, event.text) });
+        continue;
+      }
       pushItem({
         id: eventId(event, `user-${index}`),
         kind: 'user',
@@ -466,21 +530,35 @@ function isSubagentPluginEvent(event: Record<string, unknown>): boolean {
 
 function refreshSubagentGroup(group: SubagentGroupTranscriptItem): void {
   const running = group.agents.filter((agent) => agent.status === 'running').length;
+  const background = group.agents.filter((agent) => agent.status === 'background').length;
   const failed = group.agents.filter((agent) => agent.status === 'failed').length;
-  group.status = running > 0 ? 'running' : failed > 0 ? 'failed' : 'done';
-  group.summary = summarizeSubagentGroup(group, running, failed);
+  group.status = running > 0 ? 'running' : failed > 0 ? 'failed' : background > 0 ? 'background' : 'done';
+  group.summary = summarizeSubagentGroup(group, running, background, failed);
 }
 
-function summarizeSubagentGroup(group: SubagentGroupTranscriptItem, running: number, failed: number): string {
+function summarizeSubagentGroup(group: SubagentGroupTranscriptItem, running: number, background: number, failed: number): string {
   const count = group.agents.length;
   const agentType = sharedAgentType(group.agents);
-  if (running > 0) {
-    return `${count} ${agentType} ${count === 1 ? 'agent' : 'agents'} running`;
-  }
-  if (failed > 0) {
-    return `${failed} of ${count} ${count === 1 ? 'agent' : 'agents'} failed`;
-  }
-  return `${count} ${agentType} ${count === 1 ? 'agent' : 'agents'} finished`;
+  const noun = count === 1 ? 'agent' : 'agents';
+  if (running > 0) return `${count} ${agentType} ${noun} running`;
+  if (failed > 0) return `${failed} of ${count} ${noun} failed`;
+  if (background > 0) return `${count} ${agentType} ${noun} in the background`;
+  const where = group.agents.every((agent) => agent.continued === true) ? ' in the background' : '';
+  return `${count} ${agentType} ${noun} finished${where}`;
+}
+
+const TRIGGER_LABELS: Readonly<Record<string, string>> = {
+  webhook: 'Webhook received',
+  schedule: 'Schedule fired',
+  workflow: 'Workflow ran',
+  checkpoint: 'Checkpoint intervened',
+  voice: 'Voice conversation',
+  agent: 'Agent continued',
+};
+
+/** What started a turn, as the desktop and the terminal say it; a kind this build does not know reads plainly. */
+function triggerLabel(kind: string): string {
+  return TRIGGER_LABELS[kind] ?? `${kind.charAt(0).toUpperCase()}${kind.slice(1)} trigger`;
 }
 
 function sharedAgentType(agents: ReadonlyArray<SubagentTranscriptItem>): string {

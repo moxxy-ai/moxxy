@@ -200,6 +200,14 @@ export interface LLMProvider {
    * stops without one.
    */
   readonly agentOwns?: AgentOwnModes;
+  /**
+   * On an agent connection whose agent can start a turn by itself (Claude after
+   * a task it ran in the background finished): tell the listener when it does
+   * while no Moxxy turn is running, so the conversation opens a turn for it
+   * (`origin.kind: 'agent'`) whose `agentStep` reads the agent's turn
+   * (`continuesAgentTurn`). Returns the unsubscribe.
+   */
+  onAgentTurn?(listener: (start: AgentTurnStart) => void): () => void;
   countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number>;
 }
 
@@ -430,6 +438,20 @@ export interface AgentStepRequest {
   readonly fast?: boolean;
   readonly signal: AbortSignal;
   readonly host: AgentStepHost;
+  /**
+   * The turn is one the agent started by itself (see `onAgentTurn`): read the
+   * agent's turn through to its end and send it nothing; `prompt` is only the
+   * marker Moxxy recorded for it.
+   */
+  readonly continuesAgentTurn?: true;
+}
+
+/** The agent started a turn by itself in a Moxxy conversation. */
+export interface AgentTurnStart {
+  /** The Moxxy conversation (`AgentStepRequest.sessionId`). */
+  readonly sessionId: string;
+  /** What the agent took up, for the marker that opens the turn ("List files finished in the background"). */
+  readonly name: string;
 }
 
 /** What Moxxy does for the agent during its turn. */

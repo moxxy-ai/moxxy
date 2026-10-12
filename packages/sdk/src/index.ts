@@ -254,6 +254,7 @@ export type {
 export type {
   AgentStepRequest,
   AgentStepHost,
+  AgentTurnStart,
   AgentStepEvent,
   AgentGoalStatus,
   AgentOwnModes,

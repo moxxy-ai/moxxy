@@ -1967,6 +1967,48 @@ describe('running turns (protocol v22)', () => {
     await waitFor(() => desktop.getInfo().runningTurns?.length === 0);
   });
 
+  it("a turn started later from within a client's finished turn is the runner's own: listed as running and stoppable", async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    let release = (): void => undefined;
+    const later = new Promise<void>((resolve) => (release = resolve));
+    let laterTurn: Promise<void> | undefined;
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-later',
+        modes: [
+          defineMode({
+            name: 'later-mode',
+            run: async function* (modeCtx) {
+              if (String(modeCtx.turnId) !== 'agent-turn') {
+                // Something set going in the client's turn (an agent's background work) starts a turn after it ended.
+                void later.then(() => {
+                  laterTurn = botTurn(session, 'agent-turn');
+                });
+                return;
+              }
+              await new Promise<void>((resolve) => {
+                if (modeCtx.signal.aborted) return resolve();
+                modeCtx.signal.addEventListener('abort', () => resolve(), { once: true });
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('later-mode');
+    servers.push(await startRunnerServer(session, { socketPath }));
+    const desktop = await attach(socketPath, 'desktop');
+    for await (const _event of desktop.runTurn('start something in the background')) void _event;
+
+    release();
+    await waitFor(() => desktop.getInfo().runningTurns?.includes('agent-turn') === true);
+
+    await desktop.abortTurn('agent-turn');
+    await laterTurn;
+    await waitFor(() => desktop.getInfo().runningTurns?.length === 0);
+  });
+
   it('a client attaching in the middle of a turn sees it running', async () => {
     const { session, socketPath } = await serveBlocking();
     const turn = botTurn(session, 'bot-turn');

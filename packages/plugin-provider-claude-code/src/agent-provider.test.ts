@@ -3,11 +3,12 @@
  * `agentStep`, and Claude itself is the stand-in at the Agent SDK boundary
  * (fake-claude.testkit.ts). Nothing between them is replaced.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   AGENT_GOAL_SUBTYPE,
   QUESTION_ASKED,
+  assertDefined,
   autoApproveFromEvents,
   definePlugin,
   defineTool,
@@ -25,7 +26,7 @@ import { AgentSessionPool } from '@moxxy/agent-connection-kit';
 import { ClaudeAgentProvider, claudeCodeModels } from './agent-provider.js';
 import type { ClaudeMessage } from './sdk-types.js';
 import { ClaudeAgentSession, toolsLentToClaude } from './agent-session.js';
-import { FakeClaude, assistantText, assistantToolUse, toolResult, type ClaudeScene } from './fake-claude.testkit.js';
+import { FakeClaude, assistantText, assistantToolUse, toolResult, type ClaudeScene, type FakeTurn } from './fake-claude.testkit.js';
 
 const sessions: Session[] = [];
 const pools: AgentSessionPool<ClaudeAgentSession>[] = [];
@@ -483,6 +484,71 @@ describe('Moxxy modes on Claude', () => {
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: AGENT_GOAL_SUBTYPE, payload: expect.objectContaining({ status: 'complete' }) }));
     expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(true);
     expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(false);
+  });
+});
+
+describe('turns Claude takes up by itself', () => {
+  const sub = (id: string, content: unknown[]): ClaudeMessage => ({ type: 'assistant', message: { content }, parent_tool_use_id: 'toolu_agent' }) as ClaudeMessage;
+  const system = (fields: Record<string, unknown>): ClaudeMessage => ({ type: 'system', ...fields }) as ClaudeMessage;
+  const launchInBackground = async function* (): AsyncIterable<ClaudeMessage> {
+    yield assistantToolUse('toolu_agent', 'Agent', { description: 'List files', prompt: 'list the files', run_in_background: true });
+    yield system({ subtype: 'task_started', task_id: 't1', tool_use_id: 'toolu_agent', description: 'List files', is_backgrounded: true });
+    yield { ...toolResult('toolu_agent', 'Async agent launched'), tool_use_result: { isAsync: true, status: 'async_launched' } } as ClaudeMessage;
+    yield assistantText('Started it in the background.');
+  };
+  const backgroundFinished = {
+    background: [
+      sub('toolu_agent', [{ type: 'tool_use', id: 'toolu_ls', name: 'Bash', input: { command: 'ls' } }]),
+      sub('toolu_agent', [{ type: 'text', text: 'Two files.' }]),
+      system({ subtype: 'task_notification', task_id: 't1', tool_use_id: 'toolu_agent', status: 'completed', summary: 'Two files.' }),
+    ],
+    messages: [assistantText('The helper found two files.')],
+  };
+
+  it("opens a Moxxy turn for it, marked as Claude's, with the background helper's work and what Claude said, sending Claude nothing", async () => {
+    const { claude, session } = connect(async function* (turn) {
+      if (turn.text === '2+2?') yield assistantText('4');
+      else yield* launchInBackground();
+    });
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'List the files in the background');
+
+    claude.last.startOwnTurn(backgroundFinished);
+    await vi.waitFor(() => expect(said(session.log.ofType('assistant_message'))).toContain('The helper found two files.'));
+
+    const opened = session.log.ofType('user_prompt').at(-1);
+    expect(opened).toMatchObject({ origin: { kind: 'agent', name: 'List files finished in the background' } });
+    const inIt = session.log.slice().filter((e) => opened && e.turnId === opened.turnId);
+    expect(inIt.filter((e) => e.type === 'plugin_event').map((e) => (e as { subtype: string }).subtype)).toEqual(
+      expect.arrayContaining(['subagent_tool_call', 'subagent_completed']),
+    );
+    expect(claude.last.received).toHaveLength(1);
+
+    const next = await collectTurn(session, '2+2?');
+    expect(said(next)).toEqual(['4']);
+  });
+
+  it("checks Moxxy's rules for a background helper's call while no turn runs", async () => {
+    let claudeTurn: FakeTurn | undefined;
+    const { session } = connect(async function* (turn) {
+      claudeTurn = turn;
+      yield* launchInBackground();
+    });
+    session.setPermissionResolver(allowAll);
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: '@moxxy/test-rule',
+        hooks: { onToolCall: ({ call }) => (JSON.stringify(call.input).includes('forbidden') ? { action: 'deny', reason: 'blocked by a Moxxy rule' } : undefined) },
+      }),
+    );
+    await collectTurn(session, 'List the files in the background');
+    assertDefined(claudeTurn, 'Claude ran a turn');
+
+    const blocked = await claudeTurn.preToolUse('Bash', { command: 'echo forbidden-word' }, 'toolu_bg1', 't1');
+    const allowed = await claudeTurn.preToolUse('Bash', { command: 'ls' }, 'toolu_bg2', 't1');
+
+    expect(blocked).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'blocked by a Moxxy rule' } });
+    expect(allowed).toEqual({});
   });
 });
 

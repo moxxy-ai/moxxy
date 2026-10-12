@@ -1,4 +1,4 @@
-import type { LLMProvider, ProviderDef } from '@moxxy/sdk';
+import type { AgentTurnStart, LLMProvider, ProviderDef } from '@moxxy/sdk';
 
 export class ProviderRegistry {
   private readonly defs = new Map<string, ProviderDef>();
@@ -11,6 +11,9 @@ export class ProviderRegistry {
    * can't be activated.
    */
   private readonly disabled = new Set<string>();
+  private readonly agentTurnListeners = new Set<(start: AgentTurnStart) => void>();
+  /** Per provider name: the unsubscribe from its instance's `onAgentTurn`. */
+  private readonly agentTurnWatches = new Map<string, () => void>();
 
   /**
    * Register a provider def. Throws on duplicate — use `replace()` for
@@ -21,7 +24,7 @@ export class ProviderRegistry {
       throw new Error(`Provider already registered: ${def.name}`);
     }
     this.defs.set(def.name, def);
-    if (instance) this.instances.set(def.name, instance);
+    if (instance) this.keep(def.name, instance);
   }
 
   /**
@@ -36,13 +39,13 @@ export class ProviderRegistry {
    */
   replace(def: ProviderDef, instance?: LLMProvider): void {
     this.defs.set(def.name, def);
-    this.instances.delete(def.name);
-    if (instance) this.instances.set(def.name, instance);
+    this.drop(def.name);
+    if (instance) this.keep(def.name, instance);
   }
 
   unregister(name: string): void {
     this.defs.delete(name);
-    this.instances.delete(name);
+    this.drop(name);
     if (this.active === name) this.active = null;
   }
 
@@ -86,7 +89,7 @@ export class ProviderRegistry {
     let instance = this.instances.get(name);
     if (!instance) {
       instance = def.createClient(config ?? {});
-      this.instances.set(name, instance);
+      this.keep(name, instance);
     }
     this.active = name;
     return instance;
@@ -101,5 +104,30 @@ export class ProviderRegistry {
 
   getActiveName(): string | null {
     return this.active;
+  }
+
+  /** A turn the active provider's agent started by itself (see `LLMProvider.onAgentTurn`). Returns the unsubscribe. */
+  onAgentTurn(listener: (start: AgentTurnStart) => void): () => void {
+    this.agentTurnListeners.add(listener);
+    return () => this.agentTurnListeners.delete(listener);
+  }
+
+  private keep(name: string, instance: LLMProvider): void {
+    this.drop(name);
+    this.instances.set(name, instance);
+    if (!instance.onAgentTurn) return;
+    // Only the active agent speaks for the conversation: one switched away from stays quiet.
+    const unsubscribe = instance.onAgentTurn((start) => {
+      if (this.active !== name || this.instances.get(name) !== instance) return;
+      for (const listener of [...this.agentTurnListeners]) listener(start);
+    });
+    this.agentTurnWatches.set(name, unsubscribe);
+  }
+
+  private drop(name: string): void {
+    this.instances.delete(name);
+    const unsubscribe = this.agentTurnWatches.get(name);
+    if (unsubscribe) unsubscribe();
+    this.agentTurnWatches.delete(name);
   }
 }

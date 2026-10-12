@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
+  AgentTurnStart,
   AppContext,
   ComputerControlService,
   ClientSession,
@@ -264,6 +265,7 @@ export class Session implements ClientSession, SessionRuntime {
     });
     if (opts.secretResolver) this.resolveSecret = opts.secretResolver;
     this.providers = new ProviderRegistry();
+    this.stopWatchingAgentTurns = this.providers.onAgentTurn((start) => this.takeUpAgentTurn(start));
     this.modes = new ModeRegistry();
     this.compactors = new CompactorRegistry();
     this.cacheStrategies = new CacheStrategyRegistry();
@@ -521,6 +523,7 @@ export class Session implements ClientSession, SessionRuntime {
   async close(reason = 'shutdown'): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.stopWatchingAgentTurns();
     // Stop deferred approvals/provider calls before disposers await them.
     this.abort(reason);
     try {
@@ -616,6 +619,28 @@ export class Session implements ClientSession, SessionRuntime {
    */
   runTurn(prompt: string, opts: RunTurnOptions = {}): AsyncIterable<MoxxyEvent> {
     return runTurnImpl(this, prompt, opts);
+  }
+
+  private readonly stopWatchingAgentTurns: () => void;
+
+  /**
+   * The agent of an agent connection started a turn by itself: run it as a
+   * turn of this conversation, marked as the agent's, so every client sees
+   * it in the log like any turn. Goes through `this.runTurn`, so a host that
+   * wraps it (the runner, to list and stop running turns) sees this one too.
+   */
+  private takeUpAgentTurn(start: AgentTurnStart): void {
+    if (this.closed || start.sessionId !== String(this.id)) return;
+    const turn = this.runTurn(start.name, { origin: { kind: 'agent', name: start.name } });
+    void (async () => {
+      try {
+        for await (const _event of turn) {
+          // Every client reads the turn from the log.
+        }
+      } catch (err) {
+        this.logger.error('a turn the agent started by itself failed', { error: err instanceof Error ? err.message : String(err) });
+      }
+    })();
   }
 
   /**

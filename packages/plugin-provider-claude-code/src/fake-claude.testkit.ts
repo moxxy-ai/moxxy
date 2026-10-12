@@ -38,6 +38,12 @@ export interface FakeTurn {
 
 export type ClaudeScene = (turn: FakeTurn) => AsyncIterable<ClaudeMessage>;
 
+/** A turn Claude takes up by itself: what its background work sent first, then what it says. */
+export interface OwnTurn {
+  readonly background?: ReadonlyArray<ClaudeMessage>;
+  readonly messages: ReadonlyArray<ClaudeMessage>;
+}
+
 export const assistantText = (text: string, model = 'claude-opus-5-5'): ClaudeMessage =>
   ({ type: 'assistant', message: { model, content: [{ type: 'text', text }] }, parent_tool_use_id: null }) as ClaudeMessage;
 export const assistantToolUse = (id: string, name: string, input: unknown): ClaudeMessage =>
@@ -90,6 +96,9 @@ export class FakeQuery implements ClaudeQuery {
   private mcp: Client | undefined;
   /** Status messages waiting to be read, as Claude sends them whether or not a turn runs. */
   private readonly statuses: ClaudeMessage[] = [];
+  /** Turns Claude takes up by itself between the person's messages. */
+  private readonly ownTurns: OwnTurn[] = [];
+  private wakeOwnTurn: (() => void) | undefined;
 
   constructor(
     private readonly prompt: string | AsyncIterable<ClaudeUserMessage>,
@@ -104,8 +113,24 @@ export class FakeQuery implements ClaudeQuery {
   async *[Symbol.asyncIterator](): AsyncIterator<ClaudeMessage> {
     try {
       if (this.options.mcpServers?.moxxy) await this.readMoxxyTools();
-      const messages = typeof this.prompt === 'string' ? [this.userMessage(this.prompt)] : this.prompt;
-      for await (const message of messages) {
+      const first = typeof this.prompt === 'string' ? this.userMessage(this.prompt) : undefined;
+      const source: AsyncIterable<ClaudeUserMessage> =
+        first !== undefined
+          ? (async function* () {
+              yield first;
+            })()
+          : (this.prompt as AsyncIterable<ClaudeUserMessage>);
+      const messages = source[Symbol.asyncIterator]();
+      let nextMessage = messages.next();
+      for (;;) {
+        const arrived = await Promise.race([nextMessage, this.ownTurnArrived()]);
+        if (arrived === 'own') {
+          yield* this.ownTurn();
+          continue;
+        }
+        if (arrived.done) return;
+        nextMessage = messages.next();
+        const message = arrived.value;
         if (this.closed) return;
         this.received.push(message);
         this.stop = new AbortController();
@@ -135,6 +160,32 @@ export class FakeQuery implements ClaudeQuery {
     } finally {
       await this.mcp?.close();
     }
+  }
+
+  /**
+   * Claude takes up a turn by itself, as Claude Code 2.1 does once a task it ran
+   * in the background finished: first what the background work sent, then a
+   * turn of its own (`init`, its messages, a `result` marked as its own).
+   */
+  startOwnTurn(turn: OwnTurn): void {
+    this.ownTurns.push(turn);
+    const wake = this.wakeOwnTurn;
+    this.wakeOwnTurn = undefined;
+    wake?.();
+  }
+
+  private ownTurnArrived(): Promise<'own'> {
+    if (this.ownTurns.length > 0) return Promise.resolve('own');
+    return new Promise((resolve) => (this.wakeOwnTurn = () => resolve('own')));
+  }
+
+  private *ownTurn(): Generator<ClaudeMessage> {
+    const turn = this.ownTurns.shift();
+    if (!turn) return;
+    yield* turn.background ?? [];
+    yield { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.options.model } as ClaudeMessage;
+    yield* turn.messages;
+    yield this.result('success', false, { origin: { kind: 'task-notification', producer: 'session-task' } });
   }
 
   async interrupt(): Promise<unknown> {

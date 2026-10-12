@@ -141,7 +141,7 @@ function toTurn(number: number, turnId: TurnId, events: ReadonlyArray<MoxxyEvent
   const search: string[] = [];
   for (const event of events) {
     if (event.type === 'user_prompt' && event.source === 'user') {
-      const trigger = event.origin ? `(started by a ${event.origin.kind}) ` : '';
+      const trigger = !event.origin ? '' : event.origin.kind === 'agent' ? '(the agent continued by itself) ' : `(started by a ${event.origin.kind}) `;
       said.push(`${trigger}${event.text}`);
       search.push(event.text);
       for (const attachment of event.attachments ?? []) attached.push(attachment.name ?? attachment.kind);

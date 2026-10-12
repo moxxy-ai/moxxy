@@ -51,6 +51,8 @@ export async function* runAgentStepLoop(ctx: ModeContext, opts: ReactLoopOptions
       ? Math.max(1, Math.floor(ctx.maxIterations))
       : (opts.defaultMaxIterations ?? DEFAULT_MAX_ITERATIONS);
   let prompt = turnPrompt(ctx);
+  // A turn the agent started by itself: its first round reads the agent's turn, later rounds send as usual.
+  const agentsOwnTurn = turnOrigin(ctx) === 'agent';
   let injectionsUsed = 0;
   let consecutiveIdle = 0;
 
@@ -76,7 +78,7 @@ export async function* runAgentStepLoop(ctx: ModeContext, opts: ReactLoopOptions
       model: ctx.model,
     });
 
-    const round = await runRound(ctx, agentStep.bind(ctx.provider), prompt, iteration, opts.strategyName);
+    const round = await runRound(ctx, agentStep.bind(ctx.provider), prompt, iteration, opts.strategyName, agentsOwnTurn && iteration === 1);
     yield* round.events;
 
     if (round.endsTurn !== undefined) {
@@ -187,6 +189,7 @@ async function runRound(
   prompt: ReadonlyArray<ContentBlock>,
   iteration: number,
   mode: string,
+  continuesAgentTurn: boolean,
 ): Promise<Round> {
   const events: MoxxyEvent[] = [];
   const emit = async (event: Parameters<ModeContext['emit']>[0]) => {
@@ -244,6 +247,7 @@ async function runRound(
       ...(ctx.fast ? { fast: true } : {}),
       signal,
       host,
+      ...(continuesAgentTurn ? { continuesAgentTurn: true as const } : {}),
     });
     for await (const event of stream) {
       switch (event.type) {
@@ -549,6 +553,12 @@ async function approveAgentTool(
   const policy = await ctx.permissions.policyCheck?.(call, scope);
   if (policy?.mode === 'deny') return deny(policy.reason ?? 'denied by policy', 'policy');
   return { allow: true };
+}
+
+function turnOrigin(ctx: ModeContext): string | undefined {
+  const prompts = ctx.log.ofType('user_prompt') as ReadonlyArray<UserPromptEvent>;
+  const mine = prompts.filter((p) => p.turnId === ctx.turnId && p.origin?.kind !== 'checkpoint').at(-1);
+  return mine && mine.origin ? mine.origin.kind : undefined;
 }
 
 /** The person's message for this turn, as the agent should get it (text, images, documents). */

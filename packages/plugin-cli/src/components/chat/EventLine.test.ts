@@ -54,6 +54,7 @@ describe('formatTriggerOrigin', () => {
   it('uses compact origin-aware labels for machine and checkpoint prompts', () => {
     expect(formatTriggerOrigin({ kind: 'webhook', name: 'github' })).toBe('Webhook received');
     expect(formatTriggerOrigin({ kind: 'schedule', name: 'morning' })).toBe('Schedule fired');
+    expect(formatTriggerOrigin({ kind: 'agent', name: 'List files finished in the background' })).toBe('Agent continued');
     expect(formatTriggerOrigin({ kind: 'workflow', name: 'release' })).toBe('Workflow ran');
     expect(formatTriggerOrigin({ kind: 'checkpoint', name: 'verify' })).toBe('Checkpoint intervened');
     expect(formatTriggerOrigin({ kind: 'voice', name: '2 exchanges while the agent worked' })).toBe('Voice conversation');

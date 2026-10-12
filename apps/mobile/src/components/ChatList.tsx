@@ -24,9 +24,11 @@ import type {
   ReasoningTranscriptItem,
   SubagentGroupTranscriptItem,
   SubagentTranscriptItem,
+  SubagentStatus,
   SystemGroupTranscriptItem,
   ToolGroupTranscriptItem,
   TranscriptItem,
+  TriggerTranscriptItem,
 } from '@/chatTranscript';
 import type { PromptAttachment } from '@/clientFrames';
 import { shouldLoadOlderFromScroll, shouldShowThinkingIndicator } from '@/chatListState';
@@ -39,7 +41,7 @@ import {
 } from '@/chatListPerformance';
 import { buildMessageActions } from '@/messageActions';
 import type { MobileMarkdownBlock } from '@/mobileMarkdown';
-import { buildSubagentDetailUi, selectSubagentDetailAgent } from '@/subagentDetailUi';
+import { buildSubagentDetailUi, selectSubagentDetailAgent, subagentStatusLabel } from '@/subagentDetailUi';
 import { buildToolDetailUi, buildToolGroupUi, type ToolDetailUi } from '@/toolGroupUi';
 import { useTheme } from '@/theme/ThemeProvider';
 import type { Palette } from '@/styles/tokens';
@@ -296,6 +298,10 @@ function MessageBlock({
     return <AnsweredMessage item={item} />;
   }
 
+  if (item.kind === 'trigger') {
+    return <TriggerMessage item={item} />;
+  }
+
   return (
     <View
       style={{
@@ -311,6 +317,18 @@ function MessageBlock({
     >
       <Text style={sx('text-[12px] font-bold text-red')}>{item.label}</Text>
       <Text style={sx('mt-1 text-[13px] leading-5 text-muted')}>{item.text}</Text>
+    </View>
+  );
+}
+
+/** A turn something other than the person started: a quiet line saying what started it, where a bubble would be. */
+function TriggerMessage({ item }: { readonly item: TriggerTranscriptItem }) {
+  return (
+    <View testID="mobile-trigger" style={{ alignSelf: 'center', maxWidth: '92%', paddingVertical: 4 }}>
+      <Text style={sx('text-center text-[12px] text-dim')} numberOfLines={2}>
+        <Text style={sx('font-bold text-muted')}>{item.label}</Text>
+        {item.name ? ` · ${item.name}` : ''}
+      </Text>
     </View>
   );
 }
@@ -545,7 +563,7 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
   );
 }
 
-function subagentTone(status: 'running' | 'done' | 'failed', colors: Palette): { accent: string; tint: string } {
+function subagentTone(status: SubagentStatus, colors: Palette): { accent: string; tint: string } {
   if (status === 'failed') return { accent: colors.red, tint: colors.redTint };
   if (status === 'done') return { accent: colors.greenStrong, tint: colors.greenSoft };
   return { accent: colors.purple, tint: colors.purpleSoft };
@@ -609,7 +627,7 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
                       {formatAgentTokens(agent.tokensUsed)}
                     </Text>
                     <Text style={{ color: agent.status === 'failed' ? colors.red : accent, fontSize: 11, fontWeight: '800' }}>
-                      {agent.status === 'done' ? 'Done' : agent.status === 'failed' ? 'Failed' : 'running'}
+                      {subagentStatusLabel(agent)}
                     </Text>
                   </View>
                   <MobileIcon name="chevronRight" size={15} strokeWidth={2.4} color={colors.textDim} />
@@ -801,7 +819,7 @@ function ExpandableToolCard({
   );
 }
 
-function subagentDetailTone(status: 'running' | 'done' | 'failed', colors: Palette): { readonly accent: string; readonly tint: string } {
+function subagentDetailTone(status: SubagentStatus, colors: Palette): { readonly accent: string; readonly tint: string } {
   if (status === 'failed') return { accent: colors.red, tint: colors.redTint };
   if (status === 'done') return { accent: colors.greenStrong, tint: colors.greenSoft };
   return { accent: colors.purple, tint: colors.purpleSoft };

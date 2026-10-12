@@ -68,9 +68,13 @@ export interface UserPromptAttachment {
  * `kind: 'voice'` marks the voice conversation (GPT-Live) held while an agent
  * turn ran and recorded after it as one transcript: context for later turns,
  * not a request, and shown as one collapsed block.
+ *
+ * `kind: 'agent'` opens a turn the vendor's agent of an agent connection
+ * started by itself (Claude after a task it ran in the background finished);
+ * `name` says what it took up. Nothing is sent to the agent for it.
  */
 export interface TriggerOrigin {
-  readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint' | 'voice';
+  readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint' | 'voice' | 'agent';
   /** The trigger's name (webhook/schedule/workflow/checkpoint), for the marker label. */
   readonly name: string;
 }

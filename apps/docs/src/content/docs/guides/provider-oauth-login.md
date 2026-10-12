@@ -354,8 +354,16 @@ with the task, the tools the helper ran, its answer and the tokens it used.
 
 A helper still working when its turn ends shows "in the background" on its row.
 What it does after that, up to its answer, shows in a row of its own at the
-point in the conversation where it happened. For now Moxxy reads Claude's
-report on a background helper with your next message.
+point in the conversation where it happened.
+
+When Claude's background helper finishes between your messages, Claude goes on
+by itself: Moxxy opens a turn for it at once, marked "Agent continued", with the
+helper's work and Claude's report, so you do not have to write anything to see
+it. Your next message gets only the answer to what you asked.
+
+Moxxy's rules (`~/.moxxy/permissions.json` and plugins that refuse calls) apply
+to a helper's commands between turns too. A command no rule settles is not
+asked about while no turn is open; Claude decides it by its own approvals.
 
 ## Using OAuth in your own plugin
 
