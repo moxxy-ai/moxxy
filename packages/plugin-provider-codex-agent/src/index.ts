@@ -6,6 +6,7 @@ import { authError, checkCodexAuth, codexLogin, codexLogout, codexStatus, resolv
 
 export const codexAgentProviderDef = defineProvider({
   name: CODEX_AGENT_PROVIDER_ID,
+  agentName: 'Codex',
   models: codexAgentModels,
   createClient: (config) => createCodexAgentClient(providerConfigFrom(config)),
   async resolveCredentials({ providerConfig, host }) {

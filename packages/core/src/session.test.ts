@@ -193,6 +193,17 @@ describe('Session', () => {
     expect(s.getInfo().providers[0]?.models).toEqual(prepared);
   });
 
+  it("getInfo names an agent connection's agent, so every surface can say what it is doing", () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    const client = (name: string) => () => ({ name, models: [], stream: async function* () {}, countTokens: async () => 0 });
+    s.providers.register(defineProvider({ name: 'codex-agent', agentName: 'Codex', models: [], createClient: client('codex-agent') }));
+    s.providers.register(defineProvider({ name: 'anthropic', models: [], createClient: client('anthropic') }));
+
+    const [agent, api] = s.getInfo().providers;
+    expect(agent?.agentName).toBe('Codex');
+    expect(api && 'agentName' in api).toBe(false);
+  });
+
   it('getInfo surfaces the active mode badge (and null for unbadged modes)', () => {
     const s = new Session({ cwd: '/tmp', silent: true });
     // First registration auto-activates — a badged mode lights up the snapshot

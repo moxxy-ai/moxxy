@@ -6,6 +6,7 @@ import { authError, checkOpenCode, listOpenCodeModels, opencodeLogin, opencodeLo
 
 export const opencodeProviderDef = defineProvider({
   name: OPENCODE_PROVIDER_ID,
+  agentName: OPENCODE_AGENT.label,
   models: [acpModel(OPENCODE_AGENT.defaultModel)],
   createClient: (config) => createAcpAgentClient(providerConfigFrom(config)),
   async resolveCredentials({ providerConfig, host }) {

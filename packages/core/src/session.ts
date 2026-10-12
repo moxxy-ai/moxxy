@@ -660,6 +660,7 @@ export class Session implements ClientSession, SessionRuntime {
         name: p.name,
         models: p.name === active && activeProviderModels ? activeProviderModels : p.models,
         authKind: p.auth?.kind === 'oauth' ? 'oauth' : 'api-key',
+        ...(p.agentName ? { agentName: p.agentName } : {}),
         supportsLiveModelDiscovery: p.supportsLiveModelDiscovery === true,
         enabled: this.providers.isEnabled(p.name),
       })),

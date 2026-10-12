@@ -356,6 +356,8 @@ export interface ProviderOAuthStatus {
 export interface ProviderDef {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"), which surfaces use to say what it does. */
+  readonly agentName?: string;
   /**
    * True when the provider can return its current model catalog at runtime.
    * Hosts use this capability signal to offer live discovery instead of

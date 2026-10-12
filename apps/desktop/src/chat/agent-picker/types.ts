@@ -20,6 +20,8 @@ export interface ProviderInfo {
     readonly supportsFast?: boolean;
   }>;
   readonly supportsLiveModelDiscovery?: boolean;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"). */
+  readonly agentName?: string;
 }
 
 /**

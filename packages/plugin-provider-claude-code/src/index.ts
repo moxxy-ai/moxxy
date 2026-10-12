@@ -18,6 +18,7 @@ import { ensureClaudeAgentSdk } from './sdk-install.js';
 
 export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
+  agentName: 'Claude',
   models: claudeCodeModels,
   createClient: (config) => createClaudeCodeClient(providerConfigFrom(config)),
   async resolveCredentials({ providerConfig, host }) {

@@ -157,6 +157,15 @@ how many are done once none is left. Pressing it shows the whole list under it.
 It goes when the turn ends (`chat/composer/TurnStepsBar.tsx`,
 `chat/useTurnSteps.ts`).
 
+When the agent of an agent connection (Claude, Codex, OpenCode) uses the
+person's computer with its own tools, the strip Moxxy's own Computer Use draws
+sits at the top of the conversation: "Codex is using your computer", the app it
+last named, and Stop, which stops the turn. Moxxy cannot pause that agent or
+take over from it, so the strip offers neither. It shows from the agent's first
+computer call in the turn until the turn ends, and only while Moxxy's own strip
+is not shown (`computer-control/useAgentComputer.ts`, the call recognised by
+name in `agentComputerUseOf` of `@moxxy/sdk`).
+
 Files reach the composer four ways: the add menu, the file browser, a paste,
 and a drop anywhere on the conversation, which says it will take them while
 they are held over it (`chat/useFileDropZone.ts`, `chat/DropVeil.tsx`). A

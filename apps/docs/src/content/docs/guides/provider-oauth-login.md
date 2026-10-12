@@ -331,6 +331,15 @@ conversation only; your Codex config is not written), unless your config sets
 `[tools.update_plan] enabled` either way, in which case your choice holds.
 | OpenCode | its `todowrite` tool, or a plan sent over ACP |
 
+## When an agent uses your computer
+
+When Claude, Codex or OpenCode controls your computer with its own tools (a
+computer-use MCP server, or Codex's computer use), the desktop says so at the
+top of the conversation, "Codex is using your computer", with the app it last
+named and a Stop button that stops the turn. The terminal shows the same as a
+line above the prompt; Esc stops it. It shows from the agent's first computer
+call in the turn until the turn ends.
+
 ## Using OAuth in your own plugin
 
 The `@moxxy/plugin-oauth` plugin contributes three tools:

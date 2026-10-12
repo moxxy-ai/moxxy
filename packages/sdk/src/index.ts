@@ -313,6 +313,7 @@ export {
   imageToolOutput,
 } from './tool-display.js';
 export { fileDiffFromText, fileDiffFromPatch, parseUnifiedDiff, diffPathIn, type PatchHunk } from './file-diff.js';
+export { agentComputerUseOf, type AgentComputerUse } from './agent-computer-use.js';
 export { toolOutputForModel, type ToolOutputForModel, type ToolImageBlock } from './tool-output.js';
 export type {
   ViewNode,

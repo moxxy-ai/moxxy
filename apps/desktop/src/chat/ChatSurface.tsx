@@ -29,6 +29,7 @@ import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
 import { useComputerControl } from '../computer-control/useComputerControl';
 import { ComputerControlStrip } from '../computer-control/ComputerControlStrip';
+import { useAgentComputer } from '../computer-control/useAgentComputer';
 import { usesComputer } from '../computer-control/panel-model';
 import { useComputerPreview } from '../computer-control/useComputerPreview';
 import { ComputerPreviewPip } from '../computer-control/ComputerPreviewPip';
@@ -155,6 +156,9 @@ export function ChatSurface({
   // and the composer's mode menu both read it; two independent hooks meant two
   // round-trips per refresh and two chances to disagree about the active model.
   const agent = useAgentSession(workspaceId, !ready || chat.activeTurnId !== null || chat.sending, modelOwner);
+  const activeAgentName = agent.info?.providers.find((p) => p.name === agent.info?.activeProvider)?.agentName;
+  // An agent connection's agent using the computer with its own tools: Moxxy can only stop its turn.
+  const agentComputer = useAgentComputer(chat.events, chat.activeTurnId !== null, activeAgentName);
   const activeSessionName =
     activeDesk?.sessions.find((sn) => sn.id === activeDesk.activeSessionId)?.name ?? null;
   // The run's state, as the bar reports it. `awaiting` outranks `running`
@@ -280,6 +284,7 @@ export function ChatSurface({
         {notice}
         {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)}
           previewHidden={preview.hidden} onShowPreview={preview.show} />}
+        {!computer.view && agentComputer && <ComputerControlStrip view={agentComputer} busy={false} error={null} onCommand={() => void chat.abort()} />}
         {preview.view && <ComputerPreviewPip view={preview.view} target={computer.view?.target ?? null} cursor={computer.cursor} onHide={preview.hide} videoCanvas={preview.videoCanvas} />}
         {chat.isEmpty ? (
           <EmptyState ready={ready} />

@@ -8,6 +8,8 @@ import {
 } from '@moxxy/sdk';
 import { ChatView } from '../components/ChatView.js';
 import { StatusLine } from '../components/StatusLine.js';
+import { AgentComputerLine } from '../components/AgentComputerLine.js';
+import { turnComputerUse } from '@moxxy/chat-model';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
@@ -213,6 +215,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const modeName = getModeName(session);
   const modeBadge = getModeBadge(session);
   const sessionInfo = session.getInfo();
+  const agentName = sessionInfo.providers.find((p) => p.name === sessionInfo.activeProvider)?.agentName;
+  const agentComputer = turn.busy ? turnComputerUse(stream.events) : null;
   const slashSuggestions = React.useMemo(
     () =>
       buildSlashSuggestions(session, {
@@ -469,6 +473,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         {...(getChannels ? { getChannels } : {})}
         onClose={() => setOverlay(null)}
       />
+      {agentComputer ? <AgentComputerLine use={agentComputer} agentName={agentName} /> : null}
       <InteractiveZone
         session={session}
         pendingPermission={pendingPermission}

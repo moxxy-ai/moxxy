@@ -68,6 +68,8 @@ export interface ProviderInfo {
    *  definition, 'api-key' otherwise. Defaults to 'api-key' for
    *  providers that don't declare. */
   readonly authKind: ProviderAuthKind;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"). */
+  readonly agentName?: string;
   /** True when the provider's plugin can list its models live (e.g.
    *  via /v1/models). Lets the desktop's model picker show a
    *  "Fetch live" affordance only where it makes sense. */
