@@ -29,8 +29,10 @@ import {
   defineTranscriber,
   z,
 } from '@moxxy/sdk';
+import { HISTORY_PAGE_MAX_CHARS, assertDefined } from '@moxxy/sdk';
 import type {
   AssistantMessageEvent,
+  UserPromptAttachment,
   CommandOutput,
   SurfaceDataMessage,
   SurfaceInstance,
@@ -1527,6 +1529,87 @@ describe('session.loadHistory paging (protocol v10)', () => {
     expect(page.prevCursor).toBeNull();
     // The page IS the authoritative log (same content the mirror holds).
     expect(JSON.stringify(page.events)).toBe(JSON.stringify(remote.log.toJSON()));
+  });
+});
+
+describe('large attachments never wedge a client (protocol v26)', () => {
+  const scan = 'A'.repeat(20 * 1024 * 1024);
+  const scanned = (): UserPromptAttachment => ({
+    kind: 'document',
+    content: scan,
+    mediaType: 'application/pdf',
+    name: 'scan.pdf',
+  });
+
+  it('a chat holding a 20 MB scan opens for a fresh client, and the scan reads back in slices', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('read it')] }));
+    const sender = await attach(socketPath, 'desktop');
+    for await (const _e of sender.runTurn('here is the scan', { attachments: [scanned()] })) void _e;
+
+    // The runner keeps the bytes (the model needs them)…
+    const logged = session.log.slice().find((e) => e.type === 'user_prompt');
+    assertDefined(logged, 'logged prompt');
+    expect(logged.type === 'user_prompt' && logged.attachments?.[0]?.content).toBe(scan);
+    // …while the live event every client received carried only its size.
+    const live = sender.log.toJSON().find((e) => e.type === 'user_prompt');
+    assertDefined(live, 'live prompt');
+    expect(live.type === 'user_prompt' && live.attachments?.[0]).toMatchObject({
+      content: '',
+      name: 'scan.pdf',
+      omittedBytes: 15 * 1024 * 1024,
+    });
+
+    // A client that attaches later (the desktop after a restart) loads history…
+    const reopened = await connectRemoteSession({ socketPath, role: 'desktop', replay: 'none' });
+    remotes.push(reopened);
+    let dropped = false;
+    reopened.onClose(() => {
+      dropped = true;
+    });
+    const page = await reopened.loadHistory(null, 200);
+    const prompt = page.events.find((e) => e.type === 'user_prompt');
+    assertDefined(prompt, 'paged prompt');
+    expect(prompt.type === 'user_prompt' && prompt.attachments?.[0]?.content).toBe('');
+    expect(JSON.stringify(page.events).length).toBeLessThan(1024 * 1024);
+
+    // …and can still fetch the scan itself, one bounded slice at a time.
+    let rebuilt = '';
+    for (;;) {
+      const chunk = await reopened.readAttachment(prompt.seq, 0, rebuilt.length);
+      rebuilt += chunk.data;
+      if (rebuilt.length >= chunk.total) break;
+    }
+    expect(rebuilt).toBe(scan);
+    expect(dropped).toBe(false);
+  });
+
+  it('keeps a history page within its byte budget by returning fewer events', async () => {
+    const { session, socketPath } = await serve(
+      new FakeProvider({ script: Array.from({ length: 12 }, (_, i) => textReply(`a${i}`)) }),
+    );
+    const remote = await attach(socketPath);
+    // Twelve prompts, each with an image just under the per-attachment inline
+    // cap, so every one reaches clients in full and only the page budget bounds them.
+    const image = 'B'.repeat(500 * 1024);
+    for (let i = 0; i < 12; i += 1) {
+      for await (const _e of remote.runTurn(`q${i}`, {
+        attachments: [{ kind: 'image', content: image, mediaType: 'image/png', name: `${i}.png` }],
+      })) void _e;
+    }
+    const page = await remote.loadHistory(null, 200);
+    expect(JSON.stringify(page.events).length).toBeLessThanOrEqual(HISTORY_PAGE_MAX_CHARS);
+    expect(page.events.length).toBeLessThan(session.log.length);
+    assertDefined(page.prevCursor, 'older page');
+    expect(page.prevCursor).toBe(page.events[0]?.seq);
+    // Walking back still reaches the start, every event exactly once.
+    const collected = page.events.map((e) => e.seq);
+    let before: number | null = page.prevCursor;
+    for (let guard = 0; guard < 200 && before !== null; guard += 1) {
+      const older = await remote.loadHistory(before, 200);
+      collected.unshift(...older.events.map((e) => e.seq));
+      before = older.prevCursor;
+    }
+    expect(collected).toEqual(Array.from({ length: session.log.length }, (_, i) => i));
   });
 });
 

@@ -312,6 +312,19 @@ export {
   type JsonFileStoreOptions,
 } from './json-file-store.js';
 export { assertDefined, assertNever, invariant } from './assert.js';
+export {
+  ATTACHMENT_READ_CHUNK_CHARS,
+  CLIENT_INLINE_ATTACHMENT_CHARS,
+  CLIENT_INLINE_EVENT_CHARS,
+  HISTORY_PAGE_MAX_CHARS,
+  MODEL_ATTACHMENT_BUDGET_CHARS,
+  attachmentBytes,
+  eventForClient,
+  historyPageForClient,
+  readAttachmentChunk,
+  type AttachmentChunk,
+  type HistoryPage,
+} from './attachment-payload.js';
 export { compareSemver, parseSemverCore } from './semver.js';
 // readRequestBody/bearerTokenMatches (http-utils) and the channel-auth value
 // helpers live on the './server' subpath — they reach node:http/crypto/fs/path.

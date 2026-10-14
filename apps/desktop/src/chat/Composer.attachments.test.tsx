@@ -73,7 +73,7 @@ describe('Composer with a dropped file', () => {
     act(() => emitDroppedFiles({ files: [tooLarge()], folders: [] }));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('holiday.png is 8.1 MB. An image can be up to 8 MB.');
+    expect(alert).toHaveTextContent('holiday.png is 8.1 MB. Dropped or pasted, an image can be up to 8 MB. Attach file in the chat takes a larger one from the disk.');
     expect(screen.queryByText('@holiday.png')).toBeNull();
   });
 

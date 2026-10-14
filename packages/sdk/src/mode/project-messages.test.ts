@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { projectMessagesFromLog, projectUserPrompt, resolvedCallIdSet, skillsWithinReach } from './project-messages.js';
+import { MODEL_ATTACHMENT_BUDGET_CHARS } from '../attachment-payload.js';
+import {
+  projectMessagesFromLog,
+  projectUserPrompt,
+  resolvedCallIdSet,
+  skillsWithinReach,
+} from './project-messages.js';
 import type { Skill } from '../skill.js';
 import { computeElisionState } from '../elision-state.js';
 import { asEventId, asSessionId, asTurnId } from '../ids.js';
@@ -250,5 +256,42 @@ describe('projectMessagesFromLog tool pairing across a compaction boundary', () 
       role: 'tool_result',
       content: [{ type: 'tool_result', toolUseId: 'cut', isError: true }],
     });
+  });
+});
+
+describe('projectMessagesFromLog attachment budget', () => {
+  const pdf = (name: string, chars: number) => ({
+    kind: 'document' as const,
+    content: 'A'.repeat(chars),
+    mediaType: 'application/pdf',
+    name,
+  });
+  const blocksOf = (events: ReadonlyArray<MoxxyEvent>) =>
+    projectMessagesFromLog({ log: reader(events) }).flatMap((m) => m.content);
+
+  it('sends the newest attachments in full and names the older ones that no longer fit', () => {
+    const half = Math.floor(MODEL_ATTACHMENT_BUDGET_CHARS * 0.6);
+    const blocks = blocksOf([
+      userPrompt(0, { text: 'first scan', attachments: [pdf('old-scan.pdf', half)] }),
+      userPrompt(1, { text: 'second scan', attachments: [pdf('new-scan.pdf', half)] }),
+    ]);
+    const documents = blocks.filter((b) => b.type === 'document');
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({ name: 'new-scan.pdf' });
+    const note = blocks.find((b) => b.type === 'text' && b.text.includes('old-scan.pdf'));
+    expect(note).toBeDefined();
+    const sent = blocks.reduce((n, b) => n + (b.type === 'document' ? b.data.length : 0), 0);
+    expect(sent).toBeLessThanOrEqual(MODEL_ATTACHMENT_BUDGET_CHARS);
+  });
+
+  it('never sends an empty payload for an attachment whose bytes were left out', () => {
+    const blocks = projectUserPrompt(
+      userPrompt(0, {
+        attachments: [{ kind: 'image', content: '', mediaType: 'image/png', name: 'shot.png', omittedBytes: 2048 }],
+      }),
+      noElision,
+    );
+    expect(blocks.some((b) => b.type === 'image')).toBe(false);
+    expect(blocks.some((b) => b.type === 'text' && b.text.includes('shot.png'))).toBe(true);
   });
 });

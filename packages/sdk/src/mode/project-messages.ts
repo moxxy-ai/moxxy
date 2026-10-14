@@ -2,7 +2,8 @@ import type { ContentBlock, ProviderMessage } from '../provider.js';
 import type { ModeContext } from '../mode.js';
 import type { Skill } from '../skill.js';
 import { toolPatternMatches } from '../skill-mentions.js';
-import type { MoxxyEvent, UserPromptEvent } from '../events.js';
+import type { MoxxyEvent, UserPromptAttachment, UserPromptEvent } from '../events.js';
+import { MODEL_ATTACHMENT_BUDGET_CHARS, attachmentBytes } from '../attachment-payload.js';
 import {
   activeCompactionRanges,
   makeCompactionLookup,
@@ -135,6 +136,46 @@ export interface ProjectMessagesOptions {
   readonly precomputedElisionState?: ElisionState;
 }
 
+function hasModelPayload(att: UserPromptAttachment): boolean {
+  return att.kind === 'image' || att.kind === 'document';
+}
+
+function attachmentLeftOutNote(att: UserPromptAttachment): string {
+  const label = `${att.kind}${att.name ? ` "${att.name}"` : ''}`;
+  const mb = (attachmentBytes(att) / (1024 * 1024)).toFixed(1);
+  return (
+    `[${label} (${mb} MB) was attached earlier in this conversation and is no longer sent ` +
+    `with each request, to keep the request within the model's size limit. ` +
+    `If you need it again, ask the person to attach it again.]`
+  );
+}
+
+/**
+ * Keys (`seq:index`) of the image/document attachments that go to the model in
+ * full: newest first, while they fit {@link MODEL_ATTACHMENT_BUDGET_CHARS}.
+ * Deterministic for a given log, so the prompt cache sees a stable prefix.
+ */
+function attachmentsSentInFull(
+  events: ReadonlyArray<MoxxyEvent>,
+  el: ElisionState,
+  isCompacted: (seq: number) => boolean,
+): ReadonlySet<string> {
+  const keys = new Set<string>();
+  let room = MODEL_ATTACHMENT_BUDGET_CHARS;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i];
+    if (!e || e.type !== 'user_prompt' || !e.attachments) continue;
+    if (isCompacted(e.seq) || conversationalStubbed(e, el)) continue;
+    for (const [index, att] of e.attachments.entries()) {
+      if (!hasModelPayload(att) || att.omittedBytes !== undefined) continue;
+      if (att.content.length > room) continue;
+      room -= att.content.length;
+      keys.add(`${e.seq}:${index}`);
+    }
+  }
+  return keys;
+}
+
 /**
  * Pure projection of a single `user_prompt` event to its content blocks.
  *
@@ -144,15 +185,22 @@ export interface ProjectMessagesOptions {
  * what the inline switch arm produced. Caller decides how to wrap it as a
  * message / record the stable prefix.
  */
-export function projectUserPrompt(event: UserPromptEvent, el: ElisionState): ContentBlock[] {
+export function projectUserPrompt(
+  event: UserPromptEvent,
+  el: ElisionState,
+  /** Which attachments go to the model in full; the rest become a short note. Default: all. */
+  sendsInFull: (index: number) => boolean = () => true,
+): ContentBlock[] {
   // Elided + conversational: collapse to a stub (anchor/tiny kept full).
   if (conversationalStubbed(event, el)) {
     return [{ type: 'text', text: conversationalStub('user', event.seq) }];
   }
   const blocks: ContentBlock[] = [{ type: 'text', text: event.text }];
   if (event.attachments) {
-    for (const att of event.attachments) {
-      if (att.kind === 'image') {
+    for (const [index, att] of event.attachments.entries()) {
+      if (att.omittedBytes !== undefined || (hasModelPayload(att) && !sendsInFull(index))) {
+        blocks.push({ type: 'text', text: attachmentLeftOutNote(att) });
+      } else if (att.kind === 'image') {
         blocks.push({
           type: 'image',
           mediaType: att.mediaType ?? 'image/png',
@@ -277,6 +325,7 @@ export function projectMessages(
   // Only VISIBLE results count: one swallowed by a compaction is never sent, so
   // its still-visible tool_use needs the fallback just like a missing one.
   const resolvedCallIds = resolvedCallIdSet(allEvents.filter((e) => !compactionFor(e.seq)));
+  const sentInFull = attachmentsSentInFull(allEvents, el, (seq) => compactionFor(seq) !== null);
   // callIds whose tool_use block is projected. A tool_result outside this set
   // answers a call a compaction summarized away (the result landed after later
   // turns began); providers reject a result with no matching call.
@@ -347,7 +396,10 @@ export function projectMessages(
       case 'user_prompt': {
         flush();
         pendingReasoning = null;
-        messages.push({ role: 'user', content: projectUserPrompt(e, el) });
+        messages.push({
+          role: 'user',
+          content: projectUserPrompt(e, el, (index) => sentInFull.has(`${e.seq}:${index}`)),
+        });
         recordStable(e.seq);
         break;
       }

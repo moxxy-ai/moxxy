@@ -1,16 +1,9 @@
 import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import type { UserPromptAttachment } from '@moxxy/sdk';
+import { attachmentBytes } from '@moxxy/sdk/attachment-payload';
+import { useAttachmentContent } from '../attachments/useAttachmentContent';
 import { imagePreviewSrc, type ImagePreviewItem } from '../image-preview/types';
-
-/** Rough byte size of an attachment's payload, for the chip label. Base64
- *  (image/document) decodes to ~3/4 its length; inline text is its own length. */
-function payloadBytes(att: UserPromptAttachment): number {
-  if (att.kind === 'image' || att.kind === 'document') {
-    return Math.floor((att.content.length * 3) / 4);
-  }
-  return att.content.length;
-}
 
 function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -20,15 +13,23 @@ function humanSize(bytes: number): string {
 
 function ImageThumb({
   att,
+  seq,
+  index,
   onPreviewImage,
 }: {
   readonly att: UserPromptAttachment;
+  readonly seq?: number;
+  readonly index: number;
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
 }): JSX.Element {
+  // A large image reaches the window without its bytes; until they are read
+  // back (or if they cannot be), it shows as a labelled chip.
+  const base64 = useAttachmentContent(att, seq, index);
+  if (base64 === null) return <FileChip att={att} />;
   const image = {
     name: att.name ?? 'attached image',
     mediaType: att.mediaType ?? 'image/png',
-    base64: att.content,
+    base64,
   };
   return (
     <button
@@ -46,7 +47,7 @@ function ImageThumb({
 
 function FileChip({ att }: { readonly att: UserPromptAttachment }): JSX.Element {
   const label = att.name ?? att.kind;
-  const size = humanSize(payloadBytes(att));
+  const size = humanSize(attachmentBytes(att));
   return (
     <span className="attachment-file" title={`${label} · ${size}`}>
       <Icon name="attach" size={12} />
@@ -58,10 +59,13 @@ function FileChip({ att }: { readonly att: UserPromptAttachment }): JSX.Element 
 
 export function UserBlock({
   text,
+  seq,
   attachments,
   onPreviewImage,
 }: {
   readonly text: string;
+  /** The prompt event's seq, so a left-out attachment can be read back. */
+  readonly seq?: number;
   readonly attachments?: ReadonlyArray<UserPromptAttachment>;
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
 }): JSX.Element {
@@ -82,6 +86,8 @@ export function UserBlock({
               <ImageThumb
                 key={`${att.name ?? 'img'}-${i}`}
                 att={att}
+                seq={seq}
+                index={i}
                 onPreviewImage={onPreviewImage}
               />
             ) : (

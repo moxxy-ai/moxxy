@@ -74,7 +74,7 @@ describe('files dropped on the chat', () => {
 
     drop([sized('holiday.png', 'image/png', ATTACHMENT_LIMITS.imageBytes + 1)]);
 
-    await waitFor(() => expect(hook.current.attachError).toBe('holiday.png is 8.1 MB. An image can be up to 8 MB.'));
+    await waitFor(() => expect(hook.current.attachError).toBe('holiday.png is 8.1 MB. Dropped or pasted, an image can be up to 8 MB. Attach file in the chat takes a larger one from the disk.'));
     expect(calls).toEqual([]);
     expect(hook.current.attachments).toEqual([]);
   });
@@ -86,7 +86,7 @@ describe('files dropped on the chat', () => {
 
     await waitFor(() => expect(hook.current.attachments.map((a) => a.name)).toEqual(['notes.md']));
     expect(hook.current.attachError).toBe(
-      'assets is a folder. Attach the files inside it. dump.sql is 80 MB. A file can be up to 32 MB.',
+      'assets is a folder. Attach the files inside it. dump.sql is 80 MB. Dropped or pasted, a file can be up to 32 MB. Attach file in the chat takes a larger one from the disk.',
     );
   });
 
@@ -143,7 +143,7 @@ describe('a file pasted from the file manager', () => {
 
     paste(hook, [sized('film.mov', 'video/quicktime', 2 * 1024 * 1024 * 1024)]);
 
-    await waitFor(() => expect(hook.current.attachError).toBe('film.mov is 2 GB. A file can be up to 32 MB.'));
+    await waitFor(() => expect(hook.current.attachError).toBe('film.mov is 2 GB. Dropped or pasted, a file can be up to 32 MB. Attach file in the chat takes a larger one from the disk.'));
     expect(calls).toEqual([]);
   });
 });

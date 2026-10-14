@@ -1,6 +1,7 @@
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
+import { OutboundBacklogGuard } from './backlog-guard.js';
 import type { Transport, TransportServer } from './transport.js';
 import { isRunnerUp } from './socket-path.js';
 
@@ -35,14 +36,13 @@ const DEFAULT_MAX_INBOUND_FRAME_BYTES = 64 * 1024 * 1024;
  * destroy that one client. Mirrors the ws transport's SlowReaderGuard (4 MB).
  */
 const DEFAULT_MAX_OUTBOUND_BUFFER_BYTES = 4 * 1024 * 1024;
-/** How long the outbound buffer may stay over the limit before we drop the
- *  client. A window so one legitimately large in-flight frame to a healthy
- *  reader doesn't trip the guard. */
+/** How long a reader over the limit may go without taking a single byte
+ *  before we drop it. */
 const DEFAULT_OUTBOUND_STALL_GRACE_MS = 10_000;
-/** Hard ceiling above which a slow reader is dropped immediately, regardless of
- *  grace — bounds a peer that perpetually rides just over the soft limit
- *  (resetting the grace clock on each transient drain). */
-const OUTBOUND_HARD_MULTIPLIER = 4;
+/** Backlog above which a client is dropped at once, draining or not — the
+ *  memory bound. Well above the largest frame a client legitimately receives,
+ *  so a big frame to a healthy reader never trips it. */
+const DEFAULT_MAX_OUTBOUND_HARD_BYTES = 4 * DEFAULT_MAX_INBOUND_FRAME_BYTES;
 
 /**
  * NDJSON framing over a single `net.Socket`: one JSON value per line. Safe
@@ -60,14 +60,19 @@ class NdjsonTransport implements Transport {
   private frameHandler: ((frame: unknown) => void) | undefined;
   private closeHandler: ((err?: Error) => void) | undefined;
   private closedEmitted = false;
-  private outboundStalledSinceMs: number | null = null;
+  private readonly outbound: OutboundBacklogGuard;
 
   constructor(
     private readonly socket: net.Socket,
     private readonly maxInboundFrameBytes = DEFAULT_MAX_INBOUND_FRAME_BYTES,
-    private readonly maxOutboundBufferBytes = DEFAULT_MAX_OUTBOUND_BUFFER_BYTES,
-    private readonly outboundStallGraceMs = DEFAULT_OUTBOUND_STALL_GRACE_MS,
+    maxOutboundBufferBytes = DEFAULT_MAX_OUTBOUND_BUFFER_BYTES,
+    outboundStallGraceMs = DEFAULT_OUTBOUND_STALL_GRACE_MS,
   ) {
+    this.outbound = new OutboundBacklogGuard(
+      maxOutboundBufferBytes,
+      outboundStallGraceMs,
+      Math.max(DEFAULT_MAX_OUTBOUND_HARD_BYTES, maxOutboundBufferBytes * 4),
+    );
     socket.setEncoding('utf8');
     socket.on('data', (chunk: string) => this.onData(chunk));
     socket.on('close', () => this.emitClose());
@@ -119,39 +124,23 @@ class NdjsonTransport implements Transport {
 
   send(frame: unknown): void {
     if (this.socket.destroyed) return;
-    // Honour backpressure: a reader that stalls makes `socket.write` queue every
-    // outbound byte in process memory. If the queued backlog stays over the soft
-    // limit past the grace window (or blows the hard ceiling at once), drop this
-    // one client instead of letting it back-pressure the whole runner.
-    if (this.evictIfStalled()) return;
-    this.socket.write(`${JSON.stringify(frame)}\n`);
+    // Honour backpressure: a reader that stops reading makes `socket.write`
+    // queue every outbound byte in process memory, so one that takes nothing
+    // for the grace window (or blows the hard ceiling) is dropped instead of
+    // back-pressuring the whole runner. See OutboundBacklogGuard.
+    if (this.outbound.check(this.socket.writableLength, Date.now()) === 'terminate') {
+      this.dropSlowReader(this.socket.writableLength);
+      return;
+    }
+    const line = `${JSON.stringify(frame)}\n`;
+    this.socket.write(line);
+    this.outbound.recordSent(Buffer.byteLength(line));
   }
 
-  /** Returns true and destroys the socket when the outbound backlog has stayed
-   *  over the limit too long. Draining below the limit resets the grace clock. */
-  private evictIfStalled(): boolean {
-    const buffered = this.socket.writableLength;
-    if (buffered > this.maxOutboundBufferBytes * OUTBOUND_HARD_MULTIPLIER) {
-      return this.dropSlowReader(buffered);
-    }
-    if (buffered <= this.maxOutboundBufferBytes) {
-      this.outboundStalledSinceMs = null;
-      return false;
-    }
-    const now = Date.now();
-    if (this.outboundStalledSinceMs === null) {
-      this.outboundStalledSinceMs = now;
-      return false;
-    }
-    if (now - this.outboundStalledSinceMs < this.outboundStallGraceMs) return false;
-    return this.dropSlowReader(buffered);
-  }
-
-  private dropSlowReader(buffered: number): boolean {
-    const err = new Error(`slow reader: ${buffered} bytes unsent past grace window`);
+  private dropSlowReader(buffered: number): void {
+    const err = new Error(`slow reader: ${buffered} bytes unsent, none taken within the grace window`);
     this.socket.destroy(err);
     this.emitClose(err);
-    return true;
   }
 
   onFrame(handler: (frame: unknown) => void): void {
