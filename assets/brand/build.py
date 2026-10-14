@@ -4,14 +4,15 @@
     build.py <master.png> <out-dir>
 
 The master is a rendered picture on a black ground, so no derivative can be a
-recolour of a vector: each one is cut out of that picture. Stdlib only, because
-the repo ships no image library.
+recolour of a vector: each one is cut out of that picture, except the menu-bar
+glyph, which is too small to cut cleanly and is drawn from shapes instead.
+Stdlib only, because the repo ships no image library.
 
 Writes into <out-dir>:
   moxxy-mark-<n>.png           the mark on transparency, cut out of the ground
   moxxy-icon-<n>.png           app icon: the master on a rounded macOS tile
   moxxy-icon-square-1024.png   full-bleed square with no alpha (iOS, Expo)
-  moxxy-mark-template-<n>.png  one-ink menu-bar glyph (macOS template image)
+  moxxy-mark-template-<n>.png  one-ink menu-bar glyph, drawn (macOS template image)
   moxxy-mark-template-blink-<n>.png  the same glyph with the eyes closed
   moxxy-mark-eyeless-<n>.png   the cut-out mark with its eyes painted out
   moxxy-mark-eyes.json         where the eyes sit, as shares of the mark's side
@@ -39,12 +40,6 @@ EYE_MIN_RED = 200
 VISOR_MAX = 32
 # Clear space around the cut-out mark, as a share of its longer side.
 MARK_MARGIN = 0.04
-# At 22px an eye is barely one pixel wide; the menu-bar glyph widens its eye
-# holes by this share of the mark so they still read.
-TEMPLATE_EYE_GROW = 0.012
-
-# A closed eye is a slit this share of the open eye's height.
-TEMPLATE_BLINK_SLIT = 0.2
 # Painting an eye out covers its glow too: the halo reaches about one eye
 # width past the pill and fades over this many more eye widths.
 EYE_HALO = 1.1
@@ -308,27 +303,61 @@ def rounded_tile(w, rgba, size):
     return out
 
 
-def template_glyph(mark, side, box, eyes, size, closed=False):
-    """One ink, shape in alpha: the solid silhouette with the eyes punched out.
+def rounded_box(x, y, cx, cy, half_w, half_h, r):
+    """Signed distance from (x, y) to a rounded rectangle: negative inside."""
+    qx, qy = abs(x - cx) - (half_w - r), abs(y - cy) - (half_h - r)
+    return math.hypot(max(qx, 0), max(qy, 0)) + min(max(qx, qy), 0) - r
+
+
+def triangle(x, y, corners):
+    """Signed distance from (x, y) to a triangle: negative inside."""
+    edge, inside = math.inf, False
+    for i, (ax, ay) in enumerate(corners):
+        bx, by = corners[i - 1]
+        dx, dy = bx - ax, by - ay
+        t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
+        edge = min(edge, math.hypot(x - ax - t * dx, y - ay - t * dy))
+        if (ay > y) != (by > y) and x < dx * (y - ay) / dy + ax:
+            inside = not inside
+    return -edge if inside else edge
+
+
+def smooth_union(a, b, k):
+    """Union of two shapes with the seam rounded over about k units."""
+    h = max(k - abs(a - b), 0) / k
+    return min(a, b) - h * h * k / 4
+
+
+def menu_bar_face(x, y, closed):
+    """The glyph on a 22-unit grid: a speech bubble whose body is a ring of
+    ink around a clear visor, with the two eyes inked inside the visor and the
+    tail at the lower right, as on the mark. Closed eyes are short slits."""
+    body = rounded_box(x, y, 11, 10, 9, 7.6, 5.4)
+    tail = triangle(x, y, ((12.2, 15.6), (18.6, 12.4), (18.9, 20.4)))
+    bubble = smooth_union(body, tail, 2.4)
+    ring = max(bubble, -rounded_box(x, y, 11, 10.2, 6.6, 4.6, 3.4))
+    if closed:
+        eyes = min(rounded_box(x, y, cx, 10.2, 1.7, 0.6, 0.6) for cx in (8.2, 13.8))
+    else:
+        eyes = min(rounded_box(x, y, cx, 10.2, 1.0, 2.2, 1.0) for cx in (8.2, 13.8))
+    return min(ring, eyes)
+
+
+def template_glyph(size, closed=False):
+    """One ink, shape in alpha: the menu-bar glyph, drawn from shapes.
 
     AppKit tints a template image for the light and dark bar and reads only its
-    alpha, so the glyph has to be legible as a silhouette alone. With `closed`
-    each eye is a thin slit across its middle: the blink frame.
+    alpha. A silhouette cut from the master came out ragged at 22 px, so the
+    glyph is drawn, each pixel's coverage taken from its distance to the edge.
+    With `closed` the eyes are slits: the blink frame.
     """
-    left, top, _ = box
-    grow = round(side * TEMPLATE_EYE_GROW)
-    ink = bytearray(side * side * 4)
-    for i in range(side * side):
-        ink[i * 4 + 3] = mark[i * 4 + 3]
-    for x0, y0, x1, y1 in eyes:
-        top_y, bottom_y = y0 - grow, y1 + grow
-        if closed:
-            mid, half = (top_y + bottom_y) / 2, (bottom_y - top_y) * TEMPLATE_BLINK_SLIT / 2
-            top_y, bottom_y = round(mid - half), round(mid + half)
-        for y in range(top_y - top, bottom_y - top + 1):
-            for x in range(x0 - left - grow, x1 - left + grow + 1):
-                ink[(y * side + x) * 4 + 3] = 0
-    return resize(side, side, ink, size, size)
+    scale = size / 22
+    ink = bytearray(size * size * 4)
+    for py in range(size):
+        for px in range(size):
+            edge = menu_bar_face((px + 0.5) / scale, (py + 0.5) / scale, closed) * scale
+            ink[(py * size + px) * 4 + 3] = round(255 * max(0.0, min(1.0, 0.5 - edge)))
+    return ink
 
 
 def paint_out_eyes(w, h, cut, visor, eyes):
@@ -412,10 +441,9 @@ def main():
     write_png(f'{out_dir}/moxxy-icon-square-1024.png', 1024, 1024,
               resize(w, h, rgba, 1024, 1024), alpha=False)
     for n in TEMPLATE_SIZES:
-        write_png(f'{out_dir}/moxxy-mark-template-{n}.png', n, n,
-                  template_glyph(mark, side, box, eyes, n))
+        write_png(f'{out_dir}/moxxy-mark-template-{n}.png', n, n, template_glyph(n))
         write_png(f'{out_dir}/moxxy-mark-template-blink-{n}.png', n, n,
-                  template_glyph(mark, side, box, eyes, n, closed=True))
+                  template_glyph(n, closed=True))
     eyeless = crop(w, h, paint_out_eyes(w, h, cut, visor, eyes), box)
     for n in EYELESS_SIZES:
         write_png(f'{out_dir}/moxxy-mark-eyeless-{n}.png', n, n, resize(side, side, eyeless, n, n))

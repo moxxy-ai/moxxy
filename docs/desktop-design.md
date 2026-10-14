@@ -17,7 +17,7 @@ only; the mobile app, the TUI and the web channel keep their own look.
 | Geometry | Rounded: 4 / 6 / 8 / 12 px, plus rounder bubbles and sheets. |
 | Sidebar row | A session. Workspaces are collapsible section headers above their sessions. |
 | Other destinations | One account menu at the foot of the sidebar, and the ⌘K / Ctrl+K palette. |
-| The mark | One cut-out picture (`public/moxxy-mark.png`, built in `assets/brand/`): a metal ribbon around a dark visor with two lit eyes. It is the same on both themes and never takes a text colour. A loading mark breathes (scale 0.92 and opacity 0.7 over 2.4 s); it does not turn, because the face is not symmetric. The sidebar masthead and the macOS menu bar blink now and then; nothing else does, so the blink stays a sign of life rather than noise. Reduced motion holds every mark still. |
+| The mark | One cut-out picture (`public/moxxy-mark.png`, built in `assets/brand/`): a metal ribbon around a dark visor with two lit eyes. It is the same on both themes and never takes a text colour. A loading mark breathes (scale 0.92 and opacity 0.7 over 2.4 s); it does not turn, because the face is not symmetric. The sidebar masthead and the macOS menu bar blink now and then; nothing else does, so the blink stays a sign of life rather than noise. Reduced motion holds every mark still. The menu-bar glyph is drawn from shapes, not cut from the picture: a bubble whose ring of ink holds a clear visor with the two eyes in it, because a 22 px silhouette of the 3D ribbon came out ragged. |
 
 ## Layout target
 

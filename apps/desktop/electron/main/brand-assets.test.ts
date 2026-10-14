@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -13,6 +14,26 @@ function pngHeader(file: string): { width: number; height: number; colourType: n
 }
 
 const RGBA = 6;
+
+/** Alpha at a point of an RGBA PNG as assets/brand/build.py writes it: unfiltered rows. */
+function templateAlpha(file: string): (at: { x: number; y: number }) => number {
+  const png = readFileSync(file);
+  const { width } = pngHeader(file);
+  const idat: Buffer[] = [];
+  for (let at = 8; at < png.length; ) {
+    const length = png.readUInt32BE(at);
+    if (png.subarray(at + 4, at + 8).toString('ascii') === 'IDAT') {
+      idat.push(png.subarray(at + 8, at + 8 + length));
+    }
+    at += length + 12;
+  }
+  const rows = inflateSync(Buffer.concat(idat));
+  const stride = width * 4 + 1;
+  return ({ x, y }) => {
+    expect(rows[y * stride], 'build.py writes every row unfiltered').toBe(0);
+    return rows[y * stride + 1 + x * 4 + 3] ?? -1;
+  };
+}
 
 describe('desktop brand assets', () => {
   it('ships the cut-out mark every window paints', () => {
@@ -81,6 +102,24 @@ describe('desktop brand assets', () => {
       height: 44,
       colourType: RGBA,
     });
+  });
+
+  it('draws the menu-bar glyph as a bubble with a visor and two eyes inside it', () => {
+    // A silhouette cut from the 3D picture came out ragged at 22px, so the
+    // glyph is drawn from shapes: a ring of ink, the visor clear inside it, and
+    // the eyes inked in the visor. Points are on the 44px frame.
+    const open = templateAlpha(path.join(desktop, 'public', 'trayTemplate@2x.png'));
+    const shut = templateAlpha(path.join(desktop, 'public', 'trayBlinkTemplate@2x.png'));
+    const ring = { x: 22, y: 7 };
+    const visor = { x: 22, y: 20 };
+    const eyeTop = { x: 16, y: 17 };
+    const eyeMiddle = { x: 16, y: 20 };
+
+    expect(open(ring)).toBe(255);
+    expect(open(visor)).toBe(0);
+    expect(open(eyeTop)).toBe(255);
+    expect(shut(eyeTop)).toBe(0);
+    expect(shut(eyeMiddle)).toBe(255);
   });
 
   it.each(['index.html', 'focus.html'])(
