@@ -8,7 +8,7 @@
  *   - `remoteHost` points transformers.js at the local `moxxy-app://` scheme, so
  *     the model is loaded from the install dir — a huggingface.co request can
  *     never leave this worker (and CSP `connect-src` excludes all real network).
- *   - The onnxruntime-web WASM runtime (the `ort-wasm-simd-threaded.jsep.{mjs,wasm}`
+ *   - The onnxruntime-web WASM runtime (the `ort-wasm-simd-threaded.asyncify.{mjs,wasm}`
  *     glue + binary) is NOT bundled into the worker chunk — onnxruntime-web
  *     dynamically `import()`s its glue at session-create time, and by DEFAULT
  *     transformers.js resolves that from the jsdelivr CDN. That would (a) break
@@ -64,7 +64,7 @@ env.remoteHost = 'moxxy-app://assets/anonymizer/';
 env.remotePathTemplate = '{model}/resolve/{revision}/';
 
 // onnxruntime-web: pin the WASM artifact base to our locally-served `/ort/` so
-// ORT loads `ort-wasm-simd-threaded.jsep.{mjs,wasm}` from the app's own origin
+// ORT loads `ort-wasm-simd-threaded.asyncify.{mjs,wasm}` from the app's own origin
 // instead of the jsdelivr CDN (transformers.js only falls back to the CDN when
 // `wasmPaths` is unset — setting it here, before the pipeline creates the ORT
 // session, defeats that fallback). Force single-threaded (no SharedArrayBuffer /

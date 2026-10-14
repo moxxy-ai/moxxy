@@ -56,6 +56,7 @@ export default defineConfig({
       exclude: [
         '**/*.test.{ts,tsx}',
         '**/test-setup.ts',
+        '**/test-browser-parity.ts',
         'electron/main/index.ts',
         'electron/preload/index.ts',
         'src/main.tsx',
