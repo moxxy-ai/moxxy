@@ -451,8 +451,8 @@ jobs:
       - name: Verify the advisory acceptance policy
         run: node --test scripts/security-audit-policy.test.mjs
 
-      - name: Verify image-size and the metro asset patch
-        run: node --test scripts/image-size.test.mjs
+      - name: Verify Metro sizes image assets
+        run: node --test scripts/metro-assets.test.mjs
 
   dep-cruise-graph:
     name: Generate dependency graph

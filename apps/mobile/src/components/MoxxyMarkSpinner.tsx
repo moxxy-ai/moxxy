@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactElement } from 'react';
 import { Animated, Easing, type ImageSourcePropType } from 'react-native';
 
 const moxxyMark = require('../../assets/moxxy-mark.png') as ImageSourcePropType;
@@ -9,7 +9,7 @@ const moxxyMark = require('../../assets/moxxy-mark.png') as ImageSourcePropType;
  * A quarter turn is a whole loop: the mark is symmetric under 90 degrees, so
  * the animation lands back on itself and needs no easing at the seam.
  */
-export function MoxxyMarkSpinner({ size = 104 }: { readonly size?: number }): JSX.Element {
+export function MoxxyMarkSpinner({ size = 104 }: { readonly size?: number }): ReactElement {
   const turn = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
