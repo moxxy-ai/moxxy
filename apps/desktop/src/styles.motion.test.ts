@@ -106,3 +106,18 @@ describe('styles.css — what moves', () => {
   });
 });
 
+describe('styles.css — the blinking mark', () => {
+  it('blinks by squashing each eye about its own centre, in a loop', () => {
+    const eye = block('.moxxy-mark-blink__eye {');
+    expect(eye).toContain('transform-box: fill-box;');
+    expect(eye).toContain('transform-origin: center;');
+    expect(eye).toMatch(/animation: moxxy-mark-blink [\d.]+s [^;]*infinite;/);
+    expect(block('@keyframes moxxy-mark-blink')).toMatch(/scaleY\(0\.1\)/);
+  });
+
+  it('holds the eyes open under reduced motion', () => {
+    const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(reduced).toMatch(/\.moxxy-mark-blink__eye\s*\{\s*animation: none;/);
+  });
+});
+

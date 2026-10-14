@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import { mkdir, mkdtemp, readFile, truncate, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +24,20 @@ afterEach(async () => {
   await Promise.all(tmpDirs.map((d) => removeDir(d).catch(() => {})));
   tmpDirs.length = 0;
 });
+
+// Reading the first PDF loads pdfjs, which took up to 16 s on a busy Windows
+// runner; every PDF after it reads in milliseconds. Paying that once here keeps
+// it off whichever PDF test happens to run first.
+beforeAll(async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'moxxy-pdfjs-warm-'));
+  try {
+    const warm = path.join(dir, 'warm.pdf');
+    await writeFile(warm, makeTextPdf('warm'));
+    await parseFileToText(warm);
+  } finally {
+    await removeDir(dir);
+  }
+}, 60_000);
 
 const b64 = (bytes: Buffer): string => bytes.toString('base64');
 
@@ -466,8 +480,7 @@ describe('parseFileToText', () => {
     const text = await parseFileToText(p);
     expect(text).not.toBeNull();
     expect(text).toContain('Hello John Doe 555-1234');
-    // The first PDF of the file loads pdfjs, which takes most of the default 10 s on a busy Windows runner.
-  }, 30_000);
+  });
 
   it('detects a PDF by magic bytes even with a non-.pdf extension', async () => {
     const { path: p } = await tmpFile('scan.dat', makeTextPdf('Contact: jane@acme.com'));

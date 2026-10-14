@@ -1,29 +1,15 @@
-import { useEffect, useRef, type ReactElement } from 'react';
-import { Animated, Easing, type ImageSourcePropType } from 'react-native';
+import type { ReactElement } from 'react';
+import { Animated, type ImageSourcePropType } from 'react-native';
+import { useMarkBreathing } from '../hooks/useMarkBreathing';
 
 const moxxyMark = require('../../assets/moxxy-mark.png') as ImageSourcePropType;
 
 /**
- * The mark, turning, for loading states.
- *
- * A quarter turn is a whole loop: the mark is symmetric under 90 degrees, so
- * the animation lands back on itself and needs no easing at the seam.
+ * The mark, breathing, for loading states: it eases in and dims, then back.
+ * The mark is a lit face, not a symmetric figure, so it does not turn.
  */
 export function MoxxyMarkSpinner({ size = 104 }: { readonly size?: number }): ReactElement {
-  const turn = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(turn, {
-        toValue: 1,
-        duration: 3400,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [turn]);
+  const breath = useMarkBreathing();
 
   return (
     <Animated.Image
@@ -33,7 +19,8 @@ export function MoxxyMarkSpinner({ size = 104 }: { readonly size?: number }): Re
       style={{
         height: size,
         width: size,
-        transform: [{ rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] }) }],
+        opacity: breath.interpolate({ inputRange: [0, 1], outputRange: [1, 0.7] }),
+        transform: [{ scale: breath.interpolate({ inputRange: [0, 1], outputRange: [1, 0.92] }) }],
       }}
     />
   );
