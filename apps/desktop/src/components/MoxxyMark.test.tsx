@@ -1,22 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MoxxyMark } from './MoxxyMark';
 
 describe('MoxxyMark', () => {
-  it('draws its two strands in DIFFERENT colours', () => {
-    // The interlace is carried entirely by the colour change at each crossing,
-    // so one hue for both strands collapses the mark into a solid eight-pointed
-    // rosette. The ink strand must stay inheritable and the other must not.
-    const { container } = render(
-      <span style={{ color: 'var(--color-sidebar-text)' }}>
-        <MoxxyMark size={24} />
-      </span>,
-    );
-    const strokes = [...container.querySelectorAll('g[stroke]')].map((g) =>
-      g.getAttribute('stroke'),
-    );
-    expect(strokes).toContain('currentColor');
-    expect(strokes).toContain('var(--color-primary)');
-    expect(new Set(strokes).size).toBeGreaterThan(1);
+  it('paints the shipped mark raster at the requested size', () => {
+    // The mark is a rendered picture (metal ribbon, lit eyes), not a vector, so
+    // every surface paints the one cut-out raster the brand build ships.
+    render(<MoxxyMark size={24} className="moxxy-avatar-loader" />);
+
+    const mark = screen.getByRole('img', { name: 'moxxy' });
+    expect(mark.tagName).toBe('IMG');
+    expect(mark.getAttribute('src')).toMatch(/(^|\/)moxxy-mark\.png$/);
+    expect(mark.getAttribute('width')).toBe('24');
+    expect(mark.getAttribute('height')).toBe('24');
+    expect(mark).toHaveClass('moxxy-avatar-loader');
+  });
+
+  it('cannot be dragged out of the window as a file', () => {
+    render(<MoxxyMark />);
+    expect(screen.getByRole('img', { name: 'moxxy' })).toHaveAttribute('draggable', 'false');
   });
 });

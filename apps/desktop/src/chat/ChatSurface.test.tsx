@@ -383,7 +383,7 @@ describe('ChatSurface, docked', () => {
     expect(screen.getByTestId('composer-mock')).toBe(composer);
     expect(composer).not.toBeVisible();
     const launcher = screen.getByRole('button', { name: 'Show the chat' });
-    expect(launcher.querySelector('svg[aria-label="moxxy"]')).not.toBeNull();
+    expect(launcher.querySelector('img[alt="moxxy"]')).not.toBeNull();
 
     fireEvent.click(launcher);
 

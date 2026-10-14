@@ -114,6 +114,7 @@ import { installApplicationMenu } from './menus.js';
 import { registerAppAssetSchemePrivileged } from './app-scheme.js';
 import { nameAppForWindows } from './windows-app-id.js';
 import { RealtimeCaptureController } from './realtime-capture.js';
+import { startTrayBlink } from './tray-blink.js';
 
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
 // shell PATH / system `node`). Point the CLI resolver at a self-contained,
@@ -127,6 +128,7 @@ if (app.isPackaged && !process.env.MOXXY_CLI_ENTRY) {
   if (entry) process.env.MOXXY_CLI_ENTRY = entry;
 }
 import { ipcMain, Tray, Menu, nativeImage, nativeTheme, globalShortcut, session, shell, systemPreferences, webContents } from 'electron';
+import type { NativeImage } from 'electron';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -628,35 +630,33 @@ async function createWindow(): Promise<void> {
     try {
       // The macOS menu bar wants a monochrome template image: AppKit tints it
       // for the light / dark bar and for the highlighted (menu-open) state, so
-      // the mark stays legible on every wallpaper. The one-colour mark carries
-      // the weave as gaps, so it survives being flattened to a single ink; the
-      // colour icon does not (see below). Windows / Linux trays sit on chrome
-      // we don't control, where a single-ink glyph can vanish, so they keep
-      // the colour icon.
+      // the mark stays legible on every wallpaper. The template glyph is the
+      // mark's silhouette with the eyes cut out, so it survives being
+      // flattened to a single ink; the colour icon does not (see below).
+      // Windows / Linux trays sit on chrome we don't control, where a
+      // single-ink glyph can vanish, so they keep the colour icon.
       const trayIconFile = process.platform === 'darwin' ? 'trayTemplate.png' : 'logo.png';
       // Try several candidate paths because the prod / dev build
       // layouts differ — log which one wins (or report all-empty)
       // so future icon regressions are noisy instead of silent.
-      const trayIconCandidates = [
-        path.join(__dirname, '..', '..', 'public', trayIconFile),
-        path.join(__dirname, '..', '..', 'dist', trayIconFile),
-        path.join(process.resourcesPath ?? '', 'public', trayIconFile),
-        path.join(process.resourcesPath ?? '', trayIconFile),
+      const trayImageCandidates = (file: string): string[] => [
+        path.join(__dirname, '..', '..', 'public', file),
+        path.join(__dirname, '..', '..', 'dist', file),
+        path.join(process.resourcesPath ?? '', 'public', file),
+        path.join(process.resourcesPath ?? '', file),
       ];
-      let raw = nativeImage.createEmpty();
-      let resolvedPath = '';
-      for (const p of trayIconCandidates) {
-        const candidate = nativeImage.createFromPath(p);
-        if (!candidate.isEmpty()) {
-          raw = candidate;
-          resolvedPath = p;
-          break;
+      const loadTrayImage = (file: string): { image: NativeImage; from: string } => {
+        for (const p of trayImageCandidates(file)) {
+          const candidate = nativeImage.createFromPath(p);
+          if (!candidate.isEmpty()) return { image: candidate, from: p };
         }
-      }
-       
+        return { image: nativeImage.createEmpty(), from: '' };
+      };
+      const { image: raw, from: resolvedPath } = loadTrayImage(trayIconFile);
+
       console.log(
         raw.isEmpty()
-          ? `[moxxy] tray: NO icon found, fell back to text label. Tried: ${trayIconCandidates.join(', ')}`
+          ? `[moxxy] tray: NO icon found, fell back to text label. Tried: ${trayImageCandidates(trayIconFile).join(', ')}`
           : `[moxxy] tray: icon loaded from ${resolvedPath}`,
       );
       // The template PNG already ships at menu-bar size (22px, plus the @2x
@@ -676,6 +676,19 @@ async function createWindow(): Promise<void> {
       // failures + missing PNGs both hit this path).
       if (raw.isEmpty()) trayInstance.setTitle('moxxy');
       trayInstance.setToolTip('MoxxyAI Workspaces');
+      // The menu-bar mark blinks now and then: the closed-eyes template, then
+      // the open one again. It holds still while macOS asks for reduced motion.
+      if (process.platform === 'darwin' && !icon.isEmpty()) {
+        const shut = loadTrayImage('trayBlinkTemplate.png').image;
+        if (!shut.isEmpty()) {
+          shut.setTemplateImage(true);
+          const tray = trayInstance;
+          stopTrayBlink = startTrayBlink({
+            show: (frame) => tray.setImage(frame === 'closed' ? shut : icon),
+            reducedMotion: () => systemPreferences.getAnimationSettings().prefersReducedMotion,
+          });
+        }
+      }
       // The context menu is built by applyMenus() below so it shares the same
       // Focus Mode controller path as the app menu and global shortcut.
       //
@@ -771,6 +784,7 @@ async function createWindow(): Promise<void> {
 }
 
 let trayInstance: Tray | null = null;
+let stopTrayBlink: (() => void) | null = null;
 
 // installApplicationMenu lives in ./menus; armBootProbe lives in ./boot-probe
 // (with its persistence + relaunch deps injected so the state machine is
@@ -1123,6 +1137,7 @@ app.on('before-quit', (event) => {
 });
 
 app.on('will-quit', () => {
+  stopTrayBlink?.();
   try {
     globalShortcut.unregisterAll();
   } catch {
