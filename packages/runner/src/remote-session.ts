@@ -17,6 +17,7 @@ import type {
   ProvidersClientView,
   RequirementsClientView,
   RunTurnOptions,
+  AttachmentChunk,
   SessionId,
   SessionInfo,
   SessionLogReader,
@@ -69,6 +70,7 @@ import {
   type RunTurnResult,
   type SessionLoadHistoryParams,
   type SessionLoadHistoryResult,
+  type SessionReadAttachmentParams,
   type SessionRecordExchangeParams,
   type SessionRecordExchangeResult,
   type SurfaceDataNotification,
@@ -496,6 +498,20 @@ export class RemoteSession implements ClientSession {
       before,
       limit,
     } satisfies SessionLoadHistoryParams);
+  }
+
+  /**
+   * Read one slice of attachment `index` of event `seq` (v26) — the bytes a
+   * client's copy of the event left out (`omittedBytes`). Call again with
+   * `offset += data.length` until it reaches `total`.
+   */
+  async readAttachment(seq: number, index: number, offset: number): Promise<AttachmentChunk> {
+    this.requireServerProtocol(26, 'Opening large attachments');
+    return this.peer.request<AttachmentChunk>(RunnerMethod.SessionReadAttachment, {
+      seq,
+      index,
+      offset,
+    } satisfies SessionReadAttachmentParams);
   }
 
   /**

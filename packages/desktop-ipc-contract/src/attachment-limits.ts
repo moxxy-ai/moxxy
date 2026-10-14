@@ -48,5 +48,6 @@ export function attachmentSizeProblem(file: {
   const image = file.image ?? isImageFileName(file.name);
   const limit = image ? ATTACHMENT_LIMITS.imageBytes : ATTACHMENT_LIMITS.fileBytes;
   if (file.size <= limit) return null;
-  return `${file.name} is ${formatFileSize(file.size)}. ${image ? 'An image' : 'A file'} can be up to ${formatFileSize(limit)}.`;
+  // Only bytes are bounded: the picker attaches a file from the disk by its path, at any size.
+  return `${file.name} is ${formatFileSize(file.size)}. Dropped or pasted, ${image ? 'an image' : 'a file'} can be up to ${formatFileSize(limit)}. Attach file in the chat takes a larger one from the disk.`;
 }

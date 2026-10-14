@@ -8,11 +8,11 @@
  *
  * Backpressure policy (slow-reader eviction): `ws.send` buffers unboundedly
  * for a peer that stops reading, so every outbound frame first consults a
- * {@link SlowReaderGuard} — a connection whose send backlog stays above
- * `maxBufferedBytes` for longer than a short grace window is terminated (the
- * client reconnects and resyncs; an evicted reader has missed frames anyway).
- * The grace window exists so one legitimately large frame (payloads may reach
- * the 64 MB cap) in flight to a healthy reader doesn't trip the guard.
+ * {@link SlowReaderGuard} — a connection whose backlog is above
+ * `maxBufferedBytes` and that takes no bytes at all for a short grace window is
+ * terminated (the client reconnects and resyncs; an evicted reader has missed
+ * frames anyway). A healthy reader still draining one large frame (payloads may
+ * reach the 64 MB cap) is never evicted for its size alone.
  */
 
 import type { IncomingMessage } from 'node:http';
@@ -20,7 +20,7 @@ import type { Socket } from 'node:net';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 
 import { MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk/server';
-import type { Transport, TransportServer } from '@moxxy/runner';
+import { OutboundBacklogGuard, type Transport, type TransportServer } from '@moxxy/runner';
 import { checkWsAuth, checkWsOrigin } from './auth.js';
 
 const DEFAULT_MAX_CONNECTIONS = 8;
@@ -32,10 +32,6 @@ const DEFAULT_BUFFER_STALL_GRACE_MS = 10_000;
  *  ever emitting `'connection'`; without this fallback those reservations would
  *  leak monotonically and permanently brick the connection cap. */
 const RESERVATION_RECONCILE_MS = 10_000;
-/** Hard ceiling above which a slow reader is evicted immediately, regardless of
- *  the grace window — bounds a peer that perpetually rides just over the soft
- *  limit (resetting the grace clock each drain) from pinning memory forever. */
-const SLOW_READER_HARD_MULTIPLIER = 4;
 /** Cap on the length of an attacker-controlled value written to the host log. */
 const MAX_LOGGED_ORIGIN_LEN = 128;
 
@@ -56,37 +52,16 @@ function sanitizeForLog(value: unknown): string {
 }
 
 /**
- * The eviction policy, kept pure so it's unit-testable: report the socket's
- * pre-send backlog on every send; once the backlog has stayed above the limit
- * for the full grace window, the verdict flips to `terminate`. Draining below
- * the limit resets the clock.
+ * The eviction policy for one connection — the runner's
+ * {@link OutboundBacklogGuard} with this bridge's defaults.
  */
-export class SlowReaderGuard {
-  private stalledSinceMs: number | null = null;
-  private readonly hardLimitBytes: number;
-
+export class SlowReaderGuard extends OutboundBacklogGuard {
   constructor(
-    private readonly limitBytes: number = DEFAULT_MAX_BUFFERED_BYTES,
-    private readonly graceMs: number = DEFAULT_BUFFER_STALL_GRACE_MS,
+    limitBytes: number = DEFAULT_MAX_BUFFERED_BYTES,
+    graceMs: number = DEFAULT_BUFFER_STALL_GRACE_MS,
+    hardLimitBytes?: number,
   ) {
-    this.hardLimitBytes = limitBytes * SLOW_READER_HARD_MULTIPLIER;
-  }
-
-  check(bufferedAmount: number, nowMs: number): 'ok' | 'terminate' {
-    // A peer that perpetually hovers just over the soft limit resets the grace
-    // clock on every transient drain and could otherwise sustain ~limit bytes of
-    // backlog indefinitely. A hard ceiling well above the limit evicts it at
-    // once, regardless of grace, so the memory bound actually holds.
-    if (bufferedAmount > this.hardLimitBytes) return 'terminate';
-    if (bufferedAmount <= this.limitBytes) {
-      this.stalledSinceMs = null;
-      return 'ok';
-    }
-    if (this.stalledSinceMs === null) {
-      this.stalledSinceMs = nowMs;
-      return 'ok';
-    }
-    return nowMs - this.stalledSinceMs >= this.graceMs ? 'terminate' : 'ok';
+    super(limitBytes, graceMs, hardLimitBytes);
   }
 }
 
@@ -123,7 +98,9 @@ class WsTransport implements Transport {
     // hanging), and on the broadcast/notify fan-out `WebSocketCommandBus.broadcast`
     // already wraps each `notify` so one bad payload can't abort delivery to the
     // rest. Swallowing here would break the response path (silent no-reply).
-    this.ws.send(JSON.stringify(frame));
+    const payload = JSON.stringify(frame);
+    this.ws.send(payload);
+    this.guard.recordSent(Buffer.byteLength(payload));
   }
 
   /**
@@ -266,10 +243,11 @@ export async function createWebSocketTransportServer(
   };
   const liveTransports = new Set<WsTransport>();
 
+  const maxPayload = opts.maxPayloadBytes ?? 64 * 1024 * 1024;
   const wss = new WebSocketServer({
     host,
     port: opts.port,
-    maxPayload: opts.maxPayloadBytes ?? 64 * 1024 * 1024,
+    maxPayload,
     verifyClient: (info: { req: IncomingMessage }) => {
       if (!checkWsOrigin(info.req, currentAllowedOrigins)) {
         // The Origin header is unbounded and fully attacker-controlled; truncate
@@ -315,7 +293,7 @@ export async function createWebSocketTransportServer(
     opts.onClientCountChange?.(connections);
     const transport = new WsTransport(
       ws,
-      new SlowReaderGuard(opts.maxBufferedBytes, opts.bufferStallGraceMs),
+      new SlowReaderGuard(opts.maxBufferedBytes, opts.bufferStallGraceMs, 4 * maxPayload),
     );
     liveTransports.add(transport);
     ws.once('close', () => {

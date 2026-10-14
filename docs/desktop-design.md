@@ -154,11 +154,25 @@ Files reach the composer four ways: the add menu, the file browser, a paste,
 and a drop anywhere on the conversation, which says it will take them while
 they are held over it (`chat/useFileDropZone.ts`, `chat/DropVeil.tsx`). A
 dropped or pasted file crosses to the host as bytes, never as a path the
-renderer names (`session.saveAttachment`). The sizes are one table for the
-renderer and the host (`ATTACHMENT_LIMITS` in `@moxxy/desktop-ipc-contract`:
-8 MB for an image, 32 MB for another file). A file that cannot be attached is
-refused when it is staged, by name and with the reason, in an alert inside the
-composer card (`chat/composer/ComposerAlert.tsx`); the rest of the batch stays.
+renderer names (`session.saveAttachment`). The sizes bound only those bytes
+and are one table for the renderer and the host (`ATTACHMENT_LIMITS` in
+`@moxxy/desktop-ipc-contract`: 8 MB for an image, 32 MB for another file); the
+refusal says that Attach file takes a larger one, because a picked file goes
+by its path at any size. A file that cannot be attached is refused when it is
+staged, by name and with the reason, in an alert inside the composer card
+(`chat/composer/ComposerAlert.tsx`); the rest of the batch stays. Only a folder
+or a file that cannot be opened is refused by the host. A file the model cannot
+take whole (too large, a scan with no text, an unknown binary) is never dropped
+when the prompt is sent: it goes as a note naming its path on disk, so the
+agent can open it with its tools.
+
+An attachment in the conversation is drawn from what the runner sends, and the
+runner sends a large one by name and size only (`eventForClient` in
+`@moxxy/sdk/attachment-payload`), so no history page grows past a few
+megabytes however many scans the chat holds. The file chip shows the real size.
+An image whose bytes were left out is read back in slices when its thumbnail
+is drawn (`chat/attachments/`, `chat.readAttachment`); until then, and if the
+read fails, it is drawn as the file chip.
 
 ### The slash menu
 

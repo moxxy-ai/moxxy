@@ -10,6 +10,7 @@ export {
   createUnixSocketServer,
   connectUnixSocket,
 } from './unix-socket.js';
+export { OutboundBacklogGuard } from './backlog-guard.js';
 export { runnerSocketPath, isRunnerUp, platformSocket, isNamedPipe } from './socket-path.js';
 export { channelRunnerSocket, channelSessionId } from './channel-runner.js';
 export { RunnerServer, startRunnerServer } from './server.js';

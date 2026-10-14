@@ -633,6 +633,17 @@ export interface IpcCommands {
     before: number | null;
     limit: number;
   }) => Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null } | null>;
+  /** One slice of an attachment whose bytes a history page left out
+   *  (`omittedBytes`): attachment `index` of event `seq`, from `offset`
+   *  characters. Repeat with `offset += data.length` until `total`. Served by
+   *  the runner, or from the persisted log while it starts. `null` for an
+   *  unknown/unreadable session. */
+  'chat.readAttachment': (args: {
+    workspaceId: string;
+    seq: number;
+    index: number;
+    offset: number;
+  }) => Promise<{ data: string; total: number } | null>;
 
   // Workflows
   'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;

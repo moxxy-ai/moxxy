@@ -93,6 +93,13 @@ Nothing is deleted. `session_recall` searches those records offline;
 needed. `recentExchanges(log, n)` and `summarizeSession(log)` remain
 available as lower-level folds for plugins.
 
+Attached files follow the same rule. One model request carries at most
+20 MB of images and PDFs: the newest go in full, and an older one is shown
+as a note naming it. `recall({ attachment: "umowa.pdf" })` (a file name, or
+the key the note gives) shows the original to the model again, even when its
+turn was summarized away, because the bytes stay in the log. A text file
+comes back as its text; a name that matches nothing lists what was attached.
+
 Do not auto-save every exchange with `memory_save`. Raw conversational
 turns contain temporary instructions, superseded decisions, tool noise,
 and sometimes secrets. Promote only durable knowledge to long-term

@@ -48,6 +48,12 @@ export interface UserPromptAttachment {
   readonly name?: string;
   /** MIME type — required for `image`, `document`, and raw `audio` so providers translate correctly. */
   readonly mediaType?: string;
+  /**
+   * Set only on a client's copy of the event: the payload was too large to send
+   * to clients, so `content` is empty and this is the real size in bytes. The
+   * bytes stay in the runner's log; `session.readAttachment` reads them back.
+   */
+  readonly omittedBytes?: number;
 }
 
 /**

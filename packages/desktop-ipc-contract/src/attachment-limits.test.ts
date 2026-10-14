@@ -12,14 +12,14 @@ describe('attachmentSizeProblem', () => {
 
   it('names the file, its size and the limit when an image is too large', () => {
     expect(attachmentSizeProblem({ name: 'holiday.png', size: 12.4 * MB })).toBe(
-      'holiday.png is 12.4 MB. An image can be up to 8 MB.',
+      'holiday.png is 12.4 MB. Dropped or pasted, an image can be up to 8 MB. Attach file in the chat takes a larger one from the disk.',
     );
   });
 
   it('holds any other file to the larger limit', () => {
     expect(attachmentSizeProblem({ name: 'holiday.pdf', size: 12.4 * MB })).toBeNull();
     expect(attachmentSizeProblem({ name: 'dump.sql', size: 80 * MB })).toBe(
-      'dump.sql is 80 MB. A file can be up to 32 MB.',
+      'dump.sql is 80 MB. Dropped or pasted, a file can be up to 32 MB. Attach file in the chat takes a larger one from the disk.',
     );
   });
 

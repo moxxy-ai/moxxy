@@ -624,7 +624,9 @@ function estimateBlockChars(block: AnthropicContentBlock): number {
     case 'tool_use':
       return block.name.length + JSON.stringify(block.input ?? {}).length;
     case 'tool_result':
-      return block.content.length;
+      return typeof block.content === 'string'
+        ? block.content.length
+        : block.content.reduce((n, part) => n + estimateBlockChars(part), 0);
     case 'thinking':
       return block.thinking.length + block.signature.length;
     case 'redacted_thinking':

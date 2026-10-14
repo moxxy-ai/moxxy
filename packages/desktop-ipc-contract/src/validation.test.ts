@@ -68,6 +68,16 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('prefs.update', { voiceEngine: 'cloud' })).toThrow();
   });
 
+  it('bounds chat.readAttachment to one workspace and whole, non-negative indexes', () => {
+    const command = 'chat.readAttachment' as IpcCommandName;
+    const args = { workspaceId: 'w1', seq: 4, index: 0, offset: 0 };
+    expect(() => validateIpcInput(command, args)).not.toThrow();
+    expect(() => validateIpcInput(command, { ...args, workspaceId: '' })).toThrow();
+    expect(() => validateIpcInput(command, { ...args, seq: -1 })).toThrow();
+    expect(() => validateIpcInput(command, { ...args, offset: 1.5 })).toThrow();
+    expect(() => validateIpcInput(command, { ...args, path: '/etc/passwd' })).toThrow();
+  });
+
   it('rejects non-http(s) openExternal URLs', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'https://ok.com' })).not.toThrow();
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'file:///etc/passwd' })).toThrow();

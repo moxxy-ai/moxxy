@@ -346,7 +346,7 @@ describe('FocusWidget Mini Chat with dropped files', () => {
     fireEvent.drop(chat, dragOf([film]));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('film.mov is 80 MB. A file can be up to 32 MB.');
+    expect(alert).toHaveTextContent('film.mov is 80 MB. Dropped or pasted, a file can be up to 32 MB. Attach file in the chat takes a larger one from the disk.');
     expect(alert).toHaveClass('cmdbar__alert');
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());

@@ -2,8 +2,15 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdir, mkdtemp, readFile, truncate, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { attachmentProblem, buildAttachments, parseFileToText, persistFileBlob, persistImageBlob } from './attachments';
-import { assertDefined } from '@moxxy/sdk';
+import {
+  MAX_PDF_NATIVE_BYTES,
+  attachmentProblem,
+  buildAttachments,
+  parseFileToText,
+  persistFileBlob,
+  persistImageBlob,
+} from './attachments';
+import { MODEL_ATTACHMENT_BUDGET_CHARS, assertDefined, type UserPromptAttachment } from '@moxxy/sdk';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /** Temp files persistImageBlob writes; cleaned up after each test. */
@@ -191,10 +198,10 @@ describe('persistFileBlob', () => {
   it('refuses an empty file, an image over the image limit and any file over the file limit', async () => {
     await expect(persistFileBlob('', 'empty.txt')).rejects.toThrow('empty.txt is empty.');
     await expect(persistFileBlob(b64(Buffer.alloc(8 * 1024 * 1024 + 1)), 'big.png')).rejects.toThrow(
-      /^big\.png is 8\.1 MB\. An image can be up to 8 MB\.$/u,
+      /^big\.png is 8\.1 MB\. Dropped or pasted, an image can be up to 8 MB\. Attach file/u,
     );
     await expect(persistFileBlob(b64(Buffer.alloc(32 * 1024 * 1024 + 1)), 'big.bin')).rejects.toThrow(
-      /A file can be up to 32 MB\.$/u,
+      /a file can be up to 32 MB\. Attach file/u,
     );
   });
 });
@@ -220,24 +227,14 @@ describe('attachmentProblem', () => {
     for (const file of files) expect(await attachmentProblem(file.path, file.name)).toBeNull();
   });
 
-  it('refuses an image over the image limit, with its size and the limit', async () => {
-    const file = await sparse('holiday.png', 9 * 1024 * 1024);
+  it('accepts any file, however large or unreadable to the model: the agent gets its path', async () => {
+    const files = [
+      await sparse('holiday.png', 9 * 1024 * 1024),
+      await sparse('film.mov', 70 * 1024 * 1024, Buffer.from([0x00, 0x00, 0x00, 0x18])),
+      await tmpFile('blob.bin', Buffer.from([0x00, 0x01, 0x02, 0x00, 0xff])),
+    ];
 
-    expect(await attachmentProblem(file.path, file.name)).toBe('holiday.png is 9 MB. An image can be up to 8 MB.');
-  });
-
-  it('refuses a file that is not text and too large to read whole', async () => {
-    const file = await sparse('film.mov', 70 * 1024 * 1024, Buffer.from([0x00, 0x00, 0x00, 0x18]));
-
-    expect(await attachmentProblem(file.path, file.name)).toBe(
-      'film.mov is 70 MB. Only plain text can be attached at that size.',
-    );
-  });
-
-  it('refuses a file that is not one the host can read', async () => {
-    const file = await tmpFile('blob.bin', Buffer.from([0x00, 0x01, 0x02, 0x00, 0xff]));
-
-    expect(await attachmentProblem(file.path, file.name)).toBe('blob.bin is not a kind of file Moxxy can read.');
+    for (const file of files) expect(await attachmentProblem(file.path, file.name)).toBeNull();
   });
 
   it('refuses a folder and a path that is not there', async () => {
@@ -301,16 +298,30 @@ describe('buildAttachments', () => {
     expect(out).toEqual([{ kind: 'file', content: 'export const x = 1;\n', name: 'main.ts' }]);
   });
 
-  it('skips an unknown binary file (NUL bytes) rather than inlining garbage', async () => {
+  it('points the agent at an unknown binary file (NUL bytes) rather than inlining garbage', async () => {
     const bytes = Buffer.from([0x00, 0x01, 0x02, 0x00, 0xff]);
-    const out = await buildAttachments([await tmpFile('blob.bin', bytes)]);
-    expect(out).toEqual([]);
+    const input = await tmpFile('blob.bin', bytes);
+    expectFileOnDisk(await buildAttachments([input]), input);
   });
 
-  it('skips a corrupt Office file instead of failing the turn', async () => {
-    // Not a real OOXML zip — officeparser fails, so it is dropped.
-    const out = await buildAttachments([await tmpFile('broken.docx', 'not a real docx')]);
-    expect(out).toEqual([]);
+  it('points the agent at a corrupt Office file instead of failing the turn', async () => {
+    // Not a real OOXML zip — officeparser fails, so nothing can be inlined.
+    const input = await tmpFile('broken.docx', 'not a real docx');
+    expectFileOnDisk(await buildAttachments([input]), input);
+  });
+
+  it('points the agent at an image over the image limit', async () => {
+    const input = await tmpFile('holiday.png', Buffer.alloc(9 * 1024 * 1024, 0x41));
+    expectFileOnDisk(await buildAttachments([input]), input);
+  });
+
+  it('sends a scanned PDF too large for the model as its path, not its bytes', async () => {
+    const input = await tmpFile('scan.pdf', Buffer.concat([makeImageOnlyPdf(), Buffer.alloc(MAX_PDF_NATIVE_BYTES)]));
+    expectFileOnDisk(await buildAttachments([input]), input);
+  });
+
+  it('keeps a native PDF within what one model request can carry', () => {
+    expect(Math.ceil(MAX_PDF_NATIVE_BYTES / 3) * 4).toBeLessThanOrEqual(MODEL_ATTACHMENT_BUDGET_CHARS);
   });
 
   it('falls back to a head excerpt + read-on-demand note for an oversized text file', async () => {
@@ -350,13 +361,13 @@ describe('buildAttachments', () => {
     expect(att.content).toMatch(/~7\d{4} KB/);
   });
 
-  it('skips a huge binary file instead of slurping it into memory', async () => {
-    // A 70 MB file whose head contains a NUL → binary → skipped from the head
+  it('points the agent at a huge binary file instead of slurping it into memory', async () => {
+    // A 70 MB file whose head contains a NUL → binary → judged from the head
     // peek, never fully read.
     const buf = Buffer.alloc(70 * 1024 * 1024, 0x41);
     buf[10] = 0x00;
-    const out = await buildAttachments([await tmpFile('massive.bin', buf)]);
-    expect(out).toEqual([]);
+    const input = await tmpFile('massive.bin', buf);
+    expectFileOnDisk(await buildAttachments([input]), input);
   });
 });
 
@@ -479,3 +490,14 @@ describe('parseFileToText', () => {
     expect(await parseFileToText(p)).toBeNull();
   });
 });
+
+/** The attachment a file the model cannot take whole becomes: its name, size and path, never its bytes. */
+function expectFileOnDisk(out: ReadonlyArray<UserPromptAttachment>, input: { path: string; name: string }): void {
+  expect(out).toHaveLength(1);
+  const att = out[0];
+  assertDefined(att, 'built attachment');
+  expect(att).toMatchObject({ kind: 'file', name: input.name });
+  expect(att.content).toContain(input.path);
+  expect(att.content).toContain(input.name);
+  expect(att.content.length).toBeLessThan(2048);
+}
