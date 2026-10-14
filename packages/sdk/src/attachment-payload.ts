@@ -117,3 +117,71 @@ export function readAttachmentChunk(event: MoxxyEvent, index: number, offset: nu
   const start = Math.max(0, Math.floor(offset));
   return { data: att.content.slice(start, start + ATTACHMENT_READ_CHUNK_CHARS), total: att.content.length };
 }
+
+/** How an attachment is named across the conversation: `seq:index` of the prompt that carried it. */
+export function attachmentKey(seq: number, index: number): string {
+  return `${seq}:${index}`;
+}
+
+/** One attachment found in the log, with where it sits. */
+export interface FoundAttachment {
+  readonly seq: number;
+  readonly index: number;
+  readonly attachment: UserPromptAttachment;
+}
+
+function* attachmentsNewestFirst(events: ReadonlyArray<MoxxyEvent>): Generator<FoundAttachment> {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i];
+    if (!e || e.type !== 'user_prompt' || !e.attachments) continue;
+    for (let index = e.attachments.length - 1; index >= 0; index -= 1) {
+      const attachment = e.attachments[index];
+      if (attachment) yield { seq: e.seq, index, attachment };
+    }
+  }
+}
+
+/**
+ * The attachment `query` names: its key (`seq:index`) or its file name, the
+ * newest one of that name, whatever the case. Null when none matches.
+ */
+export function findAttachment(events: ReadonlyArray<MoxxyEvent>, query: string): FoundAttachment | null {
+  const wanted = query.trim();
+  const byKey = /^(\d+):(\d+)$/u.exec(wanted);
+  const name = wanted.toLowerCase();
+  for (const found of attachmentsNewestFirst(events)) {
+    if (byKey) {
+      if (found.seq === Number(byKey[1]) && found.index === Number(byKey[2])) return found;
+    } else if (found.attachment.name?.toLowerCase() === name) {
+      return found;
+    }
+  }
+  return null;
+}
+
+/** Every attachment of the conversation, oldest first, as `seq:index name`. */
+export function listAttachments(events: ReadonlyArray<MoxxyEvent>): string[] {
+  return [...attachmentsNewestFirst(events)]
+    .reverse()
+    .map(({ seq, index, attachment }) => `${attachmentKey(seq, index)} ${attachment.name ?? attachment.kind}`);
+}
+
+/**
+ * What `recall({ attachment })` returns for an image or a document: a pointer,
+ * not the bytes, which stay once in the log. The projection puts the
+ * attachment itself beside this result, so the model sees the original again
+ * even after its turn was summarized away.
+ */
+export interface RestoredAttachmentOutput {
+  readonly forModel: string;
+  readonly restoredAttachment: { readonly seq: number; readonly index: number };
+}
+
+/** The attachment a recall result restores, or null for any other output. */
+export function restoredAttachmentRef(output: unknown): { seq: number; index: number } | null {
+  if (typeof output !== 'object' || output === null) return null;
+  const ref = (output as { restoredAttachment?: unknown }).restoredAttachment;
+  if (typeof ref !== 'object' || ref === null) return null;
+  const { seq, index } = ref as { seq?: unknown; index?: unknown };
+  return typeof seq === 'number' && typeof index === 'number' ? { seq, index } : null;
+}

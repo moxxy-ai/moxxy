@@ -9,8 +9,11 @@ import {
   HISTORY_PAGE_MAX_CHARS,
   attachmentBytes,
   eventForClient,
+  findAttachment,
   historyPageForClient,
+  listAttachments,
   readAttachmentChunk,
+  restoredAttachmentRef,
 } from './attachment-payload.js';
 import type { MoxxyEvent, UserPromptAttachment, UserPromptEvent } from './events.js';
 
@@ -127,5 +130,36 @@ describe('historyPageForClient', () => {
     });
     expect(page.events.map((e) => e.seq)).toEqual([9]);
     expect(page.prevCursor).toBe(9);
+  });
+});
+
+describe('finding an earlier attachment', () => {
+  const at = (seq: number, attachments: ReadonlyArray<UserPromptAttachment>): MoxxyEvent =>
+    ({ ...prompt(attachments), seq }) as MoxxyEvent;
+  const events = [
+    at(2, [{ kind: 'document', content: 'OLD', mediaType: 'application/pdf', name: 'umowa.pdf' }]),
+    at(5, [
+      { kind: 'image', content: 'IMG', mediaType: 'image/png', name: 'shot.png' },
+      { kind: 'document', content: 'NEW', mediaType: 'application/pdf', name: 'Umowa.pdf' },
+    ]),
+  ];
+
+  it('finds one by its key or, newest first, by its name whatever the case', () => {
+    expect(findAttachment(events, '2:0')).toMatchObject({ seq: 2, index: 0, attachment: { content: 'OLD' } });
+    expect(findAttachment(events, 'umowa.pdf')).toMatchObject({ seq: 5, index: 1, attachment: { content: 'NEW' } });
+    expect(findAttachment(events, 'shot.png')).toMatchObject({ seq: 5, index: 0 });
+    expect(findAttachment(events, 'missing.pdf')).toBeNull();
+    expect(findAttachment(events, '9:0')).toBeNull();
+  });
+
+  it('lists every attachment of the conversation by key and name', () => {
+    expect(listAttachments(events)).toEqual(['2:0 umowa.pdf', '5:0 shot.png', '5:1 Umowa.pdf']);
+  });
+
+  it('reads the reference out of a restoring recall result, and nothing out of anything else', () => {
+    expect(restoredAttachmentRef({ forModel: 'restored', restoredAttachment: { seq: 2, index: 0 } })).toEqual({ seq: 2, index: 0 });
+    expect(restoredAttachmentRef('text')).toBeNull();
+    expect(restoredAttachmentRef({ restoredAttachment: { seq: '2', index: 0 } })).toBeNull();
+    expect(restoredAttachmentRef(null)).toBeNull();
   });
 });

@@ -319,11 +319,17 @@ export {
   HISTORY_PAGE_MAX_CHARS,
   MODEL_ATTACHMENT_BUDGET_CHARS,
   attachmentBytes,
+  attachmentKey,
   eventForClient,
+  findAttachment,
   historyPageForClient,
+  listAttachments,
   readAttachmentChunk,
+  restoredAttachmentRef,
   type AttachmentChunk,
+  type FoundAttachment,
   type HistoryPage,
+  type RestoredAttachmentOutput,
 } from './attachment-payload.js';
 export { compareSemver, parseSemverCore } from './semver.js';
 // readRequestBody/bearerTokenMatches (http-utils) and the channel-auth value
