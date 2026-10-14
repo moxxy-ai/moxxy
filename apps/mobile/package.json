@@ -44,8 +44,8 @@
     "react-native-safe-area-context": "~5.6.2",
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
-    "react-native-web": "^0.21.3",
-    "react-native-worklets": "0.5.1"
+    "react-native-web": "^0.21.4",
+    "react-native-worklets": "0.5.2"
   },
   "devDependencies": {
     "@moxxy/vitest-preset": "workspace:*",
@@ -53,7 +53,7 @@
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "~19.1.10",
-    "babel-preset-expo": "54.0.11",
+    "babel-preset-expo": "54.0.12",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

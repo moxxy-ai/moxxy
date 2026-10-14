@@ -997,20 +997,23 @@ describe('FocusWidget stages', () => {
     render(<FocusWidget />);
 
     const pet = screen.getByRole('button', { name: /click to expand/i });
-    fireEvent.mouseDown(pet, {
+    fireEvent.pointerDown(pet, {
+      pointerId: 1,
       button: 0,
       clientX: 10,
       clientY: 10,
       screenX: 610,
       screenY: 410,
     });
-    fireEvent.mouseMove(pet, {
+    fireEvent.pointerMove(pet, {
+      pointerId: 1,
       clientX: 14,
       clientY: 13,
       screenX: 690,
       screenY: 470,
     });
-    fireEvent.mouseUp(pet, {
+    fireEvent.pointerUp(pet, {
+      pointerId: 1,
       clientX: 14,
       clientY: 13,
       screenX: 690,

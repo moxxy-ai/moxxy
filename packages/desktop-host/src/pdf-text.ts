@@ -15,13 +15,13 @@
  *     Widget annotations.
  *
  * It runs entirely in the main process with the worker disabled (`getDocument`
- * runs the parser on the calling thread in Node), no `eval`, and no network
+ * runs the parser on the calling thread in Node), and no network
  * (`disableFontFace`, no `standardFontDataUrl`/`cMapUrl` fetches). Returns null
  * when the PDF has no extractable text AND no form values — i.e. a scanned
  * image-only PDF, where only OCR (out of scope) could recover the content.
  */
 
-// pdfjs-dist 4.x ships an ESM "legacy" build that works under Node without the
+// pdfjs-dist ships an ESM "legacy" build that works under Node without the
 // modern top-level-await / DOM globals the default build assumes. Import it
 // lazily so the (sizable) module only loads when a PDF is actually parsed.
 type PdfjsModule = typeof import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -87,18 +87,17 @@ export async function extractPdfText(buf: Buffer): Promise<PdfExtractResult> {
   const data = new Uint8Array(buf.byteLength);
   data.set(buf);
 
-  let doc: Awaited<ReturnType<PdfjsModule['getDocument']>['promise']> | null = null;
+  const task = pdfjs.getDocument({
+    data,
+    // Main-process, offline-only hardening:
+    useWorkerFetch: false, // never fetch worker assets over the network
+    disableFontFace: true, // we only want text, not rendering
+    // No standardFontDataUrl / cMapUrl: we intentionally do not fetch font or
+    // CMap data. Missing CMaps can drop the odd CJK glyph, but it keeps the
+    // path strictly offline and is far better than the empty-string failure.
+  });
   try {
-    doc = await pdfjs.getDocument({
-      data,
-      // Main-process, offline-only hardening:
-      useWorkerFetch: false, // never fetch worker assets over the network
-      isEvalSupported: false, // no eval() in the font/JS interpreter
-      disableFontFace: true, // we only want text, not rendering
-      // No standardFontDataUrl / cMapUrl: we intentionally do not fetch font or
-      // CMap data. Missing CMaps can drop the odd CJK glyph, but it keeps the
-      // path strictly offline and is far better than the empty-string failure.
-    }).promise;
+    const doc = await task.promise;
 
     const parts: string[] = [];
 
@@ -136,7 +135,7 @@ export async function extractPdfText(buf: Buffer): Promise<PdfExtractResult> {
     return { kind: 'failed' };
   } finally {
     // Always release the worker/parser resources.
-    await doc?.destroy().catch(() => {});
+    await task.destroy().catch(() => {});
   }
 }
 
@@ -162,10 +161,9 @@ function joinTextItems(items: readonly TextItemLike[]): string {
  * we keep the field name alongside its value so the redactor sees the label too
  * (e.g. "Full name: Jane Doe").
  */
-function collectFieldValues(fields: Record<string, unknown>): string {
+function collectFieldValues(fields: ReadonlyMap<string, readonly object[]>): string {
   const lines: string[] = [];
-  for (const [name, entries] of Object.entries(fields)) {
-    if (!Array.isArray(entries)) continue;
+  for (const [name, entries] of fields) {
     for (const entry of entries) {
       const value = fieldValue(entry);
       if (value && value.trim().length > 0) {

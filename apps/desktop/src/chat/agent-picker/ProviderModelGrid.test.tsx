@@ -35,7 +35,7 @@ describe('ProviderModelGrid layout', () => {
     const grid = providers.parentElement;
 
     expect(grid?.style.height).toBe('clamp(180px, 38dvh, 320px)');
-    expect(models.style.minHeight).toBe('0');
+    expect(models.style.minHeight).toBe('0px');
     expect(models.style.overflowY).toBe('auto');
     expect(models.style.maxHeight).toBe('');
   });
