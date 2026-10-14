@@ -14,7 +14,8 @@ name: Mobile EAS Update (OTA)
 # Channels ↔ branches: each `eas build` profile in eas.json is stamped with a
 # channel (`preview`, `production`). This job publishes to the EAS *branch* of
 # the same name, which those channels point to — so a `production` build picks
-# up `production` updates, a `preview` build picks up `preview` updates.
+# up `production` updates, a `preview` build picks up `preview` updates. The EAS
+# environment (whose variables the update bundles with) has the same name.
 #
 # Secrets (identical to Mobile EAS Build — nothing about the account is committed):
 #   EXPO_TOKEN       - Expo access token (the real secret) — used by eas-cli.
@@ -124,5 +125,6 @@ jobs:
           eas update \
             --non-interactive \
             --branch "${{ inputs.channel }}" \
+            --environment "${{ inputs.channel }}" \
             --platform "${{ inputs.platform }}" \
             --message "$MSG"

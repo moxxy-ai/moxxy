@@ -7,35 +7,48 @@ podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties
 def ccache_enabled?(podfile_properties)
   # Environment variable takes precedence
   return ENV['USE_CCACHE'] == '1' if ENV['USE_CCACHE']
-  
+
   # Fall back to Podfile properties
   podfile_properties['apple.ccacheEnabled'] == 'true'
 end
 
-def patch_expo_constants_manifest_phase(installer)
-  target = installer.pods_project.targets.find { |pod_target| pod_target.name == 'EXConstants' }
+def replace_pod_script_phase(installer, pod_name, phase_name, script)
+  target = installer.pods_project.targets.find { |pod_target| pod_target.name == pod_name }
   return unless target
 
   target.shell_script_build_phases.each do |phase|
-    next unless phase.name == '[CP-User] Generate app.config for prebuilt Constants.manifest'
-
-    phase.shell_script = <<~'SH'
-      set -eo pipefail
-
-      export PROJECT_ROOT="${PODS_ROOT}/../.."
-      MOXXY_EXCONSTANTS_PODS_LINK="${TMPDIR:-/tmp}/moxxy-exconstants-pods"
-      rm -rf "$MOXXY_EXCONSTANTS_PODS_LINK"
-      ln -s "$PROJECT_DIR" "$MOXXY_EXCONSTANTS_PODS_LINK"
-      PROJECT_DIR="$MOXXY_EXCONSTANTS_PODS_LINK" bash -l "$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh"
-    SH
+    phase.shell_script = script if phase.name == phase_name
   end
 end
 
-ENV['RCT_NEW_ARCH_ENABLED'] ||= '0' if podfile_properties['newArchEnabled'] == 'false'
+def patch_expo_constants_manifest_phase(installer)
+  replace_pod_script_phase(installer, 'EXConstants', '[CP-User] Generate app.config for prebuilt Constants.manifest', <<~'SH')
+    set -eo pipefail
+
+    export PROJECT_ROOT="${PODS_ROOT}/../.."
+    MOXXY_EXCONSTANTS_PODS_LINK="${TMPDIR:-/tmp}/moxxy-exconstants-pods"
+    rm -rf "$MOXXY_EXCONSTANTS_PODS_LINK"
+    ln -s "$PROJECT_DIR" "$MOXXY_EXCONSTANTS_PODS_LINK"
+    PROJECT_DIR="$MOXXY_EXCONSTANTS_PODS_LINK" bash -l "$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh"
+  SH
+end
+
+# The pod runs `bash -l -c "$PODS_TARGET_SRCROOT/..."`, which splits a checkout path at its spaces.
+def patch_expo_updates_resources_phase(installer)
+  replace_pod_script_phase(installer, 'EXUpdates', '[CP-User] Generate updates resources for expo-updates', <<~'SH')
+    bash -l "$PODS_TARGET_SRCROOT/../scripts/create-updates-resources-ios.sh"
+  SH
+end
+
 ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] ||= podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
-ENV['RCT_USE_RN_DEP'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true' && podfile_properties['newArchEnabled'] != 'false'
-ENV['RCT_USE_PREBUILT_RNCORE'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true' && podfile_properties['newArchEnabled'] != 'false'
-platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
+ENV['RCT_USE_RN_DEP'] ||= podfile_properties['ios.buildReactNativeFromSource'] == 'true' ? '0' : '1'
+ENV['RCT_USE_PREBUILT_RNCORE'] ||= podfile_properties['ios.buildReactNativeFromSource'] == 'true' ? '0' : '1'
+ENV['RCT_HERMES_V1_ENABLED'] ||= '0' if podfile_properties['expo.useHermesV1'] == 'false'
+# An explicit `ios.usePrecompiledModules: false` must win even when the env var is already set
+# (e.g. EXPO_USE_PRECOMPILED_MODULES exported by EAS Build), so force-disable here before the default.
+ENV['EXPO_USE_PRECOMPILED_MODULES'] = '0' if podfile_properties['EXPO_USE_PRECOMPILED_MODULES'] == 'false'
+ENV['EXPO_USE_PRECOMPILED_MODULES'] ||= '1'
+platform :ios, podfile_properties['ios.deploymentTarget'] || '16.4'
 
 prepare_react_native_project!
 
@@ -79,5 +92,6 @@ target 'MoxxyMobileGateway' do
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
     patch_expo_constants_manifest_phase(installer)
+    patch_expo_updates_resources_phase(installer)
   end
 end

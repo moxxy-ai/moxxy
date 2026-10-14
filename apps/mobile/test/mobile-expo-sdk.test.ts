@@ -4,21 +4,23 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('Expo Go compatibility', () => {
-  it('targets the Expo Go 54 runtime available on the test phone', async () => {
+  it('targets the Expo Go 57 runtime available on the test phone', async () => {
     const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'));
 
-    expect(pkg.dependencies.expo).toMatch(/^~54\./);
-    expect(pkg.dependencies.react).toMatch(/^\^?19\.1\./);
-    expect(pkg.dependencies['react-native']).toMatch(/^\^?0\.81\./);
-    expect(pkg.dependencies['expo-router']).toMatch(/^~6\.0\./);
+    expect(pkg.dependencies.expo).toMatch(/^~57\./);
+    expect(pkg.dependencies.react).toMatch(/^\^?19\.2\./);
+    expect(pkg.dependencies['react-native']).toMatch(/^\^?0\.86\./);
+    expect(pkg.dependencies['expo-router']).toMatch(/^~57\./);
   });
 
   it('declares native microphone recording support for Expo Go', async () => {
     const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'));
     const app = JSON.parse(await readFile(join(process.cwd(), 'app.json'), 'utf8'));
 
-    expect(pkg.dependencies['expo-audio']).toMatch(/^~1\./);
-    expect(pkg.dependencies['expo-file-system']).toMatch(/^~19\./);
+    expect(pkg.dependencies['expo-audio']).toMatch(/^~57\./);
+    // expo-audio requires expo-asset as a direct native peer dependency (expo-doctor checks it).
+    expect(pkg.dependencies['expo-asset']).toMatch(/^~57\./);
+    expect(pkg.dependencies['expo-file-system']).toMatch(/^~57\./);
     expect(app.expo.plugins).toEqual(expect.arrayContaining([
       [
         'expo-audio',
@@ -33,7 +35,7 @@ describe('Expo Go compatibility', () => {
     const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'));
     const app = JSON.parse(await readFile(join(process.cwd(), 'app.json'), 'utf8'));
 
-    expect(pkg.dependencies['expo-camera']).toMatch(/^~17\./);
+    expect(pkg.dependencies['expo-camera']).toMatch(/^~57\./);
     expect(app.expo.plugins).toEqual(expect.arrayContaining([
       [
         'expo-camera',
@@ -48,8 +50,8 @@ describe('Expo Go compatibility', () => {
     const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'));
     const app = JSON.parse(await readFile(join(process.cwd(), 'app.json'), 'utf8'));
 
-    expect(pkg.dependencies['expo-image-picker']).toMatch(/^~17\./);
-    expect(pkg.dependencies['expo-document-picker']).toMatch(/^~14\./);
+    expect(pkg.dependencies['expo-image-picker']).toMatch(/^~57\./);
+    expect(pkg.dependencies['expo-document-picker']).toMatch(/^~57\./);
     expect(app.expo.plugins).toEqual(expect.arrayContaining([
       [
         'expo-image-picker',
