@@ -126,6 +126,18 @@ describe('RunnerSupervisor reconnects', () => {
     await sup.stop();
   });
 
+  it('logs a runner that cannot be started instead of crashing the app', async () => {
+    // The socket answers at once, so the wait for it is over before Node
+    // reports that the start failed: the workspace folder does not exist.
+    vi.mocked(connectRemoteSession).mockResolvedValue(fakeSession(null));
+    const sup = supervisor();
+    await sup.setCwd(path.join(tmp, 'missing-folder'));
+
+    void sup.run();
+    await waitFor(() => sup.snapshot().log.some((entry) => /ENOENT/.test(entry.line)), 8000);
+    await sup.stop();
+  });
+
   it('stops the old runner when the workspace folder changes while the link is down', async () => {
     const sup = supervisor();
     const child = fakeChild();

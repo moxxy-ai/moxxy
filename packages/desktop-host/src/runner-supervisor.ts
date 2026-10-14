@@ -607,6 +607,10 @@ export class RunnerSupervisor extends EventEmitter {
     });
     proc.stdout?.on('data', (chunk) => this.consumeLog('stdout', chunk));
     proc.stderr?.on('data', (chunk) => this.consumeLog('stderr', chunk));
+    // A start that fails (no `node`, a missing folder) is reported as an
+    // 'error' event, and one nobody listens to crashes the whole app. The wait
+    // for the socket listens only while it waits, which can end first.
+    proc.on('error', (err) => this.pushLog('stderr', `child spawn error: ${err.message}`));
     return proc;
   }
 
@@ -667,9 +671,9 @@ export class RunnerSupervisor extends EventEmitter {
     const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
       exited = { code, signal };
     };
+    // spawnServe's own listener logs it; this one only ends the wait early.
     const onError = (err: Error): void => {
       spawnError = err;
-      this.pushLog('stderr', `child spawn error: ${err.message}`);
     };
     child?.once('exit', onExit);
     child?.once('error', onError);
