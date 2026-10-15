@@ -1,5 +1,13 @@
 # @moxxy/plugin-tunnel-proxy
 
+## 0.44.0
+
+### Patch Changes
+
+- Updated dependencies [d70839e]
+  - @moxxy/sdk@0.44.0
+  - @moxxy/e2e@0.44.0
+
 ## 0.43.0
 
 ### Patch Changes
