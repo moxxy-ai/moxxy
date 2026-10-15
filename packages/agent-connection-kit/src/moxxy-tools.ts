@@ -75,6 +75,23 @@ export function idleToolsHandler(tools: ReadonlyArray<ToolDef>, skills: Readonly
   return moxxyToolsHandler(tools, { runTool: async () => ({ ok: false, message: NO_TURN }) }, skills);
 }
 
+/** A server name as agents compare it: case aside, and characters other than letters, digits, `_` and `-` as `_` (OpenCode's tool names). */
+const serverKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+/** Moxxy names an MCP server's tools `mcp__<server>__<tool>`. */
+const MCP_TOOL = /^mcp__(.+?)__/;
+
+/**
+ * The tools to lend without those of an MCP server the agent has itself: a
+ * server set up both in Moxxy and in the agent would otherwise reach it twice.
+ */
+export function withoutOwnMcpServers(tools: ReadonlyArray<ToolDef>, ownServers: ReadonlyArray<string>): ToolDef[] {
+  const own = new Set(ownServers.map(serverKey));
+  return tools.filter((tool) => {
+    const server = MCP_TOOL.exec(tool.name)?.[1];
+    return server === undefined || !own.has(serverKey(server));
+  });
+}
+
 /** Whether two tool lists name the same tools, whatever their order. */
 export function sameToolNames(a: ReadonlyArray<ToolDef>, b: ReadonlyArray<ToolDef>): boolean {
   const names = (tools: ReadonlyArray<ToolDef>) => tools.map((tool) => tool.name).sort().join('\n');

@@ -23,7 +23,7 @@ import {
   type ToolDef,
 } from '@moxxy/sdk';
 import { buildSynthesizeSkillPlugin, collectTurn, type Session } from '@moxxy/core';
-import { createFakeSession } from '@moxxy/testing';
+import { FakeProvider, addFakeProvider, createFakeSession, textReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
@@ -131,6 +131,28 @@ describe('a turn on the Claude agent connection', () => {
     expect(second).toEqual([{ type: 'text', text: 'thanks' }]);
     expect(said(events)).toEqual(['5433']);
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'agent_session', payload: { provider: 'claude-code', sessionId: 'claude-session-2' } }));
+  });
+
+  it('hears, when the person comes back to it, what the conversation did on another connection meanwhile', async () => {
+    const { claude, session } = connect(async function* () {
+      yield assistantText('ok');
+    });
+    addFakeProvider(session, new FakeProvider({ name: 'stand-in', script: [textReply('Renamed it to orders.')] }));
+
+    await collectTurn(session, 'use port 5433');
+    session.providers.setActive('stand-in');
+    await collectTurn(session, 'rename the table to orders');
+    session.providers.setActive('claude-code');
+    await collectTurn(session, 'what did you rename?');
+    await collectTurn(session, 'thanks');
+
+    expect(claude.queries).toHaveLength(1);
+    const [, back, after] = claude.last.received.map((m) => m.message.content) as Array<Array<{ text: string }>>;
+    expect(back?.[0]?.text).toMatch(/another connection/);
+    expect(back?.[0]?.text).toContain('### Turn 2\nPerson: rename the table to orders\nAgent: Renamed it to orders.');
+    expect(back?.[0]?.text).not.toContain('use port 5433');
+    expect(back?.[1]?.text).toBe('what did you rename?');
+    expect(after).toEqual([{ type: 'text', text: 'thanks' }]);
   });
 
   it('hands the conversation so far over before a goal, since /goal must start its own message', async () => {
@@ -703,6 +725,27 @@ describe('one-off text calls', () => {
     expect(claude.last.options.persistSession).toBe(false);
     expect(claude.last.options.systemPrompt).toBe('Summarize.');
   });
+
+  it('gives Claude the instructions of the request as its instructions, not as words the person said', async () => {
+    const claude = new FakeClaude(async function* (turn) {
+      yield assistantText(`asked: ${turn.text}`);
+    });
+    const provider = new ClaudeAgentProvider({ defaultModel: 'claude-haiku-5-5', loadSdk: async () => claude });
+
+    const out: string[] = [];
+    for await (const event of provider.stream({
+      model: 'claude-haiku-5-5',
+      messages: [
+        { role: 'system', content: [{ type: 'text', text: 'Plan search queries.' }] },
+        { role: 'user', content: [{ type: 'text', text: 'Find the release date.' }] },
+      ],
+    })) {
+      if (event.type === 'text_delta') out.push(event.delta);
+    }
+
+    expect(out.join('')).toBe('asked: Find the release date.');
+    expect(claude.last.options.systemPrompt).toBe('Plan search queries.');
+  });
 });
 
 describe('the Moxxy tools Claude can see', () => {
@@ -808,6 +851,50 @@ describe("the person's Moxxy skills on Claude", () => {
 
     expect(claude.queries).toHaveLength(1);
     expect(read).toEqual([{ content: [{ type: 'text', text: expect.stringContaining('Steps for monthly-invoices.') }] }]);
+  });
+
+  it('reach Claude at its next turn when a skill file is added to a skills folder during the conversation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'moxxy-claude-skills-'));
+    try {
+      const projectDir = join(root, 'project-skills');
+      const read: Array<{ content: unknown; isError?: boolean }> = [];
+      const connected = connect(async function* (turn) {
+        if (turn.text === 'use it') read.push(await turn.callMoxxyTool('load_skill', { name: 'weekly-report' }));
+        yield assistantText('ok');
+      });
+      connected.session.pluginHost.registerStatic(
+        buildSynthesizeSkillPlugin(connected.session, { userDir: join(root, 'user-skills'), projectDir, rescanBeforeAgentTurns: true }),
+      );
+      connected.session.setPermissionResolver(allowAll);
+      await collectTurn(connected.session, 'hello');
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(join(projectDir, 'weekly-report.md'), '---\nname: weekly-report\ndescription: Write the weekly report\n---\nSteps for the weekly report.\n');
+
+      await collectTurn(connected.session, 'use it');
+
+      expect(read).toEqual([{ content: [{ type: 'text', text: expect.stringContaining('Steps for the weekly report.') }] }]);
+    } finally {
+      removeDirSync(root);
+    }
+  });
+});
+
+describe('an MCP server set up both in Moxxy and in Claude', () => {
+  it("reaches Claude once, through Claude's own setup", async () => {
+    const mcpTool = (name: string) => defineTool({ name, description: name, inputSchema: z.object({}), handler: async () => 'ok' });
+    let listed: string[] = [];
+    const claude = new FakeClaude(async function* (turn) {
+      listed = (await (await turn.query.moxxyClient()).listTools()).tools.map((tool) => tool.name);
+      yield assistantText('ok');
+    });
+    claude.ownMcpServers = ['vault'];
+    const { session } = connect(async function* () {}, { claude });
+    session.pluginHost.registerStatic(definePlugin({ name: 'mcp-servers', tools: [mcpTool('mcp__vault__secret_word'), mcpTool('mcp__notes__read')] }));
+
+    await collectTurn(session, 'which tools?');
+
+    expect(listed).toContain('mcp__notes__read');
+    expect(listed).not.toContain('mcp__vault__secret_word');
   });
 });
 

@@ -183,6 +183,12 @@ export interface ClaudeQueryOptions {
 }
 
 /** A skill or command Claude can run; `builtin` marks Claude Code's own. */
+/** One of Claude's MCP servers; `status` is `connected`, `failed`, `needs-auth`, `pending` or `disabled`. */
+export interface ClaudeMcpServerStatus {
+  readonly name: string;
+  readonly status: string;
+}
+
 export interface ClaudeSlashCommand {
   readonly name: string;
   readonly description: string;
@@ -195,6 +201,8 @@ export interface ClaudeQuery extends AsyncIterable<ClaudeMessage> {
   interrupt(): Promise<unknown>;
   /** The skills and commands this Claude has. */
   supportedCommands(): Promise<ClaudeSlashCommand[]>;
+  /** The MCP servers this Claude has, Moxxy's among them. */
+  mcpServerStatus(): Promise<ClaudeMcpServerStatus[]>;
   setPermissionMode(mode: ClaudePermissionMode): Promise<void>;
   setModel(model?: string): Promise<void>;
   close(): void;

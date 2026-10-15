@@ -8,7 +8,7 @@ import {
   autoApproveFromEvents,
   autoApproveRecorded,
 } from '../auto-approve.js';
-import { renderEarlierConversation } from '../conversation-history.js';
+import { renderEarlierConversation, renderMissedTurns } from '../conversation-history.js';
 import { computeElisionState } from '../elision-state.js';
 import type { MoxxyEvent, UserPromptEvent } from '../events.js';
 import { asToolCallId } from '../ids.js';
@@ -256,6 +256,7 @@ async function runRound(
       skills: ctx.skills.list(),
       ...(resumeSessionId ? { resumeSessionId } : {}),
       earlierConversation: () => renderEarlierConversation(ctx.log, ctx.turnId),
+      missedTurns: () => renderMissedTurns(ctx.log, ctx.provider.name, ctx.turnId),
       autoApprove,
       autoApproveRecorded: autoApproveRecorded(ctx.log.ofType('plugin_event')),
       autoApproveFromAgent: autoApproveFromAgent(ctx.log.ofType('plugin_event')),

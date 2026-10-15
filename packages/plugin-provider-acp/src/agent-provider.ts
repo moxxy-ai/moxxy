@@ -8,12 +8,12 @@ import {
   type ProviderRequest,
   type TokenUsage,
 } from '@moxxy/sdk';
-import { AgentSessionPool, Inbox, JsonRpcLineClient, transcript, type AgentSessionLease } from '@moxxy/agent-connection-kit';
+import { AgentSessionPool, Inbox, JsonRpcLineClient, oneOffPrompt, type AgentSessionLease } from '@moxxy/agent-connection-kit';
 import { AcpAgentSession, CLIENT_CAPABILITIES, type AcpConnection, type StartAcpAgent } from './acp-session.js';
 import { OPENCODE_AGENT, type AcpAgentSpec } from './agents.js';
 import { spawnOpenCodeAcp } from './executable.js';
-import { readOpenCodeRules } from './login.js';
-import type { ReadAgentRules } from './rules.js';
+import { readOpenCodeMcpServers, readOpenCodeRules } from './login.js';
+import type { ReadAgentMcpServers, ReadAgentRules } from './rules.js';
 import { ACP_PROTOCOL_VERSION, type AcpPromptResponse, type AcpSessionResponse } from './protocol.js';
 import { toTokenUsage } from './translate.js';
 
@@ -51,6 +51,8 @@ export interface AcpAgentProviderConfig {
   readonly startAgent?: StartAcpAgent;
   /** How the person's agent runs; reads `opencode debug agent` by default. */
   readonly readRules?: ReadAgentRules;
+  /** The person's own MCP servers; reads `opencode debug config` by default. */
+  readonly readMcpServers?: ReadAgentMcpServers;
   /** The live agent sessions; shared across the process by default. */
   readonly sessions?: AgentSessionPool<AcpAgentSession>;
 }
@@ -79,6 +81,7 @@ export class AcpAgentProvider implements LLMProvider {
   private readonly defaultModel: string;
   private readonly start: StartAcpAgent;
   private readonly readRules: ReadAgentRules;
+  private readonly readMcpServers: ReadAgentMcpServers;
 
   constructor(private readonly config: AcpAgentProviderConfig = {}) {
     this.agent = config.agent ?? OPENCODE_AGENT;
@@ -89,6 +92,7 @@ export class AcpAgentProvider implements LLMProvider {
     this.models = [...new Set([this.defaultModel, ...ids])].map(acpModel);
     this.start = config.startAgent ?? spawnOpenCodeAcp(config.executable ?? 'opencode');
     this.readRules = config.readRules ?? readOpenCodeRules(config.executable ?? 'opencode');
+    this.readMcpServers = config.readMcpServers ?? readOpenCodeMcpServers(config.executable ?? 'opencode');
   }
 
   /** Any model the agent names can be picked; it gets the same description as the rest. */
@@ -139,7 +143,8 @@ export class AcpAgentProvider implements LLMProvider {
           await client.request('session/set_config_option', { sessionId, configId: option.id, value: wanted });
         }
       }
-      const text = [req.system, transcript(req.messages)].filter(Boolean).join('\n\n');
+      const { system, prompt } = oneOffPrompt(req);
+      const text = [system, prompt].filter(Boolean).join('\n\n');
       const stop = () => client.notify('session/cancel', { sessionId });
       req.signal?.addEventListener('abort', stop, { once: true });
       const answered = client.request<AcpPromptResponse>('session/prompt', { sessionId, prompt: [{ type: 'text', text }] }).finally(() => deltas.push(null));
@@ -178,6 +183,7 @@ export class AcpAgentProvider implements LLMProvider {
       agent: this.agent,
       start: this.start,
       readRules: this.readRules,
+      readMcpServers: this.readMcpServers,
       cwd: req.cwd,
       tools: req.allTools ?? req.tools,
       ...(req.skills ? { skills: req.skills } : {}),

@@ -83,6 +83,8 @@ export interface FakeCodexDefaults {
   readonly refuseSteer?: boolean;
   /** Names of the person's own Codex skills, as `skills/list` reports them. */
   readonly ownSkills?: ReadonlyArray<string>;
+  /** The person's own MCP servers, as `config/read` reports them under `mcp_servers`. */
+  readonly mcpServers?: Readonly<Record<string, { readonly enabled: boolean }>>;
 }
 
 /** The person's Codex install: every app-server Moxxy starts, and the threads it saved. */
@@ -233,6 +235,7 @@ export class FakeCodexServer {
               approval_policy: this.codex.defaults.approvalPolicy ?? 'never',
               sandbox_mode: modeOfSandbox(this.codex.defaults.sandbox ?? { type: 'dangerFullAccess' }),
               tools: this.codex.defaults.planTool === undefined ? null : { update_plan: { enabled: this.codex.defaults.planTool } },
+              mcp_servers: this.codex.defaults.mcpServers ?? {},
             },
           },
         };

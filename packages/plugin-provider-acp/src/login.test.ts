@@ -7,6 +7,7 @@ import {
   listOpenCodeModels,
   opencodeLogin,
   opencodeStatus,
+  readOpenCodeMcpServers,
   readOpenCodeRules,
   resolveOpenCodeExecutable,
   type OpenCodeCommandResult,
@@ -130,5 +131,25 @@ describe('how the person OpenCode runs', () => {
 
     expect(await readOpenCodeRules('opencode')({ cwd: '/w', agent: 'build' })).toBeUndefined();
     expect(await readOpenCodeRules('opencode')({ cwd: '/w', agent: 'plan' })).toBeUndefined();
+  });
+});
+
+describe("the person's own OpenCode MCP servers", () => {
+  it('are the switched-on servers of the config OpenCode resolves where the turn runs', async () => {
+    const config = { mcp: { vault: { type: 'local', command: ['node', 'x.mjs'] }, off: { type: 'local', command: ['node', 'y.mjs'], enabled: false } } };
+    answer({ 'debug config': ok(JSON.stringify(config, null, 2)) });
+
+    const servers = await readOpenCodeMcpServers('opencode')({ cwd: '/work/app' });
+
+    expect(servers).toEqual(['vault']);
+    expect(calls[0]).toMatchObject({ args: ['debug', 'config'], cwd: '/work/app' });
+  });
+
+  it('cannot say when OpenCode fails or prints something else', async () => {
+    answer({ 'debug config': { code: 1, stdout: '', stderr: 'Error: Configuration is invalid' } });
+    expect(await readOpenCodeMcpServers('opencode')({ cwd: '/w' })).toBeUndefined();
+
+    answer({ 'debug config': ok('not json') });
+    expect(await readOpenCodeMcpServers('opencode')({ cwd: '/w' })).toBeUndefined();
   });
 });

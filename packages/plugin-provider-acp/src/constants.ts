@@ -19,6 +19,7 @@ export const MOXXY_MCP_SERVER = 'moxxy';
 export const OPENCODE_ACP_ARGS = ['acp'] as const;
 export const OPENCODE_MODELS_ARGS = ['models'] as const;
 export const OPENCODE_DEBUG_AGENT_ARGS = ['debug', 'agent'] as const;
+export const OPENCODE_DEBUG_CONFIG_ARGS = ['debug', 'config'] as const;
 export const OPENCODE_AUTH_LIST_ARGS = ['auth', 'list'] as const;
 export const OPENCODE_AUTH_LOGIN_ARGS = ['auth', 'login'] as const;
 export const OPENCODE_AUTH_LOGOUT_ARGS = ['auth', 'logout'] as const;

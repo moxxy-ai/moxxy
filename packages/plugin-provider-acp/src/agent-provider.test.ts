@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver, type Skill, type ToolDef } from '@moxxy/sdk';
 import { buildSynthesizeSkillPlugin, collectTurn, newTurnId, type Session } from '@moxxy/core';
-import { createFakeSession } from '@moxxy/testing';
+import { FakeProvider, addFakeProvider, createFakeSession, textReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
@@ -28,7 +28,7 @@ function connect(scene: OpenCodeScene, defaults: FakeOpenCodeDefaults = {}, mode
   const opencode = new FakeOpenCode(scene, defaults);
   const pool = new AgentSessionPool<AcpAgentSession>({ limit: 4 });
   pools.push(pool);
-  const provider = new AcpAgentProvider({ startAgent: opencode.start, readRules: opencode.readRules, sessions: pool, model });
+  const provider = new AcpAgentProvider({ startAgent: opencode.start, readRules: opencode.readRules, readMcpServers: opencode.readMcpServers, sessions: pool, model });
   const session = createFakeSession({ provider, cwd: '/work/app' });
   sessions.push(session);
   session.pluginHost.registerStatic(defaultModePlugin);
@@ -193,6 +193,27 @@ describe('a turn on the OpenCode agent connection', () => {
     expect(opencode.last.sent('session/load')[0]).toMatchObject({ sessionId: 'ses_1', cwd: '/work/app', mcpServers: [expect.objectContaining({ name: 'moxxy' })] });
     expect(opencode.last.sent('session/new')).toHaveLength(0);
     expect(said(next)).toEqual(['MARMOT-55']);
+  });
+
+  it('hears, when the person comes back to it, what the conversation did on another connection meanwhile', async () => {
+    const { opencode, session, provider } = connect(async (turn) => turn.say('ok'));
+    addFakeProvider(session, new FakeProvider({ name: 'stand-in', script: [textReply('Renamed it to orders.')] }));
+
+    await collectTurn(session, 'use port 5433');
+    session.providers.setActive('stand-in');
+    await collectTurn(session, 'rename the table to orders');
+    session.providers.setActive(provider.name);
+    await collectTurn(session, 'what did you rename?');
+    await collectTurn(session, 'thanks');
+
+    expect(opencode.last.sent('session/new')).toHaveLength(1);
+    const [, back, after] = opencode.last.sent('session/prompt');
+    const [note, prompt] = (back?.prompt ?? []) as Array<{ text: string }>;
+    expect(note?.text).toMatch(/another connection/);
+    expect(note?.text).toContain('### Turn 2\nPerson: rename the table to orders\nAgent: Renamed it to orders.');
+    expect(note?.text).not.toContain('use port 5433');
+    expect(prompt?.text).toBe('what did you rename?');
+    expect(after?.prompt).toEqual([{ type: 'text', text: 'thanks' }]);
   });
 
   it('starts a new session with the conversation so far when OpenCode no longer has the old one', async () => {
@@ -831,6 +852,21 @@ describe('stopping and failing', () => {
   });
 });
 
+describe('an MCP server set up both in Moxxy and in OpenCode', () => {
+  it("reaches OpenCode once, through OpenCode's own setup", async () => {
+    const mcpTool = (name: string) => defineTool({ name, description: name, inputSchema: z.object({}), handler: async () => 'ok' });
+    const { opencode, session } = connect(async (turn) => turn.say('ok'), { mcpServers: ['vault'] });
+    session.pluginHost.registerStatic(definePlugin({ name: 'mcp-servers', tools: [mcpTool('mcp__vault__secret_word'), mcpTool('mcp__notes__read')] }));
+
+    await collectTurn(session, 'which tools?');
+    const fake = [...opencode.last.sessions.values()].at(-1);
+    await fake?.reading;
+
+    expect(fake?.moxxyTools).toContain('mcp__notes__read');
+    expect(fake?.moxxyTools).not.toContain('mcp__vault__secret_word');
+  });
+});
+
 describe('one-off text calls', () => {
   it('asks OpenCode for plain text in a session of its own, without Moxxy tools', async () => {
     const opencode = new FakeOpenCode(async (turn) => turn.say(`summary of: ${turn.text}`));
@@ -848,5 +884,23 @@ describe('one-off text calls', () => {
     expect(out.join('')).toBe('summary of: Summarize.\n\nA long conversation');
     expect(opencode.last.sent('session/new')[0]).toEqual({ cwd: '/work/app', mcpServers: [] });
     expect(opencode.last.closed).toBe(true);
+  });
+
+  it('puts the instructions of the request first, not as words the person said', async () => {
+    const opencode = new FakeOpenCode(async (turn) => turn.say(`asked: ${turn.text}`));
+    const provider = new AcpAgentProvider({ startAgent: opencode.start, cwd: '/work/app' });
+
+    const out: string[] = [];
+    for await (const event of provider.stream({
+      model: 'opencode/big-pickle',
+      messages: [
+        { role: 'system', content: [{ type: 'text', text: 'Plan search queries.' }] },
+        { role: 'user', content: [{ type: 'text', text: 'Find the release date.' }] },
+      ],
+    })) {
+      if (event.type === 'text_delta') out.push(event.delta);
+    }
+
+    expect(out.join('')).toBe('asked: Plan search queries.\n\nFind the release date.');
   });
 });

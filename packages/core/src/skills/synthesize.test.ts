@@ -254,6 +254,42 @@ describe('reading a skill', () => {
   });
 });
 
+describe('skill folders read again before a turn', () => {
+  class InlineAgentProvider extends InlineProvider {
+    override readonly name = 'inline-agent';
+    async *agentStep(): AsyncIterable<never> {}
+  }
+
+  async function startTurn(provider: InlineProvider, rescanBeforeAgentTurns: boolean): Promise<Session> {
+    const session = newSessionWithProvider(provider);
+    session.pluginHost.registerStatic(
+      buildSynthesizeSkillPlugin(session, { userDir: path.join(tmp, 'user'), projectDir: path.join(tmp, 'project'), rescanBeforeAgentTurns }),
+    );
+    await fs.mkdir(path.join(tmp, 'project'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'project', 'weekly-report.md'), '---\nname: weekly-report\ndescription: Write the weekly report\n---\nsteps\n');
+    await session.dispatcher.dispatchTurnStart({ ...session.appContext(), turnId: asTurnId('t1'), iteration: 0 });
+    return session;
+  }
+
+  it('finds a skill saved during the conversation before a turn on an agent connection', async () => {
+    const session = await startTurn(new InlineAgentProvider([]), true);
+
+    expect(session.skills.byName('weekly-report')).toBeDefined();
+  });
+
+  it('leaves the skills as they are on a model API, whose model calls reload_skills itself', async () => {
+    const session = await startTurn(new InlineProvider([]), true);
+
+    expect(session.skills.byName('weekly-report')).toBeUndefined();
+  });
+
+  it('leaves the skills as they are unless asked to, since the rescan replaces skills registered in memory alone', async () => {
+    const session = await startTurn(new InlineAgentProvider([]), false);
+
+    expect(session.skills.byName('weekly-report')).toBeUndefined();
+  });
+});
+
 describe('reload_skills and the skills plugins ship', () => {
   it('keeps the skills of a loaded plugin when the skills are read again', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-plugin-skills-'));

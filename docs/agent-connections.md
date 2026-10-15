@@ -59,8 +59,8 @@ A CLI older than the version Moxxy was checked against must be updated before th
 |---|---|
 | Reading, editing, searching, running commands | The agent, with its own tools. Edits show in the conversation as diffs. |
 | The browser and computer control | Moxxy's, lent to the agent over Moxxy's local MCP server (`browser_*`, `computer_*`). You watch the agent in the Browser pane and can take over. The agent's own MCP servers stay as it has them; Moxxy adds only this one. |
-| Other Moxxy tools | Lent the same way: `recall`, the mode tools, and the tools of MCP servers you added in Moxxy (Moxxy runs those servers). Tools the agent has its own of (files, shell, web, questions, memory, skills) are not lent. |
-| Skills | Your Moxxy skills (the project's and your user folder's, synthesized ones too) reach the agent through one more lent tool, `load_skill`, which lists them; one added later is found by name. A Moxxy feature's skill (Moxxy Browser, Computer Use) comes with that feature's tools. Moxxy's other built-in skills stay out, and a skill named like one of the agent's own is left to the agent's. |
+| Other Moxxy tools | Lent the same way: `recall`, the mode tools, and the tools of MCP servers you added in Moxxy (Moxxy runs those servers). Tools the agent has its own of (files, shell, web, questions, memory, skills) are not lent, and neither are the tools of an MCP server the agent has set up under the same name: the agent uses its own. |
+| Skills | Your Moxxy skills (the project's and your user folder's, synthesized ones too) reach the agent through one more lent tool, `load_skill`, which lists them; one added later is found by name. A skill file saved to a skills folder while the conversation runs reaches the agent at its next turn: Moxxy reads the skill folders again before each agent turn. A Moxxy feature's skill (Moxxy Browser, Computer Use) comes with that feature's tools. Moxxy's other built-in skills stay out, and a skill named like one of the agent's own is left to the agent's. |
 | Context within a turn | The agent's. Moxxy's compaction, elision and prompt cache work only on Moxxy's side. |
 | Instructions | The agent's own (`CLAUDE.md`, `AGENTS.md`, its settings). Moxxy adds nothing to its prompt, and its own conduct rules are not sent. |
 
@@ -110,7 +110,8 @@ The model list and effort levels come from the agent. An agent runs at Low effor
 - Thoughts one after another fold into one "Thinking" row with their count.
 - The agent's account limit (for example "Claude has used 56% of its weekly limit · resets Wed at 05:00") is in the desktop's Model & usage window. A turn that stopped on a used-up limit ends with a "Limit" note instead of the agent's raw error.
 - Images you attach go to the agent as images; other files are passed as files.
-- Switching to another connection in the middle of a conversation tells the new agent that it joins partway and hands it the earlier turns. A conversation reopened after a restart resumes the agent's own session.
+- Switching to another connection in the middle of a conversation tells the new agent that it joins partway and hands it the earlier turns. Switching back hands the first agent the turns it was away for. A conversation reopened after a restart resumes the agent's own session.
+- Moxxy's one-off requests to the agent (summaries, skill drafts, memory, the research plan) pass their instructions as the agent's instructions, apart from the text it works on.
 
 ## Things to know
 

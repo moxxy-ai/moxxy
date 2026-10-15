@@ -9,7 +9,7 @@ export {
   type MoxxyMcpServerOptions,
 } from './mcp-server.js';
 export { LOAD_SKILL, readSkill, sameSkills, skillsForAgent, skillTool } from './agent-skills.js';
-export { idleToolsHandler, mcpToolsFrom, moxxyToolsHandler, sameToolNames, toMcpResult } from './moxxy-tools.js';
+export { idleToolsHandler, mcpToolsFrom, moxxyToolsHandler, sameToolNames, toMcpResult, withoutOwnMcpServers } from './moxxy-tools.js';
 export {
   JsonRpcError,
   JsonRpcLineClient,
@@ -46,7 +46,7 @@ export {
   type LatestVersionOptions,
 } from './agent-cli.js';
 export { Inbox, untilStopped } from './inbox.js';
-export { transcript } from './transcript.js';
+export { oneOffPrompt, type OneOffPrompt } from './one-off-prompt.js';
 export {
   earlierConversationNote,
   LOST_SESSION_NOTE,

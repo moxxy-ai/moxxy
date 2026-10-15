@@ -20,6 +20,7 @@ import {
   type LiveSession,
   type MoxxyMcpServer,
   type NewSessionReason,
+  withoutOwnMcpServers,
 } from '@moxxy/agent-connection-kit';
 import { MOXXY_MCP_SERVER } from './constants.js';
 import type {
@@ -239,9 +240,11 @@ export class CodexAgentSession implements LiveSession {
   /** A turn was asked of the conversation to show what finished after Codex's turn. */
   private agentTurnPending = false;
   /** The Moxxy tools Codex listed as the thread opened, the same for every turn. */
-  private readonly listed: ToolDef[];
+  private listed: ToolDef[];
   /** Names of Codex's own skills, read as the thread opens. */
   private ownSkills: ReadonlyArray<string> = [];
+  /** Codex's own MCP servers that are on: Moxxy's server of the same name is left to Codex's. */
+  private ownMcpServers: ReadonlyArray<string> = [];
   /** The Moxxy skills Codex listed with the tools; their instructions are read fresh at each call. */
   private offered: Skill[] = [];
   private activeTurn: string | undefined;
@@ -297,9 +300,13 @@ export class CodexAgentSession implements LiveSession {
   fits(settings: Pick<CodexSessionSettings, 'cwd' | 'tools' | 'skills'>): boolean {
     return (
       settings.cwd === this.settings.cwd &&
-      sameToolNames(toolsLentToCodex(settings.tools ?? []), this.listed) &&
+      sameToolNames(this.lent(settings.tools), this.listed) &&
       sameSkills(this.skillsFor(settings.skills), this.offered)
     );
+  }
+
+  private lent(tools: ReadonlyArray<ToolDef> | undefined): ToolDef[] {
+    return withoutOwnMcpServers(toolsLentToCodex(tools ?? []), this.ownMcpServers);
   }
 
   private skillsFor(skills: ReadonlyArray<Skill> | undefined): Skill[] {
@@ -362,11 +369,10 @@ export class CodexAgentSession implements LiveSession {
         this.restoredElsewhere = false;
       }
       await this.apply(this.wanted(req, mode, autoApprove));
-      if (this.newThread) {
-        const note = earlierConversationNote(this.newThread, req.earlierConversation?.());
-        this.newThread = undefined;
-        if (note) this.pendingNotes.unshift(note);
-      }
+      // A new session of the agent's own gets the whole conversation; one it goes on in, the turns it was away for.
+      const note = this.newThread ? earlierConversationNote(this.newThread, req.earlierConversation?.()) : req.missedTurns?.();
+      this.newThread = undefined;
+      if (note) this.pendingNotes.unshift(note);
       await this.begin(mode, req);
       yield* this.read(req, mode, new TurnTranslator(this.settings.cwd, (path) => readImageFile(path, this.settings.cwd)));
     } catch (err) {
@@ -412,6 +418,10 @@ export class CodexAgentSession implements LiveSession {
       ...checklistFor(read),
     };
     this.ownSummary = read ? (read.config.model_reasoning_summary ?? null) : undefined;
+    this.ownMcpServers = Object.entries(read?.config.mcp_servers ?? {})
+      .filter(([name, server]) => name !== MOXXY_MCP_SERVER && server.enabled !== false)
+      .map(([name]) => name);
+    this.listed = this.lent(this.settings.tools);
     // Codex lists Moxxy's tools when the thread opens and keeps that list for the thread.
     this.ownSkills = await this.ownSkillNames(cwd);
     this.offered = this.skillsFor(this.settings.skills);

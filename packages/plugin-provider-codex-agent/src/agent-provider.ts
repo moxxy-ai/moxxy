@@ -9,7 +9,7 @@ import {
   type ProviderRequest,
   type TokenUsage,
 } from '@moxxy/sdk';
-import { AgentSessionPool, Inbox, JsonRpcLineClient, transcript, type AgentSessionLease } from '@moxxy/agent-connection-kit';
+import { AgentSessionPool, Inbox, JsonRpcLineClient, oneOffPrompt, type AgentSessionLease } from '@moxxy/agent-connection-kit';
 import { CODEX_AGENT_NAME, CODEX_AGENT_PROVIDER_ID } from './constants.js';
 import { CodexAgentSession, type StartCodexAppServer } from './codex-session.js';
 import { spawnCodexAppServer } from './executable.js';
@@ -124,17 +124,18 @@ export class CodexAgentProvider implements LLMProvider {
       connection.readable.once('close', () => notes.push(null));
       await client.request('initialize', { clientInfo: { name: 'moxxy', title: 'Moxxy', version: '1' }, capabilities: { experimentalApi: true } });
       client.notify('initialized');
+      const { system, prompt } = oneOffPrompt(req);
       const thread = await client.request<CodexThreadResponse>('thread/start', {
         cwd,
         ephemeral: true,
         approvalPolicy: 'never',
         sandbox: 'read-only',
         model,
-        ...(req.system ? { developerInstructions: req.system } : {}),
+        ...(system ? { developerInstructions: system } : {}),
       });
       const started = await client.request<{ turn: CodexTurn }>(
         'turn/start',
-        { threadId: thread.thread.id, input: [{ type: 'text', text: transcript(req.messages), text_elements: [] }] },
+        { threadId: thread.thread.id, input: [{ type: 'text', text: prompt, text_elements: [] }] },
         req.signal,
       );
       const stop = () => void client.request('turn/interrupt', { threadId: thread.thread.id, turnId: started.turn.id }).catch(() => undefined);

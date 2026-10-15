@@ -60,6 +60,8 @@ export interface CodexConfigRead {
     } | null;
     readonly approvals_reviewer?: CodexApprovalsReviewer | null;
     readonly tools?: { readonly update_plan?: { readonly enabled?: boolean } | null } | null;
+    /** The person's own MCP servers, by name. */
+    readonly mcp_servers?: Readonly<Record<string, { readonly enabled?: boolean }>> | null;
   };
 }
 

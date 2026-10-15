@@ -1,6 +1,6 @@
 /** The conversation as Moxxy keeps it: what a new agent session starts from, and what `recall` searches. */
 import { describe, expect, it } from 'vitest';
-import { conversationTurns, renderEarlierConversation, searchConversation } from './conversation-history.js';
+import { conversationTurns, renderEarlierConversation, renderMissedTurns, searchConversation } from './conversation-history.js';
 import type { MoxxyEvent, MoxxyEventOfType, MoxxyEventType } from './events.js';
 import { asEventId, asSessionId, asToolCallId, asTurnId, type TurnId } from './ids.js';
 import type { EventLogReader } from './log.js';
@@ -20,7 +20,9 @@ function reader(events: ReadonlyArray<MoxxyEvent>): EventLogReader {
 }
 
 /** A log built turn by turn: what the person said, what the agent did and answered. */
-function conversation(turns: ReadonlyArray<{ said: string; reply?: string; tool?: { name: string; input: unknown }; checkpoint?: string }>): MoxxyEvent[] {
+function conversation(
+  turns: ReadonlyArray<{ said: string; reply?: string; tool?: { name: string; input: unknown }; checkpoint?: string; provider?: string }>,
+): MoxxyEvent[] {
   const events: MoxxyEvent[] = [];
   const push = (turnId: TurnId, partial: Record<string, unknown>) => {
     const seq = events.length;
@@ -29,6 +31,7 @@ function conversation(turns: ReadonlyArray<{ said: string; reply?: string; tool?
   turns.forEach((turn, index) => {
     const turnId = asTurnId(`t${index + 1}`);
     push(turnId, { type: 'user_prompt', source: 'user', text: turn.said });
+    if (turn.provider) push(turnId, { type: 'provider_request', source: 'system', provider: turn.provider, model: 'm' });
     if (turn.tool) {
       push(turnId, { type: 'tool_call_requested', source: 'model', callId: asToolCallId(`c${index}`), name: turn.tool.name, input: turn.tool.input });
       push(turnId, { type: 'tool_result', source: 'tool', callId: asToolCallId(`c${index}`), ok: true, output: 'SECRET TOOL OUTPUT' });
@@ -97,6 +100,40 @@ describe('what a new agent session gets of the conversation', () => {
 
     expect(text.length).toBeLessThan(2_600);
     expect(text).toContain('recall({ turn: 1 })');
+  });
+});
+
+describe('what an agent coming back to the conversation gets of the turns it missed', () => {
+  it('is nothing when it never ran in this conversation: a new session of its own gets the whole conversation instead', () => {
+    const log = reader(conversation([{ said: 'Use port 5433', provider: 'codex-agent' }, { said: 'Which port?' }]));
+
+    expect(renderMissedTurns(log, 'claude-code', asTurnId('t2'))).toBeUndefined();
+  });
+
+  it('is nothing when it ran the turn before this one', () => {
+    const log = reader(conversation([{ said: 'Use port 5433', provider: 'claude-code' }, { said: 'Which port?', provider: 'claude-code' }]));
+
+    expect(renderMissedTurns(log, 'claude-code', asTurnId('t2'))).toBeUndefined();
+  });
+
+  it('gives, word for word and as history, only the turns another connection ran since its own last turn', () => {
+    const log = reader(
+      conversation([
+        { said: 'Use port 5433', reply: 'OK.', provider: 'claude-code' },
+        { said: 'Rename the table to orders', reply: 'Renamed it to orders.', provider: 'codex-agent' },
+        { said: 'And add an index', reply: 'Index added.', provider: 'anthropic' },
+        { said: 'What did Codex rename?', provider: 'claude-code' },
+      ]),
+    );
+
+    const text = renderMissedTurns(log, 'claude-code', asTurnId('t4')) ?? '';
+
+    expect(text).toContain('another connection');
+    expect(text).toContain('not a new request');
+    expect(text).toContain('### Turn 2\nPerson: Rename the table to orders\nAgent: Renamed it to orders.');
+    expect(text).toContain('### Turn 3\nPerson: And add an index\nAgent: Index added.');
+    expect(text).not.toContain('Use port 5433');
+    expect(text).not.toContain('What did Codex rename?');
   });
 });
 

@@ -169,6 +169,7 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
       // doesn't drop builtin/plugin skills when invoked at runtime.
       plugin: buildSynthesizeSkillPlugin(session, {
         builtinDir: BUILTIN_SKILLS_DIR_RESOLVED,
+        rescanBeforeAgentTurns: true,
         ...(rawConfig.skills?.extraDirs ? { pluginDirs: rawConfig.skills.extraDirs } : {}),
         ...(rawConfig.skills?.projectDir ? { projectDir: rawConfig.skills.projectDir } : {}),
         ...(rawConfig.skills?.userDir ? { userDir: rawConfig.skills.userDir } : {}),

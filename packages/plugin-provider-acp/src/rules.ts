@@ -13,6 +13,9 @@ type Action = OpenCodeRule['action'];
 /** Reads the rules of one of the person's OpenCode agents; `undefined` when OpenCode cannot say. */
 export type ReadAgentRules = (opts: { readonly cwd: string; readonly agent: string }) => Promise<ReadonlyArray<OpenCodeRule> | undefined>;
 
+/** Reads the names of the person's own MCP servers that are on; `undefined` when the agent cannot say. */
+export type ReadAgentMcpServers = (opts: { readonly cwd: string }) => Promise<ReadonlyArray<string> | undefined>;
+
 /** Permissions whose rules take an input pattern (a command, a path). */
 const PATTERNED = ['edit', 'bash'] as const;
 /** Permissions with one action for every input. */

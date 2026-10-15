@@ -34,6 +34,8 @@ export interface FakeOpenCodeDefaults {
   readonly rules?: Readonly<Record<string, ReadonlyArray<OpenCodeRule>>> | null;
   /** Names of the person's own OpenCode skills, announced with its commands as a session opens. */
   readonly ownSkills?: ReadonlyArray<string>;
+  /** The person's own MCP servers that are on, as `opencode debug config` reports them. */
+  readonly mcpServers?: ReadonlyArray<string>;
 }
 
 /** OpenCode 1.18's answer to `session/load` that fails, whether or not the session exists. */
@@ -147,6 +149,8 @@ export class FakeOpenCode {
   };
 
   readonly rulesRead: string[] = [];
+
+  readonly readMcpServers = async (): Promise<ReadonlyArray<string> | undefined> => this.defaults.mcpServers ?? [];
 
   get last(): FakeOpenCodeServer {
     const server = this.servers.at(-1);

@@ -18,6 +18,7 @@ import {
   type LiveSession,
   type MoxxyMcpServer,
   type NewSessionReason,
+  withoutOwnMcpServers,
 } from '@moxxy/agent-connection-kit';
 import type { AcpAgentSpec } from './agents.js';
 import {
@@ -33,7 +34,7 @@ import {
   type AcpSessionUpdate,
 } from './protocol.js';
 import { AcpTurnTranslator, toAcpPrompt, toTokenUsage, type AcpShownCall } from './translate.js';
-import { askingConfig, asksOutsideProject, runsWithoutAsking, type OpenCodeRule, type ReadAgentRules } from './rules.js';
+import { askingConfig, asksOutsideProject, runsWithoutAsking, type OpenCodeRule, type ReadAgentMcpServers, type ReadAgentRules } from './rules.js';
 
 /** A running ACP agent (`opencode acp`): its stdout, stdin and stderr. */
 export interface AcpConnection {
@@ -53,6 +54,8 @@ export interface AcpSessionSettings {
   readonly resume?: string;
   /** How the person's agent runs; without it Moxxy leaves the agent's own rules and the conversation's auto-approve alone. */
   readonly readRules?: ReadAgentRules;
+  /** The agent's own MCP servers: Moxxy's server of the same name is left to the agent's. */
+  readonly readMcpServers?: ReadAgentMcpServers;
   /** Every Moxxy tool of the conversation: the agent reads the list as the session opens, and again on a notice. */
   readonly tools?: ReadonlyArray<ToolDef>;
   /** The conversation's Moxxy skills: the agent reads those meant for it through one more Moxxy tool. */
@@ -137,6 +140,7 @@ export class AcpAgentSession implements LiveSession {
   private fresh = true;
   /** The agent's own rules, once read; `null` when it cannot say. */
   private ownRules: ReadonlyArray<OpenCodeRule> | null | undefined;
+  private ownMcpServers: ReadonlyArray<string> | undefined;
   /** This agent was started to ask before what its own rules allow. */
   private asking = false;
   /** Whether Moxxy answers the agent's asks for the person in this turn. */
@@ -245,7 +249,7 @@ export class AcpAgentSession implements LiveSession {
       this.client.notify('session/cancel', { sessionId: this.sessionId });
     };
     req.signal.addEventListener('abort', onAbort, { once: true });
-    const all = toolsLentTo(this.settings.agent, req.allTools ?? req.tools);
+    const all = withoutOwnMcpServers(toolsLentTo(this.settings.agent, req.allTools ?? req.tools), await this.mcpServers());
     if (!sameToolNames(all, this.listed)) this.listed = all;
     try {
       yield { type: 'session', sessionId: this.sessionId };
@@ -286,11 +290,10 @@ export class AcpAgentSession implements LiveSession {
       );
       await this.mcp.announceTools({ signal: req.signal });
       await this.configure(req, mode);
-      if (this.newSession) {
-        const note = earlierConversationNote(this.newSession, req.earlierConversation?.());
-        this.newSession = undefined;
-        if (note) this.pendingNotes.unshift(note);
-      }
+      // A new session of the agent's own gets the whole conversation; one it goes on in, the turns it was away for.
+      const note = this.newSession ? earlierConversationNote(this.newSession, req.earlierConversation?.()) : req.missedTurns?.();
+      this.newSession = undefined;
+      if (note) this.pendingNotes.unshift(note);
       const notes = this.pendingNotes.map((text): AcpContentBlock => ({ type: 'text', text }));
       this.pendingNotes = [];
       let input: AcpContentBlock[] = [...notes, ...toAcpPrompt(req.prompt)];
@@ -326,6 +329,16 @@ export class AcpAgentSession implements LiveSession {
     this.connection.close();
     this.dismissQueued();
     await this.mcp.close();
+  }
+
+  /** The agent's own MCP servers that are on, read once. */
+  private async mcpServers(): Promise<ReadonlyArray<string>> {
+    const { readMcpServers, cwd } = this.settings;
+    if (this.ownMcpServers === undefined) {
+      const servers = readMcpServers ? ((await readMcpServers({ cwd }).catch(() => undefined)) ?? []) : [];
+      this.ownMcpServers = servers.filter((name) => name !== this.settings.agent.mcpServerName);
+    }
+    return this.ownMcpServers;
   }
 
   /** The rules of the agent the person runs, read once. */

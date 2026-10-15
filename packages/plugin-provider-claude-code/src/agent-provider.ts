@@ -9,7 +9,7 @@ import {
   type ProviderRequest,
   type TokenUsage,
 } from '@moxxy/sdk';
-import { AgentSessionPool, agentModeFor, transcript, type AgentSessionLease } from '@moxxy/agent-connection-kit';
+import { AgentSessionPool, agentModeFor, oneOffPrompt, type AgentSessionLease } from '@moxxy/agent-connection-kit';
 import { CLAUDE_AGENT_NAME, CLAUDE_CODE_PROVIDER_ID } from './constants.js';
 import { ClaudeAgentSession, claudeEnv, startingPermissionMode, type ClaudeSessionSettings } from './agent-session.js';
 import { ownPermissionMode } from './own-settings.js';
@@ -111,12 +111,13 @@ export class ClaudeAgentProvider implements LLMProvider {
     let usage: TokenUsage | undefined;
     try {
       const sdk = await this.loadSdk();
+      const { system, prompt } = oneOffPrompt(req);
       const query = sdk.query({
-        prompt: transcript(req.messages),
+        prompt,
         options: {
           cwd: this.config.cwd ?? process.cwd(),
           model,
-          systemPrompt: req.system ?? '',
+          systemPrompt: system ?? '',
           ...(this.config.executable ? { pathToClaudeCodeExecutable: this.config.executable } : {}),
           tools: [],
           persistSession: false,

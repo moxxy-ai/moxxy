@@ -4,6 +4,7 @@ import { spawnExecutableTarget } from '@moxxy/sdk/server';
 import type { ProviderAuthContext, ProviderOAuthResult, ProviderOAuthStatus } from '@moxxy/sdk';
 import {
   OPENCODE_DEBUG_AGENT_ARGS,
+  OPENCODE_DEBUG_CONFIG_ARGS,
   OPENCODE_AUTH_LIST_ARGS,
   OPENCODE_AUTH_LOGIN_ARGS,
   OPENCODE_AUTH_LOGOUT_ARGS,
@@ -12,7 +13,7 @@ import {
   OPENCODE_PROVIDER_ID,
 } from './constants.js';
 import { opencodeTarget } from './executable.js';
-import type { OpenCodeRule, ReadAgentRules } from './rules.js';
+import type { OpenCodeRule, ReadAgentMcpServers, ReadAgentRules } from './rules.js';
 
 export type OpenCodeState = 'signed-in' | 'missing' | 'error';
 
@@ -110,6 +111,20 @@ export function readOpenCodeRules(executable = resolveOpenCodeExecutable()): Rea
     try {
       const { permission } = JSON.parse(result.stdout) as { permission?: unknown };
       return Array.isArray(permission) ? permission.filter(isRule) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+}
+
+/** The person's own MCP servers that are on, from the config OpenCode resolves in `cwd` (`opencode debug config`). */
+export function readOpenCodeMcpServers(executable = resolveOpenCodeExecutable()): ReadAgentMcpServers {
+  return async ({ cwd }) => {
+    const result = await runCommandImpl(executable, [...OPENCODE_DEBUG_CONFIG_ARGS], { cwd });
+    if (result.error || result.code !== 0) return undefined;
+    try {
+      const { mcp } = JSON.parse(result.stdout) as { mcp?: Record<string, { enabled?: unknown } | null> };
+      return Object.entries(mcp ?? {}).flatMap(([name, server]) => (server?.enabled === false ? [] : [name]));
     } catch {
       return undefined;
     }

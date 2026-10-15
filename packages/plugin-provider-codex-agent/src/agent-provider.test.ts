@@ -18,7 +18,7 @@ import {
   type ToolDef,
 } from '@moxxy/sdk';
 import { buildSynthesizeSkillPlugin, collectTurn, type Session } from '@moxxy/core';
-import { createFakeSession } from '@moxxy/testing';
+import { FakeProvider, addFakeProvider, createFakeSession, textReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
@@ -208,6 +208,27 @@ describe('a turn on the Codex agent connection', () => {
 
     expect(codex.last.sent('thread/start')).toHaveLength(1);
     expect(events).toContainEqual(expect.objectContaining({ subtype: 'agent_session', payload: expect.objectContaining({ sessionId: 'thread-2' }) }));
+  });
+
+  it('hears, when the person comes back to it, what the conversation did on another connection meanwhile', async () => {
+    const { codex, session, provider } = connect(async (turn) => turn.say('ok'));
+    addFakeProvider(session, new FakeProvider({ name: 'stand-in', script: [textReply('Renamed it to orders.')] }));
+
+    await collectTurn(session, 'use port 5433');
+    session.providers.setActive('stand-in');
+    await collectTurn(session, 'rename the table to orders');
+    session.providers.setActive(provider.name);
+    await collectTurn(session, 'what did you rename?');
+    await collectTurn(session, 'thanks');
+
+    expect(codex.last.sent('thread/start')).toHaveLength(1);
+    const [, back, after] = codex.last.sent('turn/start');
+    const [note, prompt] = (back?.input ?? []) as Array<{ text: string }>;
+    expect(note?.text).toMatch(/another connection/);
+    expect(note?.text).toContain('### Turn 2\nPerson: rename the table to orders\nAgent: Renamed it to orders.');
+    expect(note?.text).not.toContain('use port 5433');
+    expect(prompt?.text).toBe('what did you rename?');
+    expect(after?.input).toEqual([{ type: 'text', text: 'thanks', text_elements: [] }]);
   });
 
   it('hands a new thread the conversation so far when the earlier one is gone, once', async () => {
@@ -1090,6 +1111,40 @@ describe('one-off text calls', () => {
       developerInstructions: 'Summarize.',
     });
     expect(codex.last.closed).toBe(true);
+  });
+
+  it('gives Codex the instructions of the request as developer instructions, not as words the person said', async () => {
+    const codex = new FakeCodex(async (turn) => turn.say(`asked: ${turn.text}`));
+    const provider = new CodexAgentProvider({ startAppServer: codex.start, cwd: '/work/app' });
+
+    const out: string[] = [];
+    for await (const event of provider.stream({
+      model: 'gpt-6-luna',
+      messages: [
+        { role: 'system', content: [{ type: 'text', text: 'Plan search queries.' }] },
+        { role: 'user', content: [{ type: 'text', text: 'Find the release date.' }] },
+      ],
+    })) {
+      if (event.type === 'text_delta') out.push(event.delta);
+    }
+
+    expect(out.join('')).toBe('asked: Find the release date.');
+    expect(codex.last.sent('thread/start')[0]).toMatchObject({ developerInstructions: 'Plan search queries.' });
+  });
+});
+
+describe('an MCP server set up both in Moxxy and in Codex', () => {
+  it("reaches Codex once, through Codex's own setup; one switched off there is still lent", async () => {
+    const mcpTool = (name: string) => defineTool({ name, description: name, inputSchema: z.object({}), handler: async () => 'ok' });
+    const { codex, session } = connect(async (turn) => turn.say('ok'), { mcpServers: { vault: { enabled: true }, notes: { enabled: false } } });
+    session.pluginHost.registerStatic(definePlugin({ name: 'mcp-servers', tools: [mcpTool('mcp__vault__secret_word'), mcpTool('mcp__notes__read')] }));
+
+    await collectTurn(session, 'which tools?');
+    await collectTurn(session, 'and now?');
+
+    expect(codex.last.thread.moxxyTools).toContain('mcp__notes__read');
+    expect(codex.last.thread.moxxyTools).not.toContain('mcp__vault__secret_word');
+    expect(codex.last.sent('thread/start')).toHaveLength(1);
   });
 });
 

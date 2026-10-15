@@ -284,6 +284,7 @@ export {
   conversationTurns,
   EARLIER_CONVERSATION_CHARS,
   renderEarlierConversation,
+  renderMissedTurns,
   searchConversation,
   type ConversationMatch,
   type ConversationTurn,

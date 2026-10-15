@@ -19,6 +19,7 @@ import type {
   ClaudeQueryOptions,
   ClaudeResolvedSettings,
   ClaudeSettings,
+  ClaudeMcpServerStatus,
   ClaudeSlashCommand,
   ClaudeUserContent,
   ClaudeUserMessage,
@@ -61,6 +62,8 @@ export class FakeClaude implements ClaudeAgentSdk {
   private sessions = 0;
   /** The person's own Claude skills and commands, as `supportedCommands` reports them next to Claude's built-in ones. */
   ownSkills: ReadonlyArray<string> = [];
+  /** The person's own MCP servers, as `mcpServerStatus` reports them next to Moxxy's. */
+  ownMcpServers: ReadonlyArray<string> = [];
   /** The folders `resolveSettings` was asked about. */
   readonly settingsRead: string[] = [];
   /** The own mode comes from the repository's settings, which the trust filter drops. */
@@ -93,7 +96,7 @@ export class FakeClaude implements ClaudeAgentSdk {
     this.sessions += 1;
     const sessionId = params.options.resume ?? `claude-session-${this.sessions}`;
     this.saved.add(sessionId);
-    const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene, this.ownMode, () => this.ownSkills);
+    const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene, this.ownMode, () => this.ownSkills, () => this.ownMcpServers);
     this.queries.push(query);
     return query;
   }
@@ -130,6 +133,7 @@ export class FakeQuery implements ClaudeQuery {
     private readonly scene: ClaudeScene,
     ownMode: ClaudePermissionMode = 'default',
     private readonly ownSkills: () => ReadonlyArray<string> = () => [],
+    private readonly ownMcpServers: () => ReadonlyArray<string> = () => [],
   ) {
     this.permissionMode = options.permissionMode ?? ownMode;
   }
@@ -239,6 +243,10 @@ export class FakeQuery implements ClaudeQuery {
       { name: 'compact', description: 'Clear the conversation history but keep a summary', argumentHint: '', builtin: true },
       ...this.ownSkills().map((name) => ({ name, description: `The person's ${name}`, argumentHint: '' })),
     ];
+  }
+
+  async mcpServerStatus(): Promise<ClaudeMcpServerStatus[]> {
+    return [...Object.keys(this.options.mcpServers ?? {}), ...this.ownMcpServers()].map((name) => ({ name, status: 'connected' }));
   }
 
   async setModel(model?: string): Promise<void> {

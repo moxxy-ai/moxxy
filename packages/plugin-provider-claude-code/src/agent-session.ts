@@ -16,6 +16,7 @@ import {
   type MoxxyMcpServer,
   type NewSessionReason,
   untilStopped,
+  withoutOwnMcpServers,
 } from '@moxxy/agent-connection-kit';
 import { fromClaudeQuestions, toClaudeAnswers } from './questions.js';
 import type {
@@ -252,7 +253,7 @@ export class ClaudeAgentSession implements LiveSession {
     this.switchedOn = req.autoApprove;
     const interrupt = () => void this.query.interrupt().catch(() => undefined);
     req.signal.addEventListener('abort', interrupt, { once: true });
-    const all = toolsLentToClaude(req.allTools ?? req.tools);
+    const all = withoutOwnMcpServers(toolsLentToClaude(req.allTools ?? req.tools), await this.ownMcpServerNames());
     if (!sameToolNames(all, this.listed)) this.listed = all;
     try {
       this.offered = skillsForAgent(req.skills ?? [], toolNames(this.listed), await this.ownSkillNames());
@@ -271,7 +272,7 @@ export class ClaudeAgentSession implements LiveSession {
           return;
         }
         await this.align(req, mode);
-        const note = this.newSession ? earlierConversationNote(this.newSession, req.earlierConversation?.()) : undefined;
+        const note = this.newSession ? earlierConversationNote(this.newSession, req.earlierConversation?.()) : req.missedTurns?.();
         this.newSession = undefined;
         const prefix = mode === 'goal' && !this.goalActive ? '/goal ' : '';
         if (note && prefix) await this.silently(`${note}\n\n${READ_ONLY_REPLY}`);
@@ -456,6 +457,16 @@ export class ClaudeAgentSession implements LiveSession {
 
   /** Send a command and read through to its result without showing anything. */
   /** Claude's own skills and commands, not its built-in ones: a Moxxy skill of the same name is left to Claude's. */
+  /** Claude's own MCP servers that are on: Moxxy's server of the same name is left to Claude's. */
+  private async ownMcpServerNames(): Promise<string[]> {
+    try {
+      const servers = await this.query.mcpServerStatus();
+      return servers.filter((server) => server.name !== MOXXY_MCP_SERVER && server.status !== 'disabled').map((server) => server.name);
+    } catch {
+      return [];
+    }
+  }
+
   private async ownSkillNames(): Promise<string[]> {
     try {
       const commands = await this.query.supportedCommands();

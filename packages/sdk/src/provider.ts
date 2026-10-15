@@ -481,6 +481,13 @@ export interface AgentStepRequest {
    * turn came before. Built only when called.
    */
   readonly earlierConversation?: () => string | undefined;
+  /**
+   * The turns that ran on another connection since this agent's own last turn
+   * of the conversation, from Moxxy's record, for an agent that goes on in its
+   * own session: it was away for them. `undefined` when it missed none or
+   * never ran here. Built only when called.
+   */
+  readonly missedTurns?: () => string | undefined;
   /** The conversation's auto-approve, one state with the agent's approval policy. */
   readonly autoApprove: boolean;
   /**

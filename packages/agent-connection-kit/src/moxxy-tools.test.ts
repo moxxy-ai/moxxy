@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineTool, type AgentStepHost, type AgentToolCall } from '@moxxy/sdk';
-import { idleToolsHandler, mcpToolsFrom, moxxyToolsHandler, sameToolNames, toMcpResult } from './moxxy-tools.js';
+import { idleToolsHandler, mcpToolsFrom, moxxyToolsHandler, sameToolNames, toMcpResult, withoutOwnMcpServers } from './moxxy-tools.js';
 
 describe('a Moxxy tool result handed to the agent', () => {
   it('is text for text and JSON for other values', () => {
@@ -108,5 +108,28 @@ describe('the Moxxy tools offered to the agent', () => {
 
     expect(sameToolNames([title, other], [other, title])).toBe(true);
     expect(sameToolNames([title], [title, other])).toBe(false);
+  });
+});
+
+describe("the tools of an MCP server the agent has its own of", () => {
+  const named = (name: string) => defineTool({ name, description: name, inputSchema: z.object({}), handler: () => 'ok' });
+  const names = (tools: ReadonlyArray<{ name: string }>) => tools.map((tool) => tool.name);
+
+  it('are not lent: the agent reaches the same server through its own setup', () => {
+    const tools = [named('mcp__vault__secret_word'), named('mcp__notes__read'), named('recall')];
+
+    expect(names(withoutOwnMcpServers(tools, ['vault']))).toEqual(['mcp__notes__read', 'recall']);
+  });
+
+  it('match the agent server whatever the case or the characters the agent replaces in names', () => {
+    const tools = [named('mcp__My.Vault__secret_word'), named('mcp__notes__read')];
+
+    expect(names(withoutOwnMcpServers(tools, ['my_vault']))).toEqual(['mcp__notes__read']);
+  });
+
+  it('stay lent when the agent has no server of that name', () => {
+    const tools = [named('mcp__vault__secret_word'), named('browser_open')];
+
+    expect(names(withoutOwnMcpServers(tools, []))).toEqual(['mcp__vault__secret_word', 'browser_open']);
   });
 });
