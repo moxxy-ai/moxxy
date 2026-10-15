@@ -98,6 +98,8 @@ describe('the Moxxy tools offered to the agent', () => {
     expect(lent).toMatch(/browser panel/);
     expect(lent).toMatch(/your choice/i);
     expect(lent).toMatch(/public/);
+    expect(lent).toMatch(/localhost:5173/);
+    expect(lent).toMatch(/browser_allow_site/);
     expect(idleToolsHandler([recall]).instructions).not.toMatch(/browser/i);
   });
 

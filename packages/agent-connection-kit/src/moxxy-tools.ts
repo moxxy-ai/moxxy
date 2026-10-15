@@ -35,7 +35,9 @@ const ABOUT_MOXXY =
 const ABOUT_BROWSER =
   "The browser_* tools drive Moxxy's browser. In the Moxxy desktop app its pages open in the browser panel next " +
   'to the chat, where the person watches you work and can take over; outside the desktop it is a browser with no ' +
-  'window. It opens public http(s) pages only, not localhost or private addresses. Use it when seeing or acting on ' +
+  'window. It opens public http(s) pages. A page on this computer, such as an app you are building on ' +
+  'localhost:5173, opens only after the person allows that exact address and port through browser_allow_site; ' +
+  'other private addresses never open. Use it when seeing or acting on ' +
   'a real page helps, such as checking a site or filling in a form for the person. Whether to use it or your own ' +
   'tools is your choice.';
 

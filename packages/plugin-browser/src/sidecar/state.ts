@@ -24,4 +24,10 @@ export interface SidecarState {
   browser?: SidecarBrowser;
   /** Where the browser keeps sign-ins between runs; without one it starts signed out every time. */
   profile?: BrowserProfile;
+  /**
+   * The sites the agent's latest call carried as allowed. A page on this
+   * computer opens — by goto or by an in-page navigation — only when its exact
+   * address and port is among them.
+   */
+  localSites?: readonly string[];
 }
