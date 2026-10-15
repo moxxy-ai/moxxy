@@ -9,7 +9,7 @@ import type {
   SubagentResult,
   SubagentSpawner,
 } from '@moxxy/sdk';
-import { asSessionId, assertDefined } from '@moxxy/sdk';
+import { asSessionId, asSkillId, assertDefined } from '@moxxy/sdk';
 
 import {
   buildFanoutDigest,
@@ -69,6 +69,24 @@ describe('parseQueries', () => {
     ]);
   });
 
+  it('takes nothing when there is no QUERIES: header, as when the planner answered the question instead', () => {
+    expect(parseQueries('**Capital:** Canberra\n**Year it became capital:** 1927')).toEqual([]);
+    expect(parseQueries('*Two short findings:**\n- Wellington is the capital.')).toEqual([]);
+  });
+
+  it('ignores list lines written before the QUERIES: header', () => {
+    expect(parseQueries('My plan:\n- not a query\n\nQUERIES:\n1. the real query')).toEqual(['the real query']);
+  });
+
+  it('reads a header the model dressed in Markdown', () => {
+    expect(parseQueries('**QUERIES:**\n1. bold header')).toEqual(['bold header']);
+    expect(parseQueries('## Queries\n1. heading header')).toEqual(['heading header']);
+  });
+
+  it('ends the list at a new paragraph after it', () => {
+    expect(parseQueries('QUERIES:\n1. real query\n\nNotes:\n- not a query')).toEqual(['real query']);
+  });
+
   it('bounds a single item even under a flood of continuation lines', () => {
     // Hostile input: hundreds of continuation lines all attach to one item.
     // The joined item must stay bounded rather than growing without limit.
@@ -104,6 +122,10 @@ describe('parseFollowups', () => {
         'FOLLOWUPS:\n(none of the prior sources covered cost)\n1. find cost data\n2. verify pricing',
       ),
     ).toEqual(['find cost data', 'verify pricing']);
+  });
+
+  it('takes nothing when there is no FOLLOWUPS: header', () => {
+    expect(parseFollowups('Gaps I see:\n- dig deeper on A')).toEqual([]);
   });
 
   it('still honors a bare FOLLOWUPS: (none) line', () => {
@@ -194,6 +216,18 @@ describe('runFanout (resilience + bounded prompts)', () => {
 });
 
 describe('deepResearchMode end-to-end (headless)', () => {
+  const plannerRequests = (provider: FakeProvider): ProviderRequest[] =>
+    provider.received.filter((r) => systemTextOf(r).includes('scoping a deep-research task'));
+
+  const noSpawner: SubagentSpawner = {
+    async spawn() {
+      return fakeResult('unused');
+    },
+    async spawnAll() {
+      return [];
+    },
+  };
+
   it('emits a fatal error when ctx.subagents is unavailable', async () => {
     const provider = new FakeProvider({ script: [textReply('does not matter')] });
     const session = createFakeSession({ provider });
@@ -363,29 +397,86 @@ describe('deepResearchMode end-to-end (headless)', () => {
     session.pluginHost.registerStatic(deepResearchModePlugin);
     const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME);
     assertDefined(realMode, 'the research mode');
-    const spawner: SubagentSpawner = {
-      async spawn() {
-        return fakeResult('unused');
-      },
-      async spawnAll() {
-        return [];
-      },
-    };
-    session.modes.replace({ name: realMode.name, run: (ctx) => realMode.run({ ...ctx, subagents: spawner }) });
+    session.modes.replace({ name: realMode.name, run: (ctx) => realMode.run({ ...ctx, subagents: noSpawner }) });
     await collectTurn(session, 'What is the capital of Australia?');
     session.modes.setActive(realMode.name);
 
     await collectTurn(session, 'What is the tallest mountain in Africa?');
 
-    const plannerRequest = provider.received.at(-1);
-    assertDefined(plannerRequest, 'the planner request');
-    const plannerAsks = plannerRequest.messages.filter((m) => m.role === 'user')
+    const newest = plannerRequests(provider).find((r) => JSON.stringify(r.messages).includes('tallest mountain'));
+    assertDefined(newest, 'the planner request for the newest question');
+    const plannerAsks = newest.messages.filter((m) => m.role === 'user')
       .map((m) => m.content.map((c) => (c.type === 'text' ? c.text : '')).join(''));
     expect(plannerAsks).toHaveLength(1);
     const [ask = ''] = plannerAsks;
     expect(ask).toMatch(/for context only/i);
     expect(ask.indexOf('What is the capital of Australia?')).toBeLessThan(ask.indexOf('What is the tallest mountain in Africa?'));
     expect(ask.trimEnd().endsWith('What is the tallest mountain in Africa?')).toBe(true);
+  });
+
+  it("gives the planner the turn's instructions but no skill list, since it can call no tool", async () => {
+    const provider = new FakeProvider({ script: [textReply('No queries.')] });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(deepResearchModePlugin);
+    session.skills.register({
+      id: asSkillId('web-research'),
+      path: '/test/web-research.md',
+      scope: 'project',
+      frontmatter: { name: 'web-research', description: 'Research current information on the web.' },
+      body: 'Use web tools and cite sources.',
+    });
+    const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME);
+    assertDefined(realMode, 'the research mode');
+    session.modes.replace({ name: realMode.name, run: (ctx) => realMode.run({ ...ctx, subagents: noSpawner }) });
+    session.modes.setActive(realMode.name);
+
+    await collectTurn(session, 'What is the capital of Australia?', { systemPrompt: 'Answer in Polish.' });
+
+    const [firstPlan] = plannerRequests(provider);
+    assertDefined(firstPlan, 'the planner request');
+    const instructions = firstPlan.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content.map((c) => (c.type === 'text' ? c.text : '')).join(''))
+      .join('\n');
+    expect(instructions).toContain('Answer in Polish.');
+    expect(instructions).not.toContain('web-research');
+    expect(instructions).not.toContain('load_skill');
+  });
+
+  it('asks a planner that answered instead of planning once more for a plan', async () => {
+    const provider = new FakeProvider({
+      script: [
+        textReply('**Capital:** Canberra'),
+        textReply('QUERIES:\n1. Which city is the capital of Australia?\n2. When did Canberra become the capital?'),
+        textReply('FOLLOWUPS: (none)'),
+        textReply('## Executive summary\n- Canberra'),
+      ],
+    });
+    const session = researchSession(provider);
+
+    const events = await collectTurn(session, 'What is the capital of Australia?');
+
+    expect(draftedQueries(events).at(-1)).toEqual(['Which city is the capital of Australia?', 'When did Canberra become the capital?']);
+    const retry = provider.received[1];
+    assertDefined(retry, 'the second planner request');
+    expect(retry.messages.at(-1)?.content).toEqual([{ type: 'text', text: expect.stringMatching(/QUERIES/) }]);
+  });
+
+  it('researches the question itself when the planner answers instead of planning twice', async () => {
+    const provider = new FakeProvider({
+      script: [
+        textReply('**Capital:** Canberra'),
+        textReply('Canberra, since 1927.'),
+        textReply('FOLLOWUPS: (none)'),
+        textReply('## Executive summary\n- Canberra'),
+      ],
+    });
+    const session = researchSession(provider);
+
+    const events = await collectTurn(session, 'What is the capital of Australia?');
+
+    expect(draftedQueries(events).at(-1)).toEqual(['What is the capital of Australia?']);
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'deep_research_synthesis_completed')).toBe(true);
   });
 
   it('gives a first question to the planner as it was asked', async () => {
@@ -395,22 +486,14 @@ describe('deepResearchMode end-to-end (headless)', () => {
     session.modes.setActive(RESEARCH_MODE_NAME);
     const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME);
     assertDefined(realMode, 'the research mode');
-    const spawner: SubagentSpawner = {
-      async spawn() {
-        return fakeResult('unused');
-      },
-      async spawnAll() {
-        return [];
-      },
-    };
-    session.modes.replace({ name: realMode.name, run: (ctx) => realMode.run({ ...ctx, subagents: spawner }) });
+    session.modes.replace({ name: realMode.name, run: (ctx) => realMode.run({ ...ctx, subagents: noSpawner }) });
     session.modes.setActive(realMode.name);
 
     await collectTurn(session, 'What is the capital of Australia?');
 
-    const plannerRequest = provider.received.at(-1);
-    assertDefined(plannerRequest, 'the planner request');
-    const userMessages = plannerRequest.messages.filter((m) => m.role === 'user');
+    const [firstPlan] = plannerRequests(provider);
+    assertDefined(firstPlan, 'the planner request');
+    const userMessages = firstPlan.messages.filter((m) => m.role === 'user');
     expect(userMessages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'What is the capital of Australia?' }] }]);
   });
 
@@ -633,4 +716,35 @@ function fakeResult(text: string, opts: { error?: string } = {}): SubagentResult
     stopReason: 'end_turn',
     ...(opts.error ? { error: { message: opts.error } } : {}),
   };
+}
+
+function systemTextOf(request: ProviderRequest): string {
+  return request.messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content.map((c) => (c.type === 'text' ? c.text : '')).join(''))
+    .join('\n');
+}
+
+function draftedQueries(events: ReadonlyArray<{ type: string; subtype?: string; payload?: unknown }>): string[][] {
+  return events.flatMap((e) =>
+    e.type === 'plugin_event' && e.subtype === 'deep_research_queries_drafted' ? [(e.payload as { queries: string[] }).queries] : [],
+  );
+}
+
+function researchSession(provider: FakeProvider): ReturnType<typeof createFakeSession> {
+  const session = createFakeSession({ provider });
+  session.pluginHost.registerStatic(deepResearchModePlugin);
+  const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME);
+  assertDefined(realMode, 'the research mode');
+  const spawner: SubagentSpawner = {
+    async spawn() {
+      return fakeResult('unused');
+    },
+    async spawnAll(specs) {
+      return specs.map(() => fakeResult('FINDINGS: found.\n\nSOURCES:\n[1] X — http://x'));
+    },
+  };
+  session.modes.replace({ name: realMode.name, run: (ctx) => realMode.run({ ...ctx, subagents: spawner }) });
+  session.modes.setActive(realMode.name);
+  return session;
 }

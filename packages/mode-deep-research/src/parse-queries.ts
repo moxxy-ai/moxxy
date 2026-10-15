@@ -30,13 +30,18 @@ export function parseFollowups(text: string): string[] {
  */
 const MAX_ITEM_CHARS = 2000;
 
+/**
+ * Items count only under the header: a planner that answered the question
+ * instead of planning wrote no header, and its prose must not become queries.
+ * A new paragraph after the list ends it.
+ */
 function parseNumberedBlock(text: string, headerRegex: RegExp): string[] {
-  const lines = text.split('\n');
   const items: string[] = [];
+  let inBlock = false;
   // Tracks whether the previous meaningful line was (or extended) a list item,
   // so we only ever join wrapped continuations onto a real item.
   let continuationOpen = false;
-  for (const raw of lines) {
+  for (const raw of text.split('\n')) {
     const line = raw.trim();
     // A blank line ends the current item's continuation run: a wrapped query
     // never spans a blank line, so this prevents an unrelated trailing
@@ -45,11 +50,12 @@ function parseNumberedBlock(text: string, headerRegex: RegExp): string[] {
       continuationOpen = false;
       continue;
     }
-    if (headerRegex.test(line)) {
-      // A header also closes any open continuation run.
+    if (headerRegex.test(withoutMarkdown(line))) {
+      inBlock = true;
       continuationOpen = false;
       continue;
     }
+    if (!inBlock) continue;
     const item = parseListItem(line);
     if (item !== null) {
       items.push(item);
@@ -59,16 +65,21 @@ function parseNumberedBlock(text: string, headerRegex: RegExp): string[] {
     // Non-list line. If it directly continues an open item (the model wrapped a
     // long query across lines), join it on rather than silently truncating the
     // query — a dropped continuation gets sent to a subagent as a half-question.
-    // A non-list line with NO open item (junk preamble, a "(none …)" header
-    // parenthetical, etc.) is still dropped.
-    if (continuationOpen && items.length > 0) {
-      const last = items[items.length - 1]!;
-      const joined = `${last} ${line}`;
-      items[items.length - 1] =
-        joined.length > MAX_ITEM_CHARS ? joined.slice(0, MAX_ITEM_CHARS) : joined;
+    // Otherwise it starts a new paragraph, which ends the list.
+    const last = items.at(-1);
+    if (!continuationOpen || last === undefined) {
+      if (items.length > 0) break;
+      continue;
     }
+    const joined = `${last} ${line}`;
+    items[items.length - 1] = joined.length > MAX_ITEM_CHARS ? joined.slice(0, MAX_ITEM_CHARS) : joined;
   }
   return items;
+}
+
+/** `**QUERIES:**`, `## Queries` → the bare header text. */
+function withoutMarkdown(line: string): string {
+  return line.replace(/^#+\s*/, '').replace(/^[*_`]+|[*_`]+$/g, '').trim();
 }
 
 function parseListItem(line: string): string | null {

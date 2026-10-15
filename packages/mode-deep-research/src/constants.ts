@@ -124,6 +124,10 @@ export const MAX_FOLLOWUPS_PER_ROUND = 4;
 
 export const MAX_REDRAFTS = 3;
 
+/** What the planner hears when it answered the question instead of planning. */
+export const NO_PLAN_FEEDBACK =
+  'Your reply was not a query plan. Research mode always gathers evidence first, even for a simple question: reply with only the QUERIES block.';
+
 /** Earlier questions of the conversation the planner sees as context for the newest one. */
 export const PLANNER_EARLIER_QUESTIONS_MAX = 5;
 

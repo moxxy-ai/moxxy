@@ -1,6 +1,4 @@
 import {
-  buildSystemPromptWithSkills,
-  skillsWithinReach,
   runSingleShotTurn,
   type ModeContext,
   type ProviderMessage,
@@ -53,15 +51,15 @@ function buildPlannerMessages(
   systemPrompt: string,
   userMessages: ProviderMessage[],
 ): ProviderMessage[] {
-  const systemWithSkills =
-    buildSystemPromptWithSkills(ctx.systemPrompt, skillsWithinReach(ctx.skills.list(), ctx.tools.list().map((tool) => tool.name))) ?? '';
+  // No skill list: it tells the model to call load_skill, and the planner can
+  // call no tool, so it wrote the call out as text instead of a plan.
   return [
     {
       role: 'system',
       content: [
         {
           type: 'text',
-          text: systemPrompt + (systemWithSkills ? `\n\n${systemWithSkills}` : ''),
+          text: systemPrompt + (ctx.systemPrompt ? `\n\n${ctx.systemPrompt}` : ''),
         },
       ],
     },
