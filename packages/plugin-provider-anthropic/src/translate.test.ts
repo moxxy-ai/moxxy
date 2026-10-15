@@ -77,6 +77,35 @@ describe('toAnthropicMessages', () => {
     });
   });
 
+  it('carries an image or document returned beside a tool result inside that result', () => {
+    const { messages } = toAnthropicMessages([
+      { role: 'user', content: [{ type: 'text', text: 'q' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'recall', input: {} }] },
+      {
+        role: 'tool_result',
+        content: [
+          { type: 'tool_result', toolUseId: 'c1', content: 'restored umowa.pdf', isError: false },
+          { type: 'document', mediaType: 'application/pdf', data: 'JVBERi0=', name: 'umowa.pdf' },
+          { type: 'image', mediaType: 'image/png', data: 'iVBOR' },
+        ],
+      },
+    ]);
+    const last = messages[messages.length - 1];
+    assertDefined(last, 'messages non-empty');
+    expect(last.content).toEqual([
+      {
+        type: 'tool_result',
+        tool_use_id: 'c1',
+        is_error: false,
+        content: [
+          { type: 'text', text: 'restored umowa.pdf' },
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0=' }, title: 'umowa.pdf' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBOR' } },
+        ],
+      },
+    ]);
+  });
+
   it('places cache_control on the last block of a hinted message', () => {
     const { messages } = toAnthropicMessages(
       [

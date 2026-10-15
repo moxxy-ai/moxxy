@@ -29,11 +29,17 @@ const event: MoxxyEvent = {
 function setup({
   remote = null,
   known = true,
+  disk = [event],
 }: {
-  readonly remote?: { loadHistory: (before: number | null, limit: number) => Promise<EventPage> } | null;
+  readonly remote?: {
+    loadHistory?: (before: number | null, limit: number) => Promise<EventPage>;
+    readAttachment?: (seq: number, index: number, offset: number) => Promise<{ data: string; total: number }>;
+  } | null;
   readonly known?: boolean;
+  readonly disk?: ReadonlyArray<MoxxyEvent>;
 } = {}): {
   readonly invoke: (workspaceId?: string) => Promise<unknown>;
+  readonly readAttachment: (args: { workspaceId?: string; seq: number; index: number; offset: number }) => Promise<unknown>;
   readonly readHistory: ReturnType<typeof vi.fn>;
   readonly deskForSession: ReturnType<typeof vi.fn>;
 } {
@@ -48,16 +54,22 @@ function setup({
   const deskForSession = vi.fn(async () => (known ? { id: 'desk-1' } : null));
   const desks = { deskForSession } as unknown as DeskStore;
   const readHistory = vi.fn(
-    async (): Promise<EventPage> => ({ events: [event], prevCursor: null }),
+    async (_id: string, opts: { before: number | null; limit: number }): Promise<EventPage> => {
+      const older = disk.filter((e) => opts.before === null || e.seq < opts.before);
+      return { events: older.slice(-opts.limit), prevCursor: null };
+    },
   );
 
   setActiveBus(bus);
   registerChatHandlers(pool, desks, readHistory);
   const handler = handlers.get('chat.loadHistory');
   if (!handler) throw new Error('chat.loadHistory handler was not registered');
+  const attachmentHandler = handlers.get('chat.readAttachment');
+  if (!attachmentHandler) throw new Error('chat.readAttachment handler was not registered');
 
   return {
     invoke: (workspaceId = 'session-1') => handler({ workspaceId, before: null, limit: 50 }),
+    readAttachment: ({ workspaceId = 'session-1', ...rest }) => attachmentHandler({ workspaceId, ...rest }),
     readHistory,
     deskForSession,
   };
@@ -123,6 +135,48 @@ describe('chat.loadHistory cache-first paging', () => {
     const { invoke, readHistory } = setup({ known: false });
 
     await expect(invoke('moxxy-channel-nope')).resolves.toBeNull();
+    expect(readHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe('large attachments in chat history', () => {
+  const scan = 'A'.repeat(3 * 1024 * 1024);
+  const withScan: MoxxyEvent = {
+    ...event,
+    seq: 4,
+    attachments: [{ kind: 'document', content: scan, mediaType: 'application/pdf', name: 'scan.pdf' }],
+  } as MoxxyEvent;
+
+  it('leaves the bytes out of a page read from disk while the runner starts', async () => {
+    const { invoke } = setup({ disk: [withScan] });
+    const page = (await invoke()) as EventPage;
+    const prompt = page.events[0];
+    expect(prompt?.type === 'user_prompt' && prompt.attachments?.[0]).toMatchObject({
+      content: '',
+      name: 'scan.pdf',
+      omittedBytes: Math.floor((scan.length * 3) / 4),
+    });
+  });
+
+  it('reads an attachment slice from the runner when it is connected', async () => {
+    const readAttachment = vi.fn(async () => ({ data: 'AAAA', total: 4 }));
+    const { readAttachment: invoke, readHistory } = setup({ remote: { readAttachment } });
+    await expect(invoke({ seq: 4, index: 0, offset: 0 })).resolves.toEqual({ data: 'AAAA', total: 4 });
+    expect(readAttachment).toHaveBeenCalledWith(4, 0, 0);
+    expect(readHistory).not.toHaveBeenCalled();
+  });
+
+  it('reads an attachment slice from the persisted log while the runner starts', async () => {
+    const { readAttachment } = setup({ disk: [withScan] });
+    const chunk = (await readAttachment({ seq: 4, index: 0, offset: 0 })) as { data: string; total: number };
+    expect(chunk.total).toBe(scan.length);
+    expect(chunk.data.length).toBeGreaterThan(0);
+    expect(chunk.data.length).toBeLessThan(scan.length);
+  });
+
+  it('fails closed for an unknown session id', async () => {
+    const { readAttachment, readHistory } = setup({ known: false });
+    await expect(readAttachment({ workspaceId: 'guessed', seq: 4, index: 0, offset: 0 })).resolves.toBeNull();
     expect(readHistory).not.toHaveBeenCalled();
   });
 });

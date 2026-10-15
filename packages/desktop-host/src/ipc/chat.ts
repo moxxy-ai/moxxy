@@ -6,6 +6,7 @@
  */
 
 import { readSessionEventPage, type EventPage } from '@moxxy/core';
+import { historyPageForClient, readAttachmentChunk } from '@moxxy/sdk';
 import { channelSessionId } from '@moxxy/runner';
 import { listChannelCatalog } from '../channel-catalog';
 import type { RunnerPool } from '../runner-pool';
@@ -36,7 +37,30 @@ export function registerChatHandlers(
 
     if (!(await isReadableSession(workspaceId, desks))) return null;
     try {
-      return await readHistory(workspaceId, { before, limit });
+      // The same client form the runner serves: a scanned PDF in the log must
+      // not reach the window as one huge page while the runner starts.
+      return historyPageForClient(await readHistory(workspaceId, { before, limit }));
+    } catch {
+      return null;
+    }
+  });
+
+  handle('chat.readAttachment', async ({ workspaceId, seq, index, offset }) => {
+    const session = resolveSupervisor(pool, workspaceId)?.remote();
+    if (session) {
+      try {
+        return await session.readAttachment(seq, index, offset);
+      } catch {
+        // Dropped mid-read, or an older runner: the persisted log has the bytes too.
+      }
+    }
+
+    if (!(await isReadableSession(workspaceId, desks))) return null;
+    try {
+      const { events } = await readHistory(workspaceId, { before: seq + 1, limit: 1 });
+      const found = events[0];
+      if (!found || found.seq !== seq) return null;
+      return readAttachmentChunk(found, index, offset);
     } catch {
       return null;
     }

@@ -22,7 +22,7 @@ describe('Modal layout', () => {
       'calc(100dvh - var(--space-32, 32px))',
     );
     expect(dialog.style.overflow).toBe('hidden');
-    expect(body?.style.minHeight).toBe('0');
+    expect(body?.style.minHeight).toBe('0px');
     expect(body?.style.overflowY).toBe('auto');
     expect(footer?.style.borderTop).toContain('var(--color-card-border)');
 

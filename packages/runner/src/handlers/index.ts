@@ -38,6 +38,7 @@ export {
   handleSessionSetReasoning,
   handleSessionSetFast,
   handleSessionLoadHistory,
+  handleSessionReadAttachment,
   handleSessionRecordExchange,
   handleSessionSetAutoApprove,
   handlePermissionAddAllow,

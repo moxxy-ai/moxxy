@@ -128,7 +128,8 @@ const read = (relativeToApp: string) => readFileSync(resolve(process.cwd(), rela
 describe('EAS Update configuration is wired up', () => {
   it('declares expo-updates with an appVersion runtime policy in app config', () => {
     const app = JSON.parse(read('app.json')).expo;
-    expect(app.version).toBe('1.0.0');
+    // 1.1.0 is the first Expo SDK 57 build, so updates published for SDK 54 (1.0.0) never reach it.
+    expect(app.version).toBe('1.1.0');
     expect(app.runtimeVersion).toEqual({ policy: 'appVersion' });
     expect(app.updates.enabled).toBe(true);
     expect(app.updates.checkAutomatically).toBe('ON_LOAD');
@@ -153,7 +154,7 @@ describe('EAS Update configuration is wired up', () => {
     const plist = read('ios/MoxxyMobileGateway/Supporting/Expo.plist');
     expect(plist).toMatch(/<key>EXUpdatesEnabled<\/key>\s*<true\/>/);
     expect(plist).toMatch(/<key>EXUpdatesURL<\/key>\s*<string>https:\/\/u\.expo\.dev\//);
-    expect(plist).toMatch(/<key>EXUpdatesRuntimeVersion<\/key>\s*<string>1\.0\.0<\/string>/);
+    expect(plist).toMatch(/<key>EXUpdatesRuntimeVersion<\/key>\s*<string>1\.1\.0<\/string>/);
   });
 
   it('mounts the OTA controller at the app root', () => {
@@ -166,5 +167,7 @@ describe('EAS Update configuration is wired up', () => {
     expect(workflow).toContain('workflow_dispatch');
     expect(workflow).toContain('eas update');
     expect(workflow).toContain('--branch');
+    // Since Expo SDK 55 `eas update` requires the EAS environment it reads variables from.
+    expect(workflow).toContain('--environment "${{ inputs.channel }}"');
   });
 });

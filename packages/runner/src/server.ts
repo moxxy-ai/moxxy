@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Session } from '@moxxy/core';
 import { newTurnId } from '@moxxy/core';
-import { asTurnId, autoApproveSwitch, createMutex } from '@moxxy/sdk';
+import { asTurnId, autoApproveSwitch, createMutex, eventForClient } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -67,6 +67,7 @@ import {
   handleSessionSetReasoning,
   handleSessionSetFast,
   handleSessionLoadHistory,
+  handleSessionReadAttachment,
   handleSessionRecordExchange,
   handleSessionSetAutoApprove,
   handlePermissionAddAllow,
@@ -90,7 +91,7 @@ interface ConnectedClient {
   attached: boolean;
   handlesPermission: boolean;
   handlesApproval: boolean;
-  /** Detaches this client's Question surface; set while it shows Questions (v26). */
+  /** Detaches this client's Question surface; set while it shows Questions (v27). */
   detachQuestions?: () => void;
   /** Identity this connection asserted at attach (v11), if any. */
   principal?: Principal;
@@ -263,6 +264,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.Abort, (raw) => this.handleAbort(client, raw));
     peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
     peer.handle(RunnerMethod.SessionLoadHistory, (raw) => handleSessionLoadHistory(ctx, raw));
+    peer.handle(RunnerMethod.SessionReadAttachment, (raw) => handleSessionReadAttachment(ctx, raw));
     peer.handle(RunnerMethod.SessionRecordExchange, (raw) => handleSessionRecordExchange(ctx, raw));
     peer.handle(RunnerMethod.SessionSetAutoApprove, (raw) => handleSessionSetAutoApprove(ctx, raw));
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
@@ -298,7 +300,12 @@ export class RunnerServer {
     peer.handle(RunnerMethod.SurfaceResize, (raw) => handleSurfaceResize(ctx, raw));
     peer.handle(RunnerMethod.SurfaceClose, (raw) => handleSurfaceClose(ctx, raw));
 
-    peer.onClose(() => this.onDisconnect(client));
+    peer.onClose((err) => {
+      // Say why a client was dropped: without it a client stuck reconnecting
+      // leaves nothing in the runner's log to explain it.
+      if (err) this.session.logger.warn('runner: client dropped', { role: client.role, reason: err.message });
+      this.onDisconnect(client);
+    });
   }
 
   private onDisconnect(client: ConnectedClient): void {
@@ -365,7 +372,7 @@ export class RunnerServer {
           : Math.max(baseSeq, endSeq - replay.tail);
     client.peer.notify(RunnerNotification.ReplayStart, { fromSeq: start });
     for (const event of this.session.log.slice(start)) {
-      client.peer.notify(RunnerNotification.Event, { event });
+      client.peer.notify(RunnerNotification.Event, { event: eventForClient(event) });
     }
     return {
       sessionId: this.session.id,
@@ -711,7 +718,9 @@ export class RunnerServer {
   // --- fan-out -------------------------------------------------------------
 
   private broadcastEvent(event: MoxxyEvent): void {
-    this.broadcast(RunnerNotification.Event, { event });
+    // Clients only draw the conversation: large attachment bytes stay here and
+    // are read back on demand (`session.readAttachment`).
+    this.broadcast(RunnerNotification.Event, { event: eventForClient(event) });
   }
 
   private broadcast(method: string, params: unknown): void {

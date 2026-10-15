@@ -199,3 +199,38 @@ describe('recall over the whole conversation', () => {
     expect(() => inTurn({ turn: 9 })).toThrow(/no turn 9/);
   });
 });
+
+describe('recall of an earlier attachment', () => {
+  const prompt = (seq: number, attachments: ReadonlyArray<Record<string, unknown>>): MoxxyEvent =>
+    ev(seq, { type: 'user_prompt', turnId: t1, source: 'user', text: 'here', attachments } as never);
+  const log = [
+    prompt(0, [
+      { kind: 'document', content: 'PDF64', mediaType: 'application/pdf', name: 'umowa.pdf' },
+      { kind: 'file', content: 'a,b\n1,2', name: 'figures.csv' },
+    ]),
+    prompt(1, [{ kind: 'image', content: 'IMG', mediaType: 'image/png', name: 'shot.png' }]),
+  ];
+
+  it('restores an image or document by name as a pointer the projection fills in, never copying the bytes', () => {
+    const out = recallTool.handler({ attachment: 'Umowa.pdf' }, ctx(log));
+    expect(out).toEqual({
+      forModel: expect.stringContaining('umowa.pdf'),
+      restoredAttachment: { seq: 0, index: 0 },
+    });
+    expect(JSON.stringify(out)).not.toContain('PDF64');
+  });
+
+  it('restores one by the key a left-out note gives', () => {
+    expect(recallTool.handler({ attachment: '1:0' }, ctx(log))).toMatchObject({ restoredAttachment: { seq: 1, index: 0 } });
+  });
+
+  it('returns a text attachment as its text', () => {
+    expect(recallTool.handler({ attachment: 'figures.csv' }, ctx(log))).toBe('[file figures.csv]\na,b\n1,2');
+  });
+
+  it('lists the attachments of the conversation when the name matches none', () => {
+    expect(() => recallTool.handler({ attachment: 'missing.pdf' }, ctx(log))).toThrow(
+      /no attachment "missing\.pdf".*0:0 umowa\.pdf, 0:1 figures\.csv, 1:0 shot\.png/su,
+    );
+  });
+});

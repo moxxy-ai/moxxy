@@ -31,7 +31,7 @@ session.pluginHost.registerStatic(builtinToolsPlugin);
 | `Bash` | Run a shell command via `/bin/sh`. Cooperative aborts via `ctx.signal`. | – |
 | `Grep` | Recursive regex search; returns `path:line:text`. | ✓ Searching for N patterns |
 | `Glob` | Glob-style file listing, sorted by mtime. | ✓ Listing N globs |
-| `recall` | Retrieve content that turn-boundary elision dropped from context (by `callId`, `seq`, or `turnId`). | – |
+| `recall` | Retrieve content that turn-boundary elision dropped from context (by `callId`, `seq`, or `turnId`), or show a file attached earlier again (by `attachment`: its name or key). | – |
 | `Sleep` | Interruptible pause (≤ 5 min per call) for waiting on builds/deploys instead of busy-looping. | ✓ Sleeping N pauses |
 
 The compact-render column reflects each tool's `ToolDef.compact` hint

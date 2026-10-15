@@ -1,5 +1,55 @@
 # @moxxy/cli
 
+## 0.43.0
+
+### Minor Changes
+
+- 6a2787b: Moxxy Browser now turns down a cookie banner itself when the banner shows a way to decline what the site does not need ("Reject all", "Only necessary", "Tylko niezbędne", "Odrzuć opcjonalne") and carries on with the task. Before, every cookie banner stopped the agent and was handed to you. It still never presses a control that accepts, and a banner with no way to decline is still yours to answer.
+- 889810e: Add on-demand browser Console and Network diagnostics with bounded text response reads and exact CSS viewport sizing, including measured document width, horizontal overflow and override state without an extra read. Retain the existing element-box measurement in cropped image results and captions so CSS dimensions can be distinguished from scaled image pixels. Stop recordings before user hand-off and takeover; ordinary page snapshots do not enable diagnostics.
+- e4ad088: Settings → Providers has a **Default model**: the model, reasoning effort and fast tier a new conversation starts with. It is written to the config (`plugins.provider.default`, `plugins.provider.items.<provider>.model`, `context.reasoning`, `context.fast`), so the desktop, the terminal and the channels all start the same way; before, a conversation that named no model ran on the first one its provider lists, whatever the config said. The model control in the chat header now names the model a turn will run on instead of the provider. An effort or fast switch made in a conversation stays with its workspace and no longer carries over to every other one.
+- a501dbd: A turn that ends right on a step that did not get done is reminded once to take another way or to say what stops it. A run of browser or Computer Use steps that stops short now says so in its result (`shortfall`), and the default mode asks once before the turn closes — not after a later step that worked, a hand-over to the user, a refused permission, an error or Stop. Switch it off with `context.unfinishedStepCheck: false`.
+
+### Patch Changes
+
+- 7b24827: The agent stops less often at the first failed step to ask whether it should go on. Every model request now carries a rule (in `AGENT_CONDUCT`) to try another route before ending the turn and to take the next step instead of offering it, while still asking for what only the user has and before anything that cannot be undone. The built-in `self-heal` skill now covers only Moxxy's own broken parts — a plugin, MCP server, provider or permission rule — so an ordinary error in a task no longer ends in a proposal that waits for approval. On macOS, Computer Use no longer ends the turn when the app it was asked to use has no open window; it opens one and carries on.
+- 45f501a: Avoid false cookie handoffs for footer settings buttons and recognize necessary-only consent choices, including IKEA's Polish label.
+- 0ed530f: Browser diagnostics say why a recording ended (a new message, takeover, hand-off, idle, stop) when it is read or a response is asked for afterwards, and tell the agent to start, reproduce and read within one message.
+- 0ed530f: Developer diagnostics in the browser need the site allowed before they record a page or read a response body, except on localhost and loopback addresses; credential-like fields (`jwt`, `csrf_token`, `auth_token`, `x-api-key`, `sessionid`, …) and JWT-shaped values are now masked wherever they appear.
+- 10a851d: Moxxy Browser now reads whether a box is ticked, a toggle pressed, an item selected, a section open or closed, and a control disabled, and shows it on the element's row (`[checked]`, `[disabled]`, …) and to Jev. Before, a ticked box read exactly like an unticked one: the agent clicked a box that was already on and turned it off, or ticked a box, was told nothing had changed, and clicked it again.
+- 2171aab: Moxxy Browser now says when a switch on a page is off (`[not pressed]`) and when a text field is locked (`[read-only]`). Before, a switch that was off read like any button: after switching one off the agent could not see that it worked, pressed it again and saved the setting switched back on. A locked field read like any field: the agent typed into it twice, saw the old text stay, and saved the form without the change instead of pressing the Edit button beside it.
+- 1c4d5aa: Keep observed section headings with repeated browser action labels so product-specific buttons can be distinguished without guessing. Include descriptions when validating learned targets so a same-named button in a different section is not reused.
+- aa1acd4: Moxxy Browser: when you name an address, the agent opens it before acting. With a tab left in the pane by an earlier conversation it sometimes sent a run of steps straight to that tab and reported what it found on the wrong page.
+- 2171aab: A run of browser steps can now set a box, a switch or a toggle to a state: `check` to have it on, `uncheck` to have it off. The step reads the element first, does nothing when it is already that way, and otherwise clicks once and reads that it changed. Before, the agent clicked a box that was already ticked, expecting it to stay on, and switched it off.
+- 889810e: Verify typed browser form values before pressing Enter so a successfully submitted field clearing itself does not stop the remaining steps. Bind Enter to the typed field in single actions and batches, report uncertain submission without retrying, and recheck user takeover immediately before input, including selector-based filling. Reject read-only and non-text controls before sending input events and keep protected values out of typing replies. Repair native field-value reads and reuse their result without another full accessibility-tree read. Keep list-row context for unnamed controls and uniquely visible delete buttons in both runner trees and delta snapshots, excluding decorative subtree labels. Retain row labels as click or hover targets without confusing them with check/uncheck controls, and direct native double clicks to the UID tool and browser navigation to browser_history.
+
+  Recheck takeover before each next character, the second press of a double click, and text selection or bulk insertion after focus. Release the current key or mouse button while refusing further input, without additional browser reads or model requests.
+
+  Forward aborted browser calls to the backend with request-scoped cancellation. Stop queued sidecar work before dispatch and check cancellation between host input operations without closing the shared browser or cancelling unrelated calls.
+
+  Distinguish native Undo from Shift-modified Redo so browser editing shortcuts restore an undone edit instead of issuing Undo again.
+
+  Preserve multiline accessible names and field values in delta snapshots, escaping newlines and quotes so text cannot create fake element handles or hide edits after the first line. Retain the existing truncation and snapshot budgets.
+
+- 0ed530f: Browser: changing or resetting the viewport of a desktop tab behind another one no longer fails with "viewport layout could not be confirmed".
+- bae6e6e: Wait for Chromium's next render frame before reporting viewport dimensions and overflow after a resize or reset. Report an unconfirmed layout if the frame does not arrive, rather than returning stale dimensions as a success.
+- 889810e: Preserve completed, provider-owned reasoning items through the event log and replay them to ChatGPT OAuth on stateless tool continuations. Keep replay independent of visible reasoning summaries, retain multiple items without forwarding another provider's state, and ignore unfinished streamed state.
+- 3b0fcdf: Bind cookie rejection to a confirmed banner and its control UID, preserve mixed checkbox states, and distinguish Computer Use user/access blocks from failures and uncertain effects so continuation never suggests bypassing a block or blindly repeating an unconfirmed action.
+
+  Preserve human consent handling for full terms-agreement labels independently of the exact cookie-decline match.
+
+- 8d56445: `MOXXY_HOME` now also moves the permission rules (`permissions.json`), user skills and their audit log, workflows, the memory check in `moxxy doctor`, `moxxy plugins new`, self-update transactions and the policy-bundle cache. They used to stay in `~/.moxxy` even when `MOXXY_HOME` pointed elsewhere. Without `MOXXY_HOME` nothing changes. If you set `MOXXY_HOME` and kept these files in `~/.moxxy`, move them to the `MOXXY_HOME` folder.
+- 0a44449: A tool now declares that the user's refusal ends the turn with `refusalEndsTurn` (Computer Use tools set it), instead of the SDK matching `computer_` names. Only the user's answer ends the turn: a `permissions.json` rule or a plugin hook refusing such a tool comes back to the model as a failed step, and a standing rule's refusal is now recorded as `policy` rather than `resolver`.
+- 235ae19: End the current turn after a Computer Use permission denial, cancelling remaining batch actions without retries, alternate tools or continuation reminders. New user turns retain normal permission checks.
+- Updated dependencies [7b24827]
+- Updated dependencies [45f501a]
+- Updated dependencies [1c4d5aa]
+- Updated dependencies [889810e]
+- Updated dependencies [3b0fcdf]
+- Updated dependencies [0a44449]
+- Updated dependencies [235ae19]
+- Updated dependencies [a501dbd]
+  - @moxxy/sdk@0.43.0
+
 ## 0.42.1
 
 ### Patch Changes

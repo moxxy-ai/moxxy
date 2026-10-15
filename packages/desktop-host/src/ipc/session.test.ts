@@ -808,16 +808,20 @@ describe('session.* attachment provenance', () => {
     }
   });
 
-  it('checkAttachment says why a file in the workspace would be left out, and nothing when it would not', async () => {
+  it('checkAttachment takes any file in the workspace and says why a folder would be left out', async () => {
     const binary = path.join(CWD, 'blob.bin');
     const text = path.join(CWD, 'notes.txt');
+    const folder = path.join(CWD, 'assets');
     await writeFile(binary, Buffer.from([0x00, 0x01, 0x02]));
     await writeFile(text, 'hello');
+    await mkdir(folder, { recursive: true });
 
-    await expect(invoke('session.checkAttachment', { workspaceId: WS, path: binary, name: 'blob.bin' })).resolves.toBe(
-      'blob.bin is not a kind of file Moxxy can read.',
-    );
+    // A binary the model cannot read still goes, as its path for the agent's tools.
+    await expect(invoke('session.checkAttachment', { workspaceId: WS, path: binary, name: 'blob.bin' })).resolves.toBeNull();
     await expect(invoke('session.checkAttachment', { workspaceId: WS, path: text, name: 'notes.txt' })).resolves.toBeNull();
+    await expect(invoke('session.checkAttachment', { workspaceId: WS, path: folder, name: 'assets' })).resolves.toBe(
+      'assets is a folder. Attach the files inside it.',
+    );
   });
 
   it('checkAttachment refuses a path the turn would drop, without looking at it', async () => {

@@ -31,7 +31,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ATTACHMENT_LIMITS, attachmentSizeProblem, formatFileSize } from '@moxxy/desktop-ipc-contract';
 import type { UserPromptAttachment } from '@moxxy/sdk';
-import { assertDefined } from '@moxxy/sdk';
+import { MODEL_ATTACHMENT_BUDGET_CHARS, assertDefined } from '@moxxy/sdk';
 import { parseOffice } from 'officeparser';
 import { extractPdfText } from './pdf-text.js';
 
@@ -58,8 +58,9 @@ const OFFICE_EXTENSIONS: ReadonlySet<string> = new Set([
 /** Caps so a renderer-chosen file can't OOM the main process / blow the prompt. */
 const MAX_TEXT_BYTES = 512 * 1024; // 512 KB inlined directly; larger → agentic fallback
 const MAX_IMAGE_BYTES = ATTACHMENT_LIMITS.imageBytes; // shared, so the renderer refuses the same files
-/** Anthropic's native PDF ceiling. Larger PDFs fall back to text extraction. */
-const MAX_PDF_NATIVE_BYTES = 32 * 1024 * 1024; // 32 MB
+/** The largest PDF sent to the model whole: its base64 must fit one request's
+ *  attachment budget. Larger PDFs fall back to text extraction, or to their path. */
+export const MAX_PDF_NATIVE_BYTES = Math.floor(MODEL_ATTACHMENT_BUDGET_CHARS / 4) * 3;
 /** How much of an oversized file we inline before pointing at the full copy. */
 const HEAD_EXCERPT_BYTES = 8 * 1024; // 8 KB preview
 
@@ -365,18 +366,12 @@ export async function buildAttachments(
       const mediaType = IMAGE_MEDIA_TYPES[ext];
 
       if (size > MAX_READ_WHOLE_BYTES) {
-        if (mediaType) {
-          console.warn(`[attachments] skipping ${f.name}: image exceeds ${MAX_IMAGE_BYTES} bytes`);
-          continue;
-        }
-        // Peek the head only. If it's binary (PDF/Office/legacy doc) we can't
-        // extract from a partial buffer without loading the whole thing, so
-        // skip with a warning; readable text gets a head excerpt + read-on-demand.
-        const head = await readHead(handle, HEAD_EXCERPT_BYTES);
-        if (isPdf(head, ext) || OFFICE_EXTENSIONS.has(ext) || isLegacyDoc(head, ext) || head.includes(0)) {
-          console.warn(
-            `[attachments] skipping ${f.name}: ${size} bytes exceeds the ${MAX_READ_WHOLE_BYTES}-byte read cap`,
-          );
+        // Peek the head only. A binary file (image/PDF/Office/legacy doc) can't
+        // be read from a partial buffer without loading the whole thing, so the
+        // agent gets its path; readable text gets a head excerpt + read-on-demand.
+        const head = mediaType ? Buffer.alloc(0) : await readHead(handle, HEAD_EXCERPT_BYTES);
+        if (mediaType || isPdf(head, ext) || OFFICE_EXTENSIONS.has(ext) || isLegacyDoc(head, ext) || head.includes(0)) {
+          out.push(fileOnDisk(f, size, 'is too large to read into the conversation'));
           continue;
         }
         out.push(await largeFileFallback(head.toString('utf8'), f.name, f.path, size));
@@ -388,7 +383,7 @@ export async function buildAttachments(
       // 1. Image → base64 the model can see.
       if (mediaType) {
         if (buf.byteLength > MAX_IMAGE_BYTES) {
-          console.warn(`[attachments] skipping ${f.name}: image exceeds ${MAX_IMAGE_BYTES} bytes`);
+          out.push(fileOnDisk(f, size, `is larger than the ${formatFileSize(MAX_IMAGE_BYTES)} an image can be sent to the model at`));
           continue;
         }
         out.push({ kind: 'image', content: buf.toString('base64'), mediaType, name: f.name });
@@ -407,11 +402,11 @@ export async function buildAttachments(
           });
         } else {
           const text = await extractPdf(buf, f.name);
-          if (text) out.push(await largeFileFallback(text, f.name, null));
-          else
-            console.warn(
-              `[attachments] skipping ${f.name}: PDF >${MAX_PDF_NATIVE_BYTES} bytes and no extractable text`,
-            );
+          out.push(
+            text
+              ? await largeFileFallback(text, f.name, null)
+              : fileOnDisk(f, size, 'is a PDF too large to send to the model whole, and it has no text layer to extract (likely a scan)'),
+          );
         }
         continue;
       }
@@ -419,7 +414,10 @@ export async function buildAttachments(
       // 3. Office / OpenDocument → extract text, inline or fall back by size.
       if (OFFICE_EXTENSIONS.has(ext)) {
         const text = await extractText(buf, f.name);
-        if (!text) continue; // already warned
+        if (!text) {
+          out.push(fileOnDisk(f, size, 'had no text Moxxy could extract'));
+          continue;
+        }
         if (Buffer.byteLength(text, 'utf8') <= MAX_TEXT_BYTES) {
           out.push({ kind: 'file', content: text, name: f.name });
         } else {
@@ -430,7 +428,7 @@ export async function buildAttachments(
 
       // 4. Text / code → inline, or fall back to the file itself when large.
       if (buf.includes(0)) {
-        console.warn(`[attachments] skipping ${f.name}: looks binary / unsupported`);
+        out.push(fileOnDisk(f, size, 'is not a format Moxxy can read into the conversation'));
         continue;
       }
       if (buf.byteLength <= MAX_TEXT_BYTES) {
@@ -453,11 +451,10 @@ export async function buildAttachments(
  * Why {@link buildAttachments} would leave `absPath` out of a prompt, as a
  * sentence for the person, or null when it would attach it. Asked when a file
  * is staged, so the person is told then, not by a prompt sent without it.
- * Reads the size and at most the head, never the whole file, so it cannot see
- * a document whose text fails to extract.
+ * Only a folder or a file that cannot be opened is left out; it never reads
+ * the file's contents.
  */
 export async function attachmentProblem(absPath: string, name: string): Promise<string | null> {
-  const ext = path.extname(absPath).toLowerCase();
   const folder = `${name} is a folder. Attach the files inside it.`;
   let handle: FileHandle | null = null;
   try {
@@ -473,19 +470,9 @@ export async function attachmentProblem(absPath: string, name: string): Promise<
     }
     // Asked of the open handle, never of the path again: the size is that of the file then read.
     const info = await handle.stat();
-    if (info.isDirectory()) return folder;
-    const size = info.size;
-    if (IMAGE_MEDIA_TYPES[ext]) {
-      return size > MAX_IMAGE_BYTES ? attachmentSizeProblem({ name, size, image: true }) : null;
-    }
-    const head = await readHead(handle, HEAD_EXCERPT_BYTES);
-    const document = isPdf(head, ext) || OFFICE_EXTENSIONS.has(ext);
-    if (size > MAX_READ_WHOLE_BYTES) {
-      const text = !document && !isLegacyDoc(head, ext) && !head.includes(0);
-      return text ? null : `${name} is ${formatFileSize(size)}. Only plain text can be attached at that size.`;
-    }
-    if (document) return null;
-    return head.includes(0) ? `${name} is not a kind of file Moxxy can read.` : null;
+    // Any readable file is attached: one the model cannot take whole reaches
+    // the agent as its path (see fileOnDisk), so only a folder is refused.
+    return info.isDirectory() ? folder : null;
   } catch {
     return `${name} could not be read.`;
   } finally {
@@ -561,6 +548,24 @@ async function largeFileFallback(
     `the text above is just the beginning. The full text is saved at:\n  ${readablePath}\n` +
     `Use your file tools (read_file with an offset, or grep) on that path to read or search the rest.]`;
   return { kind: 'file', content: head + note, name };
+}
+
+/**
+ * A file the model cannot take whole — a scan too large to send, an image over
+ * the image limit, a video, an unknown format. It is never dropped: the agent
+ * is told what it is and where it lies, and can work on it with its tools
+ * (split, resize, convert, extract).
+ */
+function fileOnDisk(file: { path: string; name: string }, size: number, why: string): UserPromptAttachment {
+  return {
+    kind: 'file',
+    name: file.name,
+    content:
+      `[Attached file "${file.name}" (${formatFileSize(size)}) ${why}, so its contents were not sent to you. ` +
+      `The original is at:\n  ${file.path}\n` +
+      'Use your tools on that path to inspect or convert it (for example split a large PDF into parts, ' +
+      'resize an image, or extract its text), then read the result.]',
+  };
 }
 
 /** MIME type → file extension for the image blobs we accept on paste. */

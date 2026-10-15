@@ -2,7 +2,13 @@ import type { ContentBlock, ProviderMessage } from '../provider.js';
 import type { ModeContext } from '../mode.js';
 import type { Skill } from '../skill.js';
 import { toolPatternMatches } from '../skill-mentions.js';
-import type { MoxxyEvent, UserPromptEvent } from '../events.js';
+import type { MoxxyEvent, UserPromptAttachment, UserPromptEvent } from '../events.js';
+import {
+  MODEL_ATTACHMENT_BUDGET_CHARS,
+  attachmentBytes,
+  attachmentKey,
+  restoredAttachmentRef,
+} from '../attachment-payload.js';
 import {
   activeCompactionRanges,
   makeCompactionLookup,
@@ -91,6 +97,96 @@ export interface ProjectMessagesOptions {
   readonly precomputedElisionState?: ElisionState;
 }
 
+function hasModelPayload(att: UserPromptAttachment): boolean {
+  return att.kind === 'image' || att.kind === 'document';
+}
+
+function attachmentLeftOutNote(att: UserPromptAttachment, seq: number, index: number): string {
+  const label = `${att.kind}${att.name ? ` "${att.name}"` : ''}`;
+  const mb = (attachmentBytes(att) / (1024 * 1024)).toFixed(1);
+  return (
+    `[${label} (${mb} MB) was attached earlier in this conversation and is no longer sent ` +
+    `with each request, to keep the request within the model's size limit. ` +
+    `To see it again, call recall({ attachment: "${attachmentKey(seq, index)}" }).]`
+  );
+}
+
+/** The image or document block an attachment the model reads as bytes becomes. */
+function attachmentBlock(att: UserPromptAttachment): ContentBlock {
+  if (att.kind === 'image') {
+    return { type: 'image', mediaType: att.mediaType ?? 'image/png', data: att.content };
+  }
+  return {
+    type: 'document',
+    mediaType: att.mediaType ?? 'application/pdf',
+    data: att.content,
+    ...(att.name ? { name: att.name } : {}),
+  };
+}
+
+/** The prompts that carry attachments, by seq, so a restoring recall finds its original. */
+function attachmentPromptsBySeq(events: ReadonlyArray<MoxxyEvent>): ReadonlyMap<number, UserPromptEvent> {
+  const prompts = new Map<number, UserPromptEvent>();
+  for (const e of events) {
+    if (e.type === 'user_prompt' && e.attachments && e.attachments.length > 0) prompts.set(e.seq, e);
+  }
+  return prompts;
+}
+
+/** The image/document a `recall({ attachment })` result brings back, or null. */
+function restoredAttachment(
+  e: Extract<MoxxyEvent, { type: 'tool_result' }>,
+  prompts: ReadonlyMap<number, UserPromptEvent>,
+): UserPromptAttachment | null {
+  if (!e.ok || e.error) return null;
+  const ref = restoredAttachmentRef(e.output);
+  if (!ref) return null;
+  const prompt = prompts.get(ref.seq);
+  const att = prompt ? prompt.attachments?.[ref.index] : undefined;
+  return att && hasModelPayload(att) && att.omittedBytes === undefined ? att : null;
+}
+
+/** The budget key of what a restoring recall result shows. */
+const restoreKey = (seq: number): string => `r:${seq}`;
+
+/**
+ * Keys of the image/document payloads that go to the model in full: an
+ * attachment's `seq:index`, or `r:seq` for one a recall result restores.
+ * Newest first, while they fit {@link MODEL_ATTACHMENT_BUDGET_CHARS}, so a
+ * restored attachment takes its place among the newest. Deterministic for a
+ * given log, so the prompt cache sees a stable prefix.
+ */
+function attachmentsSentInFull(
+  events: ReadonlyArray<MoxxyEvent>,
+  el: ElisionState,
+  isCompacted: (seq: number) => boolean,
+  prompts: ReadonlyMap<number, UserPromptEvent>,
+): ReadonlySet<string> {
+  const keys = new Set<string>();
+  let room = MODEL_ATTACHMENT_BUDGET_CHARS;
+  const take = (key: string, att: UserPromptAttachment): void => {
+    if (att.content.length > room) return;
+    room -= att.content.length;
+    keys.add(key);
+  };
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i];
+    if (!e || isCompacted(e.seq)) continue;
+    if (e.type === 'tool_result') {
+      if (toolResultStubbed(e, el)) continue;
+      const att = restoredAttachment(e, prompts);
+      if (att) take(restoreKey(e.seq), att);
+      continue;
+    }
+    if (e.type !== 'user_prompt' || !e.attachments || conversationalStubbed(e, el)) continue;
+    for (const [index, att] of e.attachments.entries()) {
+      if (!hasModelPayload(att) || att.omittedBytes !== undefined) continue;
+      take(attachmentKey(e.seq, index), att);
+    }
+  }
+  return keys;
+}
+
 /**
  * Pure projection of a single `user_prompt` event to its content blocks.
  *
@@ -100,27 +196,23 @@ export interface ProjectMessagesOptions {
  * what the inline switch arm produced. Caller decides how to wrap it as a
  * message / record the stable prefix.
  */
-export function projectUserPrompt(event: UserPromptEvent, el: ElisionState): ContentBlock[] {
+export function projectUserPrompt(
+  event: UserPromptEvent,
+  el: ElisionState,
+  /** Which attachments go to the model in full; the rest become a short note. Default: all. */
+  sendsInFull: (index: number) => boolean = () => true,
+): ContentBlock[] {
   // Elided + conversational: collapse to a stub (anchor/tiny kept full).
   if (conversationalStubbed(event, el)) {
     return [{ type: 'text', text: conversationalStub('user', event.seq) }];
   }
   const blocks: ContentBlock[] = [{ type: 'text', text: event.text }];
   if (event.attachments) {
-    for (const att of event.attachments) {
-      if (att.kind === 'image') {
-        blocks.push({
-          type: 'image',
-          mediaType: att.mediaType ?? 'image/png',
-          data: att.content,
-        });
-      } else if (att.kind === 'document') {
-        blocks.push({
-          type: 'document',
-          mediaType: att.mediaType ?? 'application/pdf',
-          data: att.content,
-          ...(att.name ? { name: att.name } : {}),
-        });
+    for (const [index, att] of event.attachments.entries()) {
+      if (att.omittedBytes !== undefined || (hasModelPayload(att) && !sendsInFull(index))) {
+        blocks.push({ type: 'text', text: attachmentLeftOutNote(att, event.seq, index) });
+      } else if (hasModelPayload(att)) {
+        blocks.push(attachmentBlock(att));
       } else {
         blocks.push({
           type: 'text',
@@ -233,6 +325,8 @@ export function projectMessages(
   // Only VISIBLE results count: one swallowed by a compaction is never sent, so
   // its still-visible tool_use needs the fallback just like a missing one.
   const resolvedCallIds = resolvedCallIdSet(allEvents.filter((e) => !compactionFor(e.seq)));
+  const attachmentPrompts = attachmentPromptsBySeq(allEvents);
+  const sentInFull = attachmentsSentInFull(allEvents, el, (seq) => compactionFor(seq) !== null, attachmentPrompts);
   // callIds whose tool_use block is projected. A tool_result outside this set
   // answers a call a compaction summarized away (the result landed after later
   // turns began); providers reject a result with no matching call.
@@ -303,7 +397,10 @@ export function projectMessages(
       case 'user_prompt': {
         flush();
         pendingReasoning = null;
-        messages.push({ role: 'user', content: projectUserPrompt(e, el) });
+        messages.push({
+          role: 'user',
+          content: projectUserPrompt(e, el, (index) => sentInFull.has(`${e.seq}:${index}`)),
+        });
         recordStable(e.seq);
         break;
       }
@@ -387,10 +484,24 @@ export function projectMessages(
         // provider `image` blocks so the model SEES the pixels — only when the
         // result isn't stubbed (elided) or an error and the call succeeded.
         let images: ReadonlyArray<ToolImageBlock> = [];
+        // A `recall({ attachment })` result: the original image/document goes
+        // beside it, from the prompt that carried it, while the budget allows.
+        let restored: ContentBlock | null = null;
+        const restoredAtt = toolResultStubbed(e, el) ? null : restoredAttachment(e, attachmentPrompts);
         if (toolResultStubbed(e, el)) {
           text = toolResultStubText(e, el);
         } else if (e.error) {
           text = `[error:${e.error.kind}] ${e.error.message}`;
+        } else if (restoredAtt) {
+          const description = (e.output as { forModel?: unknown }).forModel;
+          text = typeof description === 'string' ? description : '[attachment restored — see below]';
+          if (sentInFull.has(restoreKey(e.seq))) {
+            restored = attachmentBlock(restoredAtt);
+          } else {
+            text +=
+              ' [It could not be shown again: newer attachments already fill what one request may carry.' +
+              ' Ask the person to attach it again if you need it now.]';
+          }
         } else {
           const forModel = toolOutputForModel(e.output);
           text = forModel.text;
@@ -400,6 +511,7 @@ export function projectMessages(
           { type: 'tool_result', toolUseId: e.callId, content: text, isError: !e.ok },
           ...images,
         ];
+        if (restored) content.push(restored);
         messages.push({ role: 'tool_result', content });
         recordStable(e.seq);
         break;

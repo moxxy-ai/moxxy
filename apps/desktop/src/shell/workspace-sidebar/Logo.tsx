@@ -1,8 +1,7 @@
-import { MoxxyMark } from '@/components/MoxxyMark';
+import { BlinkingMoxxyMark } from '@/components/BlinkingMoxxyMark';
 /**
- * Sidebar masthead: the mark plus a one-line MoxxyAI wordmark. Sits flush at
- * the top of the dark rail, so the mark's ink strand picks up the rail's own
- * text colour.
+ * Sidebar masthead: the blinking mark plus a one-line MoxxyAI wordmark, flush
+ * at the top of the dark rail.
  */
 export function Logo(): JSX.Element {
   return (
@@ -14,7 +13,7 @@ export function Logo(): JSX.Element {
         padding: '18px 18px 14px',
       }}
     >
-      <MoxxyMark size={32} />
+      <BlinkingMoxxyMark size={32} />
       <span
         style={{
           fontFamily: 'var(--font-prose)',

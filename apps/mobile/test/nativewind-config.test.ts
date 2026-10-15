@@ -60,7 +60,7 @@ describe('mobile StyleSheet configuration', () => {
     const babel = loadBabelConfigFor({ name: 'metro' });
 
     expect(babel.plugins).toHaveLength(1);
-    expect(babel.presets).toEqual([['babel-preset-expo', { jsxRuntime: 'classic' }]]);
+    expect(babel.presets).toEqual(['babel-preset-expo']);
     expect(babel.presets).not.toContain('nativewind/babel');
   });
 
@@ -68,17 +68,40 @@ describe('mobile StyleSheet configuration', () => {
     const babel = loadBabelConfigFor({});
 
     expect(babel.plugins).toHaveLength(1);
-    expect(babel.presets).toEqual([['babel-preset-expo', { jsxRuntime: 'classic' }]]);
+    expect(babel.presets).toEqual(['babel-preset-expo']);
     expect(babel.presets).not.toContain('nativewind/babel');
   });
 
   it('does not run app JSX transforms over node_modules during embedded iOS bundling', () => {
     const babel = loadBabelConfigFor({ isNodeModule: true });
 
-    expect(babel.presets ?? []).toEqual([]);
+    expect(babel.plugins ?? []).toEqual([]);
+    expect(babel.presets).toEqual(['babel-preset-expo']);
   });
 
-  it('keeps Expo dev JSX metadata out of app output so Metro can bundle mobile screens', () => {
+  it('strips TypeScript from Expo packages that ship their sources to Metro', () => {
+    const babelPresetExpoRequire = createRequire(require.resolve('babel-preset-expo'));
+    const babel = babelPresetExpoRequire('@babel/core') as {
+      transformFileSync: (filename: string, opts: Record<string, unknown>) => { code?: string | null } | null;
+    };
+    // Since Expo SDK 55 expo-modules-core points Metro at src/index.ts, with `export type *` in it.
+    const expoModulesCore = createRequire(require.resolve('expo/package.json'))
+      .resolve('expo-modules-core/package.json');
+    const inputFile = join(dirname(expoModulesCore), 'src', 'index.ts');
+
+    const result = babel.transformFileSync(inputFile, {
+      babelrc: false,
+      caller: { bundler: 'metro', engine: 'hermes', isDev: false, isNodeModule: true, isServer: false, name: 'metro', platform: 'ios' },
+      configFile: join(mobileRoot, 'babel.config.cjs'),
+      filename: inputFile,
+    });
+
+    expect(result?.code ?? '').not.toContain('export type');
+  }, 30_000);
+
+  // Metro reads babel.config.cjs since Expo SDK 55; the screens import no React, so a classic
+  // `React.createElement` runtime throws "Property 'React' doesn't exist" at launch.
+  it('compiles app JSX to the automatic runtime without dev metadata props', () => {
     const babelPresetExpoRequire = createRequire(require.resolve('babel-preset-expo'));
     const babel = babelPresetExpoRequire('@babel/core') as {
       transformFileSync: (
@@ -89,24 +112,27 @@ describe('mobile StyleSheet configuration', () => {
     const configFile = join(mobileRoot, 'babel.config.cjs');
     const inputFile = join(mobileRoot, 'app', '_layout.tsx');
 
-    const result = babel.transformFileSync(inputFile, {
-      babelrc: false,
-      caller: {
-        bundler: 'metro',
-        engine: 'hermes',
-        isDev: true,
-        isServer: false,
-        name: 'metro',
-        platform: 'ios',
-      },
-      configFile,
-      filename: inputFile,
-    });
-    const code = result?.code ?? '';
+    for (const isDev of [true, false]) {
+      const result = babel.transformFileSync(inputFile, {
+        babelrc: false,
+        caller: {
+          bundler: 'metro',
+          engine: 'hermes',
+          isDev,
+          isServer: false,
+          name: 'metro',
+          platform: 'ios',
+        },
+        configFile,
+        filename: inputFile,
+      });
+      const code = result?.code ?? '';
 
-    expect(code).toContain('React.createElement');
-    expect(code).not.toContain('__self');
-    expect(code).not.toContain('__source');
+      expect(code).toContain('react/jsx-runtime');
+      expect(code).not.toContain('React.createElement');
+      expect(code).not.toContain('__self');
+      expect(code).not.toContain('__source');
+    }
     // A cold load of babel-preset-expo outlasts the 5 s default on a busy Windows runner.
   }, 30_000);
 

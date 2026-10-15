@@ -18,20 +18,18 @@
       #splash-fallback { position: fixed; inset: 0; display: flex;
         flex-direction: column; align-items: center; justify-content: center;
         gap: 1.25rem; }
-      /* The mark itself, inline so the cold-start splash needs no network and
-         no bundle. A quarter turn is a full loop: the mark is symmetric under
-         90deg, so the animation closes on itself. Mirrors .moxxy-avatar-loader
-         in styles.css so the pre-React and post-React splashes look identical. */
-      #splash-fallback .mark { width: 64px; height: 64px; color: #141414;
-        animation: splash-turn 3.4s linear infinite; }
+      /* The mark is the same cut-out raster MoxxyMark paints (public/, so it
+         loads from disk with no network and no bundle), and it breathes the
+         way .moxxy-avatar-loader in styles.css does, so the pre-React and
+         post-React splashes look identical. */
+      #splash-fallback .mark { width: 64px; height: 64px;
+        animation: splash-breathe 2.4s ease-in-out infinite; }
       #splash-fallback .label { font-size: 0.7rem; color: #5e5e5e;
         letter-spacing: 0.12em; text-transform: uppercase; }
-      /* The mark's second strand takes the commanded accent, which is the
-         brand's Signal at a different stop per theme (deepened on paper so it
-         holds against white, Signal exactly on ink) for the same reason the
-         brand ships a -dark mark. */
-      #splash-fallback .strand { stroke: #d62a00; }
-      @keyframes splash-turn { to { transform: rotate(90deg); } }
+      @keyframes splash-breathe {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(0.92); opacity: 0.7; }
+      }
       /* Dark splash — main sets nativeTheme.themeSource from the persisted
          pref BEFORE the window is created, so this media query reflects the
          user's choice (not just the OS) by the time this CSS evaluates. The
@@ -39,8 +37,6 @@
       @media (prefers-color-scheme: dark) {
         html, body { background: #1a1a1a; color: #f5f5f5; }
         #splash-fallback .label { color: #a6a6a6; }
-        #splash-fallback .mark { color: #f5f5f5; }
-        #splash-fallback .strand { stroke: #ff4a1e; }
       }
       @media (prefers-reduced-motion: reduce) {
         #splash-fallback .mark { animation: none; }
@@ -49,23 +45,7 @@
     <link rel="icon" type="image/png" href="/logo.png" />
     <div id="root">
       <div id="splash-fallback">
-        <svg class="mark" viewBox="0 0 256 256" role="img" aria-label="moxxy">
-          <mask id="splash-weave" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
-            <rect width="256" height="256" fill="#000" />
-            <circle cx="188" cy="153" r="27" fill="#fff" />
-            <circle cx="103" cy="188" r="27" fill="#fff" />
-            <circle cx="68" cy="103" r="27" fill="#fff" />
-            <circle cx="153" cy="68" r="27" fill="#fff" />
-          </mask>
-          <g fill="none" stroke-width="22" stroke-linejoin="round">
-            <rect x="68" y="68" width="120" height="120" rx="12" stroke="currentColor" />
-            <rect class="strand" x="68" y="68" width="120" height="120" rx="12"
-                  transform="rotate(45 128 128)" />
-            <g mask="url(#splash-weave)">
-              <rect x="68" y="68" width="120" height="120" rx="12" stroke="currentColor" />
-            </g>
-          </g>
-        </svg>
+        <img class="mark" src="/moxxy-mark.png" alt="moxxy" width="64" height="64" />
         <div class="label">Getting things ready…</div>
       </div>
     </div>

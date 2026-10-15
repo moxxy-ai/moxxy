@@ -44,6 +44,7 @@ const FORWARDED = [
   'Page.frameNavigated',
   'Page.loadEventFired',
   'Runtime.consoleAPICalled', 'Runtime.exceptionThrown',
+  'Debugger.paused',
   'Network.requestWillBeSent', 'Network.responseReceived', 'Network.loadingFinished', 'Network.loadingFailed',
 ];
 

@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Icon, type IconName } from '@moxxy/desktop-ui';
-import { MoxxyMark } from '@/components/MoxxyMark';
+import { BlinkingMoxxyMark } from '@/components/BlinkingMoxxyMark';
 import { PanelIcon } from './PanelIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import {
@@ -93,7 +93,7 @@ export function IndexColumn({
           </button>
         ) : (
           <span className="index-col__mark" aria-hidden>
-            <MoxxyMark size={20} />
+            <BlinkingMoxxyMark size={20} />
           </span>
         )}
         <span className="index-col__title">{title}</span>

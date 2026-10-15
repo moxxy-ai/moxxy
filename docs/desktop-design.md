@@ -17,6 +17,7 @@ only; the mobile app, the TUI and the web channel keep their own look.
 | Geometry | Rounded: 4 / 6 / 8 / 12 px, plus rounder bubbles and sheets. |
 | Sidebar row | A session. Workspaces are collapsible section headers above their sessions. |
 | Other destinations | One account menu at the foot of the sidebar, and the ⌘K / Ctrl+K palette. |
+| The mark | One cut-out picture (`public/moxxy-mark.png`, built in `assets/brand/`): a metal ribbon around a dark visor with two lit eyes. It is the same on both themes and never takes a text colour. A loading mark breathes (scale 0.92 and opacity 0.7 over 2.4 s); it does not turn, because the face is not symmetric. The sidebar masthead and the macOS menu bar blink now and then; nothing else does, so the blink stays a sign of life rather than noise. Reduced motion holds every mark still. The menu-bar glyph is drawn from shapes, not cut from the picture: a bubble whose ring of ink holds a clear visor with the two eyes in it, because a 22 px silhouette of the 3D ribbon came out ragged. |
 
 ## Layout target
 
@@ -172,11 +173,25 @@ Files reach the composer four ways: the add menu, the file browser, a paste,
 and a drop anywhere on the conversation, which says it will take them while
 they are held over it (`chat/useFileDropZone.ts`, `chat/DropVeil.tsx`). A
 dropped or pasted file crosses to the host as bytes, never as a path the
-renderer names (`session.saveAttachment`). The sizes are one table for the
-renderer and the host (`ATTACHMENT_LIMITS` in `@moxxy/desktop-ipc-contract`:
-8 MB for an image, 32 MB for another file). A file that cannot be attached is
-refused when it is staged, by name and with the reason, in an alert inside the
-composer card (`chat/composer/ComposerAlert.tsx`); the rest of the batch stays.
+renderer names (`session.saveAttachment`). The sizes bound only those bytes
+and are one table for the renderer and the host (`ATTACHMENT_LIMITS` in
+`@moxxy/desktop-ipc-contract`: 8 MB for an image, 32 MB for another file); the
+refusal says that Attach file takes a larger one, because a picked file goes
+by its path at any size. A file that cannot be attached is refused when it is
+staged, by name and with the reason, in an alert inside the composer card
+(`chat/composer/ComposerAlert.tsx`); the rest of the batch stays. Only a folder
+or a file that cannot be opened is refused by the host. A file the model cannot
+take whole (too large, a scan with no text, an unknown binary) is never dropped
+when the prompt is sent: it goes as a note naming its path on disk, so the
+agent can open it with its tools.
+
+An attachment in the conversation is drawn from what the runner sends, and the
+runner sends a large one by name and size only (`eventForClient` in
+`@moxxy/sdk/attachment-payload`), so no history page grows past a few
+megabytes however many scans the chat holds. The file chip shows the real size.
+An image whose bytes were left out is read back in slices when its thumbnail
+is drawn (`chat/attachments/`, `chat.readAttachment`); until then, and if the
+read fails, it is drawn as the file chip.
 
 ### The slash menu
 

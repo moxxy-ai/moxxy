@@ -1,4 +1,15 @@
-import { MoxxyError, asTurnId, conversationTurns, defineTool, searchConversation, z, type MoxxyEvent } from '@moxxy/sdk';
+import {
+  MoxxyError,
+  asTurnId,
+  conversationTurns,
+  defineTool,
+  findAttachment,
+  listAttachments,
+  searchConversation,
+  z,
+  type MoxxyEvent,
+  type RestoredAttachmentOutput,
+} from '@moxxy/sdk';
 import { dropDanglingSurrogate } from './util.js';
 
 const MAX_FULL_CHARS = 200_000;
@@ -22,7 +33,9 @@ export const recallTool = defineTool({
     'earlier turns that mention its words (with their turn numbers); `turn` reads one ' +
     'turn in full, by its number. Pass the `callId` shown in an "[output elided — recall(...)]" stub to get a ' +
     'tool result back, or a `seq` / `turnId` to recall an earlier message or whole ' +
-    'turn. Set `summarize: true` for a truncated preview instead of the full text. ' +
+    'turn. Pass `attachment` (a file name, or the key a "recall({ attachment })" note gives) ' +
+    'to see a file attached earlier again, even one from a summarized turn. ' +
+    'Set `summarize: true` for a truncated preview instead of the full text. ' +
     'Only call this when you actually need the detail — the recent context is always ' +
     'present verbatim.',
   inputSchema: z.object({
@@ -31,6 +44,10 @@ export const recallTool = defineTool({
     callId: z.string().optional().describe('The callId from an elided tool-result stub.'),
     seq: z.number().int().nonnegative().optional().describe('Event sequence number to recall.'),
     turnId: z.string().optional().describe('Recall every message from this turn.'),
+    attachment: z
+      .string()
+      .optional()
+      .describe('A file attached earlier: its name (e.g. "umowa.pdf") or its key (e.g. "12:0").'),
     summarize: z
       .boolean()
       .optional()
@@ -41,7 +58,11 @@ export const recallTool = defineTool({
     required: 'inproc',
     capabilities: { net: { mode: 'none' }, timeMs: 5_000 },
   },
-  handler: ({ query, turn, callId, seq, turnId, summarize }, ctx) => {
+  handler: ({ query, turn, callId, seq, turnId, attachment, summarize }, ctx) => {
+    // An attachment is checked before the anti-thrash belt: restoring one again
+    // is how the model gets it back once newer files pushed it out.
+    if (attachment !== undefined) return recallAttachment(ctx.log.slice(), attachment, summarize);
+
     // Idempotency belt (anti-thrash): if this exact target was recalled in the
     // recent window, its result is already in context — return a pointer rather
     // than re-injecting the bytes and risking a recall loop. Window by position
@@ -114,10 +135,41 @@ export const recallTool = defineTool({
 
     throw new MoxxyError({
       code: 'TOOL_ERROR',
-      message: 'recall: provide one of `query`, `turn`, `callId`, `seq`, or `turnId`.',
+      message: 'recall: provide one of `query`, `turn`, `callId`, `seq`, `turnId`, or `attachment`.',
     });
   },
 });
+
+/**
+ * An image or document comes back as a pointer: the bytes stay once in the
+ * log, and the projection shows the original beside this result. A text
+ * attachment is simply its text.
+ */
+function recallAttachment(
+  events: ReadonlyArray<MoxxyEvent>,
+  query: string,
+  summarize?: boolean,
+): string | RestoredAttachmentOutput {
+  const found = findAttachment(events, query);
+  if (!found) {
+    const known = listAttachments(events);
+    throw new MoxxyError({
+      code: 'TOOL_ERROR',
+      message:
+        `recall: no attachment "${query}" in this conversation. ` +
+        (known.length > 0 ? `Attached so far: ${known.join(', ')}.` : 'Nothing has been attached yet.'),
+    });
+  }
+  const { seq, index, attachment: att } = found;
+  const name = att.name ?? att.kind;
+  if (att.kind !== 'image' && att.kind !== 'document') {
+    return present(`[${att.kind} ${name}]\n${att.content}`, summarize);
+  }
+  return {
+    forModel: `[${att.kind} "${name}" restored — it is attached to this result.]`,
+    restoredAttachment: { seq, index },
+  };
+}
 
 function recallTargetMatches(
   input: unknown,
