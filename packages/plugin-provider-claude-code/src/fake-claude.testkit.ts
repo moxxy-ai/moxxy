@@ -17,6 +17,8 @@ import type {
   ClaudePreToolUseOutput,
   ClaudeQuery,
   ClaudeQueryOptions,
+  ClaudeResolvedSettings,
+  ClaudeSettings,
   ClaudeSlashCommand,
   ClaudeUserContent,
   ClaudeUserMessage,
@@ -59,11 +61,29 @@ export class FakeClaude implements ClaudeAgentSdk {
   private sessions = 0;
   /** The person's own Claude skills and commands, as `supportedCommands` reports them next to Claude's built-in ones. */
   ownSkills: ReadonlyArray<string> = [];
+  /** The folders `resolveSettings` was asked about. */
+  readonly settingsRead: string[] = [];
+  /** The own mode comes from the repository's settings, which the trust filter drops. */
+  fromRepository = false;
+  settingsError: Error | undefined;
   /** `ownMode`: the mode the person's own Claude settings start in when Moxxy names none. */
   constructor(
     private readonly scene: ClaudeScene,
     private readonly ownMode: ClaudePermissionMode = 'default',
   ) {}
+
+  async resolveSettings(opts?: { readonly cwd?: string }): Promise<ClaudeResolvedSettings> {
+    this.settingsRead.push(opts?.cwd ?? '');
+    if (this.settingsError) throw this.settingsError;
+    return {
+      effective: { permissions: { defaultMode: this.ownMode } },
+      sources: [{ source: this.fromRepository ? 'project' : 'user', settings: { permissions: { defaultMode: this.ownMode } } }],
+    };
+  }
+
+  filterEscalatingDefaultMode(resolved: ClaudeResolvedSettings): ClaudeSettings {
+    return this.fromRepository ? { ...resolved.effective, permissions: {} } : resolved.effective;
+  }
 
   async getSessionInfo(sessionId: string): Promise<{ sessionId: string } | undefined> {
     return this.saved.has(sessionId) ? { sessionId } : undefined;

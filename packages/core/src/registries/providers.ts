@@ -12,6 +12,7 @@ export class ProviderRegistry {
    */
   private readonly disabled = new Set<string>();
   private readonly agentTurnListeners = new Set<(start: AgentTurnStart) => void>();
+  private readonly activeListeners = new Set<(name: string) => void>();
   /** Per provider name: the unsubscribe from its instance's `onAgentTurn`. */
   private readonly agentTurnWatches = new Map<string, () => void>();
 
@@ -91,8 +92,16 @@ export class ProviderRegistry {
       instance = def.createClient(config ?? {});
       this.keep(name, instance);
     }
+    const changed = this.active !== name;
     this.active = name;
+    if (changed) for (const listener of [...this.activeListeners]) listener(name);
     return instance;
+  }
+
+  /** The active provider changed to `name`. Returns the unsubscribe. */
+  onActiveChange(listener: (name: string) => void): () => void {
+    this.activeListeners.add(listener);
+    return () => this.activeListeners.delete(listener);
   }
 
   getActive(): LLMProvider {

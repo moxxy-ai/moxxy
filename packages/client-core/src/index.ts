@@ -36,6 +36,8 @@ export * from './useQuestion.js';
 export * from './question-draft.js';
 export * from './usePrefs.js';
 export * from './useSettings.js';
+export * from './useAgentClis.js';
+export * from './agentConnection.js';
 export * from './useDesks.js';
 export * from './useSessions.js';
 export * from './useWorkflows.js';

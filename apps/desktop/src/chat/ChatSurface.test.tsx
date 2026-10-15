@@ -117,6 +117,8 @@ vi.mock('@moxxy/client-core', () => ({
     loadOlder: vi.fn(),
   }),
   useActionCatalog: () => ({ loaded: true, skills: [], tools: [] }),
+  useAgentClis: () => ({ jobs: {}, checking: false, run: vi.fn(), check: vi.fn() }),
+  usePrefs: () => ({ prefs: null, loading: false, update: vi.fn() }),
   useDesks: () => ({
     desks: deskState.desk ? [deskState.desk] : [],
     activeId: null,

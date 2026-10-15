@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { findExecutable, spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
+import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
+import { OPENCODE_CLI, findAgentCli } from '@moxxy/agent-connection-kit';
 import { OPENCODE_ACP_ARGS, OPENCODE_EXECUTABLE_ENV } from './constants.js';
 import type { AcpConnection, StartAcpAgent } from './acp-session.js';
 
@@ -18,7 +19,7 @@ export interface OpenCodeTargetOptions {
  */
 export function opencodeTarget(command: string, opts: OpenCodeTargetOptions = {}): ExecutableTarget {
   const platform = opts.platform ?? process.platform;
-  const found = (opts.find ?? ((name) => findExecutable(name)))(command);
+  const found = (opts.find ?? ((name) => findAgentCli(OPENCODE_CLI, { command: name })))(command);
   if (!found) throw new Error(`OpenCode not found: ${command}. Install OpenCode or set ${OPENCODE_EXECUTABLE_ENV}.`);
   const paths = platform === 'win32' ? path.win32 : path;
   const extension = paths.extname(found).toLowerCase();

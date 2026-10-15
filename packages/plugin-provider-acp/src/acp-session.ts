@@ -253,8 +253,8 @@ export class AcpAgentSession implements LiveSession {
       // Once the person turned it off, auto-approve on again is their choice.
       if (!req.autoApprove) this.adopted = false;
       // A new conversation shows how the person's agent really runs (one
-      // state); a conversation going on keeps the auto-approve the person
-      // chose. In goal mode Moxxy answers for the person because of the goal,
+      // state); a conversation going on, or one that recorded a switch, keeps
+      // the auto-approve the person chose. In goal mode Moxxy answers for the person because of the goal,
       // not because they chose auto-approve, so that waits.
       if (this.fresh && mode !== 'goal') {
         this.fresh = false;
@@ -263,7 +263,7 @@ export class AcpAgentSession implements LiveSession {
         if (this.settings.resume) {
           // A new agent cannot tell whether the person turned it on; while the agent's own rules would have, it asks as if they did not.
           if (ownAuto && this.autoApprove) this.adopted = true;
-        } else if (ownAuto && !this.autoApprove) {
+        } else if (ownAuto && !this.autoApprove && !req.autoApproveRecorded) {
           this.autoApprove = true;
           this.adopted = true;
           yield { type: 'auto_approve', enabled: true };

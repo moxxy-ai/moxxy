@@ -5,7 +5,7 @@ import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { SessionQuestions } from './question.js';
 import type { PermissionResolver } from './permission.js';
-import type { ModelDescriptor, ProviderKeyValidation, ReasoningEffort } from './provider.js';
+import type { AgentCliReport, ModelDescriptor, ProviderKeyValidation, ReasoningEffort } from './provider.js';
 import type { PluginSetupSpec } from './schemas.js';
 import type { ToolIcon } from './tool-icon.js';
 import type { ToolCompactPresentation } from './tool.js';
@@ -70,6 +70,8 @@ export interface ProviderInfo {
   readonly authKind: ProviderAuthKind;
   /** For an agent connection, the agent's name as the person knows it ("Codex"). */
   readonly agentName?: string;
+  /** For an agent connection, the last check of its CLI; absent until the first check ends, and from older runners. */
+  readonly agentCli?: AgentCliReport;
   /** True when the provider's plugin can list its models live (e.g.
    *  via /v1/models). Lets the desktop's model picker show a
    *  "Fetch live" affordance only where it makes sense. */

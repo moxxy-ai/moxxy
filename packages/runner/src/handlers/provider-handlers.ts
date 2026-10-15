@@ -101,3 +101,9 @@ export async function handleProviderConfigure(
   broadcastInfo();
   return {};
 }
+
+export async function handleProviderCheckAgents(ctx: HandlerContext): Promise<Record<string, never>> {
+  // The session's watch pushes info itself when a CLI changed.
+  await ctx.session.agentClis.check({ refresh: true });
+  return {};
+}

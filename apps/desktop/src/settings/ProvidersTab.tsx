@@ -15,6 +15,8 @@ import { Section, CardList, Row, Tile, StatusDot, Switch, Badge, EmptyState } fr
 import { AgentTaskModal } from './shared/AgentTaskModal';
 import { OAuthSignIn } from './shared/OAuthSignIn';
 import { PROVIDER_PROMPT_TEMPLATE } from './provider-prompt';
+import { AgentConnectionRow } from './agents/AgentConnectionRow';
+import { isAgentConnection, useAgentConnections } from './agents/useAgentConnections';
 
 type ProviderRow = ReturnType<typeof useSettings>['providers'][number];
 
@@ -56,6 +58,8 @@ export function ProvidersTab({
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderRow | null>(null);
+  const agents = useAgentConnections(providers);
+  const others = providers.filter((p) => !isAgentConnection(p));
   // Per-row in-flight set: a toggle is fire-and-forget against the runner, so
   // disable that row's Switch until it settles. Without this a slow/failing
   // toggle looks inert and the user re-clicks, queuing conflicting calls.
@@ -89,7 +93,20 @@ export function ProvidersTab({
         <EmptyState icon="spark" text="No providers known to the connected runner." />
       ) : (
         <CardList>
-          {providers.map((p) => {
+          {agents.rows.map((row) => (
+            <AgentConnectionRow
+              key={row.entry.name}
+              row={row}
+              onAction={(action) => {
+                if (action === 'install' || action === 'update') agents.run(row.entry.name, action);
+                else if (action === 'sign-in') setConfiguring(row.entry);
+                else agents.check();
+              }}
+              onCheck={agents.check}
+              onConfigure={() => setConfiguring(row.entry)}
+            />
+          ))}
+          {others.map((p) => {
             const { bg, fg } = tintFor(p.name);
             return (
               <Row

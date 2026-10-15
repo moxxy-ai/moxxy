@@ -106,6 +106,9 @@ export type {
   ReasoningEffort,
   ModelDefaultsChange,
   StoredModelDefaults,
+  AgentCliAction,
+  AgentCliRunResult,
+  AgentCliProgress,
 } from './settings.js';
 
 // ---------- Desks ---------------------------------------------------------

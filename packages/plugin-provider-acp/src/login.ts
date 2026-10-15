@@ -1,3 +1,4 @@
+import type { AgentSignIn } from '@moxxy/agent-connection-kit';
 import { MoxxyError } from '@moxxy/sdk';
 import { spawnExecutableTarget } from '@moxxy/sdk/server';
 import type { ProviderAuthContext, ProviderOAuthResult, ProviderOAuthStatus } from '@moxxy/sdk';
@@ -82,6 +83,12 @@ export async function checkOpenCode(executable = resolveOpenCodeExecutable()): P
   }
   const accountId = providers.join(', ');
   return { state: 'signed-in', executable, accountId, message: `OpenCode is ready, signed in to ${accountId}.` };
+}
+
+/** Who OpenCode is signed in to, for the connection's row; its free models need no sign-in. */
+export async function openCodeSignIn(executable = resolveOpenCodeExecutable()): Promise<AgentSignIn> {
+  const status = await checkOpenCode(executable);
+  return { signedIn: status.state === 'signed-in', ...(status.accountId ? { account: status.accountId } : {}) };
 }
 
 /** The models the person's OpenCode offers (`opencode models`); none when it cannot say. */

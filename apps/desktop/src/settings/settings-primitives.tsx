@@ -100,12 +100,15 @@ export function Row({
   title,
   subtitle,
   trailing,
+  below,
   testId,
 }: {
   readonly tile: React.ReactNode;
   readonly title: string;
   readonly subtitle?: string;
   readonly trailing?: React.ReactNode;
+  /** Under the subtitle, e.g. a progress bar. */
+  readonly below?: React.ReactNode;
   readonly testId?: string;
 }): JSX.Element {
   return (
@@ -138,6 +141,7 @@ export function Row({
         {subtitle && (
           <div style={{ marginTop: 2, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>{subtitle}</div>
         )}
+        {below}
       </div>
       {trailing}
     </li>

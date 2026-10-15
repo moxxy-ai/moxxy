@@ -42,6 +42,7 @@ import {
   handleProviderSetActive,
   handleProviderSetEnabled,
   handleProviderRefreshReady,
+  handleProviderCheckAgents,
   handleProviderConfigure,
   handleTranscribe,
   handleSynthesize,
@@ -131,6 +132,7 @@ export class RunnerServer {
   private readonly logUnsub: () => void;
   private readonly logClearUnsub: () => void;
   private readonly modesUnsub: () => void;
+  private readonly infoUnsub: () => void;
   private readonly surfacesUnsub: () => void;
   /** The Computer Use service this runner pushes changes from; a plugin reload may replace it. */
   private computerService: ComputerControlService | undefined;
@@ -198,6 +200,8 @@ export class RunnerServer {
     // Mirror active-mode changes to clients — covers both the SetMode RPC and a
     // mode handing off to another mode post-turn.
     this.modesUnsub = session.modes.onActiveChange(() => this.broadcastInfo());
+    // An agent CLI found missing, outdated or updated reaches every client.
+    this.infoUnsub = session.onInfoChanged(() => this.broadcastInfo());
     // Multiplex every open surface's output to all attached clients (v8). The
     // host emits one SurfaceDataMessage per frame; a client routes it to the
     // matching pane by surfaceId and ignores surfaces it isn't showing.
@@ -230,6 +234,7 @@ export class RunnerServer {
     this.logUnsub();
     this.logClearUnsub();
     this.modesUnsub();
+    this.infoUnsub();
     this.surfacesUnsub();
     this.computerUnsub();
     abortActiveSyntheses();
@@ -275,6 +280,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.ProviderSetActive, (raw) => handleProviderSetActive(ctx, raw));
     peer.handle(RunnerMethod.ProviderSetEnabled, (raw) => handleProviderSetEnabled(ctx, raw));
     peer.handle(RunnerMethod.ProviderRefreshReady, () => handleProviderRefreshReady(ctx));
+    peer.handle(RunnerMethod.ProviderCheckAgents, () => handleProviderCheckAgents(ctx));
     peer.handle(RunnerMethod.ProviderConfigure, (raw) => handleProviderConfigure(ctx, raw));
     peer.handle(RunnerMethod.PermissionAddAllow, (raw) => handlePermissionAddAllow(ctx, raw));
     peer.handle(RunnerMethod.CommandRun, (raw) => handleCommandRun(ctx, raw));

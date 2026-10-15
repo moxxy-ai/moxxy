@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents, autoApproveSwitch } from './auto-approve.js';
+import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents, autoApproveRecorded, autoApproveSwitch } from './auto-approve.js';
 import type { MoxxyEvent } from './events.js';
 
 let seq = 0;
@@ -25,5 +25,10 @@ describe('auto-approve fold', () => {
     expect(autoApproveSwitch(prompt())).toBeNull();
     expect(autoApproveSwitch(otherPlugin())).toBeNull();
     expect(autoApproveSwitch(switched('yes'))).toBeNull();
+  });
+
+  it('says whether the conversation recorded a switch at all, even one back to off', () => {
+    expect(autoApproveRecorded([prompt(), otherPlugin()])).toBe(false);
+    expect(autoApproveRecorded([switched(true), prompt(), switched(false)])).toBe(true);
   });
 });

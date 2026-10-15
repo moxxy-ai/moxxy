@@ -139,6 +139,7 @@ export {
   AUTO_APPROVE_SUBTYPE,
   AUTO_APPROVE_RESTORED_SUBTYPE,
   autoApproveFromEvents,
+  autoApproveRecorded,
   autoApproveSwitch,
 } from './auto-approve.js';
 
@@ -250,6 +251,9 @@ export type {
   ProviderOAuthResult,
   ProviderOAuthStatus,
   ProviderAuthDescriptor,
+  AgentCliState,
+  AgentCliReport,
+  ProviderAgentCli,
 } from './provider.js';
 export type {
   AgentStepRequest,

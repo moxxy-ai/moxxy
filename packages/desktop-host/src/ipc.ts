@@ -65,6 +65,7 @@ import { registerSchedulerHandlers } from './ipc/scheduler';
 import { registerWebhookHandlers } from './ipc/webhooks';
 import { registerPrefsHandlers } from './ipc/prefs';
 import { registerSettingsHandlers } from './ipc/settings';
+import { registerAgentsHandlers } from './ipc/agents';
 import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
 import { registerMobileGatewayHandlers, type MobileGatewayController } from './ipc/mobile-gateway';
@@ -137,6 +138,7 @@ export function registerIpcHandlers(
     registerWebhookHandlers(undefined, desks);
     registerPrefsHandlers();
     registerSettingsHandlers(pool);
+    registerAgentsHandlers(pool);
     registerVaultHandlers();
     registerChatHandlers(pool, desks);
     registerMobileGatewayHandlers(opts.mobileGateway ?? null);

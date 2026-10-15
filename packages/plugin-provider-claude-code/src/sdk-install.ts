@@ -44,6 +44,12 @@ export function ensureClaudeAgentSdk(opts: SdkInstallOptions = {}): Promise<Clau
   return loading;
 }
 
+/** The SDK when this version is installed already; `undefined`, installing nothing, when it is not. */
+export async function installedClaudeAgentSdk(opts: SdkInstallOptions = {}): Promise<ClaudeAgentSdk | undefined> {
+  if (!existsSync(versionDir(opts))) return undefined;
+  return ensureClaudeAgentSdk(opts);
+}
+
 /** Install into a scratch folder and move it in place only once npm succeeded. */
 export async function installClaudeAgentSdk(opts: SdkInstallOptions = {}): Promise<void> {
   const version = opts.version ?? CLAUDE_AGENT_SDK_VERSION;

@@ -3242,6 +3242,32 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .account-limit[data-state='reached'] { color: var(--color-red-text); }
 
+/* The active agent's CLI: missing, too old, or behind the vendor's latest.
+ * Drawn like the account limit line, with its fix after the words. */
+.agent-cli-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 0 var(--space-4);
+  color: var(--color-amber-text);
+  font-size: var(--type-label);
+}
+.agent-cli-bar[data-severity='required'] { color: var(--color-red-text); }
+.agent-cli-bar__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-cli-bar__fix {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.agent-cli-bar__close { margin-left: auto; flex-shrink: 0; }
+
 /* The agents of a fan-out, one row each. */
 .agent-row { display: flex; flex-direction: column; min-width: 0; }
 .agent-row__head {
@@ -3686,6 +3712,34 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 /* A chip that switches what it names. */
 .tag--press { border: 0; cursor: pointer; }
 .tag--press:active:not(:disabled) { transform: scale(0.96); }
+
+/* How far an agent CLI's install or update got, under its row. The fill
+ * scales instead of growing, so only `transform` moves. */
+.agent-progress {
+  margin-top: var(--space-8);
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-card-border);
+  overflow: hidden;
+}
+.agent-progress__fill {
+  height: 100%;
+  background: var(--color-primary);
+  transform-origin: left center;
+  transition: transform var(--motion-shift) var(--ease-out);
+}
+/* No percentage yet: a short fill slides across while it works. */
+.agent-progress[data-indeterminate] .agent-progress__fill {
+  width: 30%;
+  animation: agent-progress-slide 1.4s var(--ease-in-out) infinite;
+}
+@keyframes agent-progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-progress[data-indeterminate] .agent-progress__fill { animation: none; transform: none; }
+}
 
 /* The step row's two columns. `name` is a fixed-width cell so the arguments line
  * up down the whole group and the eye reads one ragged-left column of paths

@@ -301,6 +301,24 @@ describe('approvals', () => {
     expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(true);
   });
 
+  it("keeps auto-approve off once the person turned it off, over their own Claude's bypass permissions", async () => {
+    const scene: ClaudeScene = async function* () {
+      yield assistantText('ok');
+    };
+    const { claude, session, pool } = connect(scene, { claude: new FakeClaude(scene, 'bypassPermissions') });
+    session.setPermissionResolver(allowAll);
+    await session.setAutoApprove(true);
+    await session.setAutoApprove(false);
+
+    await collectTurn(session, 'first');
+    expect(claude.last.options.permissionMode).toBe('default');
+    await pool.close(String(session.id));
+    await collectTurn(session, 'second');
+
+    expect(claude.last.options).toMatchObject({ resume: 'claude-session-1', permissionMode: 'default' });
+    expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(false);
+  });
+
   it('keeps the auto-approve the person chose when a new Claude resumes the session', async () => {
     const { claude, session, pool } = connect(async function* () {
       yield assistantText('ok');

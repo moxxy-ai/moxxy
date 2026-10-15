@@ -1,6 +1,12 @@
 import { AGENT_ACCOUNT_LIMIT_SUBTYPE, recordedAccountLimit, sameAccountLimit, withKnownReset } from '../agent-account-limit.js';
 import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from '../agent-step.js';
-import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_RESTORED_SUBTYPE, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents } from '../auto-approve.js';
+import {
+  AUTO_APPROVE_PLUGIN_ID,
+  AUTO_APPROVE_RESTORED_SUBTYPE,
+  AUTO_APPROVE_SUBTYPE,
+  autoApproveFromEvents,
+  autoApproveRecorded,
+} from '../auto-approve.js';
 import { renderEarlierConversation } from '../conversation-history.js';
 import { computeElisionState } from '../elision-state.js';
 import type { MoxxyEvent, UserPromptEvent } from '../events.js';
@@ -250,6 +256,7 @@ async function runRound(
       ...(resumeSessionId ? { resumeSessionId } : {}),
       earlierConversation: () => renderEarlierConversation(ctx.log, ctx.turnId),
       autoApprove,
+      autoApproveRecorded: autoApproveRecorded(ctx.log.ofType('plugin_event')),
       ...(ctx.reasoning ? { reasoning: ctx.reasoning } : {}),
       ...(ctx.fast ? { fast: true } : {}),
       signal,

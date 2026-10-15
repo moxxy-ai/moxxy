@@ -25,18 +25,26 @@ export {
   type LiveSession,
 } from './session-pool.js';
 export { agentModeFor, type AgentMode } from './modes.js';
+export { compareVersions, parseVersion } from './cli-version.js';
 export {
-  compareVersions,
-  detectInstaller,
-  inspectAgentCli,
-  parseVersion,
-  updateCommandFor,
-  type AgentCliInfo,
-  type AgentCliSpec,
-  type CliInstaller,
-  type InspectOptions,
-  type UpdateCommand,
-} from './cli-version.js';
+  AGENT_CLIS,
+  CLAUDE_CLI,
+  CODEX_CLI,
+  OPENCODE_CLI,
+  checkAgentCli,
+  findAgentCli,
+  installInvocation,
+  latestAgentVersion,
+  runAgentCliAction,
+  type AgentCliAction,
+  type AgentCliActionOptions,
+  type AgentCliActionResult,
+  type AgentCliCheckDeps,
+  type AgentSignIn,
+  type AgentCliDescriptor,
+  type AgentCliSearch,
+  type LatestVersionOptions,
+} from './agent-cli.js';
 export { Inbox, untilStopped } from './inbox.js';
 export { transcript } from './transcript.js';
 export {

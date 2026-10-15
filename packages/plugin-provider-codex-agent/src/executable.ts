@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { findExecutable, spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
+import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
+import { CODEX_CLI, findAgentCli } from '@moxxy/agent-connection-kit';
 import { CODEX_APP_SERVER_ARGS } from './constants.js';
 import type { CodexConnection, StartCodexAppServer } from './codex-session.js';
 
@@ -19,7 +20,7 @@ export interface CodexTargetOptions {
  */
 export function codexTarget(command: string, opts: CodexTargetOptions = {}): ExecutableTarget {
   const platform = opts.platform ?? process.platform;
-  const found = (opts.find ?? ((name) => findExecutable(name)))(command);
+  const found = (opts.find ?? ((name) => findAgentCli(CODEX_CLI, { command: name })))(command);
   if (!found) throw new Error(`Codex CLI not found: ${command}. Install Codex or set CODEX_EXECUTABLE.`);
   const paths = platform === 'win32' ? path.win32 : path;
   const extension = paths.extname(found).toLowerCase();

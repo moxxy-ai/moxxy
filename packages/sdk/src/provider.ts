@@ -365,11 +365,55 @@ export interface ProviderOAuthStatus {
   readonly message?: string;
 }
 
+/**
+ * Where an agent connection's CLI stands on this computer:
+ * - `missing`: not found, so the connection cannot work until it is installed;
+ * - `update-required`: older than the oldest version Moxxy was checked against;
+ * - `update-available`: works, and the vendor has published a newer one;
+ * - `current`: works, and nothing newer is known;
+ * - `unknown`: found, but its version could not be read.
+ */
+export type AgentCliState = 'missing' | 'update-required' | 'update-available' | 'current' | 'unknown';
+
+/** The last check of an agent connection's CLI, as every surface shows it. */
+export interface AgentCliReport {
+  readonly state: AgentCliState;
+  /** The CLI's command ("codex"), which also names it to `moxxy agents`. */
+  readonly command: string;
+  /** The version found on this computer; null when missing or unreadable. */
+  readonly installed: string | null;
+  /** The vendor's latest published version; null when the registry could not be asked. */
+  readonly latest: string | null;
+  /** The oldest version Moxxy works with. */
+  readonly minimum: string;
+  /** When the check ran, in epoch milliseconds. */
+  readonly checkedAt: number;
+  /** Whether the agent is signed in; absent when the CLI is missing or the connection does not say. */
+  readonly signedIn?: boolean;
+  /** Who it is signed in as, in the agent's words (Claude's e-mail, "ChatGPT" for Codex); null when it does not say. */
+  readonly account?: string | null;
+}
+
+/** How an agent connection's CLI is checked; the host runs it at start and every hour. */
+export interface ProviderAgentCli {
+  /** `refresh` asks the vendor's registry again instead of trusting a recent answer. */
+  check(opts?: { readonly refresh?: boolean }): Promise<AgentCliReport>;
+}
+
 export interface ProviderDef {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
   /** For an agent connection, the agent's name as the person knows it ("Codex"), which surfaces use to say what it does. */
   readonly agentName?: string;
+  /** For an agent connection, how its CLI is checked for presence and updates. */
+  readonly agentCli?: ProviderAgentCli;
+  /**
+   * For an agent connection, whether the agent as the person set it up acts
+   * without asking in `cwd` (`undefined` when it cannot tell). Read as a
+   * conversation starts on the connection, so its auto-approve is the truth
+   * from the first moment; a switch the conversation recorded always wins.
+   */
+  ownAutoApprove?(opts: { readonly cwd: string }): Promise<boolean | undefined>;
   /**
    * True when the provider can return its current model catalog at runtime.
    * Hosts use this capability signal to offer live discovery instead of
@@ -439,6 +483,12 @@ export interface AgentStepRequest {
   readonly earlierConversation?: () => string | undefined;
   /** The conversation's auto-approve, one state with the agent's approval policy. */
   readonly autoApprove: boolean;
+  /**
+   * The conversation recorded a switch: the adapter keeps `autoApprove` as it
+   * is, never the agent's own setup over it. Until one is recorded, the agent
+   * runs and shows the way the person set it up.
+   */
+  readonly autoApproveRecorded?: boolean;
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
   /** The person asked for fast mode; the adapter runs the agent on its own faster tier, where it has one. */
   readonly fast?: boolean;

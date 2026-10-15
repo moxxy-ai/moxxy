@@ -1,13 +1,20 @@
 import { defineProvider, definePlugin } from '@moxxy/sdk';
+import { OPENCODE_CLI, checkAgentCli } from '@moxxy/agent-connection-kit';
 import { OPENCODE_PROVIDER_ID, OPENCODE_SERVICE_NAME } from './constants.js';
 import { OPENCODE_AGENT } from './agents.js';
 import { acpModel, acpSessions, createAcpAgentClient, type AcpAgentProviderConfig } from './agent-provider.js';
-import { authError, checkOpenCode, listOpenCodeModels, opencodeLogin, opencodeLogout, opencodeStatus, resolveOpenCodeExecutable } from './login.js';
+import { authError, checkOpenCode, listOpenCodeModels, opencodeLogin, opencodeLogout, opencodeStatus, openCodeSignIn, resolveOpenCodeExecutable } from './login.js';
 
 export const opencodeProviderDef = defineProvider({
   name: OPENCODE_PROVIDER_ID,
   agentName: OPENCODE_AGENT.label,
   models: [acpModel(OPENCODE_AGENT.defaultModel)],
+  agentCli: {
+    check: (opts) => {
+      const command = resolveOpenCodeExecutable();
+      return checkAgentCli(OPENCODE_CLI, { command, refresh: opts?.refresh === true }, { signIn: () => openCodeSignIn(command) });
+    },
+  },
   createClient: (config) => createAcpAgentClient(providerConfigFrom(config)),
   async resolveCredentials({ providerConfig, host }) {
     const config = { ...providerConfig, cwd: host.cwd };

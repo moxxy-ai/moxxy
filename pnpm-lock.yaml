@@ -665,6 +665,9 @@ importers:
       '@clack/prompts':
         specifier: 'catalog:'
         version: 1.8.1
+      '@moxxy/agent-connection-kit':
+        specifier: workspace:*
+        version: link:../agent-connection-kit
       '@moxxy/cache-strategy-stable-prefix':
         specifier: workspace:*
         version: link:../cache-strategy-stable-prefix
@@ -1040,6 +1043,9 @@ importers:
 
   packages/desktop-host:
     dependencies:
+      '@moxxy/agent-connection-kit':
+        specifier: workspace:*
+        version: link:../agent-connection-kit
       '@moxxy/config':
         specifier: workspace:*
         version: link:../config

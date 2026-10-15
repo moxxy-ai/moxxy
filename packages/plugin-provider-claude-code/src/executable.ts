@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { findExecutable } from '@moxxy/sdk/server';
+import { CLAUDE_CLI, findAgentCli } from '@moxxy/agent-connection-kit';
 
 /**
  * The file the Agent SDK should start for the person's Claude Code. A Windows
@@ -19,8 +19,11 @@ export function claudeExecutableForSdk(
   throw new Error(`Cannot find the Claude Code cli.js behind ${found}; reinstall Claude Code or point CLAUDE_CODE_EXECUTABLE at the CLI.`);
 }
 
-/** The person's Claude Code CLI as an absolute path for the SDK, or `undefined` when it is not on PATH. */
+/**
+ * The person's Claude Code CLI as an absolute path for the SDK — on PATH, or
+ * where Claude's installer puts it — or `undefined` when it is not installed.
+ */
 export function resolveClaudeForSdk(command: string): string | undefined {
-  const found = findExecutable(command);
+  const found = findAgentCli(CLAUDE_CLI, { command });
   return found ? claudeExecutableForSdk(found) : undefined;
 }

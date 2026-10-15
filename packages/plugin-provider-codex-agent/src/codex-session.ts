@@ -342,12 +342,15 @@ export class CodexAgentSession implements LiveSession {
       yield* this.takeLate();
       let autoApprove = req.autoApprove;
       // A new conversation's thread shows it how the person's Codex really runs
-      // (one state). In goal mode Codex runs with full access for the goal, not
-      // because the person chose auto-approve, so that waits for the next turn.
+      // (one state), unless the conversation recorded a switch: that one wins.
+      // In goal mode Codex runs with full access for the goal, not because the
+      // person chose auto-approve, so that waits for the next turn.
       if (this.fresh && mode !== 'goal') {
         this.fresh = false;
-        yield { type: 'auto_approve', enabled: isAuto(this.original) };
-        if (!autoApprove) autoApprove = isAuto(this.original);
+        if (!req.autoApproveRecorded) {
+          yield { type: 'auto_approve', enabled: isAuto(this.original) };
+          if (!autoApprove) autoApprove = isAuto(this.original);
+        }
       }
       if (this.turnedOffElsewhere && mode !== 'goal' && mode !== 'plan') {
         yield { type: 'auto_approve', enabled: false, elsewhere: true };

@@ -90,6 +90,25 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('onboarding.saveProviderKey', { provider: '../x', secret: 'k' })).toThrow();
   });
 
+  it("runs only an agent CLI's install or update, by connection name", () => {
+    expect(() => validateIpcInput('agents.run', { provider: 'codex-agent', action: 'install' })).not.toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: 'claude-code', action: 'update' })).not.toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: 'codex-agent', action: 'uninstall' })).toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: '; rm -rf /', action: 'install' })).toThrow();
+    expect(() => validateIpcInput('agents.check', undefined)).not.toThrow();
+    expect(() => validateIpcInput('agents.check', { workspaceId: '' })).toThrow();
+  });
+
+  it('remembers a dismissed agent update by connection and version only', () => {
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { 'codex-agent': '0.162.1' } })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { '../x': '0.162.1' } })).toThrow();
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { opencode: 'v'.repeat(65) } })).toThrow();
+  });
+
+  it('keeps installing agent CLIs on this computer, out of reach of a remote client', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('agents.run')).toBe(false);
+  });
+
   it('guards interactive-login ids + bounds the pasted answer', () => {
     expect(() =>
       validateIpcInput('provider.login.start', { loginId: 'A1-b2', provider: 'claude-code' }),

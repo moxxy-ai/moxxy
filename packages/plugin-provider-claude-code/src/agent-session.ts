@@ -78,16 +78,21 @@ export function toolsLentToClaude(tools: ReadonlyArray<ToolDef>): ToolDef[] {
   return tools.filter((tool) => !CLAUDE_HAS_ITS_OWN.has(tool.name) && !tool.name.startsWith('memory_'));
 }
 
-/** The permission mode a new Claude starts in; `undefined` keeps the mode from the person's Claude settings. */
 /** Modes in which Claude acts without asking the person: `auto` lets its own classifier decide. */
-function runsWithoutAsking(mode: ClaudePermissionMode | undefined): boolean {
+export function runsWithoutAsking(mode: ClaudePermissionMode | undefined): boolean {
   return mode === 'bypassPermissions' || mode === 'auto';
 }
 
-export function startingPermissionMode(mode: AgentMode, autoApprove: boolean): ClaudePermissionMode | undefined {
+/**
+ * The permission mode a new Claude starts in; `undefined` keeps the mode from
+ * the person's Claude settings. `ownMode` is that mode when the conversation
+ * recorded auto-approve off: one that acts without asking is set to ask, so the
+ * person's switch wins over their own default.
+ */
+export function startingPermissionMode(mode: AgentMode, autoApprove: boolean, ownMode?: ClaudePermissionMode): ClaudePermissionMode | undefined {
   if (mode === 'plan') return 'plan';
   if (mode === 'goal' || autoApprove) return 'bypassPermissions';
-  return undefined;
+  return runsWithoutAsking(ownMode) ? 'default' : undefined;
 }
 
 type Item =

@@ -200,8 +200,23 @@ export interface ClaudeQuery extends AsyncIterable<ClaudeMessage> {
   close(): void;
 }
 
+/** Claude's settings, as far as Moxxy reads them. */
+export interface ClaudeSettings {
+  readonly permissions?: { readonly defaultMode?: ClaudePermissionMode };
+}
+
+/** What `resolveSettings` answers: the merged settings, and each source's own. */
+export interface ClaudeResolvedSettings {
+  readonly effective: ClaudeSettings;
+  readonly sources: ReadonlyArray<{ readonly source: string; readonly settings: ClaudeSettings }>;
+}
+
 export interface ClaudeAgentSdk {
   query(params: { prompt: string | AsyncIterable<ClaudeUserMessage>; options: ClaudeQueryOptions }): ClaudeQuery;
   /** One of Claude's saved sessions, searched across every project; `undefined` when it no longer exists. */
   getSessionInfo?(sessionId: string): Promise<{ readonly sessionId: string } | undefined>;
+  /** The person's Claude settings for a folder, merged the way Claude merges them. */
+  resolveSettings?(opts?: { readonly cwd?: string }): Promise<ClaudeResolvedSettings>;
+  /** Drops an escalating `defaultMode` a repository's settings set, as Claude does before honoring it. */
+  filterEscalatingDefaultMode?(resolved: ClaudeResolvedSettings): ClaudeSettings;
 }

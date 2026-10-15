@@ -27,6 +27,7 @@ const DEFAULTS: DesktopPrefs = {
   systemNotifications: true,
   focusMiniTextSize: null,
   channelRunModes: {},
+  dismissedAgentUpdates: {},
   version: 1,
 };
 

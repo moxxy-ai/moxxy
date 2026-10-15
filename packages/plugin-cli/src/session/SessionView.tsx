@@ -10,6 +10,7 @@ import { ChatView } from '../components/ChatView.js';
 import { StatusLine } from '../components/StatusLine.js';
 import { AgentComputerLine } from '../components/AgentComputerLine.js';
 import { AccountLimitLine } from '../components/AccountLimitLine.js';
+import { AgentCliLine } from '../components/AgentCliLine.js';
 import { conversationAccountLimit, turnComputerUse } from '@moxxy/chat-model';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
@@ -24,6 +25,7 @@ import {
   resolveContextWindow,
 } from './helpers.js';
 import { useMcpStatus } from './use-mcp-status.js';
+import { useAgentCliNotice } from './use-agent-cli-notice.js';
 import { useEventStream } from './use-event-stream.js';
 import { useImageAttachments } from './use-image-attachments.js';
 import { useTurnRunner } from './use-turn-runner.js';
@@ -220,6 +222,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const agentComputer = turn.busy ? turnComputerUse(stream.events) : null;
   const nowMs = Date.now();
   const accountLimit = conversationAccountLimit(stream.events, sessionInfo.activeProvider, nowMs);
+  const agentCliNotice = useAgentCliNotice(session);
   const slashSuggestions = React.useMemo(
     () =>
       buildSlashSuggestions(session, {
@@ -476,6 +479,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         {...(getChannels ? { getChannels } : {})}
         onClose={() => setOverlay(null)}
       />
+      {agentCliNotice ? <AgentCliLine notice={agentCliNotice} /> : null}
       {accountLimit ? <AccountLimitLine limit={accountLimit} nowMs={nowMs} /> : null}
       {agentComputer ? <AgentComputerLine use={agentComputer} agentName={agentName} /> : null}
       <InteractiveZone

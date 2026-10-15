@@ -1,4 +1,5 @@
 import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
+import { CLAUDE_CLI, checkAgentCli } from '@moxxy/agent-connection-kit';
 import { CLAUDE_AGENT_NAME, CLAUDE_CODE_PROVIDER_ID, CLAUDE_CODE_SERVICE_NAME } from './constants.js';
 import {
   claudeCodeModels,
@@ -10,16 +11,25 @@ import { claudeExecutableForSdk, resolveClaudeForSdk } from './executable.js';
 import {
   claudeLogin,
   claudeLogout,
+  claudeSignIn,
   claudeStatus,
   checkClaudeCliAuth,
   resolveClaudeExecutable,
 } from './login.js';
+import { claudeOwnAutoApprove } from './own-settings.js';
 import { ensureClaudeAgentSdk } from './sdk-install.js';
 
 export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
   agentName: CLAUDE_AGENT_NAME,
   models: claudeCodeModels,
+  agentCli: {
+    check: (opts) => {
+      const command = resolveClaudeExecutable();
+      return checkAgentCli(CLAUDE_CLI, { command, refresh: opts?.refresh === true }, { signIn: () => claudeSignIn(command) });
+    },
+  },
+  ownAutoApprove: ({ cwd }) => claudeOwnAutoApprove(cwd),
   createClient: (config) => createClaudeCodeClient(providerConfigFrom(config)),
   async resolveCredentials({ providerConfig, host }) {
     const config = { ...providerConfig, cwd: host.cwd };
@@ -82,6 +92,7 @@ export {
 export {
   claudeLogin,
   claudeLogout,
+  claudeSignIn,
   claudeStatus,
   checkClaudeCliAuth,
   resolveClaudeExecutable,

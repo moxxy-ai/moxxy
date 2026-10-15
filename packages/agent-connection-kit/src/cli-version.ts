@@ -1,82 +1,6 @@
-import { realpathSync } from 'node:fs';
-import {
-  resolveExecutableTarget,
-  spawnExecutableTarget,
-  type ExecutableSearchOptions,
-  type ExecutableTarget,
-} from '@moxxy/sdk/server';
-
-/** How to find and update one vendor agent CLI. */
-export interface AgentCliSpec {
-  readonly command: string;
-  /** Path pieces (with `/`) that mark the vendor's own installer, e.g. `.local/share/claude`. */
-  readonly nativeDirs?: ReadonlyArray<string>;
-  /** Arguments to `npm`, to `brew`, and to the CLI itself, that update it. */
-  readonly update: {
-    readonly npm?: ReadonlyArray<string>;
-    readonly brew?: ReadonlyArray<string>;
-    readonly native?: ReadonlyArray<string>;
-  };
-}
-
-export type CliInstaller = 'npm' | 'brew' | 'native' | 'unknown';
-
-export interface UpdateCommand {
-  readonly command: string;
-  readonly args: ReadonlyArray<string>;
-}
-
-export interface AgentCliInfo {
-  readonly path: string;
-  /** `null` when the CLI printed no version. */
-  readonly version: string | null;
-  readonly installer: CliInstaller;
-  /** `null` when Moxxy cannot tell how to update it safely. */
-  readonly update: UpdateCommand | null;
-}
-
-export interface InspectOptions extends ExecutableSearchOptions {
-  readonly timeoutMs?: number;
-}
+import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
 
 const VERSION = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/;
-const DEFAULT_TIMEOUT_MS = 10_000;
-
-/** The installed CLI, or `null` when it is not on PATH. */
-export async function inspectAgentCli(spec: AgentCliSpec, opts: InspectOptions = {}): Promise<AgentCliInfo | null> {
-  const target = resolveExecutableTarget(spec.command, opts);
-  if (!target) return null;
-  const installer = detectInstaller(installedFile(target), spec);
-  // A Windows npm shim runs a Node entry; a native install is always run directly.
-  const cliPath = target.kind === 'node' ? target.entry : target.command;
-  return {
-    path: cliPath,
-    version: parseVersion(await printedVersion(target, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)),
-    installer,
-    update: updateCommandFor(installer, spec, cliPath),
-  };
-}
-
-export function detectInstaller(file: string, spec: AgentCliSpec): CliInstaller {
-  const p = file.replace(/\\/g, '/');
-  if (p.includes('/node_modules/')) return 'npm';
-  if (/\/(Cellar|Caskroom|homebrew|\.?linuxbrew)\//i.test(p)) return 'brew';
-  if (spec.nativeDirs?.some((dir) => p.includes(`/${dir}/`))) return 'native';
-  return 'unknown';
-}
-
-export function updateCommandFor(installer: CliInstaller, spec: AgentCliSpec, cliPath: string): UpdateCommand | null {
-  switch (installer) {
-    case 'npm':
-      return spec.update.npm ? { command: 'npm', args: spec.update.npm } : null;
-    case 'brew':
-      return spec.update.brew ? { command: 'brew', args: spec.update.brew } : null;
-    case 'native':
-      return spec.update.native ? { command: cliPath, args: spec.update.native } : null;
-    case 'unknown':
-      return null;
-  }
-}
 
 export function parseVersion(text: string): string | null {
   return VERSION.exec(text)?.[0] ?? null;
@@ -103,14 +27,9 @@ function splitPre(version: string): [string, string | undefined] {
   return at === -1 ? [version, undefined] : [version.slice(0, at), version.slice(at + 1)];
 }
 
-/** The file the installer put there: through the PATH link, or the Node entry of a Windows shim. */
-function installedFile(target: ExecutableTarget): string {
-  const file = target.kind === 'node' ? target.entry : target.command;
-  try {
-    return realpathSync(file);
-  } catch {
-    return file;
-  }
+/** What the CLI says its version is, or null when it prints none within `timeoutMs`. */
+export async function readCliVersion(target: ExecutableTarget, timeoutMs = 10_000): Promise<string | null> {
+  return parseVersion(await printedVersion(target, timeoutMs));
 }
 
 function printedVersion(target: ExecutableTarget, timeoutMs: number): Promise<string> {

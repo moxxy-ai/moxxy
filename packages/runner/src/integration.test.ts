@@ -1304,6 +1304,38 @@ describe('provider management (protocol v7)', () => {
     await waitFor(() => remote.getInfo().readyProviders.includes('fake2'));
   });
 
+  it("provider.checkAgents asks every agent connection's CLI again and pushes what it found", async () => {
+    const socketPath = tmpSocket();
+    const provider = new FakeProvider({ script: [textReply('hi')] });
+    const session = buildSession(provider);
+    const refreshes: Array<boolean | undefined> = [];
+    let installed = '0.150.0';
+    session.providers.register({
+      name: 'codex-agent',
+      models: [],
+      createClient: () => provider,
+      agentCli: {
+        check: async (opts) => {
+          refreshes.push(opts?.refresh);
+          return { state: installed === '0.150.0' ? 'update-required' : 'current', command: 'codex', installed, latest: '0.162.1', minimum: '0.155.1', checkedAt: 1 };
+        },
+      },
+    });
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+    const cliOf = () => remote.getInfo().providers.find((p) => p.name === 'codex-agent')?.agentCli;
+
+    await remote.providerAdmin.checkAgents();
+    await waitFor(() => cliOf()?.state === 'update-required');
+    expect(refreshes).toEqual([true]);
+
+    // A check the runner makes by itself (its hourly one) reaches the client too.
+    installed = '0.162.1';
+    await session.agentClis.check();
+    await waitFor(() => cliOf()?.state === 'current');
+  });
+
   it('provider.configure forwards to the session providerAdmin view and pushes info', async () => {
     const socketPath = tmpSocket();
     const provider = new FakeProvider({ script: [textReply('hi')] });

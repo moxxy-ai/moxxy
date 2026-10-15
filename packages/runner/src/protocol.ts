@@ -181,7 +181,12 @@ import type {
  * back in bounded slices (additive: older clients just see the size).
  */
 /** v27: `setResolver` takes `question` (this client shows Questions) and `question.answer` answers one (additive). */
-export const RUNNER_PROTOCOL_VERSION = 27;
+/**
+ * v28: `ProviderInfo.agentCli` reports each agent connection's CLI (missing,
+ * update required/available, current), pushed by `info.changed` whenever it
+ * changes; `provider.checkAgents` checks every one again now (additive).
+ */
+export const RUNNER_PROTOCOL_VERSION = 28;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -255,6 +260,8 @@ export const RunnerMethod = {
   ProviderSetEnabled: 'provider.setEnabled',
   /** client->server: re-probe every provider's credentials → readyProviders (v7). */
   ProviderRefreshReady: 'provider.refreshReady',
+  /** client->server: check every agent connection's CLI again, asking the vendors' registry anew (v28). */
+  ProviderCheckAgents: 'provider.checkAgents',
   /** client->server: patch a stored (runtime-registered) provider's config (v7). */
   ProviderConfigure: 'provider.configure',
   /** client->server: persist an allow-always permission rule. */

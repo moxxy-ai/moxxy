@@ -82,3 +82,47 @@ describe('settings.modelDefaults', () => {
     expect(config).toContain('fast: true');
   });
 });
+
+describe('settings.providers', () => {
+  const previousHome = process.env.MOXXY_HOME;
+  let home: string;
+
+  beforeEach(async () => {
+    home = await mkdtemp(path.join(tmpdir(), 'moxxy-settings-'));
+    process.env.MOXXY_HOME = home;
+  });
+
+  afterEach(async () => {
+    if (previousHome === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = previousHome;
+    await removeDir(home);
+  });
+
+  it("carries an agent connection's name and the last check of its CLI", async () => {
+    const agentCli = {
+      state: 'update-available',
+      command: 'codex',
+      installed: '0.155.1',
+      latest: '0.162.1',
+      minimum: '0.155.1',
+      checkedAt: 1,
+      signedIn: true,
+      account: 'ChatGPT',
+    };
+    const info = {
+      activeProvider: 'codex-agent',
+      readyProviders: ['codex-agent'],
+      providers: [{ name: 'codex-agent', models: [], authKind: 'oauth', agentName: 'Codex', agentCli }],
+    };
+    const pool = { activeWorkspaceId: () => 'w1', get: () => ({ remote: () => ({ getInfo: () => info }) }) };
+    const handlers = new Map<string, Handler>();
+    setActiveBus({ handle: (channel: string, fn: Handler) => void handlers.set(channel, fn) } as never);
+    registerSettingsHandlers(pool as never);
+    const providers = handlers.get('settings.providers');
+    assertDefined(providers, 'settings.providers handler');
+
+    expect(await providers({}, undefined)).toEqual([
+      expect.objectContaining({ name: 'codex-agent', agentName: 'Codex', agentCli }),
+    ]);
+  });
+});

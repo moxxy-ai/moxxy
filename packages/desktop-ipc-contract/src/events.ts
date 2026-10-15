@@ -10,6 +10,7 @@ import type { DesksOverview } from './desks.js';
 import type { ChannelRuntimeStatus } from './channels.js';
 import type { RunTurnVisibility } from './chat.js';
 import type { BrowserControlState, BrowserCursor, BrowserTabInfo } from './browser.js';
+import type { AgentCliProgress } from './settings.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -81,6 +82,8 @@ export interface IpcEvents {
     /** Omitted by legacy senders and therefore treated as foreground. */
     visibility?: RunTurnVisibility;
   };
+  /** A line from an agent CLI's installer or updater (`agents.run`). */
+  'agents.progress': AgentCliProgress;
   /** A running interactive provider login (`provider.login.start`) needs a
    *  pasted answer — the out-of-band token or `code#state` claude-code's flow
    *  asks for. The renderer renders an input (masked when `mask`) and replies

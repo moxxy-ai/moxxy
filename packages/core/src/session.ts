@@ -60,6 +60,7 @@ import {
   AUTO_APPROVE_PLUGIN_ID,
   AUTO_APPROVE_SUBTYPE,
   autoApproveFromEvents,
+  autoApproveRecorded,
   evaluateToolRule,
   isSelectableMode,
 } from '@moxxy/sdk';
@@ -81,6 +82,7 @@ import type {
 } from '@moxxy/sdk';
 import { createLogger, silentLogger, type Logger } from './logger.js';
 import { clearRetainedChildren } from './subagents/registry.js';
+import { AgentCliWatch } from './agent-cli-watch.js';
 
 export interface SessionOptions {
   readonly cwd: string;
@@ -141,6 +143,8 @@ export class Session implements ClientSession, SessionRuntime {
   readonly governance?: GovernanceInfo;
   readonly tools: ToolRegistry;
   readonly providers: ProviderRegistry;
+  /** Where each agent connection's CLI stands; a long-lived host calls `start()` on it. */
+  readonly agentClis: AgentCliWatch;
   readonly modes: ModeRegistry;
   readonly compactors: CompactorRegistry;
   readonly cacheStrategies: CacheStrategyRegistry;
@@ -265,7 +269,15 @@ export class Session implements ClientSession, SessionRuntime {
     });
     if (opts.secretResolver) this.resolveSecret = opts.secretResolver;
     this.providers = new ProviderRegistry();
+    this.agentClis = new AgentCliWatch(() => this.providers.list(), this.logger);
     this.stopWatchingAgentTurns = this.providers.onAgentTurn((start) => this.takeUpAgentTurn(start));
+    // A conversation on an agent connection shows how the agent really runs from the first moment.
+    const stopAdopting = this.providers.onActiveChange(() => void this.adoptOwnAutoApprove());
+    const stopAdoptingOnClear = this.log.onClear(() => void this.adoptOwnAutoApprove());
+    this.stopAdoptingOwnAutoApprove = () => {
+      stopAdopting();
+      stopAdoptingOnClear();
+    };
     this.modes = new ModeRegistry();
     this.compactors = new CompactorRegistry();
     this.cacheStrategies = new CacheStrategyRegistry();
@@ -524,6 +536,8 @@ export class Session implements ClientSession, SessionRuntime {
     if (this.closed) return;
     this.closed = true;
     this.stopWatchingAgentTurns();
+    this.stopAdoptingOwnAutoApprove();
+    this.agentClis.stop();
     // Stop deferred approvals/provider calls before disposers await them.
     this.abort(reason);
     try {
@@ -622,6 +636,36 @@ export class Session implements ClientSession, SessionRuntime {
   }
 
   private readonly stopWatchingAgentTurns: () => void;
+  private readonly stopAdoptingOwnAutoApprove: () => void;
+
+  /**
+   * Until the conversation records a switch, its auto-approve is the active
+   * agent's own setup (`ProviderDef.ownAutoApprove`), recorded as the system's.
+   * A switch recorded meanwhile, or another connection made active, wins.
+   */
+  private async adoptOwnAutoApprove(): Promise<void> {
+    const name = this.providers.getActiveName();
+    const def = this.providers.list().find((p) => p.name === name);
+    if (!def?.ownAutoApprove || autoApproveRecorded(this.log.slice())) return;
+    let own: boolean | undefined;
+    try {
+      own = await def.ownAutoApprove({ cwd: this.cwd });
+    } catch (err) {
+      this.logger.warn('could not read how the agent runs on its own', { provider: name, err: String(err) });
+      return;
+    }
+    if (own === undefined || own === this.autoApprove || this.closed) return;
+    if (this.providers.getActiveName() !== name || autoApproveRecorded(this.log.slice())) return;
+    await this.log.append({
+      type: 'plugin_event',
+      sessionId: this.id,
+      turnId: newTurnId(),
+      source: 'system',
+      pluginId: AUTO_APPROVE_PLUGIN_ID,
+      subtype: AUTO_APPROVE_SUBTYPE,
+      payload: { enabled: own },
+    });
+  }
 
   /**
    * The agent of an agent connection started a turn by itself: run it as a
@@ -648,6 +692,15 @@ export class Session implements ClientSession, SessionRuntime {
    * what a `RemoteSession` fetches from the runner over RPC - keep the two in
    * sync.
    */
+  /**
+   * Called with the new info when it changes outside the log — today, when an
+   * agent connection's CLI was found missing, outdated or updated. Returns the
+   * unsubscribe.
+   */
+  onInfoChanged(listener: (info: SessionInfo) => void): () => void {
+    return this.agentClis.onChange(() => listener(this.getInfo()));
+  }
+
   getInfo(): SessionInfo {
     let activeMode: string | null = null;
     let activeModeBadge: SessionInfo['activeModeBadge'] = null;
@@ -681,14 +734,18 @@ export class Session implements ClientSession, SessionRuntime {
       ...(this.governance ? { governance: this.governance } : {}),
       clientChrome: this.pluginHost.listClientChrome(),
       activeProvider: active,
-      providers: this.providers.list().map((p) => ({
-        name: p.name,
-        models: p.name === active && activeProviderModels ? activeProviderModels : p.models,
-        authKind: p.auth?.kind === 'oauth' ? 'oauth' : 'api-key',
-        ...(p.agentName ? { agentName: p.agentName } : {}),
-        supportsLiveModelDiscovery: p.supportsLiveModelDiscovery === true,
-        enabled: this.providers.isEnabled(p.name),
-      })),
+      providers: this.providers.list().map((p) => {
+        const agentCli = this.agentClis.report(p.name);
+        return {
+          name: p.name,
+          models: p.name === active && activeProviderModels ? activeProviderModels : p.models,
+          authKind: p.auth?.kind === 'oauth' ? 'oauth' : 'api-key',
+          ...(p.agentName ? { agentName: p.agentName } : {}),
+          ...(agentCli ? { agentCli } : {}),
+          supportsLiveModelDiscovery: p.supportsLiveModelDiscovery === true,
+          enabled: this.providers.isEnabled(p.name),
+        };
+      }),
       activeMode,
       activeModeBadge,
       modes: this.modes.list().filter(isSelectableMode).map((m) => m.name),

@@ -283,6 +283,22 @@ describe('approvals: one state with Codex own policy', () => {
     expect(autoApproveOf(session)).toBe(true);
   });
 
+  it("keeps auto-approve off the person chose before the first message, over Codex's own no-approvals policy", async () => {
+    let decision: unknown;
+    const { session } = connect(async (turn) => {
+      decision = await turn.run('touch spike.txt', '', { approval: true });
+      turn.say('done');
+    });
+    session.setPermissionResolver(denyAll);
+    await session.setAutoApprove(true);
+    await session.setAutoApprove(false);
+
+    await collectTurn(session, 'create spike.txt');
+
+    expect(autoApproveOf(session)).toBe(false);
+    expect(decision).toEqual({ decision: 'decline' });
+  });
+
   it('asks the person before a command Codex wants approved, and tells Codex the answer', async () => {
     let decision: unknown;
     const { session } = connect(

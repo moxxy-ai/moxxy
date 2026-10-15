@@ -422,6 +422,16 @@ describe('auto-approve shows how OpenCode really runs', () => {
     expect(opencode.last.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
   });
 
+  it('keeps auto-approve off the person chose before the first message, over OpenCode running without asking', async () => {
+    const { session } = connect(async (turn) => turn.say('ok'), { rules: { build: OPENCODE_DEFAULT_RULES } });
+    await session.setAutoApprove(true);
+    await session.setAutoApprove(false);
+
+    await collectTurn(session, 'hi');
+
+    expect(autoApprove(session)).toBe(false);
+  });
+
   it('has OpenCode ask before changes once the person turns it off, keeping what OpenCode own rules deny', async () => {
     const asked: string[] = [];
     const { session, opencode } = connect(

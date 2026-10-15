@@ -1,4 +1,5 @@
 import { spawn, type SpawnOptions } from 'node:child_process';
+import type { AgentSignIn } from '@moxxy/agent-connection-kit';
 import { MoxxyError } from '@moxxy/sdk';
 import type {
   ProviderAuthContext,
@@ -12,6 +13,7 @@ import {
   CLAUDE_CODE_EXECUTABLE_ENV,
   CLAUDE_CODE_PROVIDER_ID,
 } from './constants.js';
+import { CLAUDE_CLI, findAgentCli } from '@moxxy/agent-connection-kit';
 
 export type ClaudeCliAuthState = 'signed-in' | 'signed-out' | 'missing' | 'unsupported' | 'error';
 
@@ -113,6 +115,12 @@ export async function checkClaudeCliAuth(executable = resolveClaudeExecutable())
   };
 }
 
+/** Who Claude is signed in as, for the connection's row. */
+export async function claudeSignIn(executable = resolveClaudeExecutable()): Promise<AgentSignIn> {
+  const status = await checkClaudeCliAuth(executable);
+  return { signedIn: status.state === 'signed-in', ...(status.accountId ? { account: status.accountId } : {}) };
+}
+
 export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAuthResult> {
   const executable = resolveClaudeExecutable(ctx.providerConfig);
   let status = await checkClaudeCliAuth(executable);
@@ -205,7 +213,8 @@ async function runCommand(
     const spawnOptions: SpawnOptions = options.inherit
       ? { stdio: 'inherit' }
       : { stdio: [relay ? 'pipe' : 'ignore', 'pipe', 'pipe'] };
-    const child = spawn(executable, [...args], spawnOptions);
+    // Where Claude's installer puts it counts too: a desktop app often starts without the shell's PATH.
+    const child = spawn(findAgentCli(CLAUDE_CLI, { command: executable }) ?? executable, [...args], spawnOptions);
     let stdout = '';
     let stderr = '';
     let askedForCode = false;

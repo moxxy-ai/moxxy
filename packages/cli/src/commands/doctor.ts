@@ -6,7 +6,8 @@ import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
-import { formatPrincipal } from '@moxxy/sdk';
+import { formatPrincipal, type AgentCliReport } from '@moxxy/sdk';
+import { AGENT_CLIS } from '@moxxy/agent-connection-kit';
 import { hasProxy, moxxyPath, redactProxyUrl } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
@@ -192,6 +193,10 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
       checks.push({ id: `provider:${name}`, status: 'ok', message: 'credentials ready' });
     }
   }
+
+  // Agent connections' CLIs: installed, new enough, up to date.
+  await session.agentClis.check();
+  checks.push(...buildAgentCliDoctorChecks(agentCliEntries(session), new Set(providerNames)));
 
   // Channels
   const channelDeps = { cwd: process.cwd(), vault, logger: session.logger, options: {} };
@@ -415,6 +420,58 @@ export async function buildSelfUpdateDoctorCheck(session: Session): Promise<Chec
   if (pf.ok) return { id: 'self-update', status: 'ok', message: 'Tier 1 + Tier 2 (core) ready' };
   const failed = pf.checks.filter((c) => !c.ok).map((c) => `${c.id}: ${c.detail}`).join('; ');
   return { id: 'self-update', status: 'warn', message: `Tier 1 ready; Tier 2 unavailable — ${failed}` };
+}
+
+function agentCliEntries(session: Session): AgentCliDoctorEntry[] {
+  return session.providers.list().flatMap((def) => {
+    const report = session.agentClis.report(def.name);
+    if (!report) return [];
+    const command = AGENT_CLIS[def.name]?.command ?? def.name;
+    return [{ provider: def.name, agentName: def.agentName ?? def.name, command, report }];
+  });
+}
+
+/** One agent connection's CLI as the doctor sees it. */
+export interface AgentCliDoctorEntry {
+  readonly provider: string;
+  readonly agentName: string;
+  /** The short name `moxxy agents` takes, e.g. `codex`. */
+  readonly command: string;
+  readonly report: AgentCliReport;
+}
+
+/**
+ * Where each agent connection's CLI stands, with the command that fixes it.
+ * A missing or too-old CLI fails only for a connection Moxxy is set to use;
+ * for the others it is information.
+ */
+export function buildAgentCliDoctorChecks(entries: ReadonlyArray<AgentCliDoctorEntry>, configured: ReadonlySet<string>): Check[] {
+  return entries.map(({ provider, agentName, command, report }) => {
+    const id = `agent:${provider}`;
+    const used = configured.has(provider);
+    switch (report.state) {
+      case 'current':
+        return { id, status: 'ok', message: `${agentName} ${report.installed ?? ''}, the latest` };
+      case 'update-available':
+        return {
+          id,
+          status: 'warn',
+          message: `${agentName} ${report.installed ?? ''}; ${report.latest ?? 'a newer one'} is out — moxxy agents update ${command}`,
+        };
+      case 'update-required':
+        return {
+          id,
+          status: used ? 'fail' : 'warn',
+          message: `${agentName} ${report.installed ?? ''} is older than ${report.minimum}, the oldest Moxxy works with — moxxy agents update ${command}`,
+        };
+      case 'missing':
+        return used
+          ? { id, status: 'fail', message: `${agentName} is not installed — moxxy agents install ${command}` }
+          : { id, status: 'ok', message: `${agentName} is not installed — moxxy agents install ${command} to use it` };
+      case 'unknown':
+        return { id, status: 'warn', message: `${agentName} is installed, but its version could not be read` };
+    }
+  });
 }
 
 export function buildVoiceDoctorCheck(

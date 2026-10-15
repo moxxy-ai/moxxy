@@ -452,6 +452,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: z.string().min(1).max(256),
     path: z.string().min(1).max(4096),
   }),
+  // Runs the vendor's installer or the agent's own update on this computer:
+  // only a known action, and a connection name that cannot carry shell text.
+  'agents.run': z.object({ provider: providerName, action: z.enum(['install', 'update']) }),
+  'agents.check': z.object({ workspaceId: optionalWorkspace }).optional(),
   'settings.fetchProviderModels': z.object({ provider: providerName }),
   // Session config mutation — pin the effort to the known enum so a renderer
   // can't push an arbitrary string through to the runner / provider request.
@@ -556,6 +560,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       replySound: z.boolean().optional(),
       systemNotifications: z.boolean().optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
+      dismissedAgentUpdates: z.record(providerName, z.string().min(1).max(64)).optional(),
     })
     .strict(),
   // Mobile-gateway control. Both no-arg variants pin the payload to "nothing"

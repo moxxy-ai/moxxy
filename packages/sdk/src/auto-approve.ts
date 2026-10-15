@@ -32,3 +32,8 @@ export function autoApproveFromEvents(events: ReadonlyArray<MoxxyEvent>): boolea
   }
   return false;
 }
+
+/** Whether the conversation recorded any switch (the person's, or the agent's own setup Moxxy took on): until then its agent's own setup shows. */
+export function autoApproveRecorded(events: ReadonlyArray<MoxxyEvent>): boolean {
+  return events.some((event) => autoApproveSwitch(event) !== null);
+}

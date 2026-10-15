@@ -1,5 +1,6 @@
 import { MoxxyError } from '@moxxy/sdk';
 import { spawnExecutableTarget } from '@moxxy/sdk/server';
+import type { AgentSignIn } from '@moxxy/agent-connection-kit';
 import type { ProviderAuthContext, ProviderOAuthResult, ProviderOAuthStatus } from '@moxxy/sdk';
 import {
   CODEX_AGENT_PROVIDER_ID,
@@ -67,6 +68,12 @@ export async function checkCodexAuth(executable = resolveCodexExecutable()): Pro
     return { state: 'signed-in', executable, accountId, message: `Codex is signed in using ${accountId}.` };
   }
   return { state: 'error', executable, message: `Codex login status failed${text ? `: ${text}` : ` with exit code ${result.code}`}.` };
+}
+
+/** Who Codex is signed in as, for the connection's row. */
+export async function codexSignIn(executable = resolveCodexExecutable()): Promise<AgentSignIn> {
+  const status = await checkCodexAuth(executable);
+  return { signedIn: status.state === 'signed-in', ...(status.accountId ? { account: status.accountId } : {}) };
 }
 
 export async function codexLogin(ctx: ProviderAuthContext): Promise<ProviderOAuthResult> {

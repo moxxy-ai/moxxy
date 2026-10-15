@@ -257,6 +257,23 @@ describe('an agent connection turn', () => {
     expect(provider.steps[1]?.autoApprove).toBe(true);
   });
 
+  it("tells the agent whether the conversation's auto-approve was recorded, so its own setup shows only until then", async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'first');
+    await session.setAutoApprove(true);
+    await session.setAutoApprove(false);
+    await collectTurn(session, 'second');
+
+    expect(provider.steps.map((step) => [step.autoApprove, step.autoApproveRecorded])).toEqual([
+      [false, false],
+      [false, true],
+    ]);
+  });
+
   it('records why auto-approve changed outside Moxxy, and a change Moxxy set back, for the conversation to say so', async () => {
     const provider = new FakeAgentProvider(async function* () {
       yield { type: 'auto_approve', enabled: true };

@@ -12,9 +12,12 @@ import { useEffect, useState } from 'react';
 import { assertDefined } from '@/lib/assert';
 import { decodeError, toErrorMessage } from '@moxxy/client-core';
 import { api } from '@moxxy/client-core';
-import { retryWhileReconnecting } from '@moxxy/client-core';
+import { retryWhileReconnecting, useSettings } from '@moxxy/client-core';
 import { StepCard, Fields, Nav, PrimaryButton, SuccessRow, inputStyle } from '../chrome';
 import { OAuthSignIn } from '../../settings/shared/OAuthSignIn';
+import { CardList } from '../../settings/settings-primitives';
+import { AgentConnectionRow } from '../../settings/agents/AgentConnectionRow';
+import { useAgentConnections } from '../../settings/agents/useAgentConnections';
 
 /** Static fallback provider list (used until `settings.providerCatalog`
  *  resolves). */
@@ -39,6 +42,9 @@ export function ProviderStep({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // An agent connection's CLI may need installing before its sign-in can work.
+  const { providers } = useSettings();
+  const agent = useAgentConnections(providers.filter((p) => p.name === provider));
 
   useEffect(() => {
     let cancelled = false;
@@ -185,6 +191,21 @@ export function ProviderStep({
           </p>
         )}
         {done && authKind === 'api-key' && <SuccessRow text="Key saved to the vault." />}
+        {agent.rows.length > 0 && (
+          <CardList>
+            {agent.rows.map((row) => (
+              <AgentConnectionRow
+                key={row.entry.name}
+                row={row}
+                onAction={(action) => {
+                  if (action === 'install' || action === 'update') agent.run(row.entry.name, action);
+                  else if (action === 'check') agent.check();
+                }}
+                onCheck={agent.check}
+              />
+            ))}
+          </CardList>
+        )}
         {authKind === 'oauth' ? (
           <OAuthSignIn provider={provider} onSignedIn={onOauthSignedIn} />
         ) : (

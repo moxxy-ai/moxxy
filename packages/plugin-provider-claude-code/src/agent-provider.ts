@@ -12,8 +12,9 @@ import {
 import { AgentSessionPool, agentModeFor, transcript, type AgentSessionLease } from '@moxxy/agent-connection-kit';
 import { CLAUDE_AGENT_NAME, CLAUDE_CODE_PROVIDER_ID } from './constants.js';
 import { ClaudeAgentSession, claudeEnv, startingPermissionMode, type ClaudeSessionSettings } from './agent-session.js';
+import { ownPermissionMode } from './own-settings.js';
 import { ensureClaudeAgentSdk } from './sdk-install.js';
-import type { ClaudeAgentSdk, ClaudeEffort } from './sdk-types.js';
+import type { ClaudeAgentSdk, ClaudeEffort, ClaudePermissionMode } from './sdk-types.js';
 import { toTokenUsage } from './translate.js';
 
 export const CLAUDE_CODE_DEFAULT_MODEL = 'claude-sonnet-5-5';
@@ -160,7 +161,9 @@ export class ClaudeAgentProvider implements LLMProvider {
   /** The conversation's running Claude, or a new one (resuming Claude's own session) when there is none that fits. */
   private async lease(req: AgentStepRequest): Promise<AgentSessionLease<ClaudeAgentSession>> {
     const sdk = await this.loadSdk();
-    const settings = this.settingsFor(req, sdk);
+    // The person's own Claude is asked only when their recorded switch is off: then a default that acts without asking must not win.
+    const ownMode = req.autoApproveRecorded && !req.autoApprove ? await ownPermissionMode(sdk, req.cwd) : undefined;
+    const settings = this.settingsFor(req, sdk, ownMode);
     const sessions = this.config.sessions ?? claudeSessions();
     const create = () => ClaudeAgentSession.start(settings);
     const lease = await sessions.acquire(req.sessionId, { signal: req.signal, create });
@@ -169,9 +172,9 @@ export class ClaudeAgentProvider implements LLMProvider {
     return sessions.acquire(req.sessionId, { signal: req.signal, create });
   }
 
-  private settingsFor(req: AgentStepRequest, sdk: ClaudeAgentSdk): ClaudeSessionSettings {
+  private settingsFor(req: AgentStepRequest, sdk: ClaudeAgentSdk, ownMode: ClaudePermissionMode | undefined): ClaudeSessionSettings {
     const effort = effortOf(req.reasoning);
-    const permissionMode = startingPermissionMode(agentModeFor(req.mode), req.autoApprove);
+    const permissionMode = startingPermissionMode(agentModeFor(req.mode), req.autoApprove, ownMode);
     return {
       sdk,
       cwd: req.cwd,

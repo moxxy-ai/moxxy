@@ -36,6 +36,8 @@ import type {
   ReasoningEffort,
   ModelDefaultsChange,
   StoredModelDefaults,
+  AgentCliAction,
+  AgentCliRunResult,
 } from './settings.js';
 import type { Desk, DeskSession, DesksOverview, SessionsOverview } from './desks.js';
 import type {
@@ -898,6 +900,13 @@ export interface IpcCommands {
   /** Subset of providers that the user added via `provider_add` — the
    *  ones for which live /v1/models fetching is wired. */
   'settings.adminProviders': () => Promise<ReadonlyArray<string>>;
+  /** Check every agent connection's CLI now, asking the registry again; the
+   *  new state arrives in each runner's info (`ProviderEntry.agentCli`). */
+  'agents.check': (args?: { workspaceId?: string }) => Promise<void>;
+  /** Install the CLI behind an agent connection with the vendor's installer,
+   *  or update it with its own command, on this computer. Lines and progress
+   *  stream as `agents.progress`. An update is refused while any turn runs. */
+  'agents.run': (args: { provider: string; action: AgentCliAction }) => Promise<AgentCliRunResult>;
   'settings.mcpServers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<McpServerEntry>>;
   'settings.mcpToggle': (args: {
     workspaceId?: string;

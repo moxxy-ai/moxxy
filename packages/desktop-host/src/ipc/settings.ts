@@ -75,6 +75,8 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
         // is the source of truth (the desktop never sees raw ModelDescriptors);
         // a provider supports it when ANY of its models advertises it.
         supportsReasoning: p.models.some((m) => m.supportsReasoning === true),
+        ...(p.agentName ? { agentName: p.agentName } : {}),
+        ...(p.agentCli ? { agentCli: p.agentCli } : {}),
         ...(detail
           ? {
               baseURL: detail.baseURL,
