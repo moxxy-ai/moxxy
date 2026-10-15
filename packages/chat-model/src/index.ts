@@ -7,5 +7,5 @@ export * from './id.js';
 export * from './streaming-speech.js';
 export * from './voice-feedback-scheduler.js';
 export * from './voice-operations.js';
-export { accountLimitText, conversationAccountLimit } from './account-limit.js';
+export { accountLimitText, conversationAccountLimit, conversationAccountUsage } from './account-limit.js';
 export { activeAgentCliNotice, agentCliNotice, type AgentCliNotice, type AgentConnectionLike } from './agent-cli.js';

@@ -7,7 +7,7 @@ import {
   type Block as FoldedBlock,
   type CompactToolMap,
 } from '@moxxy/chat-model';
-import { buildRenderNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
+import { buildRenderNodes, groupThinkingNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
 import { BlockView, StreamingAssistant } from './BlockView';
 import { AttachmentReaderProvider } from './attachments/AttachmentReaderContext';
 import { ToolIconProvider } from './ToolIconContext';
@@ -16,12 +16,13 @@ import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { StreamingReasoning } from './blocks/StreamingReasoning';
+import { ThinkingGroupView } from './blocks/ReasoningBlock';
 import { TraceEntry } from './trace/TraceEntry';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 import type { ImagePreviewItem } from './image-preview/types';
 import { visibleTranscriptNodes } from './transcript-nodes';
 import { ModeTranscriptContext } from './modes/ModeTranscriptContext';
-import { PlanNextContext, type PlanNext } from './modes/plan-next';
+import { PlanNextContext, type AnswerPlan } from './modes/plan-next';
 import { readModeEvents } from './modes/mode-events';
 
 interface TranscriptProps {
@@ -42,7 +43,7 @@ interface TranscriptProps {
   /** Presentation metadata advertised by the live tool registry. */
   readonly compactTools?: CompactToolMap;
   /** Carries the open plan out; null or absent where that is not on offer. */
-  readonly onPlanNext?: ((next: PlanNext) => void) | null;
+  readonly onPlanNext?: AnswerPlan | null;
 }
 
 /** Memoised per-block so a streaming chunk (which only changes
@@ -69,19 +70,22 @@ const MemoBlock = memo(
 
 function keyOf(node: RenderNode): string {
   if (node.kind === 'ext') return node.ext.id;
-  if (node.kind === 'tool-group') return node.id;
+  if (node.kind === 'tool-group' || node.kind === 'thinking') return node.id;
   return node.block.id;
 }
 
+/** A row a group can grow over as older history pages in: a tool or a thought. */
 function toolAnchorId(node: RenderNode): string | null {
   if (node.kind === 'tool-group') return node.tools.at(-1)?.id ?? null;
-  if (node.kind === 'block' && node.block.kind === 'tool-call') return node.block.id;
+  if (node.kind === 'thinking') return node.events.at(-1)?.id ?? null;
+  if (node.kind === 'block' && (node.block.kind === 'tool-call' || node.block.kind === 'event')) return node.block.id;
   return null;
 }
 
 function containsToolAnchor(node: RenderNode, anchorId: string): boolean {
   if (node.kind === 'tool-group') return node.tools.some((tool) => tool.id === anchorId);
-  return node.kind === 'block' && node.block.kind === 'tool-call' && node.block.id === anchorId;
+  if (node.kind === 'thinking') return node.events.some((event) => event.id === anchorId);
+  return node.kind === 'block' && node.block.id === anchorId;
 }
 
 function findAnchoredIndex(nodes: ReadonlyArray<RenderNode>, previousHead: RenderNode): number {
@@ -111,6 +115,10 @@ function Row({
         <ExtensionCard ext={node.ext} workspaceId={workspaceId} />
       ) : node.kind === 'tool-group' ? (
         <ToolGroupView tools={node.tools} />
+      ) : node.kind === 'thinking' ? (
+        <TraceEntry kind="reasoning">
+          <ThinkingGroupView events={node.events} />
+        </TraceEntry>
       ) : (
         <MemoBlock
           block={node.block}
@@ -173,10 +181,10 @@ export function Transcript({
   // What the plan, goal and research modes reported about these turns.
   const modes = useMemo(() => readModeEvents(events), [events]);
   const nodes = useMemo(
-    () => groupToolNodes(visibleTranscriptNodes(
+    () => groupThinkingNodes(groupToolNodes(visibleTranscriptNodes(
       buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools),
       modes.notes,
-    )),
+    ))),
     [events, extensions, compactTools, modes],
   );
   const foldVersion = foldRef.current?.version ?? events.length;

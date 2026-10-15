@@ -123,7 +123,7 @@ describe('visibleTranscriptNodes and the tools a mode signals with', () => {
       node.kind === 'block' && node.block.kind === 'tool-call' ? [node.block.request.name] : [],
     );
 
-  it('draws no row for the call that only says the plan or the goal is done', () => {
+  it("draws no row for the call that only says the plan or the goal is done, Claude's plan hand-off too", () => {
     // What it said is the card that follows; the row would say it twice, as JSON.
     expect(
       names([
@@ -134,6 +134,8 @@ describe('visibleTranscriptNodes and the tools a mode signals with', () => {
         call('c3', 'plan_complete'),
         result('c3', true),
         call('c4', 'goal_abandon'),
+        call('c5', 'ExitPlanMode'),
+        result('c5', true),
       ]),
     ).toEqual(['Bash']);
   });

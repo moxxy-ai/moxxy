@@ -4,6 +4,10 @@
  * (fake-claude.testkit.ts). Nothing between them is replaced.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import {
   AGENT_GOAL_SUBTYPE,
@@ -421,14 +425,74 @@ describe('questions', () => {
 });
 
 describe('Moxxy modes on Claude', () => {
-  it('plans in Claude own plan mode, and shows the plan for approval', async () => {
+  it('plans in Claude own plan mode, and hands the plan to the person as the plan card, not a permission prompt', async () => {
     let answer: unknown;
     const { claude, session } = connect(async function* (turn) {
       answer = await turn.canUseTool('ExitPlanMode', { plan: '# Fix add\n\n- use a + b' }, 'toolu_9');
-      yield assistantText('Fixed.');
+      yield assistantText('Waiting for your decision.');
     });
     session.pluginHost.registerStatic(planModePlugin);
     session.modes.setActive('plan');
+    const asked: string[] = [];
+    session.setPermissionResolver({
+      name: 'remember-asks',
+      check: async (call) => {
+        asked.push(call.name);
+        return { mode: 'allow' };
+      },
+    });
+
+    const events = await collectTurn(session, 'plan the fix');
+
+    expect(claude.last.options.permissionMode).toBe('plan');
+    expect(asked).not.toContain('ExitPlanMode');
+    // Handed over, not failed: the call is no red row over the plan.
+    expect(events).toContainEqual(expect.objectContaining({ type: 'tool_result', callId: 'toolu_9', ok: true }));
+    expect(answer).toMatchObject({ behavior: 'deny', message: expect.stringContaining('Moxxy') });
+    expect(session.log.ofType('plugin_event').map((e) => e.subtype)).toContain('plan_completed');
+    expect(session.log.ofType('assistant_message').at(-1)?.content).toBe('# Fix add\n\n- use a + b');
+  });
+
+  it('shows the plan Claude wrote to its plan file when it ends a plan turn without handing it over', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'moxxy-claude-plan-'));
+    const planFile = join(dir, '.claude', 'plans', 'round-up.md');
+    mkdirSync(dirname(planFile), { recursive: true });
+    const { session } = connect(async function* () {
+      writeFileSync(planFile, '# Round up\n\n- use a toggle');
+      yield assistantToolUse('toolu_3', 'Edit', { file_path: planFile, old_string: 'checkbox', new_string: 'toggle' });
+      yield toolResult('toolu_3', 'The file was updated.');
+      yield assistantText('Plan rewritten. Ready for approval.');
+    });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive('plan');
+
+    await collectTurn(session, 'use a toggle instead');
+
+    expect(session.log.ofType('plugin_event').map((e) => e.subtype)).toContain('plan_completed');
+    expect(session.log.ofType('assistant_message').at(-1)?.content).toBe('# Round up\n\n- use a toggle');
+    removeDirSync(dir);
+  });
+
+  it('leaves a file Claude edits outside its plans folder, or outside plan mode, as a plain edit', async () => {
+    const { session } = connect(async function* () {
+      yield assistantToolUse('toolu_4', 'Edit', { file_path: '/work/app/index.html', old_string: 'a', new_string: 'b' });
+      yield toolResult('toolu_4', 'The file was updated.');
+      yield assistantText('Done.');
+    });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive('plan');
+
+    await collectTurn(session, 'look around');
+
+    expect(session.log.ofType('plugin_event').map((e) => e.subtype)).not.toContain('plan_completed');
+  });
+
+  it('still asks the person to approve a plan Claude leaves its plan mode with outside Moxxy plan mode', async () => {
+    let answer: unknown;
+    const { session } = connect(async function* (turn) {
+      answer = await turn.canUseTool('ExitPlanMode', { plan: '# Fix add' }, 'toolu_9');
+      yield assistantText('Fixed.');
+    });
     let described: string | undefined;
     session.setPermissionResolver({
       name: 'remember-description',
@@ -438,9 +502,8 @@ describe('Moxxy modes on Claude', () => {
       },
     });
 
-    await collectTurn(session, 'plan the fix');
+    await collectTurn(session, 'fix it');
 
-    expect(claude.last.options.permissionMode).toBe('plan');
     expect(described).toContain('# Fix add');
     expect(answer).toMatchObject({ behavior: 'allow' });
   });

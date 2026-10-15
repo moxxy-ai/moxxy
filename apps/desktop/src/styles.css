@@ -2964,6 +2964,16 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text-muted);
 }
 .reasoning__label { font-weight: 500; }
+/* How many thoughts a folded run of them holds. */
+.reasoning__count {
+  color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.reasoning__thoughts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
 .reasoning__body {
   margin-top: var(--space-4);
   padding-left: var(--space-12);
@@ -3124,6 +3134,24 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   gap: var(--space-6);
   padding: 0 14px var(--space-12);
 }
+/* What the person writes for a plan to be written again, in place of the answers. */
+.outcome__rewrite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+.outcome__note {
+  margin: 0 14px;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-chip);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--type-ui);
+  resize: vertical;
+}
+.outcome__note:focus-visible { outline: none; border-color: var(--color-action); }
 
 /* A step of the run that neither side said. */
 .mode-note {
@@ -3234,16 +3262,18 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .turn-steps > .step-list__items { padding-left: var(--space-2); }
 
-/* The agent's account limit above the message box: amber while nearly used up, red once it is. */
+/* The agent's account limit in the model and usage window: dim while there is room, amber
+ * while nearly used up, red once it is. */
 .account-limit {
-  padding: 0 var(--space-4);
-  color: var(--color-amber-text);
+  margin: 0;
+  color: var(--color-text-dim);
   font-size: var(--type-label);
 }
+.account-limit[data-state='near'] { color: var(--color-amber-text); }
 .account-limit[data-state='reached'] { color: var(--color-red-text); }
 
 /* The active agent's CLI: missing, too old, or behind the vendor's latest.
- * Drawn like the account limit line, with its fix after the words. */
+ * One quiet line above the message box, with its fix after the words. */
 .agent-cli-bar {
   display: flex;
   align-items: center;

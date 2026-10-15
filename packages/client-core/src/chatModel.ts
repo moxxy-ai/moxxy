@@ -15,7 +15,7 @@
  * Kept React-free so the runtime can be driven directly by tests.
  */
 
-import type { MoxxyEvent } from '@moxxy/sdk';
+import type { MoxxyEvent, ReasoningMessageEvent } from '@moxxy/sdk';
 import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
 import { QUESTION_PLUGIN_ID } from '@moxxy/sdk/questions';
 import {
@@ -58,7 +58,42 @@ export type Extension =
 export type RenderNode =
   | { readonly kind: 'block'; readonly block: FoldedBlock }
   | { readonly kind: 'ext'; readonly ext: Extension }
-  | { readonly kind: 'tool-group'; readonly id: string; readonly tools: ReadonlyArray<ToolCallBlockData> };
+  | { readonly kind: 'tool-group'; readonly id: string; readonly tools: ReadonlyArray<ToolCallBlockData> }
+  | { readonly kind: 'thinking'; readonly id: string; readonly events: ReadonlyArray<ReasoningMessageEvent> };
+
+function reasoningOf(node: RenderNode): ReasoningMessageEvent | null {
+  if (node.kind !== 'block' || node.block.kind !== 'event') return null;
+  return node.block.event.type === 'reasoning_message' ? node.block.event : null;
+}
+
+/**
+ * Fold runs of ≥2 consecutive "Thinking" blocks into one `thinking` node: an
+ * agent that thinks between every step would otherwise stack a row per
+ * thought. Anything else, a tool included, breaks the run.
+ */
+export function groupThinkingNodes(nodes: ReadonlyArray<RenderNode>): RenderNode[] {
+  const out: RenderNode[] = [];
+  let run: RenderNode[] = [];
+  const flush = (): void => {
+    const first = run[0];
+    if (first && run.length >= 2 && first.kind === 'block') {
+      out.push({ kind: 'thinking', id: `thinking:${first.block.id}`, events: run.flatMap((node) => reasoningOf(node) ?? []) });
+    } else {
+      out.push(...run);
+    }
+    run = [];
+  };
+  for (const node of nodes) {
+    if (reasoningOf(node)) {
+      run.push(node);
+    } else {
+      flush();
+      out.push(node);
+    }
+  }
+  flush();
+  return out;
+}
 
 /**
  * Collapse runs of ≥2 consecutive top-level `tool-call` nodes into a single

@@ -17,6 +17,8 @@ export const MOXXY_TOOL_PREFIX = `mcp__${MOXXY_MCP_SERVER}__`;
 export class TurnTranslator {
   private readonly announced = new Map<string, { readonly name: string; readonly input: unknown }>();
   private readonly moxxyCalls = new Set<string>();
+  /** Calls whose answer Moxxy gave the person instead (a plan on the plan card); Claude's refusal of them is not shown. */
+  private readonly handedOver = new Set<string>();
   /** The plan limit Claude last reported, whose reset its own limit message leaves out. */
   private limit: AgentAccountLimit | undefined;
 
@@ -39,6 +41,13 @@ export class TurnTranslator {
     this.announced.set(callId, { name, input });
     if (this.subagents.isSubagentTool(name)) return this.subagents.started(callId, input);
     return [{ type: 'tool_call', callId, name, input }];
+  }
+
+  /** The call is done on Moxxy's side, whatever Claude is told: it reads as gone through, not as refused. */
+  handOver(callId: string, output: string): AgentStepEvent[] {
+    if (this.handedOver.has(callId) || !this.announced.has(callId)) return [];
+    this.handedOver.add(callId);
+    return [{ type: 'tool_result', callId, ok: true, output }];
   }
 
   translate(message: ClaudeMessage): AgentStepEvent[] {
@@ -104,7 +113,7 @@ export class TurnTranslator {
     const events: AgentStepEvent[] = [];
     for (const block of results) {
       const call = this.announced.get(block.tool_use_id);
-      if (this.moxxyCalls.has(block.tool_use_id) || !call) continue;
+      if (this.moxxyCalls.has(block.tool_use_id) || this.handedOver.has(block.tool_use_id) || !call) continue;
       const text = resultText(block.content);
       if (this.subagents.isSubagent(block.tool_use_id)) {
         events.push(...this.subagents.fromResult(block.tool_use_id, text, block.is_error === true, results.length === 1 ? message.tool_use_result : undefined));

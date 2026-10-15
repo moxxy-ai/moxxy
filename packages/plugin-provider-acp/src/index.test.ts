@@ -26,6 +26,10 @@ describe('the OpenCode plugin', () => {
     expect(client.models.map((model) => model.id)).toEqual(['openai/gpt-6-luna', 'opencode/big-pickle']);
   });
 
+  it('offers OpenCode free models before it is switched on', () => {
+    expect(opencodeProviderDef.models.map((model) => model.id)).toEqual(['opencode/big-pickle', 'opencode/space-bunny-free']);
+  });
+
   it('will not switch on when OpenCode is not installed', async () => {
     __setOpenCodeCommandRunner(async () => ({ code: 1, stdout: '', stderr: '', error: Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) }));
     const resolve = opencodeProviderDef.resolveCredentials;

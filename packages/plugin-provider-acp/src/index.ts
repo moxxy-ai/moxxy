@@ -1,6 +1,6 @@
 import { defineProvider, definePlugin } from '@moxxy/sdk';
 import { OPENCODE_CLI, checkAgentCli } from '@moxxy/agent-connection-kit';
-import { OPENCODE_PROVIDER_ID, OPENCODE_SERVICE_NAME } from './constants.js';
+import { OPENCODE_FREE_MODELS, OPENCODE_PROVIDER_ID, OPENCODE_SERVICE_NAME } from './constants.js';
 import { OPENCODE_AGENT } from './agents.js';
 import { acpModel, acpSessions, createAcpAgentClient, type AcpAgentProviderConfig } from './agent-provider.js';
 import { authError, checkOpenCode, listOpenCodeModels, opencodeLogin, opencodeLogout, opencodeStatus, openCodeSignIn, readOpenCodeRules, resolveOpenCodeExecutable } from './login.js';
@@ -9,7 +9,7 @@ import { openCodeOwnAutoApprove } from './rules.js';
 export const opencodeProviderDef = defineProvider({
   name: OPENCODE_PROVIDER_ID,
   agentName: OPENCODE_AGENT.label,
-  models: [acpModel(OPENCODE_AGENT.defaultModel)],
+  models: OPENCODE_FREE_MODELS.map(acpModel),
   agentCli: {
     check: (opts) => {
       const command = resolveOpenCodeExecutable();
@@ -64,7 +64,7 @@ function providerConfigFrom(config: Readonly<Record<string, unknown>>): AcpAgent
   };
 }
 
-export { OPENCODE_PROVIDER_ID, OPENCODE_SERVICE_NAME, OPENCODE_EXECUTABLE_ENV, OPENCODE_DEFAULT_MODEL } from './constants.js';
+export { OPENCODE_PROVIDER_ID, OPENCODE_SERVICE_NAME, OPENCODE_EXECUTABLE_ENV, OPENCODE_DEFAULT_MODEL, OPENCODE_FREE_MODELS } from './constants.js';
 export { OPENCODE_AGENT, type AcpAgentSpec } from './agents.js';
 export { AcpAgentProvider, acpModel, acpSessions, createAcpAgentClient, type AcpAgentProviderConfig } from './agent-provider.js';
 export type { AcpConnection, StartAcpAgent } from './acp-session.js';

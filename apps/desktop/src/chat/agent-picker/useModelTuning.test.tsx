@@ -156,6 +156,17 @@ describe('useModelTuning', () => {
     expect(result.current.effortLevels).toEqual(['off', 'low', 'medium', 'high', 'xhigh']);
   });
 
+  it('offers an agent connection no Off: the agent always thinks, from Low up', () => {
+    installApi();
+    const agent = infoWith({
+      providers: [{ name: 'codex-agent', agentName: 'Codex', models: [luna] }],
+      activeProvider: 'codex-agent',
+      reasoningEffort: 'low',
+    });
+    const { result } = renderHook(() => useModelTuning('ws', agent, 'gpt-6-luna'));
+    expect(result.current.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh']);
+  });
+
   it('says why a switch did not happen and keeps the old value', async () => {
     installApi('settings.setFast');
     const { result } = renderHook(() => useModelTuning('ws', infoWith(), 'gpt-6-luna'));

@@ -14,6 +14,24 @@ export function conversationAccountLimit(
   return accountLimitInForce(recordedAccountLimit(events, activeProvider), nowMs);
 }
 
+/**
+ * How much of its limit the conversation's active agent last said it used, for the model and
+ * usage window: also a limit that is still fine, when it came with a number, until that window
+ * resets.
+ */
+export function conversationAccountUsage(
+  events: ReadonlyArray<MoxxyEvent>,
+  activeProvider: string | null | undefined,
+  nowMs: number,
+): RecordedAccountLimit | undefined {
+  if (!activeProvider) return undefined;
+  const recorded = recordedAccountLimit(events, activeProvider);
+  if (!recorded) return undefined;
+  const { state, usedPercent, resetsAt } = recorded.limit;
+  if (state === 'ok' && usedPercent === undefined) return undefined;
+  return resetsAt !== undefined && resetsAt <= nowMs ? undefined : recorded;
+}
+
 /** "Claude's weekly limit is used up · resets Fri at 09:00", "Codex has used 80% of its 5-hour limit · resets at 18:00". */
 export function accountLimitText(recorded: RecordedAccountLimit, nowMs: number): string {
   const { limit } = recorded;

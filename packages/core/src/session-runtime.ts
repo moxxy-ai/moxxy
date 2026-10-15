@@ -69,6 +69,8 @@ export interface SessionRuntime {
   readonly unfinishedStepCheck: boolean | undefined;
   /** Reasoning/thinking preference (effort), forwarded to each turn's ModeContext. */
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean | undefined;
+  /** The reasoning a turn runs with: `reasoning`, or low on an agent connection without an effort set. */
+  turnReasoning(): { readonly effort?: ReasoningEffort } | boolean | undefined;
   readonly fast?: boolean;
   /** Stuck-loop guard tuning, forwarded to each turn's ModeContext. */
   readonly loopGuard?: LoopGuardSettings;

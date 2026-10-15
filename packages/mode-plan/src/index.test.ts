@@ -281,6 +281,52 @@ describe('plan mode', () => {
     expect(card).toMatchObject({ payload: { title: firstPlan.title, steps: firstPlan.steps.length } });
   });
 
+  it('asks an agent with its own plan mode that wrote its plan as a message to hand it over, once', async () => {
+    const prose = '# Storage plan\n\n1. Add the table\n2. Write the migration\n3. Cover it with a test';
+    const provider = new FakeAgentProvider(
+      async function* () {
+        if (provider.steps.length === 1) {
+          yield { type: 'message', text: prose };
+          return;
+        }
+        yield { type: 'plan', text: prose };
+      },
+      'fake-agent',
+      { agentOwns: { plan: true } },
+    );
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+
+    const events = await collectTurn(session, 'Plan the storage');
+
+    expect(provider.steps).toHaveLength(2);
+    expect(provider.steps[1]?.prompt[0]).toMatchObject({ type: 'text', text: expect.stringContaining('plan hand-off') });
+    expect(events.find((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed')).toMatchObject({
+      payload: { title: 'Storage plan' },
+    });
+    // The nudge rides that one call; it is not a message of the conversation.
+    expect(session.log.ofType('user_prompt')).toHaveLength(1);
+  });
+
+  it('asks only once, and leaves a second prose plan as it is', async () => {
+    const provider = new FakeAgentProvider(
+      async function* () {
+        yield { type: 'message', text: '## Plan\n\n- one\n- two\n- three' };
+      },
+      'fake-agent',
+      { agentOwns: { plan: true } },
+    );
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+
+    const events = await collectTurn(session, 'Plan it');
+
+    expect(provider.steps).toHaveLength(2);
+    expect(events.filter((event) => event.type === 'error')).toEqual([]);
+  });
+
   it('leaves an agent with its own plan mode to finish its turn without a nudge', async () => {
     const provider = new FakeAgentProvider(
       async function* () {

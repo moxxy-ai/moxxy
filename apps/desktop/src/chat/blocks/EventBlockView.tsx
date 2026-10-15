@@ -11,7 +11,7 @@ import { TraceEntry } from '../trace/TraceEntry';
 import { ModeNoteLine } from '../modes/ModeNoteLine';
 import { ModeOutcomeCard } from '../modes/ModeOutcomeCard';
 import { useModeNote, useModeOutcome } from '../modes/ModeTranscriptContext';
-import { usePlanActions } from '../modes/plan-next';
+import { usePlanCard } from '../modes/plan-next';
 
 export function EventBlockView({
   event,
@@ -23,7 +23,7 @@ export function EventBlockView({
   // Both are undefined outside a plan, goal or research turn.
   const outcome = useModeOutcome(event.id);
   const note = useModeNote(event.id);
-  const planActions = usePlanActions(event.id, outcome);
+  const plan = usePlanCard(event.id, outcome);
   switch (event.type) {
     case 'user_prompt':
       // A machine-initiated turn (fired webhook/schedule/workflow) renders as a
@@ -49,8 +49,8 @@ export function EventBlockView({
           meta={stamp(event.ts)}
           actions={<ActionRow text={event.content} />}
         >
-          {outcome ? (
-            <ModeOutcomeCard outcome={outcome} text={event.content} actions={planActions} />
+          {plan.outcome ? (
+            <ModeOutcomeCard outcome={plan.outcome} text={event.content} actions={plan.actions} rewrite={plan.rewrite} />
           ) : (
             <AssistantBlock
               text={event.content}

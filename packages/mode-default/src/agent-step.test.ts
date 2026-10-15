@@ -99,6 +99,24 @@ describe('an agent connection turn', () => {
     await session.close();
   });
 
+  it('runs the agent at low effort until the person picks one, and says so', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    expect(session.getInfo().reasoningEffort).toBe('low');
+    await collectTurn(session, 'first');
+    session.reasoning = { effort: 'high' };
+    await collectTurn(session, 'second');
+    session.reasoning = true;
+    await collectTurn(session, 'third');
+
+    expect(provider.steps.map((step) => step.reasoning)).toEqual([{ effort: 'low' }, { effort: 'high' }, { effort: 'low' }]);
+    expect(session.getInfo().reasoningEffort).toBe('low');
+    await session.close();
+  });
+
   it('resumes the agent own session on the next turn, and records the session only when it changes', async () => {
     const provider = new FakeAgentProvider(async function* () {
       yield { type: 'session', sessionId: 'agent-s1' };

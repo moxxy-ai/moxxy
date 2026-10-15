@@ -8,6 +8,7 @@ import {
 
 import {
   PLAN_COMPLETE_TOOL,
+  AGENT_PLAN_HAND_OFF_NUDGE,
   PLAN_COMPLETION_NUDGE,
   PLAN_MODE_NAME,
   PLAN_PLUGIN_ID,
@@ -47,9 +48,24 @@ export async function* runPlanMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     run: async () => ({ action: 'inject', volatile: true, text: PLAN_COMPLETION_NUDGE }),
   };
 
+  // An agent with its own plan mode may still write its plan as a message, which leaves no card to
+  // answer it on. It is asked once a turn to hand the plan over its own way.
+  let askedForHandOff = false;
+  const handOverAgentPlan: TurnCheckpoint = {
+    name: 'agent-plan-hand-off',
+    gateOn: 'idle',
+    agentConnections: true,
+    applies: (loopCtx) => loopCtx.provider.agentOwns?.plan === true && !askedForHandOff,
+    run: async (check) => {
+      if (!looksLikePlan(check.candidateText)) return { action: 'pass' };
+      askedForHandOff = true;
+      return { action: 'inject', volatile: true, text: AGENT_PLAN_HAND_OFF_NUDGE };
+    },
+  };
+
   yield* runReactLoop(planCtx, {
     strategyName: PLAN_MODE_NAME,
-    checkpoints: [requireStructuredPlan],
+    checkpoints: [requireStructuredPlan, handOverAgentPlan],
     maxInjections: 2,
     onToolBatchEnd: async (loopCtx, { toolUses }) => {
       if (!toolUses.some((tool) => tool.name === PLAN_COMPLETE_TOOL)) return undefined;
@@ -105,7 +121,12 @@ export async function* runPlanMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
   });
 }
 
-/** The plan's first `#` heading, as the agent wrote it. */
+/** A message laid out as a plan: under a heading, or three or more listed steps. */
+export function looksLikePlan(text: string): boolean {
+  if (/^#{1,6}\s+\S/m.test(text)) return true;
+  return (text.match(/^\s*(?:\d+[.)]|[-*•])\s+\S/gm) ?? []).length >= 3;
+}
+
 /** The plan's first heading, without a leading `Plan:` (Codex writes `## Plan: <title>`). */
 export function agentPlanTitle(plan: string): string {
   const heading = /^#{1,6}\s+(.+?)\s*$/m.exec(plan)?.[1];

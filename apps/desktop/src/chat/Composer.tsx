@@ -42,10 +42,8 @@ import type { ImagePreviewItem } from './image-preview/types';
 import { DEFAULT_MODE, modeMeta } from './modes/mode-meta';
 import { useActiveMode } from './modes/useActiveMode';
 import { TurnStepsBar } from './composer/TurnStepsBar';
-import { AccountLimitBar } from './composer/AccountLimitBar';
 import { AgentCliBar } from './composer/AgentCliBar';
 import type { AgentCliNoticeView } from './useAgentCliNotice';
-import type { AccountLimitView } from './useAccountLimit';
 import type { StepListDisplay } from '@moxxy/sdk/tool-display';
 
 /** Past this height the composer textarea stops growing and scrolls
@@ -63,8 +61,6 @@ interface ComposerProps {
   readonly activeTurnId: string | null;
   /** The agent's list of steps in the running turn, said above the field. */
   readonly turnSteps?: StepListDisplay | null;
-  /** The active agent's account limit while it holds, said above the field. */
-  readonly accountLimit?: AccountLimitView | null;
   /** The active agent's CLI needs installing or updating. */
   readonly agentCli?: AgentCliNoticeView | null;
   readonly workspaceId: string;
@@ -108,7 +104,6 @@ export function Composer({
   compacting,
   activeTurnId,
   turnSteps = null,
-  accountLimit = null,
   agentCli = null,
   workspaceId,
   voiceModeActive = false,
@@ -345,7 +340,6 @@ export function Composer({
       }}
     >
       {agentCli ? <AgentCliBar notice={agentCli} /> : null}
-      {accountLimit ? <AccountLimitBar limit={accountLimit.limit} nowMs={accountLimit.nowMs} /> : null}
       {turnSteps ? <TurnStepsBar steps={turnSteps} /> : null}
       <div className="cmdbar__card">
         <ComposerStatus

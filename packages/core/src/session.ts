@@ -701,6 +701,27 @@ export class Session implements ClientSession, SessionRuntime {
     return this.agentClis.onChange(() => listener(this.getInfo()));
   }
 
+  /**
+   * The reasoning a turn runs with. An agent connection always thinks, so it
+   * has no "off": one without an effort set runs at low, its lowest level.
+   */
+  turnReasoning(): Session['reasoning'] {
+    const set = typeof this.reasoning === 'object' ? this.reasoning : {};
+    if (set.effort !== undefined || !this.activeIsAgentConnection()) return this.reasoning;
+    return { ...set, effort: 'low' };
+  }
+
+  private activeIsAgentConnection(): boolean {
+    const active = this.providers.getActiveName();
+    if (!active) return false;
+    try {
+      return typeof this.providers.getActive().agentStep === 'function';
+    } catch {
+      // Selected before credentials built an instance: the definition says whether it is an agent.
+      return this.providers.list().some((p) => p.name === active && p.agentName !== undefined);
+    }
+  }
+
   getInfo(): SessionInfo {
     let activeMode: string | null = null;
     let activeModeBadge: SessionInfo['activeModeBadge'] = null;
@@ -781,7 +802,7 @@ export class Session implements ClientSession, SessionRuntime {
       hasSynthesizer: this.synthesizers.list().length > 0,
       activeSynthesizer: this.synthesizers.getActiveName(),
       autoApprove: this.autoApprove,
-      reasoningEffort: reasoningEffortOf(this.reasoning),
+      reasoningEffort: reasoningEffortOf(this.turnReasoning()),
       fast: this.fast,
       ...(defaultModel !== undefined ? { defaultModel } : {}),
     };

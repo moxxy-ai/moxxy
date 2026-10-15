@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { accountLimitText, conversationAccountLimit } from './account-limit.js';
+import { accountLimitText, conversationAccountLimit, conversationAccountUsage } from './account-limit.js';
 
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 9, day, hour, minute).getTime();
 /** Monday 12 October 2026, 14:00 local time. */
@@ -55,5 +55,24 @@ describe('conversationAccountLimit', () => {
     expect(conversationAccountLimit(events, 'claude-agent', at(12, 18))).toBeUndefined();
     expect(conversationAccountLimit(events, 'codex-agent', NOW)).toBeUndefined();
     expect(conversationAccountLimit(events, null, NOW)).toBeUndefined();
+  });
+});
+
+describe('conversationAccountUsage', () => {
+  it('is how much of its limit the active agent last said it used, until that window resets', () => {
+    const events = [recorded({ state: 'ok', usedPercent: 56, windowMinutes: 10080, resetsAt: at(14, 5) })];
+
+    expect(conversationAccountUsage(events, 'claude-agent', NOW)).toEqual({
+      provider: 'claude-agent',
+      agent: 'Claude',
+      limit: { state: 'ok', usedPercent: 56, windowMinutes: 10080, resetsAt: at(14, 5) },
+    });
+    expect(conversationAccountUsage(events, 'claude-agent', at(14, 5))).toBeUndefined();
+    expect(conversationAccountUsage(events, 'codex-agent', NOW)).toBeUndefined();
+  });
+
+  it('says nothing for a limit that is fine and came without a number', () => {
+    expect(conversationAccountUsage([recorded({ state: 'ok' })], 'claude-agent', NOW)).toBeUndefined();
+    expect(conversationAccountUsage([recorded({ state: 'reached' })], 'claude-agent', NOW)?.limit.state).toBe('reached');
   });
 });

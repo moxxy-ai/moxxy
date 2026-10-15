@@ -170,3 +170,28 @@ describe('Telemetry token count', () => {
     __setApiOverride(null);
   });
 });
+
+describe('Telemetry account limit', () => {
+  /** The limit lives here, where the model is picked, rather than as a line above the message box nobody could close. */
+  const info = {
+    sessionId: 's1', providers: [{ name: 'claude-agent', agentName: 'Claude', models: [] }], modes: [],
+    activeProvider: 'claude-agent', activeMode: null, activeModeBadge: null,
+  };
+
+  it("says how much of its limit the active agent has used, in the model and usage window", () => {
+    __setApiOverride({ invoke: async () => null, subscribe: () => () => {} } as unknown as MoxxyApi);
+    chatStore.dispatch('limit-ws', {
+      type: 'event',
+      event: {
+        id: 'limit-1', seq: 1, ts: 1, turnId: 'T1', sessionId: 'S', source: 'plugin', type: 'plugin_event',
+        pluginId: '@moxxy/agent-connection', subtype: 'account_limit',
+        payload: { provider: 'claude-agent', agent: 'Claude', limit: { state: 'ok', usedPercent: 56, windowMinutes: 10080 } },
+      } as unknown as MoxxyEvent,
+    });
+    render(<Telemetry workspaceId="limit-ws" info={info} selectedModel={null} disabled={false} onPick={() => {}} />);
+
+    fireEvent.click(screen.getByTestId('instrument-telemetry'));
+    expect(screen.getByTestId('model-account-limit')).toHaveTextContent('Claude has used 56% of its weekly limit');
+    __setApiOverride(null);
+  });
+});

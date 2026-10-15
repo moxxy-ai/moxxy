@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import type { AgentStepEvent, AgentStepHost, AgentStepRequest, AgentToolCall, AgentToolOutcome, Skill, ToolDef } from '@moxxy/sdk';
 import {
   Inbox,
@@ -124,6 +125,19 @@ const NO_RULES_YET = 'Moxxy could not check this call against its rules: no turn
 const READ_ONLY_REPLY = 'Reply with OK only: the person\'s message follows next.';
 class SessionGone extends Error {}
 const MAX_STDERR = 2048;
+/** Where Claude's plan mode keeps the plan it writes: `~/.claude/plans/<name>.md`. */
+const PLAN_FILE = /[\\/]\.claude[\\/]plans[\\/][^\\/]+\.md$/;
+
+/** The plan file a Write or Edit of Claude's touches, if it is one. */
+export function claudePlanFileOf(name: string, input: unknown): string | undefined {
+  if (name !== 'Write' && name !== 'Edit' && name !== 'MultiEdit') return undefined;
+  const path = typeof input === 'object' && input !== null ? (input as { file_path?: unknown }).file_path : undefined;
+  return typeof path === 'string' && PLAN_FILE.test(path) ? path : undefined;
+}
+/** Claude's answer for a plan the person now decides on in Moxxy: no "approved", no second copy of it. */
+const PLAN_HANDED_OVER =
+  'The plan is now with the person in Moxxy, who will implement it, have it rewritten or dismiss it there. ' +
+  'Stay in plan mode and end your turn now without repeating the plan.';
 
 /**
  * One running Claude Code (one Agent SDK `query()`) for one Moxxy
@@ -140,6 +154,8 @@ export class ClaudeAgentSession implements LiveSession {
   private alive = true;
   private closed = false;
   private inTurn = false;
+  /** This turn handed Claude's plan to the plan card through ExitPlanMode. */
+  private planHandedOver = false;
   /** A turn ended before Claude's `result` (its reader stopped early); the next turn waits it out. */
   private owesResult = false;
   /** Claude took up a turn by itself and no Moxxy turn has read it yet. */
@@ -264,6 +280,8 @@ export class ClaudeAgentSession implements LiveSession {
         this.send(note && !prefix && typeof content !== 'string' ? [{ type: 'text', text: note }, ...content] : content);
       }
       const translator = new TurnTranslator(this.settings.cwd, this.tasks, this.subagents);
+      this.planHandedOver = false;
+      let planFile: string | undefined;
       for (;;) {
         const item = await this.inbox.next();
         if (item.kind === 'ended') {
@@ -296,6 +314,7 @@ export class ClaudeAgentSession implements LiveSession {
             this.permissionMode = reported;
           }
           for (const event of translator.translate(item.message)) {
+            if (event.type === 'tool_call') planFile = claudePlanFileOf(event.name, event.input) ?? planFile;
             if (event.type === 'auto_approve') {
               // In goal mode Claude runs bypassPermissions for the goal, not because the person chose auto-approve.
               if (mode === 'goal' || restore) continue;
@@ -307,7 +326,12 @@ export class ClaudeAgentSession implements LiveSession {
           }
           continue;
         }
-        yield* this.handle(item, req, translator);
+        yield* this.handle(item, req, translator, mode);
+      }
+      // Claude wrote or changed its plan but ended without handing it over: it still goes on the plan card.
+      if (mode === 'plan' && !this.planHandedOver && planFile && !req.signal.aborted) {
+        const plan = await readFile(planFile, 'utf8').catch(() => '');
+        if (plan.trim()) yield { type: 'plan', text: plan.trim() };
       }
       if (mode === 'goal' && !ownTurn && !req.signal.aborted) {
         const status = await this.goalStatus();
@@ -333,7 +357,7 @@ export class ClaudeAgentSession implements LiveSession {
   }
 
   /** What Claude asked of Moxxy, answered in order with the turn's host. */
-  private async *handle(item: Exclude<Item, { kind: 'message' | 'ended' }>, req: AgentStepRequest, translator: TurnTranslator): AsyncGenerator<AgentStepEvent> {
+  private async *handle(item: Exclude<Item, { kind: 'message' | 'ended' }>, req: AgentStepRequest, translator: TurnTranslator, mode: AgentMode): AsyncGenerator<AgentStepEvent> {
     switch (item.kind) {
       case 'moxxy-tool':
         item.resolve(await req.host.runTool(item.call));
@@ -349,6 +373,15 @@ export class ClaudeAgentSession implements LiveSession {
       case 'approve':
         if (item.name === 'AskUserQuestion') {
           item.resolve(await this.answerQuestion(item.input, req));
+          return;
+        }
+        // In Moxxy's plan mode the plan is the person's to answer on the plan card, like Codex's and OpenCode's.
+        if (item.name === 'ExitPlanMode' && mode === 'plan' && typeof item.input.plan === 'string') {
+          yield* translator.announce(item.callId, item.name, item.input, { inSubagent: item.inSubagent });
+          yield* translator.handOver(item.callId, 'The plan is with the person, on the plan card.');
+          this.planHandedOver = true;
+          yield { type: 'plan', text: item.input.plan };
+          item.resolve({ behavior: 'deny', message: PLAN_HANDED_OVER });
           return;
         }
         yield* translator.announce(item.callId, item.name, item.input, { inSubagent: item.inSubagent });

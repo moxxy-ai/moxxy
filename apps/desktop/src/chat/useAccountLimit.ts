@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { conversationAccountLimit } from '@moxxy/chat-model';
+import { conversationAccountUsage } from '@moxxy/chat-model';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import type { RecordedAccountLimit } from '@moxxy/sdk/agent-account-limit';
 
@@ -13,13 +13,13 @@ export interface AccountLimitView {
 const LONGEST_TIMEOUT = 2_147_483_647;
 
 /**
- * The active agent's account limit while it holds, for the bar above the message box. It goes
- * by itself when the window resets.
+ * How much of its account limit the active agent has used, for the model and usage window. It
+ * goes by itself when the window resets.
  */
 export function useAccountLimit(events: ReadonlyArray<MoxxyEvent>, activeProvider: string | null | undefined): AccountLimitView | null {
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => setNowMs(Date.now()), [events, activeProvider]);
-  const limit = useMemo(() => conversationAccountLimit(events, activeProvider, nowMs), [events, activeProvider, nowMs]);
+  const limit = useMemo(() => conversationAccountUsage(events, activeProvider, nowMs), [events, activeProvider, nowMs]);
   const resetsAt = limit ? limit.limit.resetsAt : undefined;
   useEffect(() => {
     if (resetsAt === undefined) return;
