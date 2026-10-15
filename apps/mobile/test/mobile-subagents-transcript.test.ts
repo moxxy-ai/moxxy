@@ -28,7 +28,7 @@ describe('mobile subagent transcript parity', () => {
       title: 'Subagents',
       collapsed: true,
       status: 'running',
-      summary: '2 default agents running',
+      summary: '2 agents running',
       agents: [
         {
           id: 'child-1',
@@ -172,7 +172,7 @@ describe('mobile subagent transcript parity', () => {
         title: 'Subagents',
         collapsed: true,
         status: 'failed',
-        summary: '1 of 1 agent failed',
+        summary: '1 agent finished, 1 failed',
         agents: [
           {
             id: 'child-1',

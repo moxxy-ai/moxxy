@@ -76,8 +76,10 @@ export interface UserPromptAttachment {
  * not a request, and shown as one collapsed block.
  *
  * `kind: 'agent'` opens a turn the vendor's agent of an agent connection
- * started by itself (Claude after a task it ran in the background finished);
- * `name` says what it took up. Nothing is sent to the agent for it.
+ * started by itself (Claude after a task it ran in the background finished),
+ * or one Moxxy opened to show work the agent left running ending (Codex's
+ * helper or background command); `name` says what it took up. Nothing is
+ * sent to the agent for it.
  */
 export interface TriggerOrigin {
   readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint' | 'voice' | 'agent';

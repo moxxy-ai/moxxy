@@ -31,6 +31,8 @@ export interface McpCallResult {
 
 /** The tools of the turn that is running now. */
 export interface McpToolHandler {
+  /** What the agent is told about these tools as it connects (MCP `instructions`); agents read it once. */
+  readonly instructions?: string;
   list(): ReadonlyArray<McpTool>;
   call(name: string, args: unknown, signal: AbortSignal): Promise<McpCallResult>;
 }
@@ -110,7 +112,8 @@ export async function startMoxxyMcpServer(opts: MoxxyMcpServerOptions = {}): Pro
       case 'initialize': {
         const requested = (params as { protocolVersion?: unknown } | undefined)?.protocolVersion;
         const protocolVersion = isSupportedVersion(requested) ? requested : MCP_PROTOCOL_VERSIONS[0];
-        return { protocolVersion, capabilities: { tools: { listChanged: true } }, serverInfo };
+        const instructions = handler?.instructions;
+        return { protocolVersion, capabilities: { tools: { listChanged: true } }, serverInfo, ...(instructions ? { instructions } : {}) };
       }
       case 'ping':
         return {};

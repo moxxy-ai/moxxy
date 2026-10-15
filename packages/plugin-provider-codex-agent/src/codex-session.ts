@@ -48,7 +48,7 @@ import {
   type CodexToolCall,
 } from './translate.js';
 import { accountLimitFrom, failedOnUsageLimit } from './account-limit.js';
-import { CodexSubagents } from './subagents.js';
+import { CodexSubagents, labelOf } from './subagents.js';
 import { readImageFile } from './view-image.js';
 
 /** A running `codex app-server`: its stdout, stdin and stderr. */
@@ -70,6 +70,8 @@ export interface CodexSessionSettings {
   readonly tools?: ReadonlyArray<ToolDef>;
   /** The conversation's Moxxy skills: Codex reads those meant for it through one more Moxxy tool, listed with the tools. */
   readonly skills?: ReadonlyArray<Skill>;
+  /** Work Codex left running ended while no Moxxy turn runs; `name` says what. Codex itself starts no turn then. */
+  readonly onAgentTurn?: (name: string) => void;
 }
 
 interface Policy {
@@ -230,6 +232,12 @@ export class CodexAgentSession implements LiveSession {
   private readonly myTurns = new Set<string>();
   /** Subagents Codex started; they work in threads of their own and may outlive a turn. */
   private readonly subagents = new CodexSubagents();
+  /** Calls Codex left running when its turn ended, by item id; their end is shown when it comes. */
+  private readonly leftRunning = new Map<string, CodexToolCall>();
+  /** What that work did after its turn, for the turn opened to show it (or the person's next turn). */
+  private late: AgentStepEvent[] = [];
+  /** A turn was asked of the conversation to show what finished after Codex's turn. */
+  private agentTurnPending = false;
   /** The Moxxy tools Codex listed as the thread opened, the same for every turn. */
   private readonly listed: ToolDef[];
   /** Names of Codex's own skills, read as the thread opens. */
@@ -299,6 +307,14 @@ export class CodexAgentSession implements LiveSession {
   }
 
   async *turn(req: AgentStepRequest): AsyncGenerator<AgentStepEvent> {
+    // A turn opened to show what Codex's background work did: Codex is sent nothing.
+    if (req.continuesAgentTurn) {
+      if (!this.agentTurnPending) return;
+      this.agentTurnPending = false;
+      yield { type: 'session', sessionId: this.threadId };
+      yield* this.takeLate();
+      return;
+    }
     const mode = agentModeFor(req.mode);
     this.inTurn = true;
     this.myTurns.clear();
@@ -321,6 +337,9 @@ export class CodexAgentSession implements LiveSession {
     );
     try {
       yield { type: 'session', sessionId: this.threadId };
+      // What finished while the person was writing shows first, in their turn.
+      this.agentTurnPending = false;
+      yield* this.takeLate();
       let autoApprove = req.autoApprove;
       // A new conversation's thread shows it how the person's Codex really runs
       // (one state). In goal mode Codex runs with full access for the goal, not
@@ -587,6 +606,9 @@ export class CodexAgentSession implements LiveSession {
           if (this.goal?.status === 'active') continue;
           yield { type: 'goal', status: this.goal?.status === 'complete' ? 'complete' : 'active' };
         }
+        const left = translator.leftRunning();
+        for (const [id, call] of left.calls) this.leftRunning.set(id, call);
+        yield* left.events;
         return;
       }
       if (item.method === 'error') {
@@ -599,6 +621,11 @@ export class CodexAgentSession implements LiveSession {
       }
       if (typeof params.threadId === 'string' && params.threadId !== this.threadId) {
         yield* this.subagents.fromThread(item.method, params);
+        continue;
+      }
+      const ended = this.endOfLeftRunning(item.method, params);
+      if (ended) {
+        yield* ended;
         continue;
       }
       if (!this.belongsHere(params)) continue;
@@ -732,6 +759,7 @@ export class CodexAgentSession implements LiveSession {
       return;
     }
     this.noteGoal(method, params);
+    this.noteLate(method, params);
     const change = this.noteSettings(method, params);
     if (change === 'turned-off') this.turnedOffElsewhere = true;
     if (change === 'loosened') {
@@ -768,6 +796,51 @@ export class CodexAgentSession implements LiveSession {
     await this.client.request('thread/settings/update', { threadId: this.threadId, approvalPolicy, sandboxPolicy: sandbox, approvalsReviewer: reviewer });
   }
 
+  /**
+   * Between turns: what Codex's background work does. Codex starts no turn
+   * when it ends (0.155.1), so the conversation is asked for one to show it:
+   * a subagent's tools and answer, a command's output.
+   */
+  private noteLate(method: string, params: unknown): void {
+    const p = (params ?? {}) as Record<string, unknown>;
+    if (typeof p.threadId === 'string' && p.threadId !== this.threadId) {
+      this.late.push(...this.subagents.fromThread(method, p));
+      return;
+    }
+    const ended = this.endOfLeftRunning(method, p);
+    if (ended) {
+      this.late.push(...ended);
+      this.askForTurn('A command Codex left running finished');
+      return;
+    }
+    if (!isSubagentActivity(method, p)) return;
+    const done = this.subagents.activity(p.item).filter((event) => event.type === 'subagent_completed');
+    if (done.length === 0) return;
+    this.late.push(...done);
+    this.askForTurn(`${labelOf((p.item as { agentPath?: unknown }).agentPath)} finished in the background`);
+  }
+
+  /** The end of a call Codex left running, as a call of its own beside the one shown running; `undefined` for anything else. */
+  private endOfLeftRunning(method: string, params: Record<string, unknown>): AgentStepEvent[] | undefined {
+    const item = params.item as { id?: unknown } | undefined;
+    if (method !== 'item/completed' || typeof item?.id !== 'string' || !this.leftRunning.has(item.id)) return undefined;
+    this.leftRunning.delete(item.id);
+    const translator = new TurnTranslator(this.settings.cwd, (path) => readImageFile(path, this.settings.cwd));
+    return translator.translate('item/completed', { ...params, item: { ...item, id: `${item.id}-ended` } });
+  }
+
+  private askForTurn(name: string): void {
+    if (this.closed || this.agentTurnPending) return;
+    this.agentTurnPending = true;
+    this.settings.onAgentTurn?.(name);
+  }
+
+  private *takeLate(): Generator<AgentStepEvent> {
+    const late = this.late;
+    this.late = [];
+    yield* late;
+  }
+
   /** Keep the goal's state, whether or not a turn is reading. */
   private noteGoal(method: string, params: unknown): void {
     if (method === 'thread/goal/updated') {
@@ -793,7 +866,10 @@ export class CodexAgentSession implements LiveSession {
   private dismissQueued(): void {
     for (const item of this.inbox.drain()) {
       if (item.kind === 'ended') this.inbox.push(item);
-      else if (item.kind === 'note') this.noteGoal(item.method, item.params);
+      else if (item.kind === 'note') {
+        this.noteGoal(item.method, item.params);
+        this.noteLate(item.method, item.params);
+      }
       else if (item.kind === 'moxxy-tool') item.resolve({ ok: false, message: 'No Moxxy turn is running, so the tool cannot run now.' });
       else if (item.kind === 'request') {
         try {

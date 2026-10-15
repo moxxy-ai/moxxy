@@ -2,6 +2,7 @@ import {
   estimateTextTokens,
   type AgentStepEvent,
   type AgentStepRequest,
+  type AgentTurnStart,
   type LLMProvider,
   type ModelDescriptor,
   type ProviderEvent,
@@ -76,6 +77,7 @@ export class CodexAgentProvider implements LLMProvider {
   readonly models = codexAgentModels;
   private readonly defaultModel: string;
   private readonly start: StartCodexAppServer;
+  private readonly agentTurnListeners = new Set<(start: AgentTurnStart) => void>();
 
   constructor(private readonly config: CodexAgentProviderConfig = {}) {
     this.defaultModel = config.model ?? config.defaultModel ?? CODEX_AGENT_DEFAULT_MODEL;
@@ -96,6 +98,15 @@ export class CodexAgentProvider implements LLMProvider {
       if (lease.session.isAlive) lease.release();
       else await lease.discard();
     }
+  }
+
+  /**
+   * Work Codex left running (a subagent, a command in the background) ended
+   * between turns. Codex starts no turn then, so Moxxy opens one to show it.
+   */
+  onAgentTurn(listener: (start: AgentTurnStart) => void): () => void {
+    this.agentTurnListeners.add(listener);
+    return () => this.agentTurnListeners.delete(listener);
   }
 
   /** One-off text (summaries, skill drafts): an ephemeral read-only Codex thread, kept nowhere. */
@@ -181,6 +192,9 @@ export class CodexAgentProvider implements LLMProvider {
       tools: req.allTools ?? req.tools,
       ...(req.skills ? { skills: req.skills } : {}),
       ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
+      onAgentTurn: (name: string) => {
+        for (const listener of [...this.agentTurnListeners]) listener({ sessionId: req.sessionId, name });
+      },
     };
     const sessions = this.config.sessions ?? codexSessions();
     const create = () => CodexAgentSession.start(settings);

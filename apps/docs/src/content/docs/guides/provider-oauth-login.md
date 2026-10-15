@@ -278,6 +278,18 @@ partway through a conversation:
   `codex app-server` and resumes the same thread, which reads the new list.
   The conversation carries on; only the process is new.
 
+### Moxxy's browser
+
+As it connects, the agent is told what Moxxy's tools are: they run in your
+Moxxy conversation and ask you first when your settings say so. When the
+conversation has Moxxy's browser, the agent is also told that its pages open in
+the browser panel next to the chat in the desktop, where you watch it work and
+can take over, and that it opens public pages only (not `localhost` or
+private addresses). Whether to use it or its own tools is the agent's choice:
+ask "open example.com in the browser I'm watching" and it uses Moxxy's
+browser; ask what a page says and it may read it its own way. The first page
+on a site asks you once to allow that site, as Moxxy's own agent does.
+
 ## File changes show as diffs
 
 When Claude, Codex or OpenCode creates or edits a file, the conversation shows
@@ -397,9 +409,36 @@ by itself: Moxxy opens a turn for it at once, marked "Agent continued", with the
 helper's work and Claude's report, so you do not have to write anything to see
 it. Your next message gets only the answer to what you asked.
 
+Codex does not go on by itself (checked with Codex 0.155.1), but its work can
+outlast its turn: a helper it did not wait for, or a command it left running
+in the background ("Still running in the background when Codex ended its
+turn" on the command's row). When that work ends between your messages, Moxxy
+opens the same "Agent continued" turn to show it, for example "check later
+finished in the background" with the helper's tool calls and answer, or "A
+command Codex left running finished" with the command's output. Codex is sent
+nothing, and reads that output itself when you write next. If you write
+first, it shows at the top of your turn. OpenCode waits for its helpers and
+commands before it ends its turn, so nothing of its work comes later.
+
+Telegram, Discord, Slack, Signal, WhatsApp and iMessage show such a turn too:
+"agent continued: …", the helper's answer, then what the agent said.
+
 Moxxy's rules (`~/.moxxy/permissions.json` and plugins that refuse calls) apply
 to a helper's commands between turns too. A command no rule settles is not
 asked about while no turn is open; Claude decides it by its own approvals.
+
+## What an agent sends that has no place of its own
+
+Each kind of thing Claude, Codex or OpenCode reports either has its place in
+the conversation (a message, a tool call with its result, a plan, a helper's
+row, the usage limit) or is left out on purpose: the agent repeating your own
+message, it shortening its own context, notes meant for its own screen. Codex
+shows the picture it generated (its image tool) under the call, and a pause as
+a `Sleep`. A kind Moxxy does not know, from a newer version of the agent, is
+not dropped: it shows as a tool call named after it, with what the agent said
+about it. The tests list every kind each agent's protocol has (Codex 0.155.1,
+the Claude Agent SDK 0.3.296, the Agent Client Protocol), so a newer version
+that adds one fails them until someone decides where it goes.
 
 ## Using OAuth in your own plugin
 

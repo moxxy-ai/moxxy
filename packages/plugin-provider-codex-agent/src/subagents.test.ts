@@ -10,7 +10,7 @@ describe("Codex's subagents", () => {
   it('start once, named after their path, however often Codex reports the start', () => {
     const subagents = new CodexSubagents();
 
-    expect(subagents.activity(activity('started'))).toEqual([{ type: 'subagent_started', id: CHILD, label: 'inspect folder', agentType: 'subagent' }]);
+    expect(subagents.activity(activity('started'))).toEqual([{ type: 'subagent_started', id: CHILD, label: 'inspect folder', agentType: 'default' }]);
     expect(subagents.activity(activity('started'))).toEqual([]);
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { SubagentBlock, SubagentGroupBlock } from '@moxxy/chat-model';
-import { subagentGroupHeader, subagentStatusText } from './SubagentGroupView.js';
+import { subagentGroupHeader, type SubagentBlock, type SubagentGroupBlock } from '@moxxy/chat-model';
+import { subagentStatusText } from './SubagentGroupView.js';
 
 const agent = (patch: Partial<SubagentBlock> = {}): SubagentBlock => ({
   kind: 'subagent',

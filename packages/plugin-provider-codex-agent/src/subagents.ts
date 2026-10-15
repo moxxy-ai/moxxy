@@ -25,7 +25,7 @@ export class CodexSubagents {
     if (a.kind === 'started') {
       if (known) return [];
       this.agents.set(id, { text: '', tokens: undefined, done: false });
-      return [{ type: 'subagent_started', id, label: labelOf(a.agentPath), agentType: 'subagent' }];
+      return [{ type: 'subagent_started', id, label: labelOf(a.agentPath), agentType: 'default' }];
     }
     if (a.kind !== 'completed' || !known || known.done) return [];
     known.done = true;
@@ -55,7 +55,7 @@ export class CodexSubagents {
 }
 
 /** "/root/inspect_folder" → "inspect folder". */
-function labelOf(path: unknown): string {
+export function labelOf(path: unknown): string {
   const last = typeof path === 'string' ? path.split('/').filter(Boolean).pop() : undefined;
   return last ? last.replace(/[_-]+/g, ' ') : 'subagent';
 }

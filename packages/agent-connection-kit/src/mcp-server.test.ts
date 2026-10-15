@@ -61,6 +61,18 @@ describe('the Moxxy tools MCP server', () => {
     expect(result.content).toEqual([{ type: 'text', text: 'browser_title: https://example.com' }]);
   });
 
+  it('tells the agent what it is talking to in the instructions it reads as it connects', async () => {
+    const client = await connect(await start({ ...titleTool, instructions: 'These are Moxxy tools.' }));
+
+    expect(client.getInstructions()).toBe('These are Moxxy tools.');
+  });
+
+  it('gives no instructions when the tools carry none', async () => {
+    const client = await connect(await start(titleTool));
+
+    expect(client.getInstructions()).toBeUndefined();
+  });
+
   it('hands back pictures and failures the way MCP describes them', async () => {
     const client = await connect(
       await start({

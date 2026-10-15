@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { formatTokensK, subagentState, subagentToolsLabel, type SubagentBlock, type SubagentGroupBlock } from '@moxxy/chat-model';
+import { formatTokensK, subagentGroupHeader, subagentState, subagentToolsLabel, type SubagentBlock, type SubagentGroupBlock } from '@moxxy/chat-model';
 import { DisclosureRow } from './DisclosureRow';
 import { SubagentDetail, subagentNote } from './SubagentView';
 import { TraceEntry } from '../trace/TraceEntry';
@@ -25,7 +25,7 @@ export function SubagentGroupView({
     <TraceEntry kind="subagent" testId="block-subagent-group">
       <DisclosureRow
         state={ledState(running, background, failed)}
-        label={headerLabel(block, running, background, failed)}
+        label={subagentGroupHeader(block)}
         live={running > 0}
         open={open}
         onToggle={() => setOpen((v) => !v)}
@@ -69,20 +69,6 @@ function AgentRow({ agent }: { readonly agent: SubagentBlock }): JSX.Element {
 }
 
 const STATE_WORD = { running: 'Running', background: 'In the background', done: 'Done', failed: 'Failed' } as const;
-
-/** "4 Explore agents finished" / "3 agents running" / "3 agents finished, 1
- *  failed" / "1 agent in the background". The default kind has no name worth
- *  saying, and a mixed batch has none to say. */
-function headerLabel(block: SubagentGroupBlock, running: number, background: number, failed: number): string {
-  const n = block.agents.length;
-  const named = block.agentType !== 'mixed' && block.agentType !== 'default';
-  const typeWord = named ? `${block.agentType} ` : '';
-  const noun = n === 1 ? 'agent' : 'agents';
-  const verb = running > 0 ? 'running' : background > 0 ? 'in the background' : 'finished';
-  const where = running === 0 && background === 0 && block.agents.every((a) => a.continued === true) ? ' in the background' : '';
-  const failSuffix = failed > 0 ? `, ${failed} failed` : '';
-  return `${n} ${typeWord}${noun} ${verb}${where}${failSuffix}`;
-}
 
 /** The batch's one state: any failure outranks any still running, which outranks
  *  any going on in the background, which outranks the whole fan-out having landed. */

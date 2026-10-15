@@ -34,6 +34,10 @@
       "types": "./dist/account-limit.d.ts",
       "import": "./dist/account-limit.js"
     },
+    "./format": {
+      "types": "./dist/format.d.ts",
+      "import": "./dist/format.js"
+    },
     "./markdown": {
       "types": "./dist/markdown/index.d.ts",
       "import": "./dist/markdown/index.js"

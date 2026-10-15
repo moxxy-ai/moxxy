@@ -87,6 +87,20 @@ describe('the Moxxy tools offered to the agent', () => {
     expect(await handler.call('browser_title', {}, new AbortController().signal)).toMatchObject({ isError: true });
   });
 
+  it("tells the agent the tools are Moxxy's, run in the person's conversation", () => {
+    expect(moxxyToolsHandler([title], { runTool: async () => ({ ok: true, output: '' }) }).instructions).toMatch(/Moxxy/);
+  });
+
+  it("offers Moxxy's browser as the agent's choice when it is lent the browser tools, saying where the page shows", () => {
+    const recall = defineTool({ name: 'recall', description: 'Recall a turn', inputSchema: z.object({}), handler: async () => 'unused' });
+    const lent = idleToolsHandler([recall, title]).instructions ?? '';
+
+    expect(lent).toMatch(/browser panel/);
+    expect(lent).toMatch(/your choice/i);
+    expect(lent).toMatch(/public/);
+    expect(idleToolsHandler([recall]).instructions).not.toMatch(/browser/i);
+  });
+
   it('tells lists of the same tools from lists that differ', () => {
     const other = { ...title, name: 'other' };
 

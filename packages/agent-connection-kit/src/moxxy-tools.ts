@@ -28,6 +28,23 @@ export function mcpToolsFrom(tools: ReadonlyArray<ToolDef>): McpTool[] {
 
 const NO_TURN = 'No Moxxy turn is running, so the tool cannot run now.';
 
+const ABOUT_MOXXY =
+  'Moxxy is the app the person talks to you through. The tools of this server are its own: each runs in the ' +
+  "person's Moxxy conversation, asks them first when their Moxxy settings say so, and shows in their chat.";
+
+const ABOUT_BROWSER =
+  "The browser_* tools drive Moxxy's browser. In the Moxxy desktop app its pages open in the browser panel next " +
+  'to the chat, where the person watches you work and can take over; outside the desktop it is a browser with no ' +
+  'window. It opens public http(s) pages only, not localhost or private addresses. Use it when seeing or acting on ' +
+  'a real page helps, such as checking a site or filling in a form for the person. Whether to use it or your own ' +
+  'tools is your choice.';
+
+/** What the agent is told about Moxxy's tools as it connects; the browser only when its tools are lent. */
+export function moxxyInstructions(toolNames: ReadonlyArray<string>): string {
+  const browser = toolNames.some((name) => name.startsWith('browser_'));
+  return browser ? `${ABOUT_MOXXY}\n\n${ABOUT_BROWSER}` : ABOUT_MOXXY;
+}
+
 /**
  * The MCP handler for one turn: the agent calls a Moxxy tool and the turn runs
  * it through the permission flow. MCP calls carry no id, so each gets its own.
@@ -44,6 +61,7 @@ export function moxxyToolsHandler(
   const listed = skill ? [...mcpToolsFrom(tools), skill] : mcpToolsFrom(tools);
   const run = (name: string, input: unknown) => host.runTool({ callId: `mcp_${randomUUID()}`, name, input });
   return {
+    instructions: moxxyInstructions(listed.map((tool) => tool.name)),
     list: () => listed,
     call: async (name, input) =>
       skill && name === LOAD_SKILL ? readSkill(skills, input, (skillName) => run(LOAD_SKILL, { name: skillName })) : toMcpResult(await run(name, input)),

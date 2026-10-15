@@ -5,6 +5,7 @@ import { blockGap } from './density.js';
 import {
   DotColors,
   formatTokensK,
+  subagentGroupHeader,
   subagentState,
   subagentToolsLabel,
   truncate,
@@ -69,23 +70,6 @@ export const SubagentGroupView: React.FC<{
     </Box>
   );
 };
-
-/**
- * "N {type} agents {verb}" — drop the type word for a mixed fan-out, use the
- * singular noun for a lone agent, and append a failure tail when any failed.
- */
-export function subagentGroupHeader(group: SubagentGroupBlock): string {
-  const agents = group.agents;
-  const running = agents.filter((a) => subagentState(a) === 'running').length;
-  const background = agents.filter((a) => subagentState(a) === 'background').length;
-  const failed = agents.filter((a) => a.error != null).length;
-  const typeWord = group.agentType === 'mixed' ? '' : `${group.agentType} `;
-  const noun = agents.length === 1 ? 'agent' : 'agents';
-  const verb = running > 0 ? 'running' : background > 0 ? 'in the background' : 'finished';
-  const where = running === 0 && background === 0 && agents.every((a) => a.continued === true) ? ' in the background' : '';
-  const failTail = failed > 0 ? ` (${failed} failed)` : '';
-  return `${agents.length} ${typeWord}${noun} ${verb}${where}${failTail}`;
-}
 
 /** The status line under one agent of the group. */
 export function subagentStatusText(agent: SubagentBlock): string {

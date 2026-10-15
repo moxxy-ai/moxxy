@@ -2,6 +2,7 @@ import type { MoxxyEvent } from '@moxxy/sdk';
 import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
 import { isQuestionAnswerDisplay, questionAnswerLines } from '@moxxy/sdk/tool-display';
 import { accountLimitText } from '@moxxy/chat-model/account-limit';
+import { subagentGroupHeader } from '@moxxy/chat-model/format';
 import { boolOf, textOf } from './utils/record';
 import type { PromptAttachment } from './clientFrames';
 
@@ -551,18 +552,20 @@ function refreshSubagentGroup(group: SubagentGroupTranscriptItem): void {
   const background = group.agents.filter((agent) => agent.status === 'background').length;
   const failed = group.agents.filter((agent) => agent.status === 'failed').length;
   group.status = running > 0 ? 'running' : failed > 0 ? 'failed' : background > 0 ? 'background' : 'done';
-  group.summary = summarizeSubagentGroup(group, running, background, failed);
+  group.summary = summarizeSubagentGroup(group);
 }
 
-function summarizeSubagentGroup(group: SubagentGroupTranscriptItem, running: number, background: number, failed: number): string {
-  const count = group.agents.length;
-  const agentType = sharedAgentType(group.agents);
-  const noun = count === 1 ? 'agent' : 'agents';
-  if (running > 0) return `${count} ${agentType} ${noun} running`;
-  if (failed > 0) return `${failed} of ${count} ${noun} failed`;
-  if (background > 0) return `${count} ${agentType} ${noun} in the background`;
-  const where = group.agents.every((agent) => agent.continued === true) ? ' in the background' : '';
-  return `${count} ${agentType} ${noun} finished${where}`;
+/** The group's line, in the words of the desktop and the terminal. */
+function summarizeSubagentGroup(group: SubagentGroupTranscriptItem): string {
+  return subagentGroupHeader({
+    agentType: sharedAgentType(group.agents),
+    agents: group.agents.map((agent) => ({
+      completedAtMs: agent.status === 'running' || agent.status === 'background' ? null : 0,
+      error: agent.status === 'failed' ? (agent.error ?? 'failed') : null,
+      backgrounded: agent.status === 'background',
+      ...(agent.continued ? { continued: true } : {}),
+    })),
+  });
 }
 
 const TRIGGER_LABELS: Readonly<Record<string, string>> = {

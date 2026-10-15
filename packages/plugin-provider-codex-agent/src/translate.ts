@@ -3,14 +3,18 @@ import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, parse
 import { MOXXY_MCP_SERVER } from './constants.js';
 import {
   knownItem,
+  otherItem,
   type CodexAsyncQuestion,
   type CodexFileChange,
   type CodexItem,
+  type CodexOtherItem,
   type CodexTokenUsage,
   type CodexUserInput,
   type CodexUserInputQuestion,
   type CodexWebSearchAction,
 } from './protocol.js';
+
+const STILL_RUNNING = 'Still running in the background when Codex ended its turn.';
 
 /** A tool Codex runs itself, as Moxxy names it (`Bash` so Moxxy's shell rules and formatting apply). */
 export interface CodexToolCall {
@@ -25,6 +29,8 @@ export interface CodexToolCall {
 export class TurnTranslator {
   private readonly announced = new Set<string>();
   private readonly calls = new Map<string, CodexToolCall>();
+  /** Items that started and have not ended yet. */
+  private readonly running = new Map<string, CodexToolCall>();
   /** Plan updates shown this turn; each is a call of its own. */
   private plans = 0;
   /** Questions Codex asked in its message (plan mode), answered once its turn ends. */
@@ -47,6 +53,17 @@ export class TurnTranslator {
     return [{ type: 'tool_call', callId, name: call.name, input: call.input }];
   }
 
+  /**
+   * What Codex left running as its turn ended (a command in the background):
+   * shown as still running, and handed back so its end can be shown when it comes.
+   */
+  leftRunning(): { readonly events: AgentStepEvent[]; readonly calls: ReadonlyMap<string, CodexToolCall> } {
+    const calls = new Map(this.running);
+    this.running.clear();
+    const events = [...calls.keys()].map((callId): AgentStepEvent => ({ type: 'tool_result', callId, ok: true, output: STILL_RUNNING }));
+    return { events, calls };
+  }
+
   /** The call shown for an item, for an approval that names only the item. */
   callOf(callId: string): CodexToolCall | undefined {
     return this.calls.get(callId);
@@ -60,12 +77,20 @@ export class TurnTranslator {
       case 'item/reasoning/summaryTextDelta':
         return typeof p.delta === 'string' && p.delta ? [{ type: 'reasoning_delta', delta: p.delta }] : [];
       case 'item/started': {
+        const other = otherItem(p.item);
         const item = knownItem(p.item);
         // A search is shown once it ends: Codex knows its query only then.
-        const call = item && item.type !== 'webSearch' ? toolCallOf(item) : undefined;
-        return item && call ? this.announce(item.id, call) : [];
+        const call = other ? { name: other.type, input: other.fields } : item && item.type !== 'webSearch' ? toolCallOf(item) : undefined;
+        const id = other?.id ?? item?.id;
+        if (!call || id === undefined) return [];
+        this.running.set(id, call);
+        return this.announce(id, call);
       }
       case 'item/completed': {
+        const ended = (p.item as { id?: unknown } | undefined)?.id;
+        if (typeof ended === 'string') this.running.delete(ended);
+        const other = otherItem(p.item);
+        if (other) return this.otherCompleted(other);
         const item = knownItem(p.item);
         return item ? this.completed(item) : [];
       }
@@ -102,6 +127,21 @@ export class TurnTranslator {
     ];
   }
 
+  /**
+   * An item of a kind Moxxy does not know (one a newer Codex added), shown as
+   * a call named after it: what Codex said as it started, and what it added by the end.
+   */
+  private otherCompleted(item: CodexOtherItem): AgentStepEvent[] {
+    const announced = this.announce(item.id, { name: item.type, input: item.fields });
+    const before = (this.calls.get(item.id)?.input ?? {}) as Record<string, unknown>;
+    const added = Object.fromEntries(Object.entries(item.fields).filter(([key, value]) => JSON.stringify(before[key]) !== JSON.stringify(value)));
+    const failed = item.status !== undefined && /fail|declin|error/i.test(item.status);
+    const result: AgentStepEvent = failed
+      ? { type: 'tool_result', callId: item.id, ok: false, error: `Codex reports ${item.type} as ${item.status}.` }
+      : { type: 'tool_result', callId: item.id, ok: true, output: Object.keys(added).length > 0 ? added : '' };
+    return [...announced, result];
+  }
+
   private completed(item: CodexItem): AgentStepEvent[] {
     switch (item.type) {
       case 'agentMessage':
@@ -134,6 +174,10 @@ export function toolCallOf(item: CodexItem): CodexToolCall | undefined {
       return { name: 'web_search', input: webSearchInput(item.query, item.action) };
     case 'imageView':
       return { name: 'view_image', input: { path: item.path } };
+    case 'sleep':
+      return { name: 'Sleep', input: { ms: item.durationMs } };
+    case 'imageGeneration':
+      return { name: 'image_generation', input: item.revisedPrompt ? { prompt: item.revisedPrompt } : {} };
     default:
       return undefined;
   }
@@ -162,6 +206,17 @@ function toolResultOf(item: CodexItem, cwd: string, readImage: (path: string) =>
     case 'imageView': {
       const image = readImage(item.path);
       return { ok: true, output: image ? imageToolOutput(item.path, [image]) : '' };
+    }
+    case 'sleep':
+      return { ok: true, output: `Waited ${Math.round(item.durationMs / 1000)} s.` };
+    case 'imageGeneration': {
+      if (item.failure || status === 'failed') {
+        return { ok: false, error: item.failure?.type === 'usageLimitExceeded' ? 'Codex has used up its limit for pictures.' : 'Codex could not make the picture.' };
+      }
+      const saved = item.savedPath ? readImage(item.savedPath) : undefined;
+      const image = saved ?? (item.result ? { mediaType: 'image/png', base64: item.result } : undefined);
+      const text = item.savedPath ? `Saved to ${item.savedPath}` : 'The picture Codex made.';
+      return { ok: true, output: image ? imageToolOutput(text, [image]) : text };
     }
     default:
       return { ok: true, output: '' };

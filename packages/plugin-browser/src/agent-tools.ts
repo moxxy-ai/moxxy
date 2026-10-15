@@ -190,7 +190,8 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     name: 'browser_navigate',
     icon: 'globe',
     description:
-      'Open a URL in a tab. Restricted to public http(s) origins — loopback, private, link-local and metadata ' +
+      "Open a URL in a tab of Moxxy's browser: in the Moxxy desktop app, the browser panel the person sees. " +
+      'Restricted to public http(s) origins — loopback, private, link-local and metadata ' +
       'addresses are refused.',
     inputSchema: z.object({
       url: z

@@ -156,7 +156,18 @@ export type CodexItem =
       readonly error: { readonly message: string } | null;
     }
   | { readonly type: 'webSearch'; readonly id: string; readonly query: string; readonly action?: CodexWebSearchAction | null }
-  | { readonly type: 'imageView'; readonly id: string; readonly path: string };
+  | { readonly type: 'imageView'; readonly id: string; readonly path: string }
+  | { readonly type: 'sleep'; readonly id: string; readonly durationMs: number }
+  | {
+      readonly type: 'imageGeneration';
+      readonly id: string;
+      readonly status: string;
+      readonly revisedPrompt: string | null;
+      /** The picture, base64. */
+      readonly result: string;
+      readonly failure: { readonly type: string } | null;
+      readonly savedPath?: string;
+    };
 
 export type CodexWebSearchAction =
   | { readonly type: 'search'; readonly query?: string; readonly queries?: ReadonlyArray<string> }
@@ -171,13 +182,37 @@ export interface CodexFileChange {
   readonly diff?: string;
 }
 
-const KNOWN_ITEMS = new Set<string>(['agentMessage', 'plan', 'reasoning', 'commandExecution', 'fileChange', 'mcpToolCall', 'webSearch', 'imageView']);
+const KNOWN_ITEMS = new Set<string>(['agentMessage', 'plan', 'reasoning', 'commandExecution', 'fileChange', 'mcpToolCall', 'webSearch', 'imageView', 'sleep', 'imageGeneration']);
 
-/** An item Moxxy reads, or `undefined` for the many kinds it leaves alone. */
+/** Items Moxxy leaves out of the chat on purpose, and why. Every other kind shows: one Moxxy does not know, as a call named after it. */
+export const CODEX_ITEMS_LEFT_OUT: Readonly<Record<string, string>> = {
+  userMessage: "the person's own message, which Moxxy already shows",
+  hookPrompt: "text the person's Codex hooks add to the prompt, not something Codex did",
+  contextCompaction: "Codex shortening its own context; Moxxy's record of the conversation stays whole",
+  collabAgentToolCall: "Codex starting, waiting on or messaging its subagents, which their own rows show",
+  subAgentActivity: 'shown as the subagent row, read before the turn items',
+};
+
+/** An item Moxxy reads, or `undefined` for one it shows as a plain call or leaves out. */
 export function knownItem(value: unknown): CodexItem | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
   const { type, id } = value as { type?: unknown; id?: unknown };
   return typeof type === 'string' && typeof id === 'string' && KNOWN_ITEMS.has(type) ? (value as CodexItem) : undefined;
+}
+
+/** An item of a kind Moxxy neither reads nor leaves out: its fields, without the id, kind and status. */
+export interface CodexOtherItem {
+  readonly type: string;
+  readonly id: string;
+  readonly status?: string;
+  readonly fields: Readonly<Record<string, unknown>>;
+}
+
+export function otherItem(value: unknown): CodexOtherItem | undefined {
+  if (typeof value !== 'object' || value === null || knownItem(value)) return undefined;
+  const { type, id, status, ...fields } = value as Record<string, unknown>;
+  if (typeof type !== 'string' || typeof id !== 'string' || type in CODEX_ITEMS_LEFT_OUT) return undefined;
+  return { type, id, ...(typeof status === 'string' ? { status } : {}), fields };
 }
 
 export interface CodexTokenUsage {

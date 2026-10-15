@@ -154,6 +154,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
       for (const part of splitForDiscord(text)) await target.send(part);
     },
     formatPrompt: (prompt) => `*typed in moxxy:* ${prompt}`,
+    formatAgentTurn: (name) => `*agent continued:* ${name}`,
     onReply: (reply) => this.calls.say(reply),
     onError: (err) => this.opts.logger?.warn('discord mirror failed', { err: String(err) }),
   });

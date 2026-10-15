@@ -272,6 +272,27 @@ export function subagentState(agent: { readonly completedAtMs: number | null; re
   return agent.backgrounded === true ? 'background' : 'running';
 }
 
+/**
+ * "4 Explore agents finished" / "1 agent in the background" / "2 agents
+ * finished, 1 failed": the line a batch of subagents folds into, on every
+ * screen. The default kind has no name worth saying, and a mixed batch has none.
+ */
+export function subagentGroupHeader(group: {
+  readonly agentType: string;
+  readonly agents: ReadonlyArray<{ readonly completedAtMs: number | null; readonly error: string | null; readonly backgrounded?: boolean; readonly continued?: boolean }>;
+}): string {
+  const { agents } = group;
+  const running = agents.filter((a) => subagentState(a) === 'running').length;
+  const background = agents.filter((a) => subagentState(a) === 'background').length;
+  const failed = agents.filter((a) => a.error !== null).length;
+  const typeWord = group.agentType === 'mixed' || group.agentType === 'default' ? '' : `${group.agentType} `;
+  const noun = agents.length === 1 ? 'agent' : 'agents';
+  const verb = running > 0 ? 'running' : background > 0 ? 'in the background' : 'finished';
+  const where = running === 0 && background === 0 && agents.every((a) => a.continued === true) ? ' in the background' : '';
+  const failTail = failed > 0 ? `, ${failed} failed` : '';
+  return `${agents.length} ${typeWord}${noun} ${verb}${where}${failTail}`;
+}
+
 /** "3 tool calls" for a subagent; null when its agent does not report its tool calls and none arrived. */
 export function subagentToolsLabel(agent: { readonly toolCallCount: number; readonly toolsUnseen?: boolean }, noun: 'call' | 'use'): string | null {
   if (agent.toolsUnseen === true && agent.toolCallCount === 0) return null;

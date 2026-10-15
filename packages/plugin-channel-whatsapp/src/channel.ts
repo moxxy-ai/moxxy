@@ -519,7 +519,7 @@ export class WhatsAppChannel implements Channel<WhatsAppStartOpts> {
   }
 
   private mirrorForeignTurn(event: MoxxyEvent): void {
-    const text = this.turns.mirrorText(event);
+    const text = this.turns.mirrorReply(event);
     if (text == null) return;
     const target = this.lastJid ?? this.ownerJid;
     if (!target) return;

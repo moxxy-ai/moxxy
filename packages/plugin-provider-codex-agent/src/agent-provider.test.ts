@@ -3,7 +3,7 @@
  * `agentStep`, and Codex itself is the stand-in at the `codex app-server`
  * boundary (fake-codex.testkit.ts). Nothing between them is replaced.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   AGENT_GOAL_SUBTYPE,
@@ -1082,5 +1082,84 @@ describe('the Moxxy tools Codex gets', () => {
     const tools = ['Read', 'recall', 'session_recall', 'present_view'].map((name) => ({ name }) as ToolDef);
 
     expect(toolsLentToCodex(tools).map((tool) => tool.name)).toEqual(['recall', 'present_view']);
+  });
+});
+
+describe('work Codex leaves running when its turn ends', () => {
+  /** Codex does not start a turn when it finishes (checked with 0.155.1): Moxxy opens one to show the end, sending Codex nothing. */
+  async function leaveRunning(start: (turn: Parameters<CodexScene>[0]) => void) {
+    let later: ((method: string, params: Record<string, unknown>) => void) | undefined;
+    let ids = { threadId: '', turnId: '' };
+    const { codex, session } = connect(async (turn) => {
+      if (turn.text === '2+2?') return turn.say('4');
+      ids = { threadId: turn.threadId, turnId: turn.id };
+      later = (method, params) => turn.server.notify(method, params);
+      start(turn);
+      turn.say('started');
+    });
+    session.setPermissionResolver(allowAll);
+    const first = await collectTurn(session, 'Start it and do not wait');
+    return { codex, session, first, ids, later: (method: string, params: Record<string, unknown>) => later?.(method, params) };
+  }
+
+  const opened = (session: Session) => session.log.ofType('user_prompt').filter((e) => e.origin?.kind === 'agent');
+
+  it('shows a command still running in the background as such, and its end in a turn Moxxy opens for it', async () => {
+    const command = { type: 'commandExecution', id: 'bg-1', command: "/bin/zsh -lc 'sleep 25 && echo BG-OK'", cwd: '/work/app', status: 'inProgress', aggregatedOutput: null, exitCode: null };
+    const { codex, session, first, ids, later } = await leaveRunning((turn) => turn.started(command));
+
+    expect(first.filter((e) => e.type === 'tool_result')).toEqual([
+      expect.objectContaining({ callId: 'bg-1', ok: true, output: 'Still running in the background when Codex ended its turn.' }),
+    ]);
+
+    later('item/completed', { ...ids, item: { ...command, status: 'completed', aggregatedOutput: 'BG-OK\n', exitCode: 0 } });
+    await vi.waitFor(() => expect(opened(session)).toHaveLength(1));
+    const turn = opened(session)[0];
+    await vi.waitFor(() => expect(session.log.slice().some((e) => e.type === 'provider_response' && turn && e.turnId === turn.turnId)).toBe(true));
+
+    expect(turn).toMatchObject({ origin: { kind: 'agent', name: 'A command Codex left running finished' } });
+    const inIt = session.log.slice().filter((e) => turn && e.turnId === turn.turnId);
+    expect(inIt.filter((e) => e.type === 'tool_call_requested')).toEqual([expect.objectContaining({ name: 'Bash', input: { command: 'sleep 25 && echo BG-OK', cwd: '/work/app' } })]);
+    expect(inIt.filter((e) => e.type === 'tool_result')).toEqual([expect.objectContaining({ ok: true, output: 'BG-OK\n' })]);
+    expect(codex.last.sent('turn/start')).toHaveLength(1);
+
+    expect(said(await collectTurn(session, '2+2?'))).toEqual(['4']);
+  });
+
+  it("shows a subagent's work and answer after the turn in a turn Moxxy opens for it", async () => {
+    const activity = (kind: string) => ({ type: 'subAgentActivity', id: `act-${kind}`, kind, agentThreadId: 'thread-child', agentPath: '/root/check_later' });
+    const child = { threadId: 'thread-child', turnId: 'turn-child' };
+    const { codex, session, ids, later } = await leaveRunning((turn) => turn.server.notify('item/started', { threadId: turn.threadId, turnId: turn.id, item: activity('started') }));
+
+    later('item/completed', { ...child, item: { type: 'commandExecution', id: 'exec-c', command: 'sleep 25', cwd: '/work/app', status: 'completed', aggregatedOutput: '', exitCode: 0 } });
+    later('item/completed', { ...child, item: { type: 'agentMessage', id: 'msg-c', text: 'DONE-7', phase: 'final_answer' } });
+    later('item/started', { ...ids, turnId: 'turn-x', item: activity('completed') });
+    await vi.waitFor(() => expect(opened(session)).toHaveLength(1));
+    const turn = opened(session)[0];
+    await vi.waitFor(() => expect(session.log.slice().some((e) => e.type === 'provider_response' && turn && e.turnId === turn.turnId)).toBe(true));
+
+    expect(turn).toMatchObject({ origin: { kind: 'agent', name: 'check later finished in the background' } });
+    const inIt = session.log.slice().filter((e) => turn && e.turnId === turn.turnId);
+    expect(inIt.flatMap((e) => (e.type === 'plugin_event' ? [[e.subtype, e.payload]] : []))).toEqual(
+      expect.arrayContaining([
+        ['subagent_tool_call', expect.objectContaining({ childSessionId: 'thread-child', name: 'Bash' })],
+        ['subagent_completed', expect.objectContaining({ childSessionId: 'thread-child', text: 'DONE-7' })],
+      ]),
+    );
+    expect(codex.last.sent('turn/start')).toHaveLength(1);
+  });
+
+  it('shows what finished while the person was already writing in their next turn instead', async () => {
+    const command = { type: 'commandExecution', id: 'bg-2', command: 'sleep 1', cwd: '/work/app', status: 'inProgress', aggregatedOutput: null, exitCode: null };
+    const { session, ids, later } = await leaveRunning((turn) => turn.started(command));
+    const prompt = collectTurn(session, '2+2?');
+    later('item/completed', { ...ids, item: { ...command, status: 'completed', aggregatedOutput: 'ok', exitCode: 0 } });
+
+    const next = await prompt;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(said(next)).toEqual(['4']);
+    const shown = session.log.slice().filter((e) => e.type === 'tool_result' && e.ok && e.output === 'ok');
+    expect(shown).toHaveLength(1);
   });
 });
