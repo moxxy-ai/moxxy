@@ -3,12 +3,13 @@
  * installing or updating one. The CLIs are real executables in a temporary
  * home; only the npm registry is stood in for.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { fakeInstaller, writeFakeCli } from '@moxxy/vitest-preset/fake-cli';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
-import { OPENCODE_CLI } from '@moxxy/agent-connection-kit';
+import { AGENT_CLIS, OPENCODE_CLI, type AgentCliDescriptor } from '@moxxy/agent-connection-kit';
 import { parseArgv } from '../argv.js';
 import { runAgentsCommand, type AgentsDeps } from './agents.js';
 
@@ -23,12 +24,21 @@ function newHome(): string {
   return home;
 }
 
-function cli(relative: string, version: string, script = ''): string {
-  const file = path.join(home ?? newHome(), relative);
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '%s\\n' ${JSON.stringify(version)}; exit 0; fi\n${script}\n`);
-  chmodSync(file, 0o755);
-  return file;
+// npm's OpenCode on Windows is a native opencode.exe behind its shim; the
+// stand-in is a Node script, so it says so.
+const OPENCODE: AgentCliDescriptor = {
+  ...OPENCODE_CLI,
+  windowsShim: { entry: 'node_modules/opencode-ai/bin/opencode.cjs', runs: 'node' },
+};
+
+/** A CLI at `relative` under the home that prints `version` for `--version` and runs `script` (Node, `args` in scope) otherwise. */
+function cli(command: 'claude' | 'codex' | 'opencode', relative: string, version: string, script = ''): string {
+  const desc = command === 'opencode' ? OPENCODE : Object.values(AGENT_CLIS).find((agent) => agent.command === command);
+  if (!desc) throw new Error(`no agent CLI ${command}`);
+  const file = path.join(home ?? newHome(), ...relative.split('/'));
+  return writeFakeCli(file, `if (args[0] === '--version') { console.log(${JSON.stringify(version)}); process.exit(0); }\n${script}`, {
+    windowsEntry: desc.windowsShim.entry,
+  });
 }
 
 const LATEST: Record<string, string> = {
@@ -43,6 +53,7 @@ function run(args: string[], over: Partial<AgentsDeps> = {}) {
   const deps: AgentsDeps = {
     home: home ?? newHome(),
     pathEnv: '',
+    agents: { opencode: OPENCODE },
     latest: async (pkg) => LATEST[pkg] ?? null,
     out: (s) => {
       out += s;
@@ -57,8 +68,8 @@ function run(args: string[], over: Partial<AgentsDeps> = {}) {
 
 describe('moxxy agents status', () => {
   it('lists each agent with its version and what to do next', async () => {
-    cli('.local/bin/claude', '2.1.300 (Claude Code)');
-    cli('.local/bin/codex', 'codex-cli 0.150.0');
+    cli('claude', '.local/bin/claude', '2.1.300 (Claude Code)');
+    cli('codex', '.local/bin/codex', 'codex-cli 0.150.0');
 
     const { code, out } = await run(['status']);
 
@@ -69,7 +80,7 @@ describe('moxxy agents status', () => {
   });
 
   it('is what `moxxy agents` shows on its own', async () => {
-    cli('.opencode/bin/opencode', '1.19.0');
+    cli('opencode', '.opencode/bin/opencode', '1.19.0');
 
     const { out } = await run([]);
 
@@ -77,7 +88,7 @@ describe('moxxy agents status', () => {
   });
 
   it('answers in JSON for scripts', async () => {
-    cli('.opencode/bin/opencode', '1.19.2');
+    cli('opencode', '.opencode/bin/opencode', '1.19.2');
 
     const { out } = await run(['status', '--json']);
 
@@ -91,23 +102,23 @@ describe('moxxy agents status', () => {
 
 describe('moxxy agents install / update', () => {
   it("installs with the vendor's installer, showing what it prints", async () => {
-    newHome();
-    const fake = { ...OPENCODE_CLI, install: { posix: "echo 'Installing opencode'; echo 'Installed opencode 1.19.2'", windows: '' } };
+    const fake = { ...OPENCODE, install: fakeInstaller(newHome(), "console.log('Installing opencode'); console.log('Installed opencode 1.19.2');") };
 
     const { code, out } = await run(['install', 'opencode'], { agents: { opencode: fake } });
 
     expect(code).toBe(0);
     expect(out).toContain('Installing opencode');
     expect(out).toContain('OpenCode: Installed opencode 1.19.2');
-  });
+  }, 30_000);
 
   it('updates by the command name or the connection name', async () => {
-    const file = cli('.opencode/bin/opencode', '1.18.0', 'if [ "$1" = "upgrade" ]; then echo "Upgraded"; touch "$0.upgraded"; fi');
+    const upgraded = path.join(newHome(), 'upgraded');
+    cli('opencode', '.opencode/bin/opencode', '1.18.0', `if (args[0] === 'upgrade') { console.log('Upgraded'); require('fs').writeFileSync(${JSON.stringify(upgraded)}, ''); }`);
 
     const { code } = await run(['update', 'opencode']);
 
     expect(code).toBe(0);
-    expect(existsSync(`${file}.upgraded`)).toBe(true);
+    expect(existsSync(upgraded)).toBe(true);
   });
 
   it('fails with the reason when it does not work', async () => {

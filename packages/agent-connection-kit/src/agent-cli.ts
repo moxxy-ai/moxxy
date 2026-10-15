@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -8,7 +9,6 @@ import {
   findExecutable,
   killTree,
   moxxyPath,
-  resolveExecutableTarget,
   spawnExecutableTarget,
   writeFileAtomic,
   type ExecutableTarget,
@@ -40,6 +40,12 @@ export interface AgentCliDescriptor {
   readonly installDirs: ReadonlyArray<string>;
   /** Extra environment for the installer, e.g. to keep it from asking anything. */
   readonly installEnv?: Readonly<Record<string, string>>;
+  /**
+   * What a Windows npm install's `.cmd` shim runs, relative to the shim's
+   * folder: a Node script or a native program. Only a shell runs the shim
+   * itself, and Moxxy starts no shell.
+   */
+  readonly windowsShim: { readonly entry: string; readonly runs: 'node' | 'native' };
 }
 
 export const CLAUDE_CLI: AgentCliDescriptor = {
@@ -50,6 +56,7 @@ export const CLAUDE_CLI: AgentCliDescriptor = {
   updateArgs: ['update'],
   install: { posix: 'curl -fsSL https://claude.ai/install.sh | bash', windows: 'irm https://claude.ai/install.ps1 | iex' },
   installDirs: ['.local/bin'],
+  windowsShim: { entry: 'node_modules/@anthropic-ai/claude-code/cli.js', runs: 'node' },
 };
 
 export const CODEX_CLI: AgentCliDescriptor = {
@@ -65,6 +72,7 @@ export const CODEX_CLI: AgentCliDescriptor = {
   installDirs: ['.local/bin'],
   // The installer otherwise offers to start Codex and to remove other installs.
   installEnv: { CODEX_NON_INTERACTIVE: '1' },
+  windowsShim: { entry: 'node_modules/@openai/codex/bin/codex.js', runs: 'node' },
 };
 
 export const OPENCODE_CLI: AgentCliDescriptor = {
@@ -76,6 +84,7 @@ export const OPENCODE_CLI: AgentCliDescriptor = {
   // OpenCode's install script is POSIX only; on Windows it ships through npm.
   install: { posix: 'curl -fsSL https://opencode.ai/install | bash', windows: 'npm install -g opencode-ai' },
   installDirs: ['.opencode/bin'],
+  windowsShim: { entry: 'node_modules/opencode-ai/bin/opencode.exe', runs: 'native' },
 };
 
 /** The agent CLI behind each agent connection, by provider name. */
@@ -113,8 +122,31 @@ export function findAgentCli(desc: AgentCliDescriptor, opts: AgentCliSearch = {}
 }
 
 function agentCliTarget(desc: AgentCliDescriptor, opts: AgentCliSearch): ExecutableTarget | null {
-  const { command, ...search } = searchOptions(desc, opts);
-  return resolveExecutableTarget(command, search);
+  const found = findAgentCli(desc, opts);
+  return found ? agentCliTargetAt(desc, found, { platform: opts.platform ?? process.platform }) : null;
+}
+
+export interface AgentCliTargetOptions {
+  readonly platform?: NodeJS.Platform;
+  readonly exists?: (file: string) => boolean;
+  readonly electron?: boolean;
+}
+
+const WINDOWS_NATIVE = new Set(['.exe', '.com']);
+const WINDOWS_SHIMS = new Set(['.cmd', '.bat', '.ps1']);
+
+/** How to run the CLI found at `found` without a shell: as it is, or, behind a Windows npm shim, what the shim runs. */
+export function agentCliTargetAt(desc: AgentCliDescriptor, found: string, opts: AgentCliTargetOptions = {}): ExecutableTarget {
+  const platform = opts.platform ?? process.platform;
+  if (platform !== 'win32') return { kind: 'direct', command: found };
+  const extension = path.win32.extname(found).toLowerCase();
+  if (WINDOWS_NATIVE.has(extension)) return { kind: 'direct', command: found };
+  if (!WINDOWS_SHIMS.has(extension)) throw new Error(`Cannot run ${desc.name} from ${found}; install it again or point at ${desc.command}.exe.`);
+  const entry = path.win32.join(path.win32.dirname(found), ...desc.windowsShim.entry.split('/'));
+  if (!(opts.exists ?? existsSync)(entry)) throw new Error(`Cannot find ${entry} behind ${found}; reinstall ${desc.name}.`);
+  if (desc.windowsShim.runs === 'native') return { kind: 'direct', command: entry };
+  const electron = opts.electron ?? Boolean(process.versions.electron);
+  return { kind: 'node', command: process.execPath, entry, env: electron ? { ELECTRON_RUN_AS_NODE: '1' } : {} };
 }
 
 export interface LatestVersionOptions {

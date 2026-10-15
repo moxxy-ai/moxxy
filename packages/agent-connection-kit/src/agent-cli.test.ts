@@ -4,16 +4,18 @@
  * CLIs here are real executables in a temporary home; only the npm registry
  * is stood in for.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { fakeInstaller, writeFakeCli } from '@moxxy/vitest-preset/fake-cli';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import {
   AGENT_CLIS,
   CLAUDE_CLI,
   CODEX_CLI,
   OPENCODE_CLI,
+  agentCliTargetAt,
   checkAgentCli,
   findAgentCli,
   installInvocation,
@@ -33,13 +35,16 @@ function newHome(): string {
   return home;
 }
 
-/** A CLI at `relative` under the home that prints `version` for `--version` and runs `script` otherwise. */
-function cli(relative: string, version: string, script = ''): string {
-  const file = path.join(home ?? newHome(), relative);
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '%s\\n' ${JSON.stringify(version)}; exit 0; fi\n${script}\n`);
-  chmodSync(file, 0o755);
-  return file;
+/**
+ * `desc`'s CLI at `relative` under the home: it prints `version` for
+ * `--version` and runs `script` (Node, `args` in scope) otherwise. On Windows
+ * it is an npm install's `.cmd` shim with the script where `desc` says it is.
+ */
+function cli(desc: AgentCliDescriptor, relative: string, version: string, script = ''): string {
+  const file = path.join(home ?? newHome(), ...relative.split('/'));
+  return writeFakeCli(file, `if (args[0] === '--version') { console.log(${JSON.stringify(version)}); process.exit(0); }\n${script}`, {
+    windowsEntry: desc.windowsShim.entry,
+  });
 }
 
 const noRegistry = async (): Promise<string | null> => null;
@@ -79,20 +84,57 @@ describe('the agent CLIs Moxxy knows', () => {
 
 describe('finding a CLI', () => {
   it('finds one the installer put outside the PATH a desktop app starts with', () => {
-    const file = cli('.opencode/bin/opencode', '1.19.0');
+    const file = cli(OPENCODE_CLI, '.opencode/bin/opencode', '1.19.0');
 
     expect(findAgentCli(OPENCODE_CLI, { home, pathEnv: '' })).toBe(file);
   });
 
   it('prefers the one on PATH, as a terminal would', () => {
-    cli('.local/bin/codex', 'codex-cli 0.150.0');
-    const onPath = cli('tools/codex', 'codex-cli 0.162.1');
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.150.0');
+    const onPath = cli(CODEX_CLI, 'tools/codex', 'codex-cli 0.162.1');
 
     expect(findAgentCli(CODEX_CLI, { home, pathEnv: path.dirname(onPath) })).toBe(onPath);
   });
 
   it('finds nothing when there is nothing', () => {
     expect(findAgentCli(CLAUDE_CLI, { home: newHome(), pathEnv: '' })).toBeNull();
+  });
+});
+
+describe('running a CLI found on Windows', () => {
+  const npm = 'C:\\Users\\ada\\AppData\\Roaming\\npm';
+  const win = { platform: 'win32' as const, exists: () => true, electron: false };
+
+  it('runs the script behind an npm shim with Node, since only a shell runs the shim', () => {
+    expect(agentCliTargetAt(CODEX_CLI, `${npm}\\codex.cmd`, win)).toEqual({
+      kind: 'node',
+      command: process.execPath,
+      entry: `${npm}\\node_modules\\@openai\\codex\\bin\\codex.js`,
+      env: {},
+    });
+    expect(agentCliTargetAt(CLAUDE_CLI, `${npm}\\claude.cmd`, { ...win, electron: true })).toEqual({
+      kind: 'node',
+      command: process.execPath,
+      entry: `${npm}\\node_modules\\@anthropic-ai\\claude-code\\cli.js`,
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    });
+  });
+
+  it("runs the program behind OpenCode's npm shim as it is", () => {
+    expect(agentCliTargetAt(OPENCODE_CLI, `${npm}\\opencode.cmd`, win)).toEqual({
+      kind: 'direct',
+      command: `${npm}\\node_modules\\opencode-ai\\bin\\opencode.exe`,
+    });
+  });
+
+  it('runs a native program as it is, and any CLI outside Windows', () => {
+    expect(agentCliTargetAt(CODEX_CLI, 'C:\\Tools\\codex.exe', win)).toEqual({ kind: 'direct', command: 'C:\\Tools\\codex.exe' });
+    expect(agentCliTargetAt(CODEX_CLI, '/usr/local/bin/codex', { platform: 'darwin' })).toEqual({ kind: 'direct', command: '/usr/local/bin/codex' });
+  });
+
+  it('refuses a shim whose program is gone, and a file Windows cannot run', () => {
+    expect(() => agentCliTargetAt(CODEX_CLI, `${npm}\\codex.cmd`, { ...win, exists: () => false })).toThrow(/Cannot find .*codex\.js.*reinstall Codex/);
+    expect(() => agentCliTargetAt(CODEX_CLI, `${npm}\\codex`, win)).toThrow(/Cannot run Codex from/);
   });
 });
 
@@ -105,23 +147,23 @@ describe('checking a CLI', () => {
   });
 
   it('asks for an update below the oldest version Moxxy works with', async () => {
-    cli('.local/bin/codex', 'codex-cli 0.150.0');
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.150.0');
     expect(await at('0.162.1')).toMatchObject({ state: 'update-required', installed: '0.150.0' });
   });
 
   it('offers an update when the vendor published a newer one', async () => {
-    cli('.local/bin/codex', 'codex-cli 0.155.1');
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.155.1');
     expect(await at('0.162.1')).toMatchObject({ state: 'update-available', installed: '0.155.1', latest: '0.162.1' });
   });
 
   it('is current at the latest, and when the registry cannot be asked', async () => {
-    cli('.local/bin/codex', 'codex-cli 0.162.1');
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.162.1');
     expect(await at('0.162.1')).toMatchObject({ state: 'current' });
     expect(await at(null)).toMatchObject({ state: 'current', latest: null });
   });
 
   it('says who the agent is signed in as, when asked', async () => {
-    cli('.local/bin/codex', 'codex-cli 0.162.1');
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.162.1');
     const signedIn = async () => ({ signedIn: true, account: 'ChatGPT' });
     const signedOut = async () => ({ signedIn: false });
 
@@ -152,7 +194,7 @@ describe('checking a CLI', () => {
   });
 
   it('cannot tell when the CLI prints no version', async () => {
-    cli('.local/bin/codex', 'hello');
+    cli(CODEX_CLI, '.local/bin/codex', 'hello');
     expect(await at('0.162.1')).toMatchObject({ state: 'unknown', installed: null });
   });
 });
@@ -192,17 +234,25 @@ describe("the vendor's latest version", () => {
   });
 });
 
+// Windows runs installers through PowerShell, which can take seconds to start on CI.
+const INSTALL_TIMEOUT_MS = 30_000;
+
 describe('installing and updating a CLI', () => {
-  const fake = (install: string): AgentCliDescriptor => ({
+  const fake = (installer: string): AgentCliDescriptor => ({
     ...OPENCODE_CLI,
-    install: { posix: install, windows: install },
+    install: fakeInstaller(home ?? newHome(), installer),
   });
 
   it("runs the vendor's installer, reporting each line and how far it got", async () => {
     newHome();
     const lines: string[] = [];
     const progress: Array<number | null> = [];
-    const script = "printf 'Installing opencode\\n'; printf '\\033[0;2m####   40.0%%\\r'; printf '######## 100.0%%\\n'; echo 'Installed'";
+    const script = [
+      "process.stdout.write('Installing opencode\\n');",
+      "process.stdout.write('\\x1b[0;2m####   40.0%\\r');",
+      "process.stdout.write('######## 100.0%\\n');",
+      "console.log('Installed');",
+    ].join('\n');
 
     const result = await runAgentCliAction(fake(script), 'install', {
       home,
@@ -213,24 +263,25 @@ describe('installing and updating a CLI', () => {
     expect(result).toEqual({ ok: true, message: 'Installed' });
     expect(lines).toEqual(['Installing opencode', '####   40.0%', '######## 100.0%', 'Installed']);
     expect(progress).toEqual([0.4, 1]);
-  });
+   }, INSTALL_TIMEOUT_MS);
 
   it('says why an install failed', async () => {
     newHome();
-    const result = await runAgentCliAction(fake("echo 'Downloading'; echo 'curl: (6) Could not resolve host' >&2; exit 6"), 'install', {
+    const result = await runAgentCliAction(fake("console.log('Downloading'); console.error('curl: (6) Could not resolve host'); process.exit(6);"), 'install', {
       home,
     });
 
     expect(result).toEqual({ ok: false, message: 'curl: (6) Could not resolve host' });
-  });
+   }, INSTALL_TIMEOUT_MS);
 
   it("updates through the agent's own command, wherever it was found", async () => {
-    const file = cli('.opencode/bin/opencode', '1.18.0', 'if [ "$1" = "upgrade" ]; then echo "Upgraded to 1.19.0"; touch "$0.upgraded"; fi');
+    const updated = path.join(newHome(), 'updated');
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.155.1', `if (args[0] === 'update') { console.log('Updated to 0.162.1'); require('fs').writeFileSync(${JSON.stringify(updated)}, ''); }`);
 
-    const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '' });
+    const result = await runAgentCliAction(CODEX_CLI, 'update', { home, pathEnv: '' });
 
-    expect(result).toEqual({ ok: true, message: 'Upgraded to 1.19.0' });
-    expect(existsSync(`${file}.upgraded`)).toBe(true);
+    expect(result).toEqual({ ok: true, message: 'Updated to 0.162.1' });
+    expect(existsSync(updated)).toBe(true);
   });
 
   it('cannot update what is not installed', async () => {
@@ -244,12 +295,12 @@ describe('installing and updating a CLI', () => {
   it('stops when told to', async () => {
     newHome();
     const stop = new AbortController();
-    const running = runAgentCliAction(fake('echo started; sleep 30'), 'install', {
+    const running = runAgentCliAction(fake("console.log('started'); setTimeout(() => {}, 30_000);"), 'install', {
       home,
       signal: stop.signal,
       onLine: () => stop.abort(),
     });
 
     expect(await running).toEqual({ ok: false, message: 'Stopped.' });
-  });
+   }, INSTALL_TIMEOUT_MS);
 });

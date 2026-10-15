@@ -13,6 +13,10 @@
     "./fs": {
       "types": "./fs.d.ts",
       "default": "./fs.js"
+    },
+    "./fake-cli": {
+      "types": "./fake-cli.d.ts",
+      "default": "./fake-cli.js"
     }
   },
   "peerDependencies": {

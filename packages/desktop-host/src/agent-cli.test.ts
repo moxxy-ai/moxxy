@@ -5,10 +5,11 @@
  * are real scripts in a temporary home; the runners are stood in for at their
  * process boundary.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { fakeInstaller, writeFakeCli } from '@moxxy/vitest-preset/fake-cli';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import { OPENCODE_CLI, type AgentCliDescriptor } from '@moxxy/agent-connection-kit';
 import type { AgentCliProgress } from '@moxxy/desktop-ipc-contract';
@@ -38,9 +39,20 @@ function runner(runningTurns: string[] = []): AgentCliRunner & { checks: number 
   return view;
 }
 
+// npm's OpenCode on Windows is a native opencode.exe behind its shim; the
+// stand-in is a Node script, so it says so.
+const OPENCODE: AgentCliDescriptor = {
+  ...OPENCODE_CLI,
+  windowsShim: { entry: 'node_modules/opencode-ai/bin/opencode.cjs', runs: 'node' },
+};
+
+/** OpenCode installed by `script`, a Node script body the installer line runs. */
 const installer = (script: string): Record<string, AgentCliDescriptor> => ({
-  opencode: { ...OPENCODE_CLI, install: { posix: script, windows: script } },
+  opencode: { ...OPENCODE, install: fakeInstaller(home ?? newHome(), script) },
 });
+
+// Windows runs installers through PowerShell, which can take seconds to start on CI.
+const INSTALL_TIMEOUT_MS = 30_000;
 
 describe('installing an agent CLI from the desktop', () => {
   it('sends each line and how far it got to the window, then has every runner check again', async () => {
@@ -51,7 +63,7 @@ describe('installing an agent CLI from the desktop', () => {
     const result = await runAgentCli('opencode', 'install', {
       runners: () => runners,
       emit: (p) => progress.push(p),
-      agents: installer("echo 'Installing opencode'; printf '#### 50.0%%\\n'; echo 'Installed'"),
+      agents: installer("console.log('Installing opencode'); console.log('#### 50.0%'); console.log('Installed');"),
       search,
     });
 
@@ -62,7 +74,7 @@ describe('installing an agent CLI from the desktop', () => {
       { provider: 'opencode', action: 'install', line: 'Installed' },
     ]);
     expect(runners.map((r) => r.checks)).toEqual([1, 1]);
-  });
+   }, INSTALL_TIMEOUT_MS);
 
   it('says why it failed, and still has the runners look again', async () => {
     const runners = [runner()];
@@ -70,19 +82,19 @@ describe('installing an agent CLI from the desktop', () => {
     const result = await runAgentCli('opencode', 'install', {
       runners: () => runners,
       emit: () => undefined,
-      agents: installer("echo 'curl: (6) Could not resolve host' >&2; exit 6"),
+      agents: installer("console.error('curl: (6) Could not resolve host'); process.exit(6);"),
       search: { home: newHome(), pathEnv: '' },
     });
 
     expect(result).toEqual({ ok: false, message: 'curl: (6) Could not resolve host' });
     expect(runners[0]?.checks).toBe(1);
-  });
+   }, INSTALL_TIMEOUT_MS);
 
   it('runs one install of a CLI at a time', async () => {
     const deps = {
       runners: () => [],
       emit: () => undefined,
-      agents: installer('sleep 1; echo done'),
+      agents: installer("setTimeout(() => console.log('done'), 1000);"),
       search: { home: newHome(), pathEnv: '' },
     };
 
@@ -91,7 +103,7 @@ describe('installing an agent CLI from the desktop', () => {
 
     expect(second).toEqual({ ok: false, message: 'OpenCode is already being installed or updated.' });
     expect(await first).toEqual({ ok: true, message: 'done' });
-  });
+   }, INSTALL_TIMEOUT_MS);
 
   it('knows only the agent connections', async () => {
     expect(await runAgentCli('anthropic', 'install', { runners: () => [], emit: () => undefined })).toEqual({
@@ -102,38 +114,43 @@ describe('installing an agent CLI from the desktop', () => {
 });
 
 describe('updating an agent CLI from the desktop', () => {
+  /** OpenCode under the home; returns the file its `upgrade` leaves behind. */
   function installedOpenCode(): string {
-    const file = path.join(newHome(), '.opencode/bin/opencode');
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, '#!/bin/sh\nif [ "$1" = "upgrade" ]; then echo "Upgraded"; touch "$0.upgraded"; fi\n');
-    chmodSync(file, 0o755);
-    return file;
+    const upgraded = path.join(newHome(), 'upgraded');
+    writeFakeCli(
+      path.join(home ?? newHome(), '.opencode', 'bin', 'opencode'),
+      `if (args[0] === 'upgrade') { console.log('Upgraded'); require('fs').writeFileSync(${JSON.stringify(upgraded)}, ''); }`,
+      { windowsEntry: OPENCODE.windowsShim.entry },
+    );
+    return upgraded;
   }
 
   it("waits until no turn runs: the update replaces the CLI a turn runs on", async () => {
-    const file = installedOpenCode();
+    const upgraded = installedOpenCode();
 
     const result = await runAgentCli('opencode', 'update', {
       runners: () => [runner(), runner(['turn-1'])],
       emit: () => undefined,
+      agents: { opencode: OPENCODE },
       search: { home, pathEnv: '' },
     });
 
     expect(result).toEqual({ ok: false, message: 'Wait until the running turns end: the update replaces the OpenCode they run on.' });
-    expect(existsSync(`${file}.upgraded`)).toBe(false);
+    expect(existsSync(upgraded)).toBe(false);
   });
 
   it("updates with the agent's own command when nothing runs", async () => {
-    const file = installedOpenCode();
+    const upgraded = installedOpenCode();
 
     const result = await runAgentCli('opencode', 'update', {
       runners: () => [runner()],
       emit: () => undefined,
+      agents: { opencode: OPENCODE },
       search: { home, pathEnv: '' },
     });
 
     expect(result).toEqual({ ok: true, message: 'Upgraded' });
-    expect(existsSync(`${file}.upgraded`)).toBe(true);
+    expect(existsSync(upgraded)).toBe(true);
   });
 });
 

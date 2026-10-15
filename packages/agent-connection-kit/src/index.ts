@@ -31,6 +31,7 @@ export {
   CLAUDE_CLI,
   CODEX_CLI,
   OPENCODE_CLI,
+  agentCliTargetAt,
   checkAgentCli,
   findAgentCli,
   installInvocation,
@@ -43,6 +44,7 @@ export {
   type AgentSignIn,
   type AgentCliDescriptor,
   type AgentCliSearch,
+  type AgentCliTargetOptions,
   type LatestVersionOptions,
 } from './agent-cli.js';
 export { Inbox, untilStopped } from './inbox.js';
