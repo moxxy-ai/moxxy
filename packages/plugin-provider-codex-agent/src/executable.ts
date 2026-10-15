@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
-import { CODEX_CLI, findAgentCli } from '@moxxy/agent-connection-kit';
+import { CODEX_CLI, findAgentCli, stopAgentProcess } from '@moxxy/agent-connection-kit';
 import { CODEX_APP_SERVER_ARGS } from './constants.js';
 import type { CodexConnection, StartCodexAppServer } from './codex-session.js';
 
@@ -43,7 +43,7 @@ export function spawnCodexAppServer(command: string): StartCodexAppServer {
       const child = spawnExecutableTarget(codexTarget(command), CODEX_APP_SERVER_ARGS, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
       const { stdin, stdout, stderr } = child;
       if (!stdin || !stdout || !stderr) {
-        child.kill();
+        stopAgentProcess(child);
         reject(new Error('Codex started without its stdio.'));
         return;
       }
@@ -58,7 +58,7 @@ export function spawnCodexAppServer(command: string): StartCodexAppServer {
           stderr,
           close: () => {
             stdin.end();
-            child.kill();
+            stopAgentProcess(child);
           },
         });
       });

@@ -55,3 +55,4 @@ export {
   type ResumeOptions,
   type Resumed,
 } from './resume.js';
+export { stopAgentProcess, type StopAgentOptions } from './stop-agent.js';

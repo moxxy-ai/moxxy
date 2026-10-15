@@ -91,17 +91,23 @@ real Claude Code, Codex or OpenCode. What is handled:
   `codexTarget`, `opencodeTarget`), and asks for the native `.exe` when there is
   none.
 - **Stopping an install or update** ends the whole process tree with `killTree`.
+- **Closing a conversation** ends the live Codex or OpenCode with
+  `stopAgentProcess` (`packages/agent-connection-kit/src/stop-agent.ts`): on
+  Windows the whole tree (`taskkill /T`), since a Codex from npm is the Node
+  launcher `codex.js` with the native agent as its child, and OpenCode's own
+  children (MCP servers it started) would outlive it too. On macOS and Linux
+  the agent is signalled directly: it is not spawned as a process-group
+  leader, so a group kill (`killTree` there) would miss it.
 - **Claude's plan file** is recognised under `.claude\plans\` as well as
   `.claude/plans/` (`claudePlanFileOf`).
 
 Still open:
 
-- A live Codex or OpenCode started from an npm install is the Node launcher,
-  and the native agent is its child. Closing the conversation calls
-  `child.kill()` on the launcher; on Windows that may leave the native agent
-  running. Check it on Windows, and use `killTree` if it does.
 - The vendors' `.ps1` installers and `codex update` / `claude update` /
-  `opencode upgrade` have not been run from Moxxy on Windows.
+  `opencode upgrade` have not been run from Moxxy on Windows, nor has closing
+  a conversation been watched in Task Manager there.
+- Claude's process is started and ended by the Claude Agent SDK, not by
+  Moxxy.
 
 ## Tests
 

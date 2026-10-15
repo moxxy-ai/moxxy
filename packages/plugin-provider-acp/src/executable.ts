@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
-import { OPENCODE_CLI, findAgentCli } from '@moxxy/agent-connection-kit';
+import { OPENCODE_CLI, findAgentCli, stopAgentProcess } from '@moxxy/agent-connection-kit';
 import { OPENCODE_ACP_ARGS, OPENCODE_EXECUTABLE_ENV } from './constants.js';
 import type { AcpConnection, StartAcpAgent } from './acp-session.js';
 
@@ -46,7 +46,7 @@ export function spawnOpenCodeAcp(command: string): StartAcpAgent {
       });
       const { stdin, stdout, stderr } = child;
       if (!stdin || !stdout || !stderr) {
-        child.kill();
+        stopAgentProcess(child);
         reject(new Error('OpenCode started without its stdio.'));
         return;
       }
@@ -61,7 +61,7 @@ export function spawnOpenCodeAcp(command: string): StartAcpAgent {
           stderr,
           close: () => {
             stdin.end();
-            child.kill();
+            stopAgentProcess(child);
           },
         });
       });
