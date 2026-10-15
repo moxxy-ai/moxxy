@@ -83,6 +83,12 @@ describe('parseQueries', () => {
     expect(parseQueries('## Queries\n1. heading header')).toEqual(['heading header']);
   });
 
+  it('reads a line of many Markdown marks in linear time', () => {
+    const started = performance.now();
+    expect(parseQueries(`QUERIES:\nx${'*'.repeat(100_000)}x`)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it('ends the list at a new paragraph after it', () => {
     expect(parseQueries('QUERIES:\n1. real query\n\nNotes:\n- not a query')).toEqual(['real query']);
   });

@@ -14,7 +14,8 @@ function frame(node: React.ReactElement): string {
   const stdout = Object.assign(
     new Writable({
       write(chunk, _encoding, done) {
-        out = String(chunk);
+        // Under CI, Ink writes the frame once and then a bare newline as it unmounts.
+        if (String(chunk).trim()) out = String(chunk);
         done();
       },
     }),

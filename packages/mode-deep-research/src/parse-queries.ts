@@ -77,9 +77,16 @@ function parseNumberedBlock(text: string, headerRegex: RegExp): string[] {
   return items;
 }
 
-/** `**QUERIES:**`, `## Queries` → the bare header text. */
+const MARKDOWN_MARKS = new Set(['*', '_', '`']);
+
+/** `**QUERIES:**`, `## Queries` → the bare header text. Walks the ends, so a run of marks inside a long line costs nothing. */
 function withoutMarkdown(line: string): string {
-  return line.replace(/^#+\s*/, '').replace(/^[*_`]+|[*_`]+$/g, '').trim();
+  let start = 0;
+  while (line[start] === '#') start += 1;
+  while (start < line.length && (MARKDOWN_MARKS.has(line[start] ?? '') || line[start] === ' ')) start += 1;
+  let end = line.length;
+  while (end > start && MARKDOWN_MARKS.has(line[end - 1] ?? '')) end -= 1;
+  return line.slice(start, end).trim();
 }
 
 function parseListItem(line: string): string | null {
