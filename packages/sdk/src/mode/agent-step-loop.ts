@@ -4,6 +4,7 @@ import {
   AUTO_APPROVE_PLUGIN_ID,
   AUTO_APPROVE_RESTORED_SUBTYPE,
   AUTO_APPROVE_SUBTYPE,
+  autoApproveFromAgent,
   autoApproveFromEvents,
   autoApproveRecorded,
 } from '../auto-approve.js';
@@ -257,6 +258,7 @@ async function runRound(
       earlierConversation: () => renderEarlierConversation(ctx.log, ctx.turnId),
       autoApprove,
       autoApproveRecorded: autoApproveRecorded(ctx.log.ofType('plugin_event')),
+      autoApproveFromAgent: autoApproveFromAgent(ctx.log.ofType('plugin_event')),
       ...(ctx.reasoning ? { reasoning: ctx.reasoning } : {}),
       ...(ctx.fast ? { fast: true } : {}),
       signal,

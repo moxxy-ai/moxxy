@@ -93,6 +93,8 @@ export class FakeCodex {
   threadCount = 0;
   turnCount = 0;
   resumeFailures = 0;
+  /** A Codex that started but answers nothing, as one stuck on startup. */
+  silent = false;
 
   constructor(
     readonly scene: CodexScene,
@@ -202,7 +204,7 @@ export class FakeCodexServer {
     }
     const params = message.params ?? {};
     this.requests.push({ method: message.method, params });
-    if (message.id === undefined) return;
+    if (message.id === undefined || this.codex.silent) return;
     try {
       const { result, after } = await this.handle(message.method, params);
       this.write({ id: message.id, result });

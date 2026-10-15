@@ -250,8 +250,11 @@ export class AcpAgentSession implements LiveSession {
     try {
       yield { type: 'session', sessionId: this.sessionId };
       this.autoApprove = req.autoApprove;
+      // Auto-approve OpenCode's own rules turned on, not the person: the
+      // person still answers what those rules ask (work outside the project).
       // Once the person turned it off, auto-approve on again is their choice.
-      if (!req.autoApprove) this.adopted = false;
+      if (req.autoApproveFromAgent !== undefined) this.adopted = req.autoApprove && req.autoApproveFromAgent;
+      else if (!req.autoApprove) this.adopted = false;
       // A new conversation shows how the person's agent really runs (one
       // state); a conversation going on, or one that recorded a switch, keeps
       // the auto-approve the person chose. In goal mode Moxxy answers for the person because of the goal,
@@ -261,8 +264,8 @@ export class AcpAgentSession implements LiveSession {
         const rules = await this.rules();
         const ownAuto = rules !== undefined && runsWithoutAsking(rules);
         if (this.settings.resume) {
-          // A new agent cannot tell whether the person turned it on; while the agent's own rules would have, it asks as if they did not.
-          if (ownAuto && this.autoApprove) this.adopted = true;
+          // Told nothing of who turned it on, while the agent's own rules would have, it asks as if the person did not.
+          if (ownAuto && this.autoApprove && req.autoApproveFromAgent === undefined) this.adopted = true;
         } else if (ownAuto && !this.autoApprove && !req.autoApproveRecorded) {
           this.autoApprove = true;
           this.adopted = true;

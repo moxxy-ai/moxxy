@@ -274,6 +274,22 @@ describe('an agent connection turn', () => {
     ]);
   });
 
+  it("tells the agent when auto-approve is its own setup Moxxy took on, not the person's choice", async () => {
+    const provider = new FakeAgentProvider(async function* (req) {
+      if (req.prompt[0]?.type === 'text' && req.prompt[0].text === 'first') yield { type: 'auto_approve', enabled: true };
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'first');
+    await collectTurn(session, 'second');
+    await session.setAutoApprove(false);
+    await session.setAutoApprove(true);
+    await collectTurn(session, 'third');
+
+    expect(provider.steps.map((step) => step.autoApproveFromAgent)).toEqual([false, true, false]);
+  });
+
   it('records why auto-approve changed outside Moxxy, and a change Moxxy set back, for the conversation to say so', async () => {
     const provider = new FakeAgentProvider(async function* () {
       yield { type: 'auto_approve', enabled: true };

@@ -93,7 +93,7 @@ Desktop and interactive CLI setup can start sign-in. Headless runners/services g
 2. Run `codex login` or `moxxy login codex-agent`, then confirm with `codex login status` and `moxxy doctor`.
 3. Select "ChatGPT — Codex agent" (`codex-agent`) in `moxxy init`. It defaults to `gpt-6-astra`; override per run with `--model`, or persist `plugins.provider.items.codex-agent.model`.
 
-Codex itself does each turn through `codex app-server`, with its own instructions, config, tools, skills and MCP servers. Moxxy shows Codex's approvals and questions, shows its plan in plan mode, ends goal mode when Codex's own goal is met, and lends Codex its own tools over a local MCP server. Auto-approve gives only the current conversation's Codex full access, and a switch you made before the first message stays as you set it; `~/.codex/config.toml` is never edited. Your reason for declining reaches Codex, fast mode runs it on its fast tier, and Stop interrupts its turn, tools included. "ChatGPT — Moxxy" (`openai-codex`) is the other way round: Moxxy does the work with ChatGPT models.
+Codex itself does each turn through `codex app-server`, with its own instructions, config, tools, skills and MCP servers. Moxxy shows Codex's approvals and questions, shows its plan in plan mode, ends goal mode when Codex's own goal is met, and lends Codex its own tools over a local MCP server. Auto-approve shows how your Codex really runs from the moment a conversation opens (Moxxy asks a short-lived `codex app-server` for the folder's config), gives only the current conversation's Codex full access, and stays as you set it; `~/.codex/config.toml` is never edited. Your reason for declining reaches Codex, fast mode runs it on its fast tier, and Stop interrupts its turn, tools included. "ChatGPT — Moxxy" (`openai-codex`) is the other way round: Moxxy does the work with ChatGPT models.
 
 ### OpenCode (your own OpenCode setup)
 
@@ -101,7 +101,7 @@ Codex itself does each turn through `codex app-server`, with its own instruction
 2. Its free models work without signing in; for other providers run `opencode auth login` (or `moxxy login opencode`) in a terminal.
 3. Select "OpenCode agent" (`opencode`) in `moxxy init`. Pick any model `opencode models` lists with `--model`, or persist `plugins.provider.items.opencode.model`.
 
-OpenCode itself does each turn through `opencode acp`, with its own instructions, config, tools, skills, permission rules and MCP servers. Moxxy shows what it does and its permission asks; auto-approve shows how OpenCode really runs (on with OpenCode's defaults, which ask for nothing; turning it off restarts that OpenCode once with your rules made to ask, for that process only), steers plan and goal mode through tools it lends OpenCode over a local MCP server, and never edits OpenCode's config.
+OpenCode itself does each turn through `opencode acp`, with its own instructions, config, tools, skills, permission rules and MCP servers. Moxxy shows what it does and its permission asks; auto-approve shows how OpenCode really runs from the moment a conversation opens (on with OpenCode's defaults, which ask for nothing; turning it off restarts that OpenCode once with your rules made to ask, for that process only), steers plan and goal mode through tools it lends OpenCode over a local MCP server, and never edits OpenCode's config.
 
 ### Keeping the agent CLIs up to date
 

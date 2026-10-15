@@ -24,6 +24,15 @@ export function runsWithoutAsking(rules: ReadonlyArray<OpenCodeRule>): boolean {
 }
 
 /**
+ * Whether the person's own OpenCode runs without asking in `cwd`, from its
+ * default `build` agent's rules; `undefined` when OpenCode cannot be asked.
+ */
+export async function openCodeOwnAutoApprove(cwd: string, readRules: ReadAgentRules): Promise<boolean | undefined> {
+  const rules = await readRules({ cwd, agent: 'build' }).catch(() => undefined);
+  return rules ? runsWithoutAsking(rules) : undefined;
+}
+
+/**
  * The permission config that makes OpenCode ask before what it would do on its
  * own. Each permission's rules are repeated in their order with every allow
  * turned into an ask, so what the person denied stays denied. Given as the

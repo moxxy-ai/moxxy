@@ -138,6 +138,7 @@ export {
   AUTO_APPROVE_PLUGIN_ID,
   AUTO_APPROVE_SUBTYPE,
   AUTO_APPROVE_RESTORED_SUBTYPE,
+  autoApproveFromAgent,
   autoApproveFromEvents,
   autoApproveRecorded,
   autoApproveSwitch,

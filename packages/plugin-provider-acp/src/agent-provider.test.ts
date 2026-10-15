@@ -5,8 +5,8 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver, type Skill, type ToolDef } from '@moxxy/sdk';
-import { buildSynthesizeSkillPlugin, collectTurn, type Session } from '@moxxy/core';
+import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver, type Skill, type ToolDef } from '@moxxy/sdk';
+import { buildSynthesizeSkillPlugin, collectTurn, newTurnId, type Session } from '@moxxy/core';
 import { createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
@@ -504,6 +504,31 @@ describe('auto-approve shows how OpenCode really runs', () => {
     expect(said(events)).toEqual(['outside true true, local true']);
   });
 
+  it('still asks about outside the project when Moxxy took on OpenCode running without asking as the conversation opened', async () => {
+    const asked: string[] = [];
+    const { session } = connect(
+      async (turn) => {
+        await turn.tool('write', 'edit', { filePath: '/elsewhere/a.txt', content: 'x' }, 'Wrote file successfully.', { outside: '/elsewhere/a.txt' });
+        turn.say('written');
+      },
+      { rules: { build: OPENCODE_DEFAULT_RULES } },
+    );
+    session.setPermissionResolver({ name: 'person', check: async (call) => (asked.push(call.name), { mode: 'allow' }) });
+    await session.log.append({
+      type: 'plugin_event',
+      sessionId: session.id,
+      turnId: newTurnId(),
+      source: 'system',
+      pluginId: AUTO_APPROVE_PLUGIN_ID,
+      subtype: AUTO_APPROVE_SUBTYPE,
+      payload: { enabled: true },
+    });
+
+    await collectTurn(session, 'write it');
+
+    expect(asked).toEqual(['Write']);
+  });
+
   it('answers those asks itself once the person chose auto-approve', async () => {
     const asked: string[] = [];
     const { session, opencode } = connect(
@@ -561,6 +586,25 @@ describe('auto-approve shows how OpenCode really runs', () => {
     expect(opencode.last.sent('session/load')).toHaveLength(1);
     expect(autoApprove(session)).toBe(true);
     expect(asked).toHaveLength(2);
+  });
+
+  it('answers itself after a new OpenCode loads the session when the person had chosen auto-approve', async () => {
+    const asked: string[] = [];
+    const { session, pool } = connect(
+      async (turn) => {
+        await turn.tool('write', 'edit', { filePath: '/elsewhere/a.txt', content: 'x' }, 'Wrote file successfully.', { outside: '/elsewhere/a.txt' });
+        turn.say('written');
+      },
+      { rules: { build: OPENCODE_DEFAULT_RULES } },
+    );
+    session.setPermissionResolver({ name: 'person', check: async (call) => (asked.push(call.name), { mode: 'allow' }) });
+    await session.setAutoApprove(true);
+    await collectTurn(session, 'one');
+    await pool.close(String(session.id));
+
+    await collectTurn(session, 'two');
+
+    expect(asked).toEqual([]);
   });
 
   it('keeps the conversation when the asking OpenCode cannot load the session, and loads it on the next message', async () => {

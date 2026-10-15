@@ -489,6 +489,12 @@ export interface AgentStepRequest {
    * runs and shows the way the person set it up.
    */
   readonly autoApproveRecorded?: boolean;
+  /**
+   * The switch in force is the agent's own setup Moxxy took on, not the
+   * person's choice; an agent whose own setup still asks the person about
+   * something (OpenCode: work outside the project) keeps asking then.
+   */
+  readonly autoApproveFromAgent?: boolean;
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
   /** The person asked for fast mode; the adapter runs the agent on its own faster tier, where it has one. */
   readonly fast?: boolean;

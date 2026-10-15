@@ -1,6 +1,6 @@
 /** OpenCode's permission rules as `opencode debug agent <name>` reports them, read and turned into asks. */
 import { describe, expect, it } from 'vitest';
-import { askingConfig, askingRules, asksOutsideProject, runsWithoutAsking, type OpenCodeRule } from './rules.js';
+import { askingConfig, askingRules, asksOutsideProject, openCodeOwnAutoApprove, runsWithoutAsking, type OpenCodeRule } from './rules.js';
 
 const rule = (permission: string, pattern: string, action: OpenCodeRule['action']): OpenCodeRule => ({ permission, pattern, action });
 
@@ -83,5 +83,25 @@ describe('asks about work outside the project', () => {
     expect(asksOutsideProject({ filepath: '/work/app/a.txt', diff: '+x' })).toBe(false);
     expect(asksOutsideProject({ command: 'git push' })).toBe(false);
     expect(asksOutsideProject(undefined)).toBe(false);
+  });
+});
+
+describe("the auto-approve of the person's own OpenCode", () => {
+  it("is read from the build agent's rules in the conversation folder: on when they ask for nothing", async () => {
+    const read: Array<{ cwd: string; agent: string }> = [];
+    const own = (rules: OpenCodeRule[] | undefined) =>
+      openCodeOwnAutoApprove('/work/app', async (opts) => {
+        read.push(opts);
+        return rules;
+      });
+
+    expect(await own(DEFAULTS)).toBe(true);
+    expect(await own([...DEFAULTS, rule('edit', '*', 'ask')])).toBe(false);
+    expect(await own(undefined)).toBeUndefined();
+    expect(read[0]).toEqual({ cwd: '/work/app', agent: 'build' });
+  });
+
+  it('is unknown when OpenCode cannot be asked', async () => {
+    expect(await openCodeOwnAutoApprove('/work/app', async () => Promise.reject(new Error('spawn opencode ENOENT')))).toBeUndefined();
   });
 });

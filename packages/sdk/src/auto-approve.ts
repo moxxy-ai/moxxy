@@ -37,3 +37,12 @@ export function autoApproveFromEvents(events: ReadonlyArray<MoxxyEvent>): boolea
 export function autoApproveRecorded(events: ReadonlyArray<MoxxyEvent>): boolean {
   return events.some((event) => autoApproveSwitch(event) !== null);
 }
+
+/** Whether the switch in force is the agent's own setup Moxxy took on (recorded by the system), not the person's choice. */
+export function autoApproveFromAgent(events: ReadonlyArray<MoxxyEvent>): boolean {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event && autoApproveSwitch(event) !== null) return event.source !== 'user';
+  }
+  return false;
+}
