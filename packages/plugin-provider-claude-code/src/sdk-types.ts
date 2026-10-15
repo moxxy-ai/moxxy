@@ -176,19 +176,21 @@ export interface ClaudeQueryOptions {
   readonly tools?: ReadonlyArray<string>;
   readonly settingSources?: ReadonlyArray<'user' | 'project' | 'local'>;
   readonly mcpServers?: Record<string, { readonly type: 'http'; readonly url: string; readonly headers: Record<string, string> }>;
+  /** Only the servers in `mcpServers`: none of the person's own, claude.ai connectors included. */
+  readonly strictMcpConfig?: boolean;
   readonly canUseTool?: ClaudeCanUseTool;
   readonly hooks?: { readonly PreToolUse?: ReadonlyArray<{ readonly hooks: ReadonlyArray<ClaudeHookCallback> }> };
   readonly env?: Record<string, string | undefined>;
   readonly stderr?: (data: string) => void;
 }
 
-/** A skill or command Claude can run; `builtin` marks Claude Code's own. */
 /** One of Claude's MCP servers; `status` is `connected`, `failed`, `needs-auth`, `pending` or `disabled`. */
 export interface ClaudeMcpServerStatus {
   readonly name: string;
   readonly status: string;
 }
 
+/** A skill or command Claude can run; `builtin` marks Claude Code's own. */
 export interface ClaudeSlashCommand {
   readonly name: string;
   readonly description: string;

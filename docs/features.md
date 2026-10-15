@@ -54,7 +54,7 @@ Moxxy includes these agent modes:
 - `default`: a Claude Code-style ReAct loop
 - `plan`: read-only analysis that ends in a plan card (Implement, Run as goal, Rewrite, Dismiss)
 - `goal`: an autonomous, auto-approved loop that continues until `goal_complete`
-- `research`: query planning, parallel subagent research, and cited synthesis
+- `research`: query planning, parallel subagent research, and cited synthesis. The plan covers the newest question; up to five earlier questions of the conversation come along only as context, so a follow-up like "And in Kraków?" still makes sense without the earlier topics being searched again
 
 Switch modes from the TUI with `/mode` or set the default in configuration. On an agent connection every mode works too, using the agent's own plan mode and goal where it has them.
 

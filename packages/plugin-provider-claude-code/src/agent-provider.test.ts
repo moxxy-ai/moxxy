@@ -746,6 +746,18 @@ describe('one-off text calls', () => {
     expect(out.join('')).toBe('asked: Find the release date.');
     expect(claude.last.options.systemPrompt).toBe('Plan search queries.');
   });
+
+  it("loads none of the person's MCP servers or claude.ai connectors, which a one-step call could only fail on", async () => {
+    const claude = new FakeClaude(async function* () {
+      yield assistantText('a summary');
+    });
+    const provider = new ClaudeAgentProvider({ defaultModel: 'claude-haiku-5-5', loadSdk: async () => claude });
+
+    for await (const _ of provider.stream({ model: 'claude-haiku-5-5', messages: [{ role: 'user', content: [{ type: 'text', text: 'Summarize.' }] }] })) void _;
+
+    expect(claude.last.options.strictMcpConfig).toBe(true);
+    expect(claude.last.options.mcpServers).toBeUndefined();
+  });
 });
 
 describe('the Moxxy tools Claude can see', () => {

@@ -124,6 +124,9 @@ export const MAX_FOLLOWUPS_PER_ROUND = 4;
 
 export const MAX_REDRAFTS = 3;
 
+/** Earlier questions of the conversation the planner sees as context for the newest one. */
+export const PLANNER_EARLIER_QUESTIONS_MAX = 5;
+
 export const SUBAGENT_MAX_ITERATIONS = 40;
 
 /**

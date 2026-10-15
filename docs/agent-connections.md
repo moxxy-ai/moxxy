@@ -111,7 +111,7 @@ The model list and effort levels come from the agent. An agent runs at Low effor
 - The agent's account limit (for example "Claude has used 56% of its weekly limit · resets Wed at 05:00") is in the desktop's Model & usage window. A turn that stopped on a used-up limit ends with a "Limit" note instead of the agent's raw error.
 - Images you attach go to the agent as images; other files are passed as files.
 - Switching to another connection in the middle of a conversation tells the new agent that it joins partway and hands it the earlier turns. Switching back hands the first agent the turns it was away for. A conversation reopened after a restart resumes the agent's own session.
-- Moxxy's one-off requests to the agent (summaries, skill drafts, memory, the research plan) pass their instructions as the agent's instructions, apart from the text it works on.
+- Moxxy's one-off requests to the agent (summaries, skill drafts, memory, the research plan) pass their instructions as the agent's instructions, apart from the text it works on. On Claude they load none of the person's MCP servers or claude.ai connectors: a one-off request has one step, so a tool call there could only fail. The person's turns keep every server.
 
 ## Things to know
 

@@ -104,7 +104,7 @@ export class ClaudeAgentProvider implements LLMProvider {
     return () => this.agentTurnListeners.delete(listener);
   }
 
-  /** One-off text (summaries, skill drafts): Claude with no tools, keeping no session. */
+  /** One-off text (summaries, skill drafts): Claude with no tools and no MCP servers, keeping no session. */
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
     const model = req.model || this.defaultModel;
     yield { type: 'message_start', model };
@@ -120,6 +120,7 @@ export class ClaudeAgentProvider implements LLMProvider {
           systemPrompt: system ?? '',
           ...(this.config.executable ? { pathToClaudeCodeExecutable: this.config.executable } : {}),
           tools: [],
+          strictMcpConfig: true,
           persistSession: false,
           maxTurns: 1,
           env: claudeEnv(),
