@@ -20,7 +20,9 @@ cd your-project
 moxxy onboard
 ```
 
-Choose an API provider, ChatGPT account, or existing Claude Code subscription
+Choose an API provider, a ChatGPT account, or a coding agent you already use
+(Claude Code, Codex or OpenCode — see
+[Agent connections](/guides/provider-oauth-login/))
 and authenticate. Keys are stored in the encrypted local vault. Moxxy selects
 the recommended model, runtime, and local memory index automatically.
 

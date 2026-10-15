@@ -72,6 +72,37 @@ Still open, and worth knowing before building on top of them:
 - `scripts/security-audit.mjs` runs `spawnSync('pnpm', …)`, which cannot find
   `pnpm.cmd`. It works in CI because that job runs on Ubuntu.
 
+## Agent connections
+
+The agent connections ([Agent connections](agent-connections.md)) start the
+vendor's CLI on your computer, so they meet every assumption below at once.
+They were written for Windows but have not yet run on a Windows machine with a
+real Claude Code, Codex or OpenCode. What is handled:
+
+- **Installers.** Claude's and Codex's installers run as `.ps1` scripts through
+  Windows PowerShell by its full path (`installInvocation` in
+  `packages/agent-connection-kit/src/agent-cli.ts`). OpenCode's install script
+  is POSIX only, so on Windows it installs with `npm install -g opencode-ai`.
+- **Finding the CLI.** `findAgentCli` looks on `PATH`, then in the folder the
+  vendor's installer uses (`installDirs`, joined with `path.win32` on Windows).
+- **`.cmd` shims.** An npm install puts `claude.cmd` / `codex.cmd` /
+  `opencode.cmd` on `PATH`, which only a shell can run. Each connection starts
+  the JavaScript entry behind the shim with Node instead (`claudeExecutableForSdk`,
+  `codexTarget`, `opencodeTarget`), and asks for the native `.exe` when there is
+  none.
+- **Stopping an install or update** ends the whole process tree with `killTree`.
+- **Claude's plan file** is recognised under `.claude\plans\` as well as
+  `.claude/plans/` (`claudePlanFileOf`).
+
+Still open:
+
+- A live Codex or OpenCode started from an npm install is the Node launcher,
+  and the native agent is its child. Closing the conversation calls
+  `child.kill()` on the launcher; on Windows that may leave the native agent
+  running. Check it on Windows, and use `killTree` if it does.
+- The vendors' `.ps1` installers and `codex update` / `claude update` /
+  `opencode upgrade` have not been run from Moxxy on Windows.
+
 ## Tests
 
 Every test process starts in a throwaway home: `tooling/vitest-preset/isolate.js`

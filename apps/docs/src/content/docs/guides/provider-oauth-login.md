@@ -208,19 +208,21 @@ Moxxy runs your installed `opencode` (from `PATH`, or
 The model picker offers what `opencode models` lists.
 
 - **Approvals.** The auto-approve switch shows how OpenCode really runs. On
-  its defaults OpenCode edits files and runs commands without asking, so the
-  first message turns auto-approve on. Turn it off and Moxxy restarts that
+  its defaults OpenCode edits files and runs commands without asking, so
+  auto-approve shows on from the moment a conversation opens. Turn it off and Moxxy restarts that
   conversation's OpenCode once, with your own rules passed in for that process
   only (`OPENCODE_CONFIG_CONTENT`): what they allow becomes an ask, what they
   deny stays denied. It then asks before edits, commands and web requests, and
   Moxxy shows each ask as its usual approval; turning auto-approve back on
   needs no restart, Moxxy answers the asks itself (your standing deny rules
   still refuse). Work outside the project folder, which OpenCode asks about
-  even on its defaults, still comes to you while auto-approve is the one the
-  first message turned on; once you switch it yourself, Moxxy answers that too.
+  even on its defaults, still comes to you while auto-approve is the one
+  OpenCode's own rules turned on; once you switch it yourself, Moxxy answers
+  that too.
   If your rules already ask, auto-approve stays off. A new OpenCode process
-  that loads the session keeps the switch as you left it (and, unable to tell
-  who turned it on, keeps asking you about work outside the project). OpenCode's
+  that loads the session keeps the switch as you left it, and asks you about
+  work outside the project only while the switch is the one OpenCode's own
+  rules turned on. OpenCode's
   config files are never edited. OpenCode ends its turn when you decline, so
   Moxxy hands it your reason as its next message in the same turn.
 - **Stop.** Stop cancels OpenCode's prompt; the next message carries on in the
@@ -237,6 +239,28 @@ The model picker offers what `opencode models` lists.
   session started; only a session OpenCode no longer has is replaced by a new
   one, which starts from Moxxy's record of the conversation.
 - **Credentials.** OpenCode owns its login files; Moxxy neither reads nor stores them.
+
+## Installing and updating the agent CLIs
+
+Moxxy checks the three CLIs when the terminal UI or `moxxy serve` (which the
+desktop runs) starts, and every hour after: whether each is installed, signed
+in, and as new as the vendor's latest release on npm. A CLI older than the
+oldest version Moxxy was checked against (Claude Code 2.1.296, Codex 0.155.1,
+OpenCode 1.19.0) must be updated before its connection runs. The desktop says
+so in one line above the message box and in Settings → Providers, the terminal
+in one line above the prompt, and `moxxy doctor` lists it.
+
+```sh
+moxxy agents status            # installed, latest, what to do next
+moxxy agents install opencode  # the vendor's installer
+moxxy agents update codex      # the agent's own update command
+```
+
+Install runs the vendor's own installer (on Windows its PowerShell installer,
+and npm for OpenCode); update runs the agent's own command (`claude update`,
+`codex update`, `opencode upgrade`), which knows how it was installed. Moxxy
+never updates a CLI by itself, and the desktop does not update one while a
+turn runs.
 
 ## Conversations outlive the agent's session
 
@@ -378,15 +402,16 @@ never asks you for permission.
 ## Your account's usage limit
 
 Claude and Codex tell Moxxy how much of your plan's usage they have left and
-when it resets. From three quarters of a window used, a line above the message
-box says so, for example "Claude has used 94% of its weekly limit · resets Sat
-at 08:00". Once the limit is used up, the turn ends with a note saying which
-limit and when it comes back, instead of the agent's raw error, and the line
-turns red until the window resets. The terminal shows the same line and note;
-the phone app, Telegram and Discord show the note when a turn stops on the
-limit. When the agent says again that the limit is used up without saying
-when it resets (Claude does, from its second message on), the reset it gave
-before still shows. OpenCode does not report a limit, so nothing shows for it.
+when it resets. The desktop shows it in the Model & usage window (the model
+name under the message box), for example "Claude has used 56% of its weekly
+limit · resets Wed at 05:00"; the terminal shows it in one line above the
+prompt from three quarters of a window used. Once the limit is used up, the
+turn ends with a "Limit" note saying which limit and when it comes back,
+instead of the agent's raw error. The phone app, Telegram and Discord show the
+note when a turn stops on the limit. When the agent says again that the limit
+is used up without saying when it resets (Claude does, from its second message
+on), the reset it gave before still shows; a limit whose reset has passed is no
+longer shown. OpenCode does not report a limit, so nothing shows for it.
 
 ## Helpers an agent starts
 

@@ -11,6 +11,7 @@ moxxy sends no usage analytics, no crash reports, and no product metrics. There 
 | Host | Trigger | Carries | Turn it off |
 |---|---|---|---|
 | `registry.npmjs.org` | Starting the TUI | The installed CLI version, to compare against the published one. No identifiers, no usage data. Fire-and-forget; the result only warms a cache for the next start. | Skipped automatically for workspace/dev installs. Otherwise block the host, or run a surface other than the TUI. |
+| `registry.npmjs.org` | A long-lived host (the TUI, `moxxy serve`, the desktop's runner) with an agent connection installed: once at start, then every hour | The names of the agent CLIs' npm packages (`@anthropic-ai/claude-code`, `@openai/codex`, `opencode-ai`), to compare their newest version with the one installed. No identifiers, no usage data. | Remove the agent connection plugins you do not use, or block the host; the installed version is still read locally. |
 
 That is the complete list. Nothing else contacts anything until you give the agent work to do.
 
@@ -29,6 +30,12 @@ What it carries in practice:
 - **Compaction and elision change what is sent, not where.** They reduce the projected history; they do not add a destination.
 
 Choosing a provider is a data-processing decision. A self-hosted or OpenAI-compatible internal endpoint keeps this flow inside your network; see `plugins.provider` in [configuration](configuration.md).
+
+### On an agent connection
+
+On an [agent connection](agent-connections.md) the turn runs in the vendor's own CLI (Claude Code, Codex, OpenCode), and that CLI sends the request, to its vendor's hosts, on your sign-in with that vendor. What it carries is decided by the agent: its own system prompt and tools, the files and command output it reads, and the Moxxy tool results it gets back (a browser snapshot, a screenshot). Moxxy does not see that request and cannot narrow it. The agent also keeps its own copy of the conversation (`~/.claude/projects`, `~/.codex`, OpenCode's data folder), and Claude's plan mode writes plan files to `~/.claude/plans`; Moxxy neither writes nor removes those.
+
+Moxxy's side of it stays on the machine: the agent reaches Moxxy's tools over an MCP server on `127.0.0.1` that needs a token and refuses browser requests. The first use of the Claude connection installs the Claude Agent SDK from `registry.npmjs.org`.
 
 ## On explicit action
 

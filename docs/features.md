@@ -8,6 +8,7 @@ Moxxy ships as a useful agent and as a framework whose main blocks can be replac
 |---|---|
 | Modular plugins | Providers, modes, tools, compactors, cache strategies, channels, transcribers, memory, and isolators share stable plugin contracts. |
 | Plugin discovery | Install a compatible npm package and Moxxy discovers its metadata. Plugins can be enabled and hot-reloaded without manual application wiring. |
+| Agent connections | Hand each turn to the coding agent already on your computer — Claude Code (Claude Pro or Max), Codex (ChatGPT) or OpenCode — with its own prompt, tools, settings and sign-in, and see its work in Moxxy: diffs, its step list, its questions and approvals in Moxxy's windows, its plan on the plan card. Moxxy lends it the browser, Computer Use and mode tools, and auto-approve is one state shared with the agent, changed for this conversation only. `moxxy agents` installs and updates the agent CLIs. See [Agent connections](agent-connections.md). |
 | Multiple interfaces | A session can be accessed from the TUI, desktop, Telegram, HTTP, schedules, and webhooks. |
 | Voice input | Send Telegram or Discord voice notes, use TUI voice input, or post raw audio to HTTP. Every session picks `plugins.transcriber.default` at start, else Codex transcription when you are logged in with ChatGPT (`moxxy login openai-codex`). OpenAI Whisper support is included, and the `Transcriber` contract is replaceable. |
 | Desktop Voice Mode | Talk to a session hands-free: the local engine runs every utterance as an agent turn read aloud by the spoken voice chosen in Settings → Voice (Gemini Flash-Lite or Local Piper), and the GPT-Live engine holds a live conversation over your ChatGPT login that knows the chat, hands explicit tasks to the agent in your own words, and reads back the real result ([details](voice-gpt-live.md)). |
@@ -39,7 +40,7 @@ See [Getting started](getting-started.md) for background service commands.
 
 ## Providers and modes
 
-Built-in providers include Anthropic, OpenAI, ChatGPT OAuth, and a Claude Code subscription provider. The provider administration plugin can register OpenAI-compatible providers at runtime. Custom providers use the same `defineProvider` contract.
+Built-in providers include Anthropic, OpenAI and ChatGPT OAuth, where Moxxy runs the turn, and three agent connections — Claude Agent, ChatGPT — Codex agent and OpenCode agent — where the vendor's own coding agent runs it ([Agent connections](agent-connections.md)). The provider administration plugin can register OpenAI-compatible providers at runtime. Custom providers use the same `defineProvider` contract.
 
 ChatGPT OAuth requests are stateless (`store: false`). Completed encrypted reasoning
 items are preserved in the event log and replayed before the next tool continuation,
@@ -48,13 +49,14 @@ provider receives these opaque items; Moxxy does not decrypt or display them. Th
 preserves context continuity and does not guarantee that a model completes every
 task correctly. See OpenAI's [stateless continuation guidance](https://developers.openai.com/api/docs/guides/deployment-checklist).
 
-Moxxy includes three agent modes:
+Moxxy includes these agent modes:
 
 - `default`: a Claude Code-style ReAct loop
+- `plan`: read-only analysis that ends in a plan card (Implement, Run as goal, Rewrite, Dismiss)
 - `goal`: an autonomous, auto-approved loop that continues until `goal_complete`
 - `research`: query planning, parallel subagent research, and cited synthesis
 
-Switch modes from the TUI with `/mode` or set the default in configuration.
+Switch modes from the TUI with `/mode` or set the default in configuration. On an agent connection every mode works too, using the agent's own plan mode and goal where it has them.
 
 In every mode and on every surface, the built-in `@moxxy/agent-conduct` plugin adds the same short note to each model request (`AGENT_CONDUCT` in `@moxxy/sdk`):
 
