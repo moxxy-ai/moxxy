@@ -34,6 +34,7 @@ export function EventBlockView({
         <TraceEntry kind="commanded" meta={stamp(event.ts)}>
           <UserBlock
             text={event.text}
+            seq={event.seq}
             attachments={event.attachments}
             onPreviewImage={onPreviewImage}
           />

@@ -9,6 +9,7 @@ import {
 } from '@moxxy/chat-model';
 import { buildRenderNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
 import { BlockView, StreamingAssistant } from './BlockView';
+import { AttachmentReaderProvider } from './attachments/AttachmentReaderContext';
 import { ToolIconProvider } from './ToolIconContext';
 import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
@@ -239,6 +240,7 @@ export function Transcript({
     <ModeTranscriptContext.Provider value={modes}>
     <PlanNextContext.Provider value={onPlanNext}>
     <ToolIconProvider workspaceId={workspaceId}>
+    <AttachmentReaderProvider workspaceId={workspaceId}>
     {/* Relative wrapper so the jump-to-latest button can float over the
         scroller without joining the virtualised content. */}
     <div className="transcript">
@@ -292,6 +294,7 @@ export function Transcript({
       />
       <JumpToLatest visible={!atBottom} unread={newBelow} onJump={jumpToLatest} />
     </div>
+    </AttachmentReaderProvider>
     </ToolIconProvider>
     </PlanNextContext.Provider>
     </ModeTranscriptContext.Provider>

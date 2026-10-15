@@ -6,10 +6,11 @@
  */
 
 /**
- * The moxxy mark as grayscale ASCII art: the interlaced weave, sampled to a
- * character ramp. Drawn dim-gray everywhere it appears (boot screen, TUI
- * header, `--help`/`--version`, init wizard) so the banner reads as quiet
- * chrome in any terminal theme.
+ * The moxxy mark as grayscale ASCII art: the ribbon sampled to a character
+ * ramp, the visor left blank and the two eyes solid, generated from the master
+ * picture by `assets/brand/build.sh`. Drawn dim-gray everywhere it appears
+ * (boot screen, TUI header, `--help`/`--version`, init wizard) so the banner
+ * reads as quiet chrome in any terminal theme.
  *
  * Rows are stored right-trimmed; `LOGO_LINES` pads every row to the widest one
  * (`LOGO_WIDTH`) so per-row centering keeps the columns aligned. The art needs
@@ -17,25 +18,26 @@
  * fall back to the `MOXXY` wordmark on narrow ones.
  */
 const LOGO_ART_RAW: ReadonlyArray<string> = [
-  '                       -#@@@@',
-  '                     -%@@@@@@',
-  '             :*%@@+=%@@@@@+%@@@@@@@@@@%*:',
-  '            +@@@+=%@@@@@++@@@@@@@@@@#+@@@+',
-  '            @@%=%@@@@@= :---------:*@%=+@@',
-  '            @@@@*::::              +@@@%=+',
-  '            @@@@*                  -@@@@@%-',
-  '            @@@@*                    =@@@@@%-',
-  '        =+++@@@@*                    ++=@@@@@*',
-  '       .@@@@%+@@*                    *@@+%@@@@.',
-  '        *@@@@@=++                    *@@@@+++=',
-  '         -%@@@@@=                    *@@@@',
-  '           -%@@@@@-                  *@@@@',
-  '            +=%@@@+              ::::*@@@@',
-  '            @@+=%@*:---------: =@@@@@%=%@@',
-  '            +@@@+#@@@@@@@@@@++@@@@@%=+@@@+',
-  '             :*%@@@@@@@@@@%+@@@@@%=+@@%*:',
-  '                         @@@@@@%-',
-  '                         @@@@#-',
+  '        .-=+++=-.           .:---.',
+  '      -#@@@@@@@@@%*-.:-+*#%@@@@@@@%+.',
+  '    =%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@+',
+  '  =%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%:',
+  '.#@@@@@@@@@%*#%@@@@@@@@@@@@@@@@@@@@@@@@@-',
+  '*@@@@@%=:.     .:=+*%@@@@@@@@@@@@@@@@@@@@-',
+  '%@@@@@=               .:-==+*##%%@@@@@@@@@',
+  '%@@@@#                             .*@@@@@:',
+  '%@@@@+       @@@          @@@       +@@@@@-',
+  '#@@@@=       @@@          @@@       +@@@@@-',
+  '#@@@@#       @@@          @@@       +@@@@@:',
+  '*@@@@@.      @@@           @@       #@@@@@.',
+  '=@@@@@%###-:::.                   :#@@@@@*',
+  ' *@@@@@@@%#****+=-------=====+++*%@@@@@@#.',
+  '  -#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@+',
+  '    .-=+*##%%@@@@@@@@@@@@@@@@@@@@@@@@+.',
+  '              .:-===--*@@@@@@@@@@@%+.',
+  '                       .+%@@@@@@%=.',
+  '                          =@@@@+.',
+  '                           .=+:',
 ];
 
 /** Widest mark row; every `LOGO_LINES` row is padded to this. */
@@ -49,25 +51,26 @@ export const LOGO_WIDTH = LOGO_ART_RAW.reduce((m, l) => Math.max(m, l.length), 0
 export const LOGO_LINES: ReadonlyArray<string> = LOGO_ART_RAW.map((l) => l.padEnd(LOGO_WIDTH));
 
 /**
- * A half-height rendition of the same interlaced mark for the TUI boot screen.
- * It keeps the recognizable weave without spending most of a normal terminal
+ * A half-height rendition of the same mark for the TUI boot screen. It keeps
+ * the face (visor and both eyes) without spending most of a normal terminal
  * viewport on branding. Unlike the wordmark fallback, this is still the moxxy
  * mark users see in the full banner.
  */
 const COMPACT_LOGO_ART_RAW: ReadonlyArray<string> = [
-  '             -%@@@@',
-  '      :*%@@+=%@@@+%@@@@@@@%*:',
-  '      @@%=%@@@= :-------:*@%=@@',
-  '      @@@@*              +@@@@%+',
-  '   =++@@@@*              ++=@@@@*',
-  '    *@@@@=+              *@@@@++=',
-  '     -%@@@@-             *@@@@',
-  '      @@+=%*:-------: =@@@%=%@@',
-  '       :*%@@@@@@@%+@@@@%=+@@%*:',
-  '              @@@@@@%-',
+  '    .:-:.      ...',
+  '  -*@@@@@%+*#%@@@@#-',
+  ':#@@@@%@@@@@@@@@@@@@*.',
+  '%@@*.   .:=+**#%%@@@@#',
+  '%@@    @      @    @@@.',
+  '%@%    @      @    @@@.',
+  '#@@+-:..          -@@%',
+  '.#@@@%%##*****###%@@%:',
+  '  .:-==+***#@@@@@@#-',
+  '            .+@@#:',
+  '              .:',
 ];
 
-/** Widest compact-mark row; rows are padded so the weave never shears. */
+/** Widest compact-mark row; rows are padded so the face never shears. */
 export const COMPACT_LOGO_WIDTH = COMPACT_LOGO_ART_RAW.reduce(
   (max, line) => Math.max(max, line.length),
   0,

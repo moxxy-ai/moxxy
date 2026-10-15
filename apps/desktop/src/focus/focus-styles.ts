@@ -823,11 +823,11 @@ ${FOCUS_DARK_VARS}
     .focus-pet--waiting-for-input .focus-pet-glow {
       filter: hue-rotate(22deg) saturate(1.2);
     }
-    /* The mark takes its second strand from --color-primary, so a failed call
-       recolours it by re-pointing that one property rather than filtering. */
+    /* The mark is a raster, so a failed call turns its orange glow red with a
+       hue shift and rings it in red. */
     .focus-pet--error .focus-pet-mark {
-      --color-primary: var(--color-red);
-      filter: drop-shadow(0 0 4px color-mix(in srgb, var(--color-red) 55%, transparent))
+      filter: hue-rotate(-24deg) saturate(1.3)
+        drop-shadow(0 0 4px color-mix(in srgb, var(--color-red) 55%, transparent))
         drop-shadow(0 5px 8px rgba(100, 20, 34, 0.3));
     }
     .focus-pet--microphone-muted:not(.focus-pet--speaking) .focus-pet-mark {

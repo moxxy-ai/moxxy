@@ -346,7 +346,7 @@ describe('FocusWidget Mini Chat with dropped files', () => {
     fireEvent.drop(chat, dragOf([film]));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('film.mov is 80 MB. A file can be up to 32 MB.');
+    expect(alert).toHaveTextContent('film.mov is 80 MB. Dropped or pasted, a file can be up to 32 MB. Attach file in the chat takes a larger one from the disk.');
     expect(alert).toHaveClass('cmdbar__alert');
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
@@ -362,15 +362,12 @@ describe('FocusWidget stages', () => {
     expect(screen.getByTestId('focus-pet')).toHaveAttribute('data-phase', 'idle');
   });
 
-  it('draws the pet as the woven Moxxy mark, not the retired raster mascot', () => {
+  it('draws the pet as the Moxxy mark, not the retired raster mascot', () => {
     installFakeApi();
     const { container } = render(<FocusWidget />);
 
     const mark = screen.getByTestId('focus-pet-mark');
-    const svg = mark.querySelector('svg');
-    expect(svg).toBeTruthy();
-    expect(svg?.getAttribute('viewBox')).toBe('0 0 256 256');
-    expect(svg?.querySelector('[stroke="var(--color-primary)"]')).toBeTruthy();
+    expect(mark.querySelector('img[src$="moxxy-mark.png"]')).toBeTruthy();
     expect(container.querySelector('canvas')).toBeNull();
     expect(container.querySelector('img[src*="brick-girl"]')).toBeNull();
   });
@@ -485,19 +482,17 @@ describe('FocusWidget stages', () => {
     expect(screen.getByRole('button', { name: /^send$/i })).toBeTruthy();
   });
 
-  it('heads mini-text with the inline brand mark, not the raster app icon', () => {
+  it('heads mini-text with the shared brand mark, not the app icon', () => {
     installFakeApi();
     const { container } = render(<FocusWidget />);
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
 
-    // The floating window cannot inherit styles.css, so the mark has to be
-    // inline SVG driven by the focus palette rather than a fetched raster —
-    // and it has to be the SAME mark the main window paints.
+    // The floating window paints the SAME mark the main window does: the
+    // shared cut-out raster, never the app icon with its own tile.
     const mark = screen.getByRole('img', { name: 'moxxy' });
-    expect(mark.tagName.toLowerCase()).toBe('svg');
-    expect(mark.querySelectorAll('rect[rx="12"]').length).toBeGreaterThanOrEqual(3);
-    expect(mark.querySelector('[stroke="var(--color-primary)"]')).toBeTruthy();
+    expect(mark.tagName).toBe('IMG');
+    expect(mark.getAttribute('src')).toMatch(/(^|\/)moxxy-mark\.png$/);
     expect(container.querySelector('img[src*="logo.png"]')).toBeNull();
   });
 
@@ -997,20 +992,23 @@ describe('FocusWidget stages', () => {
     render(<FocusWidget />);
 
     const pet = screen.getByRole('button', { name: /click to expand/i });
-    fireEvent.mouseDown(pet, {
+    fireEvent.pointerDown(pet, {
+      pointerId: 1,
       button: 0,
       clientX: 10,
       clientY: 10,
       screenX: 610,
       screenY: 410,
     });
-    fireEvent.mouseMove(pet, {
+    fireEvent.pointerMove(pet, {
+      pointerId: 1,
       clientX: 14,
       clientY: 13,
       screenX: 690,
       screenY: 470,
     });
-    fireEvent.mouseUp(pet, {
+    fireEvent.pointerUp(pet, {
+      pointerId: 1,
       clientX: 14,
       clientY: 13,
       screenX: 690,
@@ -2506,7 +2504,7 @@ describe('FocusWidget Mini Chat voice conversation', () => {
     assertDefined(header, 'the Mini Chat header');
     const [left, title, right] = Array.from(header.children);
     expect(within(left as HTMLElement).getByRole('button', { name: 'Back' })).toBeTruthy();
-    expect((title as HTMLElement).querySelector('svg')).not.toBeNull();
+    expect(within(title as HTMLElement).getByRole('img', { name: 'moxxy' })).toBeTruthy();
     const controls = within(right as HTMLElement).getAllByRole('button').map((b) => b.getAttribute('aria-label'));
     expect(controls).toEqual(['Start voice conversation', 'Open main window']);
     expect(header.style.gridTemplateColumns).toBe('1fr auto 1fr');

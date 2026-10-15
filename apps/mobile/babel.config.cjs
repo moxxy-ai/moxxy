@@ -24,14 +24,17 @@ function stripReactDevMetadataPlugin({ types: t }) {
 module.exports = function moxxyMobileBabelConfig(api) {
   const isNodeModule = api.caller((caller) => caller?.isNodeModule === true);
 
+  // Packages get Expo's default transform, which strips the TypeScript some ship as their
+  // Metro entry (expo-modules-core since SDK 55), without the app's own plugin.
   if (isNodeModule) {
     return {
-      presets: [],
+      presets: ['babel-preset-expo'],
     };
   }
 
+  // The automatic JSX runtime: app files import no React for `React.createElement` to use.
   return {
     plugins: [stripReactDevMetadataPlugin],
-    presets: [['babel-preset-expo', { jsxRuntime: 'classic' }]],
+    presets: ['babel-preset-expo'],
   };
 };

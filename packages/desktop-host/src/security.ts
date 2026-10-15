@@ -455,7 +455,7 @@ export function clerkCspHostSources(publishableKey?: string | null): string[] {
  * keys.
  *
  * The anonymizer's NER worker loads onnxruntime-web's WASM artifacts
- * (`ort-wasm-simd-threaded.jsep.{mjs,wasm}`) — the `.mjs` glue is a dynamic
+ * (`ort-wasm-simd-threaded.asyncify.{mjs,wasm}`) — the `.mjs` glue is a dynamic
  * module `import()` and the `.wasm` is fetch-compiled. Both ride entirely on
  * `'self'`: we ship them in the app shell at `/ort/` (served from the renderer's
  * own origin — see `electron.vite.config.ts`'s `ortWasmAssets` plugin and the

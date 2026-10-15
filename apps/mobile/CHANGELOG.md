@@ -1,5 +1,20 @@
 # @moxxy/workspaces-app
 
+## 0.5.0
+
+### Minor Changes
+
+- 1fe4015: The mobile app moves to Expo SDK 57 (React Native 0.86, React 19.2), and the Expo Go on the test phone has to support SDK 57. The app version goes to 1.1.0, so OTA updates published for the SDK 54 builds (1.0.0) never reach the new ones. The committed iOS project follows the SDK 57 template: iOS 16.4 minimum and the new `AppDelegate` entry point, and the `expo-updates` pod is now installed, with its resource script patched in the Podfile so it runs from a checkout path with spaces. Metro now reads `babel.config.cjs` (SDK 54 never did), so the app compiles JSX with the automatic runtime that SDK 54 used in practice, and packages get Expo's default transform, which strips the TypeScript that `expo-modules-core` ships as its entry. On Android the glass panels draw their semi-transparent fill instead of a blur, because expo-blur's Android blur now needs a `BlurTargetView`. Metro 0.84 sizes image assets itself, so the Metro patch for `image-size` 2 is gone, and a test now checks every installed Metro instead. `eas update` in the OTA workflow passes the `--environment` that SDK 55 made required.
+- b76bd98: Moxxy has a new logo: a metal ribbon around a dark visor with two glowing eyes, replacing the woven squares. It is everywhere the old one was: the desktop window, Dock and installer icons, the macOS menu bar (a drawn one-colour glyph: a speech bubble with the visor clear and the two eyes inside it), the sidebar, splash and focus window, the mobile app and its icon (which, being native, changes only with a new store build), and the terminal banner. Loading marks now breathe (they ease smaller and dim, then back) instead of turning. The logo blinks now and then in the sidebar's masthead and in the macOS menu bar, and holds still when the system asks for reduced motion. Every logo file comes from one source picture through `assets/brand/build.sh`, and tests fail when a shipped copy drifts from it. The old mark, wordmark, lockups and social card are kept in `assets/brand/alternates/weave/`.
+
+### Patch Changes
+
+- Updated dependencies [d70839e]
+  - @moxxy/sdk@0.44.0
+  - @moxxy/chat-model@0.4.17
+  - @moxxy/client-core@0.13.35
+  - @moxxy/client-transport-ws@0.2.44
+
 ## 0.4.28
 
 ### Patch Changes

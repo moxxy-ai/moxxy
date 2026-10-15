@@ -555,6 +555,15 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     before: z.number().int().nonnegative().nullable(),
     limit: z.number().int().positive().max(2000),
   }),
+  // Reads the session log (runner or the JSONL on disk) — bound every index.
+  'chat.readAttachment': z
+    .object({
+      workspaceId: z.string().min(1).max(256),
+      seq: z.number().int().nonnegative(),
+      index: z.number().int().nonnegative().max(1000),
+      offset: z.number().int().nonnegative(),
+    })
+    .strict(),
   // Collaboration control. All three touch the on-disk collab store
   // (~/.moxxy/collab/{active.lock,runs}) — a filesystem-touching surface — so
   // each gets the boundary check the module header promises:

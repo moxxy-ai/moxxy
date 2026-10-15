@@ -15,15 +15,6 @@ export const ACCEPTED_ADVISORIES = [
       'signing certificates during `expo run:ios`; it verifies no signatures and never ships.',
   },
   {
-    id: 'GHSA-ch52-4w7c-c8xp',
-    module: 'http-cache-semantics',
-    paths: ['apps__desktop>electron-builder>app-builder-lib>@electron/get>got>cacheable-request>http-cache-semantics'],
-    reason:
-      'Cross-user disclosure from a shared HTTP cache. @electron/get only caches the Electron release ' +
-      'it downloads on the build machine while electron-builder packages the desktop app; no user ' +
-      'requests or sessions go through it, and it is not in the installer.',
-  },
-  {
     id: 'GHSA-vfj7-8cjw-p6xm',
     module: 'braces',
     paths: ['apps__mobile>expo>@expo/metro>metro-file-map>micromatch>braces'],

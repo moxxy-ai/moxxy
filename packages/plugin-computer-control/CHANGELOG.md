@@ -1,5 +1,13 @@
 # @moxxy/plugin-computer-control
 
+## 0.44.0
+
+### Patch Changes
+
+- Updated dependencies [d70839e]
+  - @moxxy/sdk@0.44.0
+  - @moxxy/jev@0.2.3
+
 ## 0.43.0
 
 ### Patch Changes

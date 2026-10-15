@@ -47,6 +47,11 @@ const SOCKET_WAIT_MS = 20_000;
 const SOCKET_POLL_MS = 200;
 const SOCKET_POLL_MAX_MS = 500;
 const RECONNECT_BACKOFF_MS = 2_000;
+/** A connection that lasted this long counts as working; a shorter one as a failed attempt. */
+const STABLE_CONNECTION_MS = 30_000;
+/** Failed attempts in a row after which the loop stops and says so, instead of
+ *  spinning "Reconnecting…" forever. Retry starts it again. */
+const MAX_UNSTABLE_ATTEMPTS = 5;
 const WAITING_FOR_EXTERNAL_RUNNER = 'waiting for the channel bot to start';
 const LOG_RING_SIZE = 200;
 
@@ -59,6 +64,11 @@ export class RunnerSupervisor extends EventEmitter {
   private child: ChildProcess | null = null;
   private retryNotify: () => void = () => {};
   private stopped = false;
+  private looping = false;
+  /** Attempts in a row that ended without a stable connection. */
+  private unstableAttempts = 0;
+  /** Whether the current attempt held its connection for STABLE_CONNECTION_MS. */
+  private attemptWasStable = false;
   /**
    * How many times we've hard-killed a "stale" runner on a protocol mismatch
    * and respawned. A respawn from our PINNED bundled CLI yields the SAME
@@ -106,13 +116,15 @@ export class RunnerSupervisor extends EventEmitter {
   async setCwd(cwd: string | null): Promise<void> {
     if (this.cwd === cwd) return;
     this.cwd = cwd;
-    if (this.session) {
+    // A runner left alive between attempts would otherwise be re-attached in
+    // the OLD directory, so stop it even when no link is up.
+    if (this.session || this.child) {
       // Close the session — the run loop will then attempt to spawn
       // a fresh runner in the new directory.
       const session = this.session;
       this.session = null;
       try {
-        await session.close();
+        await session?.close();
       } catch {
         /* ignore */
       }
@@ -232,8 +244,13 @@ export class RunnerSupervisor extends EventEmitter {
   }
 
   /** Kick the loop out of a backoff wait so the user's Retry button
-   *  is responsive. No-op when already trying. */
+   *  is responsive, or start it again when it stopped on a failure. */
   forceRetry(): void {
+    if (!this.looping && !this.stopped) {
+      this.unstableAttempts = 0;
+      void this.run();
+      return;
+    }
     this.retryNotify();
   }
 
@@ -264,28 +281,66 @@ export class RunnerSupervisor extends EventEmitter {
   /** Run the supervision loop. Returns immediately; the loop runs
    *  in the background for the lifetime of the process. */
   async run(): Promise<void> {
-    while (!this.stopped) {
-      try {
-        await this.attempt();
-      } catch (err) {
-        // attempt() sets the phase itself for known TERMINAL failures
-        // (cli-missing, protocol-incompatible) and the recoverable mismatch
-        // path. This catch is the safety net for unexpected throws.
-        if (!isTerminalPhase(this.currentPhase.phase)) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.attempts += 1;
-          this.setPhase({
-            phase: 'reconnecting',
-            reason: msg,
-            attempt: this.attempts,
-          });
+    if (this.looping) return;
+    this.looping = true;
+    try {
+      while (!this.stopped) {
+        this.attemptWasStable = false;
+        try {
+          await this.attempt();
+        } catch (err) {
+          // attempt() sets the phase itself for known TERMINAL failures
+          // (cli-missing, protocol-incompatible) and the recoverable mismatch
+          // path. This catch is the safety net for unexpected throws.
+          if (!isTerminalPhase(this.currentPhase.phase)) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.attempts += 1;
+            this.setPhase({
+              phase: 'reconnecting',
+              reason: msg,
+              attempt: this.attempts,
+            });
+          }
         }
+        // A terminal phase means there is nothing a retry can fix — stop the loop
+        // instead of spinning forever (the desktop hot-update reconnect loop).
+        if (isTerminalPhase(this.currentPhase.phase)) break;
+        if (this.stopped) break;
+        if (this.giveUpAfterRepeatedFailures()) {
+          await this.stopOwnRunner();
+          break;
+        }
+        await this.waitForRetry();
       }
-      // A terminal phase means there is nothing a retry can fix — stop the loop
-      // instead of spinning forever (the desktop hot-update reconnect loop).
-      if (isTerminalPhase(this.currentPhase.phase)) break;
-      await this.waitForRetry();
+    } finally {
+      this.looping = false;
     }
+  }
+
+  /**
+   * True (after reporting `failed`) once MAX_UNSTABLE_ATTEMPTS attempts in a
+   * row ended without a stable connection: a runner that keeps dropping the
+   * link, or keeps dying on start, will not be fixed by attempt six. Someone
+   * else's runner (attachOnly) is waited for indefinitely, as before.
+   */
+  private giveUpAfterRepeatedFailures(): boolean {
+    if (this.options.attachOnly) return false;
+    this.unstableAttempts = this.attemptWasStable ? 0 : this.unstableAttempts + 1;
+    if (this.unstableAttempts < MAX_UNSTABLE_ATTEMPTS) return false;
+    const phase = this.currentPhase;
+    const last = phase.phase === 'reconnecting' ? phase.reason : phase.phase;
+    this.setPhase({
+      phase: 'failed',
+      error: `The agent runtime failed ${this.unstableAttempts} times in a row (last: ${last}).`,
+      hint: 'Try again to restart it. Technical details show the runtime log.',
+    });
+    return true;
+  }
+
+  private async stopOwnRunner(): Promise<void> {
+    if (!this.child) return;
+    await terminateChild(this.child);
+    this.child = null;
   }
 
   async stop(): Promise<void> {
@@ -326,6 +381,23 @@ export class RunnerSupervisor extends EventEmitter {
     // the workspace directory — adopting whatever serve is already on
     // the socket would inherit the wrong cwd and silently leak file
     // writes outside the workspace.
+    // The runner we spawned is still alive — only the link to it dropped (for
+    // instance it dropped a client it judged too slow). Attach to it again
+    // rather than killing it: its turns, state and warm caches survive.
+    const own = this.child;
+    if (own && isRunning(own)) {
+      try {
+        this.setPhase({ phase: 'adopting', socket: this.socketPath });
+        await this.waitForSocket(own);
+        await this.attachAndHold({ recoverMismatch: true });
+        return;
+      } catch (err) {
+        await terminateChild(own);
+        if (this.child === own) this.child = null;
+        throw err;
+      }
+    }
+
     const adopt = this.cwd === null ? await this.probeSocket() : false;
 
     if (!adopt) {
@@ -439,6 +511,7 @@ export class RunnerSupervisor extends EventEmitter {
       activeProvider: info.activeProvider ?? null,
       activeMode: info.activeMode ?? null,
     });
+    const connectedAt = Date.now();
 
     // Block here until the session drops. `onClose` fires exactly once
     // (per RemoteSession's docs) when the runner link tears down.
@@ -446,6 +519,7 @@ export class RunnerSupervisor extends EventEmitter {
       session.onClose(() => resolve());
     });
 
+    this.attemptWasStable = Date.now() - connectedAt >= STABLE_CONNECTION_MS;
     this.attempts += 1;
     this.setPhase({
       phase: 'reconnecting',
@@ -453,12 +527,8 @@ export class RunnerSupervisor extends EventEmitter {
       attempt: this.attempts,
     });
     this.session = null;
-    if (this.child) {
-      // Same as setCwd: wait for the child to actually exit before the loop
-      // respawns, so the new serve can bind the socket without colliding.
-      await terminateChild(this.child);
-      this.child = null;
-    }
+    // The child is deliberately left running: if it is still alive, the next
+    // attempt re-attaches to it; if it died, the next attempt respawns.
   }
 
   private probeSocket(): Promise<boolean> {
@@ -537,6 +607,10 @@ export class RunnerSupervisor extends EventEmitter {
     });
     proc.stdout?.on('data', (chunk) => this.consumeLog('stdout', chunk));
     proc.stderr?.on('data', (chunk) => this.consumeLog('stderr', chunk));
+    // A start that fails (no `node`, a missing folder) is reported as an
+    // 'error' event, and one nobody listens to crashes the whole app. The wait
+    // for the socket listens only while it waits, which can end first.
+    proc.on('error', (err) => this.pushLog('stderr', `child spawn error: ${err.message}`));
     return proc;
   }
 
@@ -597,9 +671,9 @@ export class RunnerSupervisor extends EventEmitter {
     const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
       exited = { code, signal };
     };
+    // spawnServe's own listener logs it; this one only ends the wait early.
     const onError = (err: Error): void => {
       spawnError = err;
-      this.pushLog('stderr', `child spawn error: ${err.message}`);
     };
     child?.once('exit', onExit);
     child?.once('error', onError);
@@ -710,6 +784,10 @@ function protocolIncompatiblePhase(msg: string): ConnectionPhase {
 }
 
 const SIGKILL_GRACE_MS = 2_000;
+
+function isRunning(child: ChildProcess): boolean {
+  return child.exitCode === null && child.signalCode === null;
+}
 
 /**
  * SIGTERM the child, then SIGKILL if it hasn't exited within the grace

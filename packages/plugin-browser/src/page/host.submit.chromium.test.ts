@@ -26,11 +26,29 @@ async function wantedUid(name = 'Wanted'): Promise<string> {
   return uid;
 }
 
+/**
+ * Runs `onCue` — the person taking over — while the page is stopped at its
+ * `debugger` cue. Chromium does not acknowledge the input that reached the cue
+ * until the page goes on, so the takeover lands before the host can send
+ * anything more, however late the pause is reported. The wait stands for a
+ * busy machine, where it is reported late.
+ */
+async function onPageCue(onCue: () => void): Promise<void> {
+  await tab.wc.debugger.sendCommand('Debugger.enable');
+  tab.wc.debugger.on?.('message', (_event, method) => {
+    if (method !== 'Debugger.paused') return;
+    setTimeout(() => {
+      onCue();
+      void tab.wc.debugger.sendCommand('Debugger.resume');
+    }, 100);
+  });
+}
+
 async function keyboardField(): Promise<string> {
   await tab.show(`<input id="wanted" aria-label="Wanted"><script>
     window.characterKeys=[];window.characterReleases=[];window.keyBased=false;
     const field=document.getElementById('wanted');
-    field.addEventListener('keydown',e=>{if(e.key.length===1){window.keyBased=true;window.characterKeys.push(e.key);console.log('character')}});
+    field.addEventListener('keydown',e=>{if(e.key.length===1){window.keyBased=true;window.characterKeys.push(e.key);debugger}});
     field.addEventListener('keyup',e=>{if(e.key.length===1)window.characterReleases.push(e.key)});
     field.addEventListener('beforeinput',e=>{if(e.inputType==='insertText'&&!window.keyBased)e.preventDefault()});
     field.addEventListener('input',()=>{window.keyBased=false});
@@ -42,10 +60,7 @@ describe.skipIf(!available)('submitting through the single browser type action',
   it('stops the current command after abort without blocking a later command', async () => {
     const uid = await keyboardField();
     const abort = new AbortController();
-    await tab.wc.debugger.sendCommand('Runtime.enable');
-    tab.wc.debugger.on?.('message', (_event, event) => {
-      if (event === 'Runtime.consoleAPICalled') abort.abort();
-    });
+    await onPageCue(() => abort.abort());
     const options = { signal: abort.signal, closeTab: () => undefined };
     const reply = await dispatchToHost(host, 'act', { action: 'type', uid, text: 'probe' }, options);
     expect(await tab.read('window.characterKeys')).toEqual(['p']);
@@ -57,14 +72,11 @@ describe.skipIf(!available)('submitting through the single browser type action',
   });
 
   it.each(['act', 'point'])('does not send a second click after takeover through %s', async (method) => {
-    await tab.show('<button aria-label="Wanted" onmousedown="console.log(\'pressed\')" onclick="window.activations++">Wanted</button><script>window.activations=0</script>');
+    await tab.show('<button aria-label="Wanted" onmousedown="debugger" onclick="window.activations++">Wanted</button><script>window.activations=0</script>');
     const uid = await wantedUid();
     const picture = z.object({ view: z.string(), width: z.number(), height: z.number() }).parse((await host.capture({ view: true })).result);
     const position = await tab.read<{ x: number; y: number }>('(() => { const b=document.querySelector("button").getBoundingClientRect(); return {x:(b.x+b.width/2)/innerWidth,y:(b.y+b.height/2)/innerHeight}; })()');
-    await tab.wc.debugger.sendCommand('Runtime.enable');
-    tab.wc.debugger.on?.('message', (_event, event) => {
-      if (event === 'Runtime.consoleAPICalled') host.takeOver();
-    });
+    await onPageCue(() => host.takeOver());
     const reply = await dispatchToHost(host, method, method === 'act'
       ? { action: 'click', uid, click_count: 2 }
       : { action: 'double_click', view: picture.view, x: position.x * picture.width, y: position.y * picture.height });
@@ -73,12 +85,9 @@ describe.skipIf(!available)('submitting through the single browser type action',
   });
 
   it('does not bulk-insert text after takeover triggered while the field gains focus', async () => {
-    await tab.show('<input id="wanted" aria-label="Wanted" onfocus="console.log(\'focused\')">');
+    await tab.show('<input id="wanted" aria-label="Wanted" onfocus="debugger">');
     const uid = await wantedUid();
-    await tab.wc.debugger.sendCommand('Runtime.enable');
-    tab.wc.debugger.on?.('message', (_event, method) => {
-      if (method === 'Runtime.consoleAPICalled') host.takeOver();
-    });
+    await onPageCue(() => host.takeOver());
     const reply = await dispatchToHost(host, 'act', { action: 'type', uid, text: 'probe' });
     expect(await tab.read('document.getElementById("wanted").value')).toBe('');
     expect(reply).toMatchObject({ ok: false });
@@ -93,10 +102,7 @@ describe.skipIf(!available)('submitting through the single browser type action',
 
   it('stops the character fallback after takeover while releasing the current key', async () => {
     const uid = await keyboardField();
-    await tab.wc.debugger.sendCommand('Runtime.enable');
-    tab.wc.debugger.on?.('message', (_event, method) => {
-      if (method === 'Runtime.consoleAPICalled') host.takeOver();
-    });
+    await onPageCue(() => host.takeOver());
     const reply = await dispatchToHost(host, 'act', { action: 'type', uid, text: 'probe' });
     expect(await tab.read('window.characterKeys')).toEqual(['p']);
     expect(await tab.read('window.characterReleases')).toEqual(['p']);
@@ -108,10 +114,7 @@ describe.skipIf(!available)('submitting through the single browser type action',
     await keyboardField();
     await tab.read('document.getElementById("wanted").focus()');
     const { view } = z.object({ view: z.string() }).parse((await host.capture({ view: true })).result);
-    await tab.wc.debugger.sendCommand('Runtime.enable');
-    tab.wc.debugger.on?.('message', (_event, method) => {
-      if (method === 'Runtime.consoleAPICalled') host.takeOver();
-    });
+    await onPageCue(() => host.takeOver());
     const reply = await dispatchToHost(host, 'point', { action: 'type', view, text: 'probe' });
     expect(await tab.read('window.characterKeys')).toEqual(['p']);
     expect(await tab.read('window.characterReleases')).toEqual(['p']);
@@ -120,12 +123,9 @@ describe.skipIf(!available)('submitting through the single browser type action',
   });
 
   it('stops selector-based filling when the user takes over while focusing', async () => {
-    await tab.show('<input id="wanted" aria-label="Wanted" onfocus="console.log(\'focused\')">');
+    await tab.show('<input id="wanted" aria-label="Wanted" onfocus="debugger">');
     await wantedUid();
-    await tab.wc.debugger.sendCommand('Runtime.enable');
-    tab.wc.debugger.on?.('message', (_event, method) => {
-      if (method === 'Runtime.consoleAPICalled') host.takeOver();
-    });
+    await onPageCue(() => host.takeOver());
     expect(await dispatchToHost(host, 'fill', { selector: '#wanted', value: 'probe' })).toMatchObject({ ok: false });
     expect(await tab.read('document.getElementById("wanted").value')).toBe('');
   });
@@ -159,13 +159,10 @@ describe.skipIf(!available)('submitting through the single browser type action',
   });
 
   it('checks takeover again after the target gains focus and before sending a key', async () => {
-    await tab.show(`<input id="wanted" aria-label="Wanted" onfocus="console.log('focused')"><input id="other">
+    await tab.show(`<input id="wanted" aria-label="Wanted" onfocus="debugger"><input id="other">
       <script>window.enters=0;document.addEventListener('keydown',e=>{if(e.key==='Enter')window.enters++});document.getElementById('other').focus()</script>`);
     const uid = await wantedUid();
-    await tab.wc.debugger.sendCommand('Runtime.enable');
-    tab.wc.debugger.on?.('message', (_event, method) => {
-      if (method === 'Runtime.consoleAPICalled') host.takeOver();
-    });
+    await onPageCue(() => host.takeOver());
     expect(await dispatchToHost(host, 'key', { uid, key: 'Enter' })).toMatchObject({ ok: false });
     expect(await tab.read('window.enters')).toBe(0);
   });
@@ -189,15 +186,10 @@ describe.skipIf(!available)('submitting through the single browser type action',
   });
 
   it('respects takeover reported by a real input event before submitting', async () => {
-    await tab.show(`<input id="wanted" aria-label="Wanted" oninput="console.log('typed')">
+    await tab.show(`<input id="wanted" aria-label="Wanted" oninput="debugger">
       <script>window.enters=0;document.addEventListener('keydown',e=>{if(e.key==='Enter')window.enters++})</script>`);
     const uid = await wantedUid();
-    await tab.wc.debugger.sendCommand('Runtime.enable');
-    // A real Chromium event schedules the person's takeover, without replacing
-    // any CDP command or response with a test double.
-    tab.wc.debugger.on?.('message', (_event, method) => {
-      if (method === 'Runtime.consoleAPICalled') host.takeOver();
-    });
+    await onPageCue(() => host.takeOver());
     expect(await dispatchToHost(host, 'act', { action: 'type', uid, text: 'Plan API', submit: true })).toMatchObject({ ok: false });
     expect(await tab.read('document.getElementById("wanted").value')).toBe('Plan API');
     expect(await tab.read('window.enters')).toBe(0);

@@ -23,7 +23,8 @@ export type AnthropicContentBlock =
   | {
       type: 'tool_result';
       tool_use_id: string;
-      content: string;
+      /** A string, or text plus the images/documents the tool returned. */
+      content: string | AnthropicToolResultPart[];
       is_error?: boolean;
       cache_control?: CacheControl;
     }
@@ -43,6 +44,13 @@ export type AnthropicContentBlock =
   // `redacted_thinking` block carrying only the opaque encrypted blob.
   | { type: 'thinking'; thinking: string; signature: string; cache_control?: CacheControl }
   | { type: 'redacted_thinking'; data: string; cache_control?: CacheControl };
+
+/** What a `tool_result` block's content array may hold. */
+export type AnthropicToolResultPart = Extract<AnthropicContentBlock, { type: 'text' | 'image' | 'document' }>;
+
+function isToolResultPart(block: AnthropicContentBlock | null): block is AnthropicToolResultPart {
+  return block !== null && (block.type === 'text' || block.type === 'image' || block.type === 'document');
+}
 
 export interface AnthropicToolDef {
   name: string;
@@ -118,12 +126,19 @@ export function toAnthropicMessages(
     if (msg.role === 'tool_result') {
       // Tool results are merged into a user message with tool_result content blocks
       pendingUserBlocks ??= [];
+      // Images/documents beside the result (a screenshot, a restored
+      // attachment) go inside it: Anthropic reads them there, and a bare
+      // image between tool_result blocks would break the result pairing.
+      const parts = msg.content
+        .filter((b) => b.type === 'image' || b.type === 'document')
+        .map(toAnthropicBlock)
+        .filter(isToolResultPart);
       for (const block of msg.content) {
         if (block.type === 'tool_result') {
           pendingUserBlocks.push({
             type: 'tool_result',
             tool_use_id: block.toolUseId,
-            content: block.content,
+            content: parts.length > 0 ? [{ type: 'text', text: block.content }, ...parts.splice(0)] : block.content,
             is_error: block.isError,
           });
         }

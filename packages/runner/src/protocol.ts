@@ -173,7 +173,12 @@ import type {
 /** v23: `computer.changed` pushes a session's Computer Use turns after every change, and `computer.control` accepts `takeover` (additive). */
 /** v24: `session.setFast` switches the provider's faster tier; `SessionInfo` reports `fast` and `reasoningEffort` (additive). */
 /** v25: `SessionInfo.defaultModel` reports the model a turn runs on when it names none (additive). */
-export const RUNNER_PROTOCOL_VERSION = 25;
+/**
+ * v26: events and history pages reach clients with large attachment bytes left
+ * out (`content: ''` + `omittedBytes`), and `session.readAttachment` reads them
+ * back in bounded slices (additive: older clients just see the size).
+ */
+export const RUNNER_PROTOCOL_VERSION = 26;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -211,6 +216,12 @@ export const RunnerMethod = {
    * reported version and falls back to its NDJSON store against an older runner.
    */
   SessionLoadHistory: 'session.loadHistory',
+  /**
+   * client->server: read one slice of an attachment whose bytes were left out
+   * of the client's copy of an event (v26). `{ seq, index, offset }` →
+   * `{ data, total }`; repeat with `offset += data.length` until `total`.
+   */
+  SessionReadAttachment: 'session.readAttachment',
   /**
    * client->server: append a conversation exchange that happened outside the
    * agent loop (v20) — e.g. a GPT-Live voice turn — as one ordinary turn, so
@@ -451,6 +462,13 @@ export interface SessionLoadHistoryResult {
   readonly prevCursor: number | null;
 }
 
+/** Params for `session.readAttachment` (v26): attachment `index` of event `seq`, from `offset` characters. */
+export interface SessionReadAttachmentParams {
+  readonly seq: number;
+  readonly index: number;
+  readonly offset: number;
+}
+
 /** Params for `session.recordExchange` (v20). At least one side carries text. */
 export interface SessionRecordExchangeParams {
   readonly userText?: string;
@@ -685,6 +703,14 @@ export const sessionLoadHistoryParamsSchema = z.object({
   before: z.number().int().nonnegative().nullable(),
   limit: z.number().int().positive().max(MAX_HISTORY_PAGE_LIMIT),
 });
+
+export const sessionReadAttachmentParamsSchema = z
+  .object({
+    seq: z.number().int().nonnegative(),
+    index: z.number().int().nonnegative().max(1_000),
+    offset: z.number().int().nonnegative(),
+  })
+  .strict();
 
 /** Bounds one recorded side to the transcript size a single spoken turn can reach. */
 export const MAX_RECORDED_EXCHANGE_CHARS = 100_000;

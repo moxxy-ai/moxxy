@@ -59,6 +59,17 @@ describe('the sidebar frame', () => {
     expect(screen.queryByTestId('sidebar-back')).toBeNull();
   });
 
+  it('heads the runs with the blinking mark', () => {
+    render(
+      <ShellNavProvider value={nav('chat')}>
+        <IndexColumn title="runs">rows</IndexColumn>
+      </ShellNavProvider>,
+    );
+    const head = screen.getByTestId('index-column').querySelector('.index-col__mark');
+    expect(head?.querySelector('.moxxy-mark-blink')).not.toBeNull();
+    expect(head?.querySelectorAll('.moxxy-mark-blink__eye')).toHaveLength(2);
+  });
+
   it('carries the account row in every view', async () => {
     for (const view of ['chat', 'settings', 'automations'] as const) {
       const { unmount } = render(

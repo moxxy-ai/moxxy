@@ -1,9 +1,11 @@
 import { pageEvents, readSessionEventPage } from '@moxxy/core';
+import { historyPageForClient, readAttachmentChunk, type AttachmentChunk, type MoxxyEvent } from '@moxxy/sdk';
 import {
   commandRunParamsSchema,
   modeSetActiveParamsSchema,
   permissionAddAllowParamsSchema,
   sessionLoadHistoryParamsSchema,
+  sessionReadAttachmentParamsSchema,
   sessionRecordExchangeParamsSchema,
   sessionSetAutoApproveParamsSchema,
   sessionSetReasoningParamsSchema,
@@ -71,13 +73,45 @@ export async function handleSessionLoadHistory(
 ): Promise<SessionLoadHistoryResult> {
   const { before, limit } = sessionLoadHistoryParamsSchema.parse(raw);
   const log = ctx.session.log;
-  if (log.baseSeq === 0) {
-    // The in-memory log holds the start of history — page it directly.
-    return pageEvents(log.toJSON(), before, limit);
+  // The in-memory log holds the start of history — page it directly. A
+  // tail-seeded / partial in-memory log reads one page off disk instead so the
+  // oldest history (below the in-memory base) is still reachable. Either way
+  // the client gets its own form of the page (see historyPageForClient).
+  const page =
+    log.baseSeq === 0
+      ? pageEvents(log.toJSON(), before, limit)
+      : await readSessionEventPage(String(ctx.session.id), { before, limit }, ctx.sessionsDir);
+  return historyPageForClient(page);
+}
+
+/**
+ * Read back one slice of an attachment a client received without its bytes
+ * (v26) — e.g. to draw an image preview. Slices are bounded, so even a very
+ * large file never travels as one frame.
+ */
+export async function handleSessionReadAttachment(
+  ctx: HandlerContext,
+  raw: unknown,
+): Promise<AttachmentChunk> {
+  const { seq, index, offset } = sessionReadAttachmentParamsSchema.parse(raw);
+  return readAttachmentChunk(await eventAt(ctx, seq), index, offset);
+}
+
+async function eventAt(ctx: HandlerContext, seq: number): Promise<MoxxyEvent> {
+  const log = ctx.session.log;
+  if (seq >= log.baseSeq) {
+    const inMemory = log.slice(seq, seq + 1)[0];
+    if (inMemory) return inMemory;
+    throw new Error(`no event ${seq} in this session`);
   }
-  // Tail-seeded / partial in-memory log: read one page off disk instead so the
-  // oldest history (below the in-memory base) is still reachable.
-  return readSessionEventPage(String(ctx.session.id), { before, limit }, ctx.sessionsDir);
+  const { events } = await readSessionEventPage(
+    String(ctx.session.id),
+    { before: seq + 1, limit: 1 },
+    ctx.sessionsDir,
+  );
+  const onDisk = events[0];
+  if (onDisk && onDisk.seq === seq) return onDisk;
+  throw new Error(`no event ${seq} in this session`);
 }
 
 /**

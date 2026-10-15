@@ -206,6 +206,34 @@ describe('unix-socket transport (NDJSON framing)', () => {
     raw.destroy();
   });
 
+  it('keeps a reader that is receiving one very large frame (a 20 MB history page)', async () => {
+    const socketPath = tmpSocket();
+    const server = await createUnixSocketServer(socketPath);
+    servers.push(server);
+    const serverSide = new Promise<Transport>((resolve) => server.onConnection(resolve));
+    const client = await connectUnixSocket(socketPath);
+    transports.push(client);
+    const srv = await serverSide;
+    let closed = false;
+    client.onClose(() => {
+      closed = true;
+    });
+    const frames: unknown[] = [];
+    const both = new Promise<void>((resolve) =>
+      client.onFrame((f) => {
+        frames.push(f);
+        if (frames.length === 2) resolve();
+      }),
+    );
+    const big = 'A'.repeat(20 * 1024 * 1024);
+    srv.send({ page: big });
+    // The next event goes out while most of the page is still queued.
+    srv.send({ event: 'small' });
+    await both;
+    expect(closed).toBe(false);
+    expect(frames[1]).toEqual({ event: 'small' });
+  });
+
   // A named pipe dies with its process, so Windows has no stale file to reclaim.
   it.skipIf(process.platform === 'win32')('reclaims a stale socket file left by a crashed runner', async () => {
     const socketPath = tmpSocket();

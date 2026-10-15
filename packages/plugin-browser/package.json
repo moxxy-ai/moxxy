@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-browser",
-  "version": "0.43.0",
+  "version": "0.44.0",
   "description": "Web capabilities for moxxy: pluggable web_search fallback, web_fetch, and a Playwright browser_session sidecar.",
   "keywords": [
     "moxxy",
@@ -73,7 +73,7 @@
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
-    "playwright": "^1.60.0",
+    "playwright": "^1.64.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

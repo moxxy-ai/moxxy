@@ -44,7 +44,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "tar-stream": "^3.2.1",
+    "tar-stream": "^3.2.2",
     "unbzip2-stream": "^1.4.3"
   },
   "devDependencies": {

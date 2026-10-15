@@ -5,7 +5,7 @@
  * them without re-declaring hover logic.
  *
  * The brand mark is NOT one of these — the widget renders the shared
- * {@link ../components/MoxxyMark}, the same inline SVG the main window paints,
+ * {@link ../components/MoxxyMark}, the same raster the main window paints,
  * so the two windows can never drift to different logos.
  */
 

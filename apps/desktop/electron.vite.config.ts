@@ -2,14 +2,14 @@ import { defineConfig, externalizeDepsPlugin, loadEnv } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { copyFileSync, mkdirSync, existsSync, createReadStream, readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, createReadStream, readFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
 
 /**
  * The onnxruntime-web WASM artifacts the anonymizer's NER worker needs at
- * runtime. transformers.js (which bundles onnxruntime-web) dynamically
- * `import()`s `ort-wasm-simd-threaded.jsep.mjs` (the JS glue), which in turn
- * fetch-compiles `ort-wasm-simd-threaded.jsep.wasm` (the ~21 MB binary).
+ * runtime. transformers.js imports `onnxruntime-web/webgpu`, whose glue
+ * (`ort-wasm-simd-threaded.asyncify.mjs`) fetch-compiles
+ * `ort-wasm-simd-threaded.asyncify.wasm` (the ~25 MB binary).
  *
  * By DEFAULT transformers.js resolves these from the jsdelivr CDN — which (a)
  * breaks the offline guarantee and (b) is blocked by the renderer CSP (and just
@@ -19,38 +19,40 @@ import type { Plugin } from 'vite';
  * are part of the bundle (unlike the ~109 MB model, which is install-downloaded)
  * because they are tiny relative to the app and always required.
  *
- * The exact set is read from the installed `@huggingface/transformers` so a
- * version bump can't silently desync the shipped glue from the runtime that
- * loads it.
+ * They are resolved from the onnxruntime-web that the installed
+ * `@huggingface/transformers` itself depends on, so a version bump can't
+ * silently desync the shipped glue from the runtime that loads it.
  */
 const ORT_WASM_FILES = [
-  'ort-wasm-simd-threaded.jsep.mjs',
-  'ort-wasm-simd-threaded.jsep.wasm',
+  'ort-wasm-simd-threaded.asyncify.mjs',
+  'ort-wasm-simd-threaded.asyncify.wasm',
 ] as const;
 
 /** Base URL path (relative to the renderer origin) the worker's `wasmPaths`
  *  points at; MUST match {@link ../desktop/src/apps/anonymizer/ner/ner.worker.ts}. */
 const ORT_SERVE_BASE = '/ort/';
 
-function transformersDistDir(): string {
-  const require = createRequire(import.meta.url);
-  // The package's `exports` map doesn't expose `./package.json`, so resolve the
-  // package entry itself. Historically every conditional export landed in
-  // `dist/`, so its dirname IS the dist dir (where the ORT artifacts live). But
-  // that's an internal-layout invariant — pin the REAL dir by verifying the ORT
-  // files actually live where we inferred, and probe a couple of fallbacks if a
-  // future version flattens the entry out of `dist/`. Failing loudly here beats
+/** Absolute path of every ORT artifact, keyed by the file name served under `/ort/`. */
+function ortWasmSources(): ReadonlyMap<string, string> {
+  // onnxruntime-web is transformers' dependency, not ours, so resolve it from
+  // there; its `exports` map names each WASM artifact. Failing loudly here beats
   // the silent CDN fallback the whole module exists to prevent.
-  const entry = require.resolve('@huggingface/transformers');
-  const entryDir = path.dirname(entry);
-  const candidates = [entryDir, path.join(entryDir, 'dist'), path.join(entryDir, '..', 'dist')];
-  for (const dir of candidates) {
-    if (ORT_WASM_FILES.every((f) => existsSync(path.join(dir, f)))) return dir;
+  const fromTransformers = createRequire(
+    createRequire(import.meta.url).resolve('@huggingface/transformers'),
+  );
+  const sources = new Map<string, string>();
+  for (const file of ORT_WASM_FILES) {
+    try {
+      sources.set(file, fromTransformers.resolve(`onnxruntime-web/${file}`));
+    } catch {
+      throw new Error(
+        `[ort-wasm] onnxruntime-web (from @huggingface/transformers) has no ${file}; ` +
+          `the NER worker would fall back to the jsdelivr CDN and break offline use. ` +
+          `Re-run pnpm install or update ORT_WASM_FILES for this transformers version.`,
+      );
+    }
   }
-  // None matched — return the historical guess so the downstream existsSync
-  // check throws a precise, file-named error rather than silently serving the
-  // wrong directory.
-  return entryDir;
+  return sources;
 }
 
 /**
@@ -60,7 +62,7 @@ function transformersDistDir(): string {
  * serves them). Nothing is fetched from a CDN.
  */
 function ortWasmAssets(): Plugin {
-  const distDir = transformersDistDir();
+  const sources = ortWasmSources();
   return {
     name: 'moxxy-ort-wasm-assets',
     apply: 'build',
@@ -68,15 +70,7 @@ function ortWasmAssets(): Plugin {
       const outDir = options.dir ?? path.resolve(__dirname, 'dist');
       const ortOut = path.join(outDir, 'ort');
       mkdirSync(ortOut, { recursive: true });
-      for (const file of ORT_WASM_FILES) {
-        const src = path.join(distDir, file);
-        if (!existsSync(src)) {
-          throw new Error(
-            `[ort-wasm] expected ${file} in @huggingface/transformers/dist (${distDir}); ` +
-              `the NER worker would fall back to the jsdelivr CDN and break offline use. ` +
-              `Re-run pnpm install or update ORT_WASM_FILES for this transformers version.`,
-          );
-        }
+      for (const [file, src] of sources) {
         copyFileSync(src, path.join(ortOut, file));
       }
     },
@@ -84,10 +78,10 @@ function ortWasmAssets(): Plugin {
 }
 
 /** Dev-only twin of {@link ortWasmAssets}: serve `/ort/<file>` from the
- *  installed transformers dist so the worker resolves the same local paths the
+ *  installed onnxruntime-web so the worker resolves the same local paths the
  *  packaged build serves (the Vite dev server is the renderer origin in dev). */
 function ortWasmDevServer(): Plugin {
-  const distDir = transformersDistDir();
+  const sources = ortWasmSources();
   return {
     name: 'moxxy-ort-wasm-dev-server',
     apply: 'serve',
@@ -101,12 +95,8 @@ function ortWasmDevServer(): Plugin {
           return;
         }
         const file = pathname.slice(ORT_SERVE_BASE.length);
-        if (!(ORT_WASM_FILES as readonly string[]).includes(file)) {
-          next();
-          return;
-        }
-        const abs = path.join(distDir, file);
-        if (!existsSync(abs)) {
+        const abs = sources.get(file);
+        if (abs === undefined) {
           next();
           return;
         }
@@ -124,10 +114,10 @@ function ortWasmDevServer(): Plugin {
  * Vite plugin: drop the ORPHAN onnxruntime-web WASM that Vite's import-meta-url
  * asset handling emits into `dist/assets/`.
  *
- * transformers.js dynamically imports onnxruntime-web's glue
- * (`ort-wasm-simd-threaded.jsep.mjs`), which contains a
- * `new URL('ort-wasm-simd-threaded.jsep.wasm', import.meta.url)` — emscripten's
- * DEFAULT wasm path. Vite statically resolves that and emits a hashed ~21 MB copy
+ * transformers.js imports onnxruntime-web's glue
+ * (`ort-wasm-simd-threaded.asyncify.mjs`), which contains a
+ * `new URL('ort-wasm-simd-threaded.asyncify.wasm', import.meta.url)` — emscripten's
+ * DEFAULT wasm path. Vite statically resolves that and emits a hashed ~25 MB copy
  * into `dist/assets/` on EVERY bundle (and every hot-update). But that default is
  * DEAD: the NER worker sets `env.backends.onnx.wasm.wasmPaths` (→ emscripten
  * `locateFile`) to our locally-served `/ort/` base BEFORE the ORT session is
@@ -137,16 +127,16 @@ function ortWasmDevServer(): Plugin {
  * The emitted `assets/` file is therefore a pure orphan — delete it.
  *
  * This ONLY removes the orphan under `dist/assets/`. The REAL runtime binary lives
- * at `dist/ort/ort-wasm-simd-threaded.jsep.wasm`, written by {@link ortWasmAssets}
+ * at `dist/ort/ort-wasm-simd-threaded.asyncify.wasm`, written by {@link ortWasmAssets}
  * via a separate `writeBundle` file copy (NOT part of the Rollup bundle graph), so
  * it is untouched. The anonymizer's on-device NER keeps loading ORT from `/ort/`
  * exactly as before, and the moxxy-app-served model bundle is unaffected.
  */
 function ortWasmDropOrphan(): Plugin {
-  // The orphan's hashed name: `ort-wasm-simd-threaded.jsep-<hash>.wasm` (the `-`
-  // after `jsep` is the asset hash separator — it never appears in the real,
-  // exact-named `dist/ort/…jsep.wasm`, which isn't in the bundle graph anyway).
-  const ORPHAN_RE = /(^|\/)ort-wasm-simd-threaded\.jsep-[^/]*\.wasm$/;
+  // The orphan's hashed name: `ort-wasm-simd-threaded.asyncify-<hash>.wasm` (the
+  // `-` after `asyncify` is the asset hash separator — it never appears in the
+  // real, exact-named `dist/ort/…asyncify.wasm`, which isn't in the bundle graph).
+  const ORPHAN_RE = /(^|\/)ort-wasm-simd-threaded\.asyncify-[^/]*\.wasm$/;
   return {
     name: 'moxxy-ort-wasm-drop-orphan',
     apply: 'build',

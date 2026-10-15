@@ -324,6 +324,15 @@ describe('SlowReaderGuard', () => {
     expect(guard.check(300, 2600)).toBe('terminate');
   });
 
+  it('keeps a reader that is still taking bytes of one large frame', () => {
+    const guard = new SlowReaderGuard(100, 1000, 10_000);
+    guard.recordSent(5000);
+    expect(guard.check(5000, 0)).toBe('ok');
+    expect(guard.check(4000, 900)).toBe('ok');
+    expect(guard.check(3000, 1800)).toBe('ok');
+    expect(guard.check(3000, 2800)).toBe('terminate');
+  });
+
   it('evicts immediately past the hard ceiling, ignoring the grace window', () => {
     // hard ceiling = limit * 4 = 400. A backlog above it must terminate on the
     // FIRST observation so a peer that perpetually rides ~limit (resetting the

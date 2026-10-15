@@ -270,7 +270,6 @@ export function Glass({
     <BlurView
       intensity={intensity}
       tint={scheme === 'dark' ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight'}
-      experimentalBlurMethod="dimezisBlurView"
       style={[{ borderRadius: radius, overflow: 'hidden' }, style]}
     >
       <View

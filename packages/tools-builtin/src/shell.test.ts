@@ -133,7 +133,9 @@ describe.runIf(gitBash)('spawnShell under Git Bash', () => {
   });
 });
 
-describe.runIf(process.platform === 'win32')('spawnShell under Windows PowerShell', () => {
+// Each Windows PowerShell start takes about 8 s on the GitHub runner, so a test
+// that starts it twice went past the default 10 s.
+describe.runIf(process.platform === 'win32')('spawnShell under Windows PowerShell', { timeout: 30_000 }, () => {
   const powershell = shellFor('win32', { PATH: '', SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' });
 
   it('returns the exit code of the program the command ran', async () => {

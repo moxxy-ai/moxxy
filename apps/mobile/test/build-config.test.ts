@@ -19,6 +19,10 @@ const mobileLiveActivityBridgePath = fileURLToPath(
   new URL('../ios/MoxxyMobileGateway/MoxxyLiveActivity.swift', import.meta.url).href,
 );
 const mobileGatewayStorePath = fileURLToPath(new URL('../src/hooks/useGatewayStore.tsx', import.meta.url).href);
+const mobileAppDelegatePath = fileURLToPath(
+  new URL('../ios/MoxxyMobileGateway/AppDelegate.swift', import.meta.url).href,
+);
+const mobileUiKitPath = fileURLToPath(new URL('../src/ui/kit.tsx', import.meta.url).href);
 
 describe('mobile app build config', () => {
   it('keeps the full Expo app monorepo-aware with a single React instance', () => {
@@ -36,6 +40,45 @@ describe('mobile app build config', () => {
     expect(podfile).toContain('patch_expo_constants_manifest_phase');
     expect(podfile).toContain('moxxy-exconstants-pods');
     expect(podfile).toContain('export PROJECT_ROOT=');
+  });
+
+  it('builds every iOS target for the iOS 16.4 minimum of Expo SDK 57', () => {
+    const podfile = readFileSync(mobilePodfilePath, 'utf8');
+    const targets = [...readFileSync(mobileXcodeProjectPath, 'utf8').matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([\d.]+);/g)]
+      .map(([, version]) => Number(version));
+
+    expect(podfile).toContain("podfile_properties['ios.deploymentTarget'] || '16.4'");
+    expect(targets.length).toBeGreaterThan(0);
+    for (const target of targets) expect(target).toBeGreaterThanOrEqual(16.4);
+  });
+
+  it('keeps the native iOS shell on the Expo SDK 57 template', () => {
+    const podfile = readFileSync(mobilePodfilePath, 'utf8');
+    const appDelegate = readFileSync(mobileAppDelegatePath, 'utf8');
+
+    // SDK 55 removed the Legacy Architecture, so there is nothing left to switch off.
+    expect(podfile).not.toContain('RCT_NEW_ARCH_ENABLED');
+    expect(podfile).toContain('EXPO_USE_PRECOMPILED_MODULES');
+    expect(appDelegate).toContain('internal import Expo');
+    expect(appDelegate).toContain('@main');
+    expect(appDelegate).not.toContain('@UIApplicationMain');
+    expect(appDelegate).not.toContain('bindReactNativeFactory');
+  });
+
+  it('does not ask Android for a blur that needs a BlurTargetView it never gets', () => {
+    const kit = readFileSync(mobileUiKitPath, 'utf8');
+
+    // Since expo-blur 55 the Dimezis blur on Android renders only over a BlurTargetView.
+    expect(kit).not.toContain('experimentalBlurMethod');
+    expect(kit).not.toContain('dimezisBlurView');
+  });
+
+  it('keeps expo-updates resource generation working from paths with spaces', () => {
+    const podfile = readFileSync(mobilePodfilePath, 'utf8');
+
+    // The pod's own phase runs `bash -l -c "$PODS_TARGET_SRCROOT/..."`, which splits the path at a space.
+    expect(podfile).toContain('patch_expo_updates_resources_phase(installer)');
+    expect(podfile).toContain('bash -l "$PODS_TARGET_SRCROOT/../scripts/create-updates-resources-ios.sh"');
   });
 
   it('generates the Expo constants manifest into the app bundle', () => {
