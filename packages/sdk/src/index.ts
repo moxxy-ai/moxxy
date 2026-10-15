@@ -270,6 +270,7 @@ export {
   accountLimitOfEvent,
   recordedAccountLimit,
   sameAccountLimit,
+  withKnownReset,
   type AgentAccountLimit,
   type RecordedAccountLimit,
 } from './agent-account-limit.js';

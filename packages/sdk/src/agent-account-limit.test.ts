@@ -5,6 +5,7 @@ import {
   accountLimitOfEvent,
   recordedAccountLimit,
   sameAccountLimit,
+  withKnownReset,
   type AgentAccountLimit,
 } from './agent-account-limit.js';
 import { AGENT_CONNECTION_PLUGIN_ID } from './agent-step.js';
@@ -67,5 +68,20 @@ describe('sameAccountLimit', () => {
     expect(sameAccountLimit(limit, { ...limit, usedPercent: 92 })).toBe(false);
     expect(sameAccountLimit(limit, { ...limit, state: 'reached' })).toBe(false);
     expect(sameAccountLimit(undefined, limit)).toBe(false);
+  });
+});
+
+describe('a used-up limit reported without its reset', () => {
+  const now = 1_000_000;
+  const weekly = { state: 'reached', windowMinutes: 10080, resetsAt: now + 60_000 } as const;
+
+  it('keeps the reset known before while it lies ahead', () => {
+    expect(withKnownReset({ state: 'reached' }, weekly, now)).toEqual(weekly);
+  });
+
+  it('stays as the agent said once that reset has passed, or when the agent gave its own', () => {
+    expect(withKnownReset({ state: 'reached' }, weekly, now + 120_000)).toEqual({ state: 'reached' });
+    expect(withKnownReset({ state: 'reached', resetsAt: now + 5 }, weekly, now)).toEqual({ state: 'reached', resetsAt: now + 5 });
+    expect(withKnownReset({ state: 'near', usedPercent: 80 }, weekly, now)).toEqual({ state: 'near', usedPercent: 80 });
   });
 });

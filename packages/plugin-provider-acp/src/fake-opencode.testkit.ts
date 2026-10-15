@@ -32,6 +32,8 @@ export interface FakeOpenCodeDefaults {
    * edits and commands.
    */
   readonly rules?: Readonly<Record<string, ReadonlyArray<OpenCodeRule>>> | null;
+  /** Names of the person's own OpenCode skills, announced with its commands as a session opens. */
+  readonly ownSkills?: ReadonlyArray<string>;
 }
 
 /** OpenCode 1.18's answer to `session/load` that fails, whether or not the session exists. */
@@ -203,6 +205,14 @@ export class FakeOpenCodeServer {
     this.toMoxxy.end();
   }
 
+  /** OpenCode 1.18 lists its commands, its skills among them, right after it answers for a session. */
+  private announceCommands(session: FakeSession): void {
+    const names = ['init', 'review', ...(this.opencode.defaults.ownSkills ?? [])];
+    setImmediate(() =>
+      this.update(session, { sessionUpdate: 'available_commands_update', availableCommands: names.map((name) => ({ name, description: `The ${name} command` })) }, false),
+    );
+  }
+
   update(session: FakeSession, update: Record<string, unknown>, record = true): void {
     if (record) session.history.push(update);
     this.write({ method: 'session/update', params: { sessionId: session.id, update } });
@@ -281,6 +291,7 @@ export class FakeOpenCodeServer {
         await this.connectMoxxy(session);
         this.sessions.set(session.id, session);
         this.opencode.saved.set(session.id, session);
+        this.announceCommands(session);
         return { sessionId: session.id, configOptions: this.configOptions(session) };
       }
       case 'session/load': {
@@ -294,6 +305,7 @@ export class FakeOpenCodeServer {
         this.sessions.set(session.id, session);
         // OpenCode replays the whole conversation before it answers.
         for (const update of saved.history) this.update(session, update, false);
+        this.announceCommands(session);
         return { configOptions: this.configOptions(session) };
       }
       case 'session/list': {

@@ -76,3 +76,14 @@ export function sameAccountLimit(a: AgentAccountLimit | undefined, b: AgentAccou
     percent(a.usedPercent) === percent(b.usedPercent)
   );
 }
+
+/**
+ * A used-up limit the agent reports without its reset (Claude Code's own
+ * "You've hit your limit" when its process already said when it resets) keeps
+ * the reset known before, while that still lies ahead.
+ */
+export function withKnownReset(reading: AgentAccountLimit, known: AgentAccountLimit | undefined, nowMs: number): AgentAccountLimit {
+  if (reading.state !== 'reached' || reading.resetsAt !== undefined) return reading;
+  if (!known || known.resetsAt === undefined || known.resetsAt <= nowMs) return reading;
+  return { ...reading, resetsAt: known.resetsAt, ...(known.windowMinutes !== undefined && reading.windowMinutes === undefined ? { windowMinutes: known.windowMinutes } : {}) };
+}

@@ -10,7 +10,7 @@ export interface AcpAgentSpec {
   readonly mcpServerName: string;
   /** How the agent names a tool of Moxxy's MCP server: those calls are recorded by Moxxy when it runs them. */
   readonly moxxyToolPrefix: string;
-  /** Moxxy tools the agent has its own of, so they are not lent over MCP. */
+  /** Moxxy tools the agent has its own of, so they are not lent over MCP; the person's Moxxy skills come as a `load_skill` of their own. */
   readonly ownTools: ReadonlySet<string>;
   /** What the person runs to sign the agent in to a model provider. */
   readonly loginCommand: string;

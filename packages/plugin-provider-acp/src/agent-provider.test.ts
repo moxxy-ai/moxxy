@@ -5,8 +5,8 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver, type ToolDef } from '@moxxy/sdk';
-import { collectTurn, type Session } from '@moxxy/core';
+import { autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver, type Skill, type ToolDef } from '@moxxy/sdk';
+import { buildSynthesizeSkillPlugin, collectTurn, type Session } from '@moxxy/core';
 import { createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
@@ -582,6 +582,58 @@ describe('auto-approve shows how OpenCode really runs', () => {
 
     expect(autoApprove(session)).toBe(false);
     expect(opencode.servers).toHaveLength(1);
+  });
+});
+
+describe("the person's Moxxy skills on OpenCode", () => {
+  const skill = (name: string): Skill => ({
+    id: name as Skill['id'],
+    path: `/skills/${name}.md`,
+    scope: 'user',
+    frontmatter: { name, description: `About ${name}` },
+    body: `Steps for ${name}.`,
+  });
+
+  function withSkills(scene: OpenCodeScene, defaults: FakeOpenCodeDefaults = {}) {
+    const connected = connect(scene, defaults);
+    connected.session.pluginHost.registerStatic(buildSynthesizeSkillPlugin(connected.session));
+    connected.session.setPermissionResolver(allowAll);
+    return connected;
+  }
+
+  it("lets OpenCode read one, leaving a skill OpenCode has itself to OpenCode's", async () => {
+    const read: Array<{ content: unknown; isError?: boolean }> = [];
+    const { session } = withSkills(
+      async (turn) => {
+        read.push(await turn.callMoxxyTool('load_skill', { name: 'monthly-invoices' }));
+        read.push(await turn.callMoxxyTool('load_skill', { name: 'deploy-staging' }));
+        turn.say('ok');
+      },
+      { ownSkills: ['deploy-staging'] },
+    );
+    session.skills.register(skill('monthly-invoices'));
+    session.skills.register(skill('deploy-staging'));
+
+    const events = await collectTurn(session, 'do the invoices');
+
+    expect(read[0]).toEqual({ content: [{ type: 'text', text: expect.stringContaining('Steps for monthly-invoices.') }] });
+    expect(read[1]).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('No Moxxy skill is named "deploy-staging"') }] });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'skill_invoked', name: 'monthly-invoices' }));
+  });
+
+  it('reach OpenCode at its next turn when one is saved during the conversation', async () => {
+    const read: Array<{ content: unknown; isError?: boolean }> = [];
+    const { opencode, session } = withSkills(async (turn) => {
+      if (turn.text === 'use it') read.push(await turn.callMoxxyTool('load_skill', { name: 'monthly-invoices' }));
+      turn.say('ok');
+    });
+    await collectTurn(session, 'hello');
+    session.skills.register(skill('monthly-invoices'));
+
+    await collectTurn(session, 'use it');
+
+    expect(opencode.servers).toHaveLength(1);
+    expect(read).toEqual([{ content: [{ type: 'text', text: expect.stringContaining('Steps for monthly-invoices.') }] }]);
   });
 });
 

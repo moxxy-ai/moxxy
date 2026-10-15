@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentStepEvent, AgentStepHost, AgentStepRequest, AgentToolCall, AgentToolOutcome, ToolDef } from '@moxxy/sdk';
+import type { AgentStepEvent, AgentStepHost, AgentStepRequest, AgentToolCall, AgentToolOutcome, Skill, ToolDef } from '@moxxy/sdk';
 import {
   Inbox,
   agentModeFor,
@@ -8,6 +8,7 @@ import {
   moxxyToolsHandler,
   resumeAgentSession,
   sameToolNames,
+  skillsForAgent,
   startMoxxyMcpServer,
   type AgentMode,
   type LiveSession,
@@ -50,6 +51,8 @@ export interface ClaudeSessionSettings {
   readonly permissionMode?: ClaudePermissionMode;
   /** Every Moxxy tool of the conversation: Claude reads the list as it starts, and again on a notice. */
   readonly tools?: ReadonlyArray<ToolDef>;
+  /** The conversation's Moxxy skills: Claude reads those meant for it through one more Moxxy tool. */
+  readonly skills?: ReadonlyArray<Skill>;
   /** Claude took up a turn by itself while no Moxxy turn runs; `name` says what for. */
   readonly onAgentTurn?: (name: string) => void;
 }
@@ -59,7 +62,8 @@ export interface ClaudeSessionSettings {
  * MCP: its file and shell tools, web, background jobs, questions, skills,
  * memory, its own plan (ExitPlanMode) and goal (`/goal`). `recall` is lent:
  * it searches Moxxy's record of the whole conversation, which outlives
- * Claude's own session.
+ * Claude's own session. The person's Moxxy skills come as a `load_skill` of
+ * their own, listing them (see agent-skills).
  */
 const CLAUDE_HAS_ITS_OWN = new Set([
   'Read', 'Edit', 'Write', 'Bash', 'Grep', 'Glob', 'Sleep', 'Wait', 'StopJob',
@@ -67,6 +71,8 @@ const CLAUDE_HAS_ITS_OWN = new Set([
   'load_skill', 'reload_skills', 'synthesize_skill', 'load_tool',
   'plan_complete', 'goal_complete', 'goal_abandon',
 ]);
+
+const toolNames = (tools: ReadonlyArray<ToolDef>) => tools.map((tool) => tool.name);
 
 export function toolsLentToClaude(tools: ReadonlyArray<ToolDef>): ToolDef[] {
   return tools.filter((tool) => !CLAUDE_HAS_ITS_OWN.has(tool.name) && !tool.name.startsWith('memory_'));
@@ -151,6 +157,8 @@ export class ClaudeAgentSession implements LiveSession {
   private stderr = '';
   /** The Moxxy tools Claude is shown: every one of the conversation, the same in every mode. */
   private listed: ToolDef[];
+  /** The Moxxy skills Claude is offered. */
+  private offered: Skill[];
 
   static async start(settings: ClaudeSessionSettings): Promise<ClaudeAgentSession> {
     const checked = await withoutLostSession(settings);
@@ -173,7 +181,8 @@ export class ClaudeAgentSession implements LiveSession {
     this.permissionMode = settings.permissionMode;
     // Claude reads Moxxy's tools as it starts: they are listed before it does.
     this.listed = toolsLentToClaude(settings.tools ?? []);
-    mcp.setHandler(idleToolsHandler(this.listed));
+    this.offered = skillsForAgent(settings.skills ?? [], toolNames(this.listed), []);
+    mcp.setHandler(idleToolsHandler(this.listed, this.offered));
     this.query = settings.sdk.query({
       prompt: this.userMessages(),
       options: {
@@ -224,13 +233,16 @@ export class ClaudeAgentSession implements LiveSession {
     req.signal.addEventListener('abort', interrupt, { once: true });
     const all = toolsLentToClaude(req.allTools ?? req.tools);
     if (!sameToolNames(all, this.listed)) this.listed = all;
-    this.mcp.setHandler(
-      moxxyToolsHandler(this.listed, {
-        runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })),
-      }),
-    );
     try {
-      // The conversation gained or lost a tool since Claude read the list: it reads it again on this notice.
+      this.offered = skillsForAgent(req.skills ?? [], toolNames(this.listed), await this.ownSkillNames());
+      this.mcp.setHandler(
+        moxxyToolsHandler(
+          this.listed,
+          { runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })) },
+          this.offered,
+        ),
+      );
+      // The conversation gained or lost a tool or a skill since Claude read the list: it reads it again on this notice.
       await this.mcp.announceTools({ signal: req.signal });
       if (!ownTurn) {
         if (this.owesResult && !(await this.settlePrevious())) {
@@ -299,7 +311,7 @@ export class ClaudeAgentSession implements LiveSession {
       }
     } finally {
       req.signal.removeEventListener('abort', interrupt);
-      this.mcp.setHandler(idleToolsHandler(this.listed));
+      this.mcp.setHandler(idleToolsHandler(this.listed, this.offered));
       this.inTurn = false;
       this.dismissQueued();
     }
@@ -405,6 +417,16 @@ export class ClaudeAgentSession implements LiveSession {
   }
 
   /** Send a command and read through to its result without showing anything. */
+  /** Claude's own skills and commands, not its built-in ones: a Moxxy skill of the same name is left to Claude's. */
+  private async ownSkillNames(): Promise<string[]> {
+    try {
+      const commands = await this.query.supportedCommands();
+      return commands.filter((command) => !command.builtin).flatMap((command) => [command.name, ...(command.aliases ?? [])]);
+    } catch {
+      return [];
+    }
+  }
+
   private async silently(text: string, onMessage?: (message: ClaudeMessage) => void): Promise<void> {
     this.send(text);
     for (;;) {

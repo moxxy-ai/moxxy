@@ -39,6 +39,14 @@ export type CodexApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent
 
 /** What `config/read` answers: the person's effective Codex config, as far as Moxxy reads it. */
 /** The person's Codex config as `config/read` reports it for the folder (only what Moxxy reads). */
+/** `skills/list`: the skills Codex has where each folder asked for runs (generated `SkillsListResponse`, fields Moxxy reads). */
+export interface CodexSkillsList {
+  readonly data: ReadonlyArray<{
+    readonly cwd: string;
+    readonly skills: ReadonlyArray<{ readonly name: string; readonly description: string; readonly enabled: boolean }>;
+  }>;
+}
+
 export interface CodexConfigRead {
   readonly config: {
     readonly model_reasoning_summary?: string | null;

@@ -182,8 +182,19 @@ export interface ClaudeQueryOptions {
   readonly stderr?: (data: string) => void;
 }
 
+/** A skill or command Claude can run; `builtin` marks Claude Code's own. */
+export interface ClaudeSlashCommand {
+  readonly name: string;
+  readonly description: string;
+  readonly argumentHint: string;
+  readonly aliases?: ReadonlyArray<string>;
+  readonly builtin?: boolean;
+}
+
 export interface ClaudeQuery extends AsyncIterable<ClaudeMessage> {
   interrupt(): Promise<unknown>;
+  /** The skills and commands this Claude has. */
+  supportedCommands(): Promise<ClaudeSlashCommand[]>;
   setPermissionMode(mode: ClaudePermissionMode): Promise<void>;
   setModel(model?: string): Promise<void>;
   close(): void;

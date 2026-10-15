@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import type { Readable, Writable } from 'node:stream';
-import type { AgentAccountLimit, AgentApprovalDecision, AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome, ToolDef } from '@moxxy/sdk';
+import type { AgentAccountLimit, AgentApprovalDecision, AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome, Skill, ToolDef } from '@moxxy/sdk';
 import {
   Inbox,
   JsonRpcError,
@@ -11,7 +11,9 @@ import {
   idleToolsHandler,
   moxxyToolsHandler,
   resumeAgentSession,
+  sameSkills,
   sameToolNames,
+  skillsForAgent,
   startMoxxyMcpServer,
   untilStopped,
   type AgentMode,
@@ -27,6 +29,7 @@ import type {
   CodexGoal,
   CodexRateLimitSnapshot,
   CodexSandboxPolicy,
+  CodexSkillsList,
   CodexThreadResponse,
   CodexThreadSettingsReport,
   CodexTurn,
@@ -65,6 +68,8 @@ export interface CodexSessionSettings {
   readonly resume?: string;
   /** Every Moxxy tool of the conversation: Codex reads the list once, as the thread opens or resumes. */
   readonly tools?: ReadonlyArray<ToolDef>;
+  /** The conversation's Moxxy skills: Codex reads those meant for it through one more Moxxy tool, listed with the tools. */
+  readonly skills?: ReadonlyArray<Skill>;
 }
 
 interface Policy {
@@ -143,7 +148,8 @@ type SandboxMode = NonNullable<CodexConfigRead['config']['sandbox_mode']>;
  * its file and shell tools, web search, background jobs, skills, memory, its
  * own plan and goal. `ask_user` is lent: outside plan mode Codex has no
  * question of its own. `recall` is lent: it searches Moxxy's record of the
- * whole conversation, which outlives Codex's own thread.
+ * whole conversation, which outlives Codex's own thread. The person's Moxxy
+ * skills come as a `load_skill` of their own, listing them (see agent-skills).
  */
 const CODEX_HAS_ITS_OWN = new Set([
   'Read', 'Edit', 'Write', 'Bash', 'Grep', 'Glob', 'Sleep', 'Wait', 'StopJob',
@@ -226,6 +232,10 @@ export class CodexAgentSession implements LiveSession {
   private readonly subagents = new CodexSubagents();
   /** The Moxxy tools Codex listed as the thread opened, the same for every turn. */
   private readonly listed: ToolDef[];
+  /** Names of Codex's own skills, read as the thread opens. */
+  private ownSkills: ReadonlyArray<string> = [];
+  /** The Moxxy skills Codex listed with the tools; their instructions are read fresh at each call. */
+  private offered: Skill[] = [];
   private activeTurn: string | undefined;
   private lastError: string | undefined;
   private lastErrorInfo: unknown;
@@ -276,8 +286,16 @@ export class CodexAgentSession implements LiveSession {
    * cannot move) and listed the tools the conversation has now: Codex reads
    * them only as a thread opens, so other tools mean resuming it in a new Codex.
    */
-  fits(settings: Pick<CodexSessionSettings, 'cwd' | 'tools'>): boolean {
-    return settings.cwd === this.settings.cwd && sameToolNames(toolsLentToCodex(settings.tools ?? []), this.listed);
+  fits(settings: Pick<CodexSessionSettings, 'cwd' | 'tools' | 'skills'>): boolean {
+    return (
+      settings.cwd === this.settings.cwd &&
+      sameToolNames(toolsLentToCodex(settings.tools ?? []), this.listed) &&
+      sameSkills(this.skillsFor(settings.skills), this.offered)
+    );
+  }
+
+  private skillsFor(skills: ReadonlyArray<Skill> | undefined): Skill[] {
+    return skillsForAgent(skills ?? [], this.listed.map((tool) => tool.name), this.ownSkills);
   }
 
   async *turn(req: AgentStepRequest): AsyncGenerator<AgentStepEvent> {
@@ -292,10 +310,14 @@ export class CodexAgentSession implements LiveSession {
       void this.interrupt();
     };
     req.signal.addEventListener('abort', onAbort, { once: true });
+    // The same skills Codex listed (`fits`), with their instructions as they are now.
+    this.offered = this.skillsFor(req.skills);
     this.mcp.setHandler(
-      moxxyToolsHandler(this.listed, {
-        runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })),
-      }),
+      moxxyToolsHandler(
+        this.listed,
+        { runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })) },
+        this.offered,
+      ),
     );
     try {
       yield { type: 'session', sessionId: this.threadId };
@@ -329,7 +351,7 @@ export class CodexAgentSession implements LiveSession {
       if (!req.signal.aborted) yield { type: 'error', message: this.alive ? messageOf(err) : this.endedMessage(), retryable: false };
     } finally {
       req.signal.removeEventListener('abort', onAbort);
-      this.mcp.setHandler(idleToolsHandler(this.listed));
+      this.mcp.setHandler(idleToolsHandler(this.listed, this.offered));
       this.inTurn = false;
       this.dismissQueued();
     }
@@ -345,6 +367,12 @@ export class CodexAgentSession implements LiveSession {
     await this.mcp.close();
   }
 
+  /** Codex's own skills that are switched on: a Moxxy skill of the same name is left to Codex's. */
+  private async ownSkillNames(cwd: string): Promise<string[]> {
+    const listed = await this.client.request<CodexSkillsList>('skills/list', { cwds: [cwd] }).catch(() => undefined);
+    return (listed?.data ?? []).flatMap((entry) => entry.skills.filter((skill) => skill.enabled).map((skill) => skill.name));
+  }
+
   private async open(): Promise<void> {
     await this.client.request('initialize', {
       clientInfo: { name: 'moxxy', title: 'Moxxy', version: CLIENT_VERSION },
@@ -353,13 +381,19 @@ export class CodexAgentSession implements LiveSession {
     this.client.notify('initialized');
     const { cwd, resume } = this.settings;
     const read = await this.client.request<CodexConfigRead>('config/read', { cwd }).catch(() => undefined);
+    // Codex hides MCP tools behind its tool search, where the model does not
+    // look for Moxxy's, so the skill list and the lent tools sit in its first list.
     const config = {
-      mcp_servers: { [MOXXY_MCP_SERVER]: { url: this.mcp.url, http_headers: { Authorization: this.mcp.authorization } } },
+      mcp_servers: {
+        [MOXXY_MCP_SERVER]: { url: this.mcp.url, http_headers: { Authorization: this.mcp.authorization }, omit_tools_from: ['deferred'] },
+      },
       ...checklistFor(read),
     };
     this.ownSummary = read ? (read.config.model_reasoning_summary ?? null) : undefined;
     // Codex lists Moxxy's tools when the thread opens and keeps that list for the thread.
-    this.mcp.setHandler(idleToolsHandler(this.listed));
+    this.ownSkills = await this.ownSkillNames(cwd);
+    this.offered = this.skillsFor(this.settings.skills);
+    this.mcp.setHandler(idleToolsHandler(this.listed, this.offered));
     let thread: CodexThreadResponse | undefined;
     let resumed = false;
     if (resume) {

@@ -15,9 +15,10 @@ import {
   type MoxxyEvent,
   type PermissionResolver,
   type QuestionItem,
+  type Skill,
   type ToolDef,
 } from '@moxxy/sdk';
-import { collectTurn, type Session } from '@moxxy/core';
+import { buildSynthesizeSkillPlugin, collectTurn, type Session } from '@moxxy/core';
 import { createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
@@ -672,6 +673,60 @@ describe('the Moxxy tools Claude can see', () => {
 
     expect(claude.queries).toHaveLength(1);
     expect(found).toEqual([expect.objectContaining({ content: [{ type: 'text', text: 'the note' }] })]);
+  });
+});
+
+describe("the person's Moxxy skills on Claude", () => {
+  const skill = (name: string): Skill => ({
+    id: name as Skill['id'],
+    path: `/skills/${name}.md`,
+    scope: 'user',
+    frontmatter: { name, description: `About ${name}` },
+    body: `Steps for ${name}.`,
+  });
+
+  function withSkills(scene: ClaudeScene, ownSkills: string[] = []) {
+    const claude = new FakeClaude(scene);
+    claude.ownSkills = ownSkills;
+    const connected = connect(scene, { claude });
+    connected.session.pluginHost.registerStatic(buildSynthesizeSkillPlugin(connected.session));
+    connected.session.setPermissionResolver(allowAll);
+    return connected;
+  }
+
+  it("lists them in one tool Claude reads a skill with, leaving one Claude has itself to Claude's", async () => {
+    let listed: string | undefined;
+    let read: { content: unknown; isError?: boolean } | undefined;
+    const { session } = withSkills(async function* (turn) {
+      const { tools } = await (await turn.query.moxxyClient()).listTools();
+      listed = tools.find((tool) => tool.name === 'load_skill')?.description;
+      read = await turn.callMoxxyTool('load_skill', { name: 'monthly-invoices' });
+      yield assistantText('ok');
+    }, ['deploy-staging']);
+    session.skills.register(skill('monthly-invoices'));
+    session.skills.register(skill('deploy-staging'));
+
+    const events = await collectTurn(session, 'do the invoices');
+
+    expect(listed).toContain('- monthly-invoices: About monthly-invoices');
+    expect(listed).not.toContain('deploy-staging');
+    expect(read).toEqual({ content: [{ type: 'text', text: expect.stringContaining('Steps for monthly-invoices.') }] });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'skill_invoked', name: 'monthly-invoices' }));
+  });
+
+  it('reach Claude at its next turn when one is saved during the conversation', async () => {
+    const read: Array<{ content: unknown; isError?: boolean }> = [];
+    const { claude, session } = withSkills(async function* (turn) {
+      if (turn.text === 'use it') read.push(await turn.callMoxxyTool('load_skill', { name: 'monthly-invoices' }));
+      yield assistantText('ok');
+    });
+    await collectTurn(session, 'hello');
+    session.skills.register(skill('monthly-invoices'));
+
+    await collectTurn(session, 'use it');
+
+    expect(claude.queries).toHaveLength(1);
+    expect(read).toEqual([{ content: [{ type: 'text', text: expect.stringContaining('Steps for monthly-invoices.') }] }]);
   });
 });
 

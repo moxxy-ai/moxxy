@@ -3,6 +3,7 @@ import type { ReasoningReplayItem } from './events.js';
 import type { StopReason } from './provider-utils.js';
 import type { QuestionItem, QuestionOutcome } from './question.js';
 import type { AgentAccountLimit } from './agent-account-limit.js';
+import type { Skill } from './skill.js';
 
 export interface ProviderMessage {
   readonly role: 'system' | 'user' | 'assistant' | 'tool_result';
@@ -425,6 +426,8 @@ export interface AgentStepRequest {
    * lists these and refuses, with the reason, a call to one `tools` lacks.
    */
   readonly allTools?: ReadonlyArray<ToolDef>;
+  /** The conversation's Moxxy skills now; the adapter offers the agent those meant for it, through Moxxy's MCP server. */
+  readonly skills?: ReadonlyArray<Skill>;
   /** The agent's own session from an earlier turn of this conversation, to resume. */
   readonly resumeSessionId?: string;
   /**

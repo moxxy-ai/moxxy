@@ -181,6 +181,7 @@ export class ClaudeAgentProvider implements LLMProvider {
       ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
       ...(permissionMode ? { permissionMode } : {}),
       tools: req.allTools ?? req.tools,
+      ...(req.skills ? { skills: req.skills } : {}),
       onAgentTurn: (name) => {
         for (const listener of [...this.agentTurnListeners]) listener({ sessionId: req.sessionId, name });
       },

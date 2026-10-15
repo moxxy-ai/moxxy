@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { LLMProvider, ProviderEvent } from '@moxxy/sdk';
 import { Session } from '../session.js';
-import { asSkillId, asTurnId, defineProvider, definePlugin } from '@moxxy/sdk';
+import { asSkillId, asToolCallId, asTurnId, defineProvider, definePlugin } from '@moxxy/sdk';
 import { synthesizeSkill, buildSynthesizeSkillPlugin } from './synthesize.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
@@ -237,6 +237,20 @@ describe('buildSynthesizeSkillPlugin', () => {
     const invoked = session.log.ofType('skill_invoked');
     expect(invoked).toHaveLength(1);
     expect(invoked[0].turnId).toBe(turnId);
+  });
+});
+
+describe('reading a skill', () => {
+  it('never asks the person: it only reads what is already loaded', async () => {
+    const session = newSessionWithProvider(new InlineProvider([]));
+    session.pluginHost.registerStatic(buildSynthesizeSkillPlugin(session));
+    const asked: string[] = [];
+    session.setPermissionResolver({ name: 'person', check: async (call) => (asked.push(call.name), { mode: 'deny', reason: 'no' }) });
+
+    const decision = await session.resolver.check({ callId: asToolCallId('c1'), name: 'load_skill', input: { name: 'demo' } }, { sessionId: String(session.id) });
+
+    expect(decision.mode).toBe('allow');
+    expect(asked).toEqual([]);
   });
 });
 

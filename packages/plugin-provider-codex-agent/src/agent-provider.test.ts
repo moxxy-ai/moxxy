@@ -14,9 +14,10 @@ import {
   type MoxxyEvent,
   type PermissionResolver,
   type QuestionItem,
+  type Skill,
   type ToolDef,
 } from '@moxxy/sdk';
-import { collectTurn, type Session } from '@moxxy/core';
+import { buildSynthesizeSkillPlugin, collectTurn, type Session } from '@moxxy/core';
 import { createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
@@ -619,6 +620,14 @@ describe('the Moxxy tools Codex can see', () => {
     expect(results[1]).toEqual({ content: [{ type: 'text', text: 'answered' }] });
   });
 
+  it("shows them to the model upfront, not behind Codex's tool search where it never looks for them", async () => {
+    const { codex, session } = connect(async (turn) => turn.say('ok'));
+
+    await collectTurn(session, 'hi');
+
+    expect(codex.last.sent('thread/start')[0]).toMatchObject({ config: { mcp_servers: { moxxy: { omit_tools_from: ['deferred'] } } } });
+  });
+
   it('resumes the thread in a new Codex when the conversation gains a tool, so Codex reads the new list', async () => {
     const noted = defineTool({ name: 'note_lookup', description: 'Look a note up.', inputSchema: z.object({}), handler: async () => 'the note' });
     const found: unknown[] = [];
@@ -635,6 +644,60 @@ describe('the Moxxy tools Codex can see', () => {
     expect(codex.last).not.toBe(first);
     expect(codex.last.sent('thread/resume')[0]).toMatchObject({ threadId: 'thread-1' });
     expect(found).toEqual([expect.objectContaining({ content: [{ type: 'text', text: 'the note' }] })]);
+  });
+});
+
+describe("the person's Moxxy skills on Codex", () => {
+  const skill = (name: string): Skill => ({
+    id: name as Skill['id'],
+    path: `/skills/${name}.md`,
+    scope: 'project',
+    frontmatter: { name, description: `About ${name}` },
+    body: `Steps for ${name}.`,
+  });
+
+  function withSkills(scene: CodexScene, defaults: FakeCodexDefaults = {}) {
+    const connected = connect(scene, defaults);
+    connected.session.pluginHost.registerStatic(buildSynthesizeSkillPlugin(connected.session));
+    connected.session.setPermissionResolver(allowAll);
+    return connected;
+  }
+
+  it("lets Codex read one, leaving a skill Codex has itself to Codex's", async () => {
+    const read: Array<{ content: unknown; isError?: boolean }> = [];
+    const { session } = withSkills(
+      async (turn) => {
+        read.push(await turn.callMoxxyTool('load_skill', { name: 'monthly-invoices' }));
+        read.push(await turn.callMoxxyTool('load_skill', { name: 'deploy-staging' }));
+        turn.say('ok');
+      },
+      { ownSkills: ['deploy-staging'] },
+    );
+    session.skills.register(skill('monthly-invoices'));
+    session.skills.register(skill('deploy-staging'));
+
+    const events = await collectTurn(session, 'do the invoices');
+
+    expect(read[0]).toEqual({ content: [{ type: 'text', text: expect.stringContaining('Steps for monthly-invoices.') }] });
+    expect(read[1]).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('No Moxxy skill is named "deploy-staging"') }] });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'skill_invoked', name: 'monthly-invoices' }));
+  });
+
+  it('resumes the thread in a new Codex when a skill is saved, so Codex reads it at the next turn', async () => {
+    const read: Array<{ content: unknown; isError?: boolean }> = [];
+    const { codex, session } = withSkills(async (turn) => {
+      if (turn.text === 'use it') read.push(await turn.callMoxxyTool('load_skill', { name: 'monthly-invoices' }));
+      turn.say('ok');
+    });
+    await collectTurn(session, 'hello');
+    const first = codex.last;
+    session.skills.register(skill('monthly-invoices'));
+
+    await collectTurn(session, 'use it');
+
+    expect(codex.last).not.toBe(first);
+    expect(codex.last.sent('thread/resume')[0]).toMatchObject({ threadId: 'thread-1' });
+    expect(read).toEqual([{ content: [{ type: 'text', text: expect.stringContaining('Steps for monthly-invoices.') }] }]);
   });
 });
 

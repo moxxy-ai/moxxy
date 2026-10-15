@@ -17,6 +17,7 @@ import type {
   ClaudePreToolUseOutput,
   ClaudeQuery,
   ClaudeQueryOptions,
+  ClaudeSlashCommand,
   ClaudeUserContent,
   ClaudeUserMessage,
 } from './sdk-types.js';
@@ -56,6 +57,8 @@ export class FakeClaude implements ClaudeAgentSdk {
   /** The sessions Claude keeps on disk, as `getSessionInfo` finds them. */
   readonly saved = new Set<string>();
   private sessions = 0;
+  /** The person's own Claude skills and commands, as `supportedCommands` reports them next to Claude's built-in ones. */
+  ownSkills: ReadonlyArray<string> = [];
   /** `ownMode`: the mode the person's own Claude settings start in when Moxxy names none. */
   constructor(
     private readonly scene: ClaudeScene,
@@ -70,7 +73,7 @@ export class FakeClaude implements ClaudeAgentSdk {
     this.sessions += 1;
     const sessionId = params.options.resume ?? `claude-session-${this.sessions}`;
     this.saved.add(sessionId);
-    const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene, this.ownMode);
+    const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene, this.ownMode, () => this.ownSkills);
     this.queries.push(query);
     return query;
   }
@@ -106,6 +109,7 @@ export class FakeQuery implements ClaudeQuery {
     readonly sessionId: string,
     private readonly scene: ClaudeScene,
     ownMode: ClaudePermissionMode = 'default',
+    private readonly ownSkills: () => ReadonlyArray<string> = () => [],
   ) {
     this.permissionMode = options.permissionMode ?? ownMode;
   }
@@ -208,6 +212,13 @@ export class FakeQuery implements ClaudeQuery {
     this.permissionMode = mode;
     // Claude Code 2.1 reports every change of mode with a status message, also one Moxxy asked for.
     this.statuses.push({ type: 'system', subtype: 'status', status: null, permissionMode: mode, session_id: this.sessionId } as ClaudeMessage);
+  }
+
+  async supportedCommands(): Promise<ClaudeSlashCommand[]> {
+    return [
+      { name: 'compact', description: 'Clear the conversation history but keep a summary', argumentHint: '', builtin: true },
+      ...this.ownSkills().map((name) => ({ name, description: `The person's ${name}`, argumentHint: '' })),
+    ];
   }
 
   async setModel(model?: string): Promise<void> {

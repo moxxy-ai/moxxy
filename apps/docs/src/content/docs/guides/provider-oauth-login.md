@@ -340,6 +340,29 @@ named and a Stop button that stops the turn. The terminal shows the same as a
 line above the prompt; Esc stops it. It shows from the agent's first computer
 call in the turn until the turn ends.
 
+## Your Moxxy skills
+
+The skills you keep in Moxxy (the project's `.moxxy/skills`, your
+`~/.moxxy/skills`, and the ones Moxxy writes for you) reach Claude, Codex and
+OpenCode as one more Moxxy tool, `load_skill`. Its description lists each skill
+by name with what it is for; the agent calls it with a name when your request
+matches, and gets that skill's instructions. With many skills the description
+lists as many as fit and the agent can ask for the full list. Reading a skill
+never asks you for permission.
+
+- Moxxy's own built-in skills stay out: the agent has its own. The skill of a
+  Moxxy feature whose tools the agent is lent comes along (Moxxy Browser,
+  Computer Use).
+- When the agent has a skill of the same name itself, Moxxy leaves yours out
+  and the agent uses its own.
+- A skill saved during the conversation reaches the agent at its next message,
+  the same way a new tool does. Claude keeps the list it read when the
+  conversation started, so it finds a newer skill by asking for the full list.
+- Claude and Codex keep most tools behind a search and show the model only
+  their names until it looks. Moxxy asks both to show `load_skill` upfront
+  (Codex shows all of Moxxy's tools upfront), so the agent sees your skills
+  without searching.
+
 ## Your account's usage limit
 
 Claude and Codex tell Moxxy how much of your plan's usage they have left and
@@ -349,7 +372,9 @@ at 08:00". Once the limit is used up, the turn ends with a note saying which
 limit and when it comes back, instead of the agent's raw error, and the line
 turns red until the window resets. The terminal shows the same line and note;
 the phone app, Telegram and Discord show the note when a turn stops on the
-limit. OpenCode does not report a limit, so nothing shows for it.
+limit. When the agent says again that the limit is used up without saying
+when it resets (Claude does, from its second message on), the reset it gave
+before still shows. OpenCode does not report a limit, so nothing shows for it.
 
 ## Helpers an agent starts
 

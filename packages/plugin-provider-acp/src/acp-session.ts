@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type { Readable, Writable } from 'node:stream';
-import type { AgentApprovalDecision, AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome, ToolDef } from '@moxxy/sdk';
+import { waitFor, type AgentApprovalDecision, type AgentStepEvent, type AgentStepRequest, type AgentToolCall, type AgentToolOutcome, type Skill, type ToolDef } from '@moxxy/sdk';
 import {
   Inbox,
   JsonRpcError,
@@ -11,6 +11,7 @@ import {
   moxxyToolsHandler,
   resumeAgentSession,
   sameToolNames,
+  skillsForAgent,
   startMoxxyMcpServer,
   untilStopped,
   type AgentMode,
@@ -54,6 +55,8 @@ export interface AcpSessionSettings {
   readonly readRules?: ReadAgentRules;
   /** Every Moxxy tool of the conversation: the agent reads the list as the session opens, and again on a notice. */
   readonly tools?: ReadonlyArray<ToolDef>;
+  /** The conversation's Moxxy skills: the agent reads those meant for it through one more Moxxy tool. */
+  readonly skills?: ReadonlyArray<Skill>;
 }
 
 type RequestItem = {
@@ -85,6 +88,8 @@ const CONFIG_CONTENT_ENV = 'OPENCODE_CONFIG_CONTENT';
 const RESOURCE_NOT_FOUND = -32002;
 /** How many pages of the agent's sessions Moxxy reads before it stops looking. */
 const MAX_SESSION_PAGES = 50;
+/** How long the first turn waits for the agent's list of commands; OpenCode sends it as the session opens. */
+const COMMANDS_WAIT_MS = 2_000;
 const CLIENT_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
 export const CLIENT_CAPABILITIES = { fs: { readTextFile: false, writeTextFile: false }, terminal: false } as const;
@@ -118,6 +123,13 @@ export class AcpAgentSession implements LiveSession {
   private pendingNotes: string[] = [];
   /** The Moxxy tools the agent is shown: every one of the conversation, the same in every mode. */
   private listed: ToolDef[];
+  /** The Moxxy skills the agent is offered. */
+  private offered: Skill[];
+  /** Names of the agent's own commands and skills, as it last announced them. */
+  private ownCommands: ReadonlyArray<string> = [];
+  private commandsHeard = false;
+  private commandsAwaited = false;
+  private readonly commandWakers = new Set<() => void>();
   /** The session is new while the conversation may already have run: its first prompt carries the conversation so far. */
   private newSession: NewSessionReason | undefined;
   private stderr = '';
@@ -156,8 +168,9 @@ export class AcpAgentSession implements LiveSession {
     connection: AcpConnection,
   ) {
     this.connection = connection;
-    this.listed = toolsLentTo(settings.agent, settings.tools ?? [])
-    this.mcp.setHandler(idleToolsHandler(this.listed));
+    this.listed = toolsLentTo(settings.agent, settings.tools ?? []);
+    this.offered = this.skillsFor(settings.skills);
+    this.mcp.setHandler(idleToolsHandler(this.listed, this.offered));
     this.client = this.listen(connection);
   }
 
@@ -175,7 +188,14 @@ export class AcpAgentSession implements LiveSession {
     connection.readable.once('close', ended);
     // Outside a turn nothing is shown: that drops the history `session/load` replays.
     client.onNotification((method, params) => {
-      if (this.inTurn && !this.loading && method === 'session/update') this.inbox.push({ kind: 'note', params });
+      if (method !== 'session/update') return;
+      const commands = announcedCommands(params);
+      if (commands) {
+        this.ownCommands = commands;
+        this.commandsHeard = true;
+        this.commandWakers.forEach((wake) => wake());
+      }
+      else if (this.inTurn && !this.loading) this.inbox.push({ kind: 'note', params });
     });
     client.onRequest((method, params) =>
       this.inTurn ? new Promise((resolve, reject) => this.inbox.push({ kind: 'request', method, params, resolve, reject })) : refusal(method),
@@ -185,6 +205,31 @@ export class AcpAgentSession implements LiveSession {
 
   get isAlive(): boolean {
     return this.alive && !this.broken;
+  }
+
+  /**
+   * The agent lists its commands just after its session opens, maybe after the
+   * turn began: the first turn waits for that list, an agent that never sends
+   * one only briefly.
+   */
+  private async hearCommands(signal: AbortSignal): Promise<void> {
+    if (this.commandsHeard || this.commandsAwaited) return;
+    this.commandsAwaited = true;
+    await waitFor(() => this.commandsHeard || undefined, {
+      wakeOn: [
+        (wake) => {
+          this.commandWakers.add(wake);
+          return () => this.commandWakers.delete(wake);
+        },
+      ],
+      timeoutMs: COMMANDS_WAIT_MS,
+      signal,
+    });
+  }
+
+  /** A Moxxy skill named like one of the agent's own commands or skills is left to the agent's. */
+  private skillsFor(skills: ReadonlyArray<Skill> | undefined): Skill[] {
+    return skillsForAgent(skills ?? [], this.listed.map((tool) => tool.name), this.ownCommands);
   }
 
   /** Whether this agent was started where the turn runs (a running session cannot move). */
@@ -202,11 +247,6 @@ export class AcpAgentSession implements LiveSession {
     req.signal.addEventListener('abort', onAbort, { once: true });
     const all = toolsLentTo(this.settings.agent, req.allTools ?? req.tools);
     if (!sameToolNames(all, this.listed)) this.listed = all;
-    this.mcp.setHandler(
-      moxxyToolsHandler(this.listed, {
-        runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })),
-      }),
-    );
     try {
       yield { type: 'session', sessionId: this.sessionId };
       this.autoApprove = req.autoApprove;
@@ -231,7 +271,16 @@ export class AcpAgentSession implements LiveSession {
       }
       if (!this.autoApprove && mode !== 'goal') await this.askFromNowOn();
       // OpenCode reads the Moxxy tools when the session opens and keeps that
-      // list: when the conversation gained or lost one, it reads them again first.
+      // list: when the conversation gained or lost a tool or a skill, it reads them again first.
+      await this.hearCommands(req.signal);
+      this.offered = this.skillsFor(req.skills);
+      this.mcp.setHandler(
+        moxxyToolsHandler(
+          this.listed,
+          { runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })) },
+          this.offered,
+        ),
+      );
       await this.mcp.announceTools({ signal: req.signal });
       await this.configure(req, mode);
       if (this.newSession) {
@@ -260,7 +309,7 @@ export class AcpAgentSession implements LiveSession {
       if (!req.signal.aborted) yield { type: 'error', message: this.alive ? this.failureMessage(err) : this.endedMessage(), retryable: false };
     } finally {
       req.signal.removeEventListener('abort', onAbort);
-      this.mcp.setHandler(idleToolsHandler(this.listed));
+      this.mcp.setHandler(idleToolsHandler(this.listed, this.offered));
       this.inTurn = false;
       this.dismissQueued();
     }
@@ -542,4 +591,11 @@ function declineNote(call: AcpShownCall, reason: string): string {
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** The names in an `available_commands_update`, the agent's commands and skills; `undefined` for any other update. */
+function announcedCommands(params: unknown): string[] | undefined {
+  const update = (params as { update?: { sessionUpdate?: unknown; availableCommands?: unknown } } | null)?.update;
+  if (!update || update.sessionUpdate !== 'available_commands_update' || !Array.isArray(update.availableCommands)) return undefined;
+  return update.availableCommands.flatMap((command: { name?: unknown }) => (typeof command.name === 'string' ? [command.name] : []));
 }

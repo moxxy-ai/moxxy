@@ -81,6 +81,8 @@ export interface FakeCodexDefaults {
   readonly resumeFailures?: number;
   /** Refuse `turn/steer`, as Codex does for a turn that cannot take more input. */
   readonly refuseSteer?: boolean;
+  /** Names of the person's own Codex skills, as `skills/list` reports them. */
+  readonly ownSkills?: ReadonlyArray<string>;
 }
 
 /** The person's Codex install: every app-server Moxxy starts, and the threads it saved. */
@@ -298,6 +300,18 @@ export class FakeCodexServer {
         const cleared = thread.goal !== undefined;
         thread.goal = undefined;
         return { result: { cleared }, after: () => this.notify('thread/goal/cleared', { threadId: thread.id }) };
+      }
+      case 'skills/list': {
+        const skills = (this.codex.defaults.ownSkills ?? []).map((name) => ({
+          name,
+          description: `The person's ${name}`,
+          path: `/home/me/.codex/skills/${name}/SKILL.md`,
+          scope: 'user',
+          enabled: true,
+          pluginId: null,
+        }));
+        const off = { name: 'switched-off', description: 'Turned off', path: '/home/me/.codex/skills/switched-off/SKILL.md', scope: 'user', enabled: false, pluginId: null };
+        return { result: { data: [{ cwd: this.cwd, skills: [...skills, off], errors: [] }] } };
       }
       case 'thread/goal/get':
         return { result: { goal: this.threadOf(params).goal ?? null } };

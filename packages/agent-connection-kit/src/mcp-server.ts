@@ -16,6 +16,8 @@ export interface McpTool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: unknown;
+  /** Vendor hints read by one agent and ignored by the others (MCP `_meta`). */
+  readonly _meta?: Readonly<Record<string, unknown>>;
 }
 
 export type McpContent =

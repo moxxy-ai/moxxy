@@ -1,4 +1,4 @@
-import { AGENT_ACCOUNT_LIMIT_SUBTYPE, recordedAccountLimit, sameAccountLimit } from '../agent-account-limit.js';
+import { AGENT_ACCOUNT_LIMIT_SUBTYPE, recordedAccountLimit, sameAccountLimit, withKnownReset } from '../agent-account-limit.js';
 import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from '../agent-step.js';
 import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_RESTORED_SUBTYPE, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents } from '../auto-approve.js';
 import { renderEarlierConversation } from '../conversation-history.js';
@@ -246,6 +246,7 @@ async function runRound(
       mode,
       tools: ctx.tools.list(),
       allTools: everyTool(ctx),
+      skills: ctx.skills.list(),
       ...(resumeSessionId ? { resumeSessionId } : {}),
       earlierConversation: () => renderEarlierConversation(ctx.log, ctx.turnId),
       autoApprove,
@@ -345,19 +346,21 @@ async function runRound(
         case 'plan':
           plan = event.text;
           break;
-        case 'account_limit':
+        case 'account_limit': {
           if (event.limit.state === 'reached') limitReached = true;
-          if (sameAccountLimit(limit, event.limit)) break;
-          limit = event.limit;
+          const reading = withKnownReset(event.limit, limit, Date.now());
+          if (sameAccountLimit(limit, reading)) break;
+          limit = reading;
           await emit({
             ...base,
             type: 'plugin_event',
             source: 'system',
             pluginId: AGENT_CONNECTION_PLUGIN_ID,
             subtype: AGENT_ACCOUNT_LIMIT_SUBTYPE,
-            payload: { provider: ctx.provider.name, ...(ctx.provider.agentName ? { agent: ctx.provider.agentName } : {}), limit: event.limit },
+            payload: { provider: ctx.provider.name, ...(ctx.provider.agentName ? { agent: ctx.provider.agentName } : {}), limit: reading },
           });
           break;
+        }
         case 'subagent_started':
           subagents.set(event.id, { label: event.label, agentType: event.agentType });
           await emit({

@@ -284,7 +284,10 @@ export function buildSynthesizeSkillPlugin(
             .min(1)
             .describe('The exact skill name from the "Available skills" list in the system prompt.'),
         }),
-        // Registry lookup — the skill body is already in memory.
+        // Registry lookup — the skill body is already in memory. Like
+        // reload_skills it never prompts: a vendor agent reads the person's
+        // skills through it, and a question per skill read only gets in the way.
+        permission: { action: 'allow' },
         isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
         handler: async ({ name }, ctx) => {
           const skill = session.skills.byName(name);

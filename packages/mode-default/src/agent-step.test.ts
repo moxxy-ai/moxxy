@@ -18,10 +18,12 @@ import {
   defineMode,
   definePlugin,
   defineTool,
+  recordedAccountLimit,
   runReactLoop,
   type AgentStepHost,
   type MoxxyEvent,
   type PermissionResolver,
+  type Skill,
 } from '@moxxy/sdk';
 import { collectTurn, type Session } from '@moxxy/core';
 import { FakeAgentProvider, createFakeSession } from '@moxxy/testing';
@@ -135,6 +137,30 @@ describe('an agent connection turn', () => {
     expect(request).toMatchObject({ callId: 'mcp_1', name: 'browser_title' });
     expect(request).not.toHaveProperty('executedBy');
     expect(types(events)).toContain('tool_call_approved');
+  });
+
+  it("hands the agent the conversation's skills as they are at each turn", async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'Done.' };
+    });
+    const session = sessionWith(provider);
+    const skill = (name: string) => ({
+      id: name as Skill['id'],
+      path: `/skills/${name}.md`,
+      scope: 'user' as const,
+      frontmatter: { name, description: `About ${name}` },
+      body: 'Steps.',
+    });
+    session.skills.register(skill('monthly-invoices'));
+
+    await collectTurn(session, 'first');
+    session.skills.register(skill('deploy-staging'));
+    await collectTurn(session, 'second');
+
+    expect(provider.steps.map((step) => step.skills?.map((s) => s.frontmatter.name))).toEqual([
+      ['monthly-invoices'],
+      ['monthly-invoices', 'deploy-staging'],
+    ]);
   });
 
   it('lists the tools of every mode to the agent, and records why one this mode does not offer was not run', async () => {
@@ -380,6 +406,37 @@ describe("the agent's account limit", () => {
 
     expect(limitsIn(events)).toEqual([{ provider: 'fake-agent', limit: { state: 'reached', windowMinutes: 300, resetsAt: 9_000_000 } }]);
     expect(types(events)).not.toContain('error');
+  });
+
+  it('keeps the reset it knows when the agent says again the limit is used up, without saying when it resets', async () => {
+    const saturday = Date.now() + 2 * 24 * 60 * 60 * 1000;
+    let report: { state: 'reached'; windowMinutes?: number; resetsAt?: number } = { state: 'reached', windowMinutes: 10080, resetsAt: saturday };
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'account_limit', limit: report };
+      yield { type: 'error', message: "You've hit your weekly limit", retryable: false };
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'hi');
+    report = { state: 'reached' };
+    const again = await collectTurn(session, 'hi again');
+
+    expect(limitsIn(again)).toEqual([]);
+    expect(recordedAccountLimit(session.log.ofType('plugin_event'), 'fake-agent')?.limit).toEqual({ state: 'reached', windowMinutes: 10080, resetsAt: saturday });
+  });
+
+  it('records a used-up limit as the agent says it once the reset it knew has passed', async () => {
+    let report: { state: 'reached'; windowMinutes?: number; resetsAt?: number } = { state: 'reached', windowMinutes: 300, resetsAt: Date.now() - 1000 };
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'account_limit', limit: report };
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'hi');
+    report = { state: 'reached' };
+    const again = await collectTurn(session, 'hi again');
+
+    expect(limitsIn(again)).toEqual([{ provider: 'fake-agent', limit: { state: 'reached' } }]);
   });
 });
 
