@@ -21,7 +21,7 @@ import { useAgentConnections } from '../../settings/agents/useAgentConnections';
 
 /** Static fallback provider list (used until `settings.providerCatalog`
  *  resolves). */
-const FALLBACK_CATALOG = ['anthropic', 'openai', 'openai-codex', 'claude-code'] as const;
+const FALLBACK_CATALOG = ['anthropic', 'openai', 'openai-codex', 'claude-code', 'codex-agent', 'opencode'] as const;
 
 /** Providers known to authenticate via OAuth — a best-effort visual hint for the
  *  *non-selected* options (the selected one's tag is driven by the authoritative

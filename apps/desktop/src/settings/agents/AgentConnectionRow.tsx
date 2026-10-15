@@ -33,7 +33,7 @@ function actionLabel(action: AgentConnectionAction, state: AgentConnectionState)
 }
 
 /**
- * One agent connection (Claude, Codex, OpenCode): its state as a chip, the one
+ * One agent connection (Claude, Codex, OpenCode): its state as a chip beside its name, the one
  * action that moves it on, and a menu that checks for updates. While its CLI
  * installs or updates, a bar under the line says how far it got.
  */
@@ -64,6 +64,14 @@ export function AgentConnectionRow({
       }
       title={agent}
       subtitle={view.detail}
+      badges={
+        <>
+          <span className="tag" {...(state.tone ? { 'data-tone': state.tone } : {})}>
+            {state.label}
+          </span>
+          {entry.active && <span className="tag">Active</span>}
+        </>
+      }
       below={
         view.state === 'installing' ? (
           <div
@@ -81,10 +89,6 @@ export function AgentConnectionRow({
       }
       trailing={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-          {entry.active && <span className="tag">Active</span>}
-          <span className="tag" {...(state.tone ? { 'data-tone': state.tone } : {})}>
-            {state.label}
-          </span>
           {view.action && (
             <Button
               variant={view.action === 'check' ? 'secondary' : 'primary'}

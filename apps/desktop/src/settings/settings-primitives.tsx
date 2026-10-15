@@ -101,6 +101,7 @@ export function Row({
   subtitle,
   trailing,
   below,
+  badges,
   testId,
 }: {
   readonly tile: React.ReactNode;
@@ -109,6 +110,8 @@ export function Row({
   readonly trailing?: React.ReactNode;
   /** Under the subtitle, e.g. a progress bar. */
   readonly below?: React.ReactNode;
+  /** Beside the title, e.g. state chips, so the subtitle keeps the row's width. */
+  readonly badges?: React.ReactNode;
   readonly testId?: string;
 }): JSX.Element {
   return (
@@ -126,17 +129,20 @@ export function Row({
     >
       {tile}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 'var(--type-ui)',
-            fontWeight: 600,
-            color: 'var(--color-text)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {title}
+        <div data-row-title style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span
+            style={{
+              fontSize: 'var(--type-ui)',
+              fontWeight: 600,
+              color: 'var(--color-text)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {title}
+          </span>
+          {badges}
         </div>
         {subtitle && (
           <div style={{ marginTop: 2, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>{subtitle}</div>

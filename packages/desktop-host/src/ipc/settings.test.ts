@@ -35,11 +35,11 @@ describe('settings.providerCatalog', () => {
     await removeDir(home);
   });
 
-  it('offers every provider the desktop ships, including the Claude Pro/Max sign-in', async () => {
+  it('offers every provider the desktop ships, including the Claude Pro/Max sign-in and the Codex and OpenCode agents', async () => {
     const catalog = captureHandlers().get('settings.providerCatalog');
     assertDefined(catalog, 'settings.providerCatalog handler');
 
-    expect(await catalog()).toEqual(['anthropic', 'openai', 'openai-codex', 'claude-code']);
+    expect(await catalog()).toEqual(['anthropic', 'openai', 'openai-codex', 'claude-code', 'codex-agent', 'opencode']);
   });
 });
 

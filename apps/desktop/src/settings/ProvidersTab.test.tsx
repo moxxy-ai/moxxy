@@ -12,6 +12,7 @@
 import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
+import { assertDefined } from '@moxxy/sdk';
 import type { ProviderEntry } from '@moxxy/desktop-ipc-contract';
 import { ProvidersTab } from './ProvidersTab';
 
@@ -304,6 +305,17 @@ describe('ProvidersTab — agent connections', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /check for updates/i }));
 
     await waitFor(() => expect(h.calls).toContainEqual(['agents.check', undefined]));
+  });
+
+  it("says the agent's state beside its name, leaving the line under it to what it is doing", () => {
+    host();
+    renderTab({ providers: [opencode({ ...missing, state: 'update-available', installed: '1.19.0', latest: '1.19.2', signedIn: true, account: 'OpenCode Zen' })] });
+
+    const title = screen.getByTestId('agent-row-opencode').querySelector('[data-row-title]');
+    assertDefined(title, 'the row has a title line');
+    expect(title).toHaveTextContent('OpenCode');
+    expect(title).toHaveTextContent('Update available');
+    expect(title).not.toHaveTextContent('1.19.2 is out');
   });
 
   it('keeps other providers in the plain list', () => {
