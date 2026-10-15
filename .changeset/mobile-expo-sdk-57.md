@@ -1,5 +1,0 @@
----
-"@moxxy/workspaces-app": minor
----
-
-The mobile app moves to Expo SDK 57 (React Native 0.86, React 19.2), and the Expo Go on the test phone has to support SDK 57. The app version goes to 1.1.0, so OTA updates published for the SDK 54 builds (1.0.0) never reach the new ones. The committed iOS project follows the SDK 57 template: iOS 16.4 minimum and the new `AppDelegate` entry point, and the `expo-updates` pod is now installed, with its resource script patched in the Podfile so it runs from a checkout path with spaces. Metro now reads `babel.config.cjs` (SDK 54 never did), so the app compiles JSX with the automatic runtime that SDK 54 used in practice, and packages get Expo's default transform, which strips the TypeScript that `expo-modules-core` ships as its entry. On Android the glass panels draw their semi-transparent fill instead of a blur, because expo-blur's Android blur now needs a `BlurTargetView`. Metro 0.84 sizes image assets itself, so the Metro patch for `image-size` 2 is gone, and a test now checks every installed Metro instead. `eas update` in the OTA workflow passes the `--environment` that SDK 55 made required.

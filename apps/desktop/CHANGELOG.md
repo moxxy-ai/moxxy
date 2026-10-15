@@ -1,5 +1,32 @@
 # @moxxy/desktop
 
+## 0.44.0
+
+### Minor Changes
+
+- b76bd98: Moxxy has a new logo: a metal ribbon around a dark visor with two glowing eyes, replacing the woven squares. It is everywhere the old one was: the desktop window, Dock and installer icons, the macOS menu bar (a drawn one-colour glyph: a speech bubble with the visor clear and the two eyes inside it), the sidebar, splash and focus window, the mobile app and its icon (which, being native, changes only with a new store build), and the terminal banner. Loading marks now breathe (they ease smaller and dim, then back) instead of turning. The logo blinks now and then in the sidebar's masthead and in the macOS menu bar, and holds still when the system asks for reduced motion. Every logo file comes from one source picture through `assets/brand/build.sh`, and tests fail when a shipped copy drifts from it. The old mark, wordmark, lockups and social card are kept in `assets/brand/alternates/weave/`.
+
+### Patch Changes
+
+- 3102431: Dependency updates: the OpenAI and Anthropic SDKs, Electron, Playwright, ESLint and the other minor and patch updates, plus jsdom 30, pdfjs-dist 6 and @huggingface/transformers 4. PDF text extraction follows the pdfjs 6 API. The anonymizer now ships the onnxruntime-web `asyncify` WASM files that transformers 4 loads, still served from the app itself and never from a CDN. `http-cache-semantics` 4.3.0 fixes GHSA-ch52-4w7c-c8xp, so that advisory is no longer on the accepted list. The GitHub Actions are updated as well, and Dependabot no longer proposes major `@expo/*` updates, which only move with an Expo SDK upgrade.
+- d70839e: Large attachments no longer lock a chat in a reconnect loop. The runner keeps a client that is still taking a large frame (it drops only one that takes nothing for the grace window), sends clients large attachments by name and size only, and caps each history page; a client reads an attachment's bytes back in slices with the new `session.readAttachment` (runner protocol 26). Each model request carries at most 20 MB of attachments: the newest go in full, older ones become a note, and `recall({ attachment })` (a file name or the note's key) shows one to the model again, even from a summarized turn. The Anthropic provider now sends an image or document returned beside a tool result inside that result instead of dropping it. The desktop re-attaches to a runner that is still alive instead of restarting it, stops with a clear error after repeated failures, logs a runner that fails to start instead of crashing, and attaches any file: one the model cannot take whole goes as a note with its path on disk. A chat already stuck this way opens again after the update, with its history intact.
+- Updated dependencies [3102431]
+- Updated dependencies [d70839e]
+- Updated dependencies [b76bd98]
+  - @moxxy/cli@0.44.0
+  - @moxxy/sdk@0.44.0
+  - @moxxy/chat-model@0.4.17
+  - @moxxy/client-core@0.13.35
+  - @moxxy/client-platform-web@0.1.74
+  - @moxxy/desktop-host@0.14.26
+  - @moxxy/desktop-ipc-contract@0.14.31
+  - @moxxy/ipc-server-ws@0.1.73
+  - @moxxy/plugin-channel-mobile@0.44.0
+  - @moxxy/plugin-stt-whisper-codex@0.44.0
+  - @moxxy/plugin-vault@0.44.0
+  - @moxxy/runner@0.2.60
+  - @moxxy/workflows-builder@0.1.57
+
 ## 0.43.0
 
 ### Minor Changes
