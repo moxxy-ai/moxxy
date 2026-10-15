@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import { assertDefined } from '@moxxy/sdk';
 import type { ProviderEntry } from '@moxxy/desktop-ipc-contract';
@@ -324,5 +324,28 @@ describe('ProvidersTab — agent connections', () => {
 
     expect(screen.getByTestId('provider-row-anthropic')).toBeInTheDocument();
     expect(screen.queryByTestId('provider-row-opencode')).toBeNull();
+  });
+
+  it('splits the agents from the providers Moxxy calls itself, each under its own heading', () => {
+    host();
+    renderTab({ providers: [anthropic, codex, opencode(missing)] });
+
+    const agents = screen.getByRole('region', { name: 'Coding agents' });
+    const models = screen.getByRole('region', { name: 'Model providers' });
+    expect(within(agents).getByTestId('agent-row-opencode')).toBeInTheDocument();
+    expect(within(agents).queryByTestId('provider-row-anthropic')).toBeNull();
+    expect(within(models).getByTestId('provider-row-anthropic')).toBeInTheDocument();
+    expect(within(models).getByTestId('provider-row-openai-codex')).toBeInTheDocument();
+    expect(agents).toHaveTextContent('1');
+    expect(models).toHaveTextContent('2');
+    expect(agents.compareDocumentPosition(models) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows no agents heading when no agent connection is known', () => {
+    host();
+    renderTab({ providers: [anthropic] });
+
+    expect(screen.queryByRole('region', { name: 'Coding agents' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Model providers' })).toBeInTheDocument();
   });
 });

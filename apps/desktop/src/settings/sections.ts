@@ -36,8 +36,9 @@ export const SETTINGS_SECTIONS = [
     finds: [
       { label: 'Add provider', keywords: ['connect a model', 'new provider', 'sign in'] },
       {
-        label: 'Agent connections',
+        label: 'Coding agents',
         keywords: [
+          'agent connections',
           'claude code',
           'codex',
           'opencode',
@@ -51,6 +52,7 @@ export const SETTINGS_SECTIONS = [
           'agent account',
         ],
       },
+      { label: 'Model providers', keywords: ['api providers', 'api key', 'oauth', 'moxxy loop'] },
       {
         label: 'Default model',
         keywords: ['starting model', 'new conversation', 'reasoning effort', 'thinking', 'fast mode', 'fast tier'],

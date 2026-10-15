@@ -4819,3 +4819,54 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   .onboard__mark,
   .onboard__step { transition: none; }
 }
+
+/* Settings lists of more than one kind (Providers: coding agents, then the
+ * model providers Moxxy calls itself). Each kind gets a quiet heading with its
+ * count and one line on what sets it apart; a hairline and air separate the
+ * kinds, so the split reads before any row is read. No motion: it is a list. */
+.card-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+  margin-top: var(--space-8);
+}
+.card-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+.card-group + .card-group {
+  padding-top: var(--space-20);
+  border-top: 1px solid var(--color-border);
+}
+.card-group__head {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  column-gap: var(--space-8);
+  row-gap: var(--space-2);
+  padding: 0 var(--space-4);
+}
+.card-group__title {
+  margin: 0;
+  font-size: var(--type-ui);
+  font-weight: 650;
+  color: var(--color-text);
+}
+.card-group__count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  font-size: var(--type-micro);
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-text-dim) 16%, transparent);
+}
+.card-group__description {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--type-meta);
+  color: var(--color-text-dim);
+}

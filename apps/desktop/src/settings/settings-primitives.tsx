@@ -95,6 +95,38 @@ export function CardList({ children }: { readonly children: React.ReactNode }): 
   );
 }
 
+/** One kind of row inside a section: a small heading with its count and a line
+ *  saying what sets this kind apart, over its own card list. */
+export function CardGroup({
+  id,
+  title,
+  count,
+  description,
+  children,
+}: {
+  readonly id: string;
+  readonly title: string;
+  readonly count: number;
+  readonly description: string;
+  readonly children: React.ReactNode;
+}): JSX.Element {
+  const headingId = `${id}-title`;
+  return (
+    <section className="card-group" aria-labelledby={headingId} data-testid={id}>
+      <header className="card-group__head">
+        <h3 id={headingId} className="card-group__title">
+          {title}
+        </h3>
+        <span className="card-group__count" aria-hidden="true">
+          {count}
+        </span>
+        <p className="card-group__description">{description}</p>
+      </header>
+      <CardList>{children}</CardList>
+    </section>
+  );
+}
+
 export function Row({
   tile,
   title,

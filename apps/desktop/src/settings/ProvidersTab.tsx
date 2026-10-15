@@ -1,5 +1,7 @@
 /**
- * Providers tab — the model providers the connected runner can route to. Each
+ * Providers tab — the model providers the connected runner can route to, in
+ * two groups: coding agents (Claude, Codex, OpenCode) first, then the providers
+ * Moxxy calls itself. Each
  * provider is a Row with a deterministic colour-tinted initial Tile, a
  * ready/inactive StatusDot, an enable/disable Switch (persisted on the
  * runner; the ACTIVE provider can't be disabled), and a Configure sheet for
@@ -11,7 +13,7 @@
 import { useState } from 'react';
 import type { useSettings } from '@moxxy/client-core';
 import { Button, Icon, IconButton, Modal, Select, TextInput } from '@moxxy/desktop-ui';
-import { Section, CardList, Row, Tile, StatusDot, Switch, Badge, EmptyState } from './settings-primitives';
+import { Section, CardGroup, Row, Tile, StatusDot, Switch, Badge, EmptyState } from './settings-primitives';
 import { AgentTaskModal } from './shared/AgentTaskModal';
 import { OAuthSignIn } from './shared/OAuthSignIn';
 import { PROVIDER_PROMPT_TEMPLATE } from './provider-prompt';
@@ -92,65 +94,83 @@ export function ProvidersTab({
       {providers.length === 0 ? (
         <EmptyState icon="spark" text="No providers known to the connected runner." />
       ) : (
-        <CardList>
-          {agents.rows.map((row) => (
-            <AgentConnectionRow
-              key={row.entry.name}
-              row={row}
-              onAction={(action) => {
-                if (action === 'install' || action === 'update') agents.run(row.entry.name, action);
-                else if (action === 'sign-in') setConfiguring(row.entry);
-                else agents.check();
-              }}
-              onCheck={agents.check}
-              onConfigure={() => setConfiguring(row.entry)}
-            />
-          ))}
-          {others.map((p) => {
-            const { bg, fg } = tintFor(p.name);
-            return (
-              <Row
-                key={p.name}
-                testId={`provider-row-${p.name}`}
-                tile={
-                  <Tile bg={bg} fg={fg}>
-                    {p.name.slice(0, 1).toUpperCase()}
-                  </Tile>
-                }
-                title={p.name}
-                subtitle={subtitleFor(p)}
-                trailing={
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                    {p.active && <Badge>Active</Badge>}
-                    <StatusDot
-                      ok={providerNeedsNoKey(p) ? p.connected === true : p.ready}
-                      okLabel={providerNeedsNoKey(p) ? 'Connected' : 'Ready'}
-                      offLabel={providerNeedsNoKey(p) ? 'Unavailable' : 'Inactive'}
-                    />
-                    <IconButton
-                      aria-label={`Configure ${p.name}`}
-                      onClick={() => setConfiguring(p)}
-                      size={28}
-                    >
-                      <Icon name="sliders" size={14} />
-                    </IconButton>
-                    <Switch
-                      on={p.enabled}
-                      label={`${p.enabled ? 'Disable' : 'Enable'} ${p.name}`}
-                      // The runner refuses to disable the ACTIVE provider —
-                      // disable the control too so the row matches reality.
-                      // Also disable while a toggle is in flight to stop
-                      // re-clicks queuing conflicting enable/disable calls.
-                      disabled={(p.active && p.enabled) || toggling.has(p.name)}
-                      busy={toggling.has(p.name)}
-                      onClick={() => toggleProvider(p.name, !p.enabled)}
-                    />
-                  </span>
-                }
-              />
-            );
-          })}
-        </CardList>
+        <div className="card-groups">
+          {agents.rows.length > 0 && (
+            <CardGroup
+              id="provider-group-agents"
+              title="Coding agents"
+              count={agents.rows.length}
+              description="The agent installed on this computer does the work, on its own sign-in."
+            >
+              {agents.rows.map((row) => (
+                <AgentConnectionRow
+                  key={row.entry.name}
+                  row={row}
+                  onAction={(action) => {
+                    if (action === 'install' || action === 'update') agents.run(row.entry.name, action);
+                    else if (action === 'sign-in') setConfiguring(row.entry);
+                    else agents.check();
+                  }}
+                  onCheck={agents.check}
+                  onConfigure={() => setConfiguring(row.entry)}
+                />
+              ))}
+            </CardGroup>
+          )}
+          {others.length > 0 && (
+            <CardGroup
+              id="provider-group-models"
+              title="Model providers"
+              count={others.length}
+              description="Moxxy does the work and calls the model, with an API key or a sign-in."
+            >
+              {others.map((p) => {
+                const { bg, fg } = tintFor(p.name);
+                return (
+                  <Row
+                    key={p.name}
+                    testId={`provider-row-${p.name}`}
+                    tile={
+                      <Tile bg={bg} fg={fg}>
+                        {p.name.slice(0, 1).toUpperCase()}
+                      </Tile>
+                    }
+                    title={p.name}
+                    subtitle={subtitleFor(p)}
+                    trailing={
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                        {p.active && <Badge>Active</Badge>}
+                        <StatusDot
+                          ok={providerNeedsNoKey(p) ? p.connected === true : p.ready}
+                          okLabel={providerNeedsNoKey(p) ? 'Connected' : 'Ready'}
+                          offLabel={providerNeedsNoKey(p) ? 'Unavailable' : 'Inactive'}
+                        />
+                        <IconButton
+                          aria-label={`Configure ${p.name}`}
+                          onClick={() => setConfiguring(p)}
+                          size={28}
+                        >
+                          <Icon name="sliders" size={14} />
+                        </IconButton>
+                        <Switch
+                          on={p.enabled}
+                          label={`${p.enabled ? 'Disable' : 'Enable'} ${p.name}`}
+                          // The runner refuses to disable the ACTIVE provider —
+                          // disable the control too so the row matches reality.
+                          // Also disable while a toggle is in flight to stop
+                          // re-clicks queuing conflicting enable/disable calls.
+                          disabled={(p.active && p.enabled) || toggling.has(p.name)}
+                          busy={toggling.has(p.name)}
+                          onClick={() => toggleProvider(p.name, !p.enabled)}
+                        />
+                      </span>
+                    }
+                  />
+                );
+              })}
+            </CardGroup>
+          )}
+        </div>
       )}
       {adding && (
         <AgentTaskModal
