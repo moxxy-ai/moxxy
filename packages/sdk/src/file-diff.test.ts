@@ -92,4 +92,12 @@ describe('the path a diff shows', () => {
     expect(diffPathIn('/repo', '/repository/a.ts')).toBe('/repository/a.ts');
     expect(diffPathIn('/repo', 'src/a.ts')).toBe('src/a.ts');
   });
+  it('ignores trailing separators on the project folder, in time linear in its length', () => {
+    expect(diffPathIn('/repo//', '/repo/src/a.ts')).toBe('src/a.ts');
+    expect(diffPathIn('C:\\repo\\', 'C:\\repo\\a.ts')).toBe('a.ts');
+
+    const started = performance.now();
+    diffPathIn(`${'/'.repeat(100_000)}x`, '/a.ts');
+    expect(performance.now() - started).toBeLessThan(500);
+  });
 });

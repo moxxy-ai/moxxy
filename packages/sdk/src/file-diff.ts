@@ -85,7 +85,9 @@ export function parseUnifiedDiff(text: string): PatchHunk[] {
 
 /** `file` relative to the project folder `cwd` when inside it, else as given; either separator. */
 export function diffPathIn(cwd: string, file: string): string {
-  const root = cwd.replace(/[\\/]+$/, '');
+  let end = cwd.length;
+  while (end > 0 && (cwd[end - 1] === '/' || cwd[end - 1] === '\\')) end -= 1;
+  const root = cwd.slice(0, end);
   if (root && file.startsWith(root) && (file[root.length] === '/' || file[root.length] === '\\')) return file.slice(root.length + 1);
   return file;
 }

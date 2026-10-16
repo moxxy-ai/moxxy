@@ -1,9 +1,42 @@
 import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
 
-const VERSION = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/;
+const isDigit = (char: string | undefined): boolean => char !== undefined && char >= '0' && char <= '9';
+const isLetter = (char: string | undefined): boolean =>
+  char !== undefined && ((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z'));
+const isPreRelease = (char: string | undefined): boolean => isDigit(char) || isLetter(char) || char === '.' || char === '-';
 
+/**
+ * The first `1.2.3` or `1.2.3-pre.4` in `text`. A walk over the characters,
+ * not a regular expression: a search starting at every digit of a long run
+ * of digits takes time quadratic in its length.
+ */
 export function parseVersion(text: string): string | null {
-  return VERSION.exec(text)?.[0] ?? null;
+  for (let start = 0; start < text.length; start += 1) {
+    if (!isDigit(text[start]) || isDigit(text[start - 1])) continue;
+    let end = versionCoreEnd(text, start);
+    if (end === null) continue;
+    if (text[end] === '-' && isPreRelease(text[end + 1])) {
+      end += 1;
+      while (isPreRelease(text[end])) end += 1;
+    }
+    return text.slice(start, end);
+  }
+  return null;
+}
+
+/** Where `major.minor.patch` starting at `start` ends, or null when there is none. */
+function versionCoreEnd(text: string, start: number): number | null {
+  let at = start;
+  for (let part = 0; part < 3; part += 1) {
+    if (part > 0) {
+      if (text[at] !== '.') return null;
+      at += 1;
+    }
+    const digits = at;
+    while (isDigit(text[at])) at += 1;
+    if (at === digits) return null;
+  }
+  return at;
 }
 
 /** Negative when `a` is older than `b`; a pre-release comes before its release. */

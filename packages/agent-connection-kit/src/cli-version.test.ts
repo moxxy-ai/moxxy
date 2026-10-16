@@ -11,6 +11,12 @@ describe('reading a version', () => {
     expect(parseVersion('no version here')).toBeNull();
   });
 
+  it('reads a long line of digits in time linear in its length', () => {
+    const started = performance.now();
+    expect(parseVersion('1'.repeat(100_000))).toBeNull();
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it('orders versions by their numbers, a pre-release before its release', () => {
     expect(compareVersions('2.1.296', '2.1.30')).toBeGreaterThan(0);
     expect(compareVersions('0.155.1', '0.161.0')).toBeLessThan(0);
