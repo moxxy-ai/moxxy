@@ -101,6 +101,8 @@ export interface SkillFile {
   name: string;
   /** True if the file is editable (lives under ~/.moxxy/skills/). */
   editable: boolean;
-  /** First line of the skill's frontmatter `description`, when present. */
+  /** The skill's frontmatter `description`, when present. */
   description?: string;
+  /** Why the agent cannot load this skill (invalid frontmatter), when it can't. */
+  problem?: string;
 }

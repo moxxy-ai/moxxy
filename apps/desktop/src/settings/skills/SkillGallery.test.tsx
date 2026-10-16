@@ -55,4 +55,17 @@ describe('SkillGallery', () => {
     expect(screen.queryByText('invoice-parser')).toBeNull();
     expect(screen.getByText(/No skills match/i)).toBeTruthy();
   });
+
+  it('names a folder skill (<name>/SKILL.md) by its folder', () => {
+    renderGallery([{ name: 'animate/SKILL.md', editable: true, description: 'Build an animation.' }]);
+    expect(screen.getByText('animate')).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('Search skills…'), { target: { value: 'anim' } });
+    expect(screen.getByText('animate')).toBeTruthy();
+  });
+
+  it('says when the agent cannot load a skill, and why', () => {
+    renderGallery([{ name: 'broken.md', editable: true, problem: 'name: Required' }]);
+    expect(screen.getByText(/Agent can't load this skill/)).toBeTruthy();
+    expect(screen.getByText(/name: Required/)).toBeTruthy();
+  });
 });

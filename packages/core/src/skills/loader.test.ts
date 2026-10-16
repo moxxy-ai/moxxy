@@ -102,6 +102,17 @@ describe('discoverSkills', () => {
     expect(skills).toEqual([]);
   });
 
+  it('loads a folder skill (<name>/SKILL.md) whose description is longer than 240 chars', async () => {
+    const dir = path.join(tmp, 'user', 'animate');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(
+      path.join(dir, 'SKILL.md'),
+      `---\nname: animate\ndescription: ${'Build an animation from scratch. '.repeat(15)}\n---\nbody`,
+    );
+    const skills = await discoverSkills({ userDir: path.join(tmp, 'user'), logger: silentLogger });
+    expect(skills.map((s) => s.frontmatter.name)).toEqual(['animate']);
+  });
+
   it('bounds directory recursion depth (deep tree does not crash, deepest skill skipped)', async () => {
     const root = path.join(tmp, 'project');
     // A shallow skill (loaded) and a very deeply-nested one (beyond the depth cap).
