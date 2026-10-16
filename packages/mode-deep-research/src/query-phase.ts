@@ -1,6 +1,4 @@
 import {
-  buildSystemPromptWithSkills,
-  skillsWithinReach,
   runSingleShotTurn,
   type ModeContext,
   type ProviderMessage,
@@ -8,6 +6,7 @@ import {
 
 import {
   FOLLOWUP_PLAN_SYSTEM_PROMPT,
+  PLANNER_EARLIER_QUESTIONS_MAX,
   QUERY_PLAN_SYSTEM_PROMPT,
 } from './constants.js';
 import type { RoundFinding } from './fanout-phase.js';
@@ -52,15 +51,15 @@ function buildPlannerMessages(
   systemPrompt: string,
   userMessages: ProviderMessage[],
 ): ProviderMessage[] {
-  const systemWithSkills =
-    buildSystemPromptWithSkills(ctx.systemPrompt, skillsWithinReach(ctx.skills.list(), ctx.tools.list().map((tool) => tool.name))) ?? '';
+  // No skill list: it tells the model to call load_skill, and the planner can
+  // call no tool, so it wrote the call out as text instead of a plan.
   return [
     {
       role: 'system',
       content: [
         {
           type: 'text',
-          text: systemPrompt + (systemWithSkills ? `\n\n${systemWithSkills}` : ''),
+          text: systemPrompt + (ctx.systemPrompt ? `\n\n${ctx.systemPrompt}` : ''),
         },
       ],
     },
@@ -73,11 +72,9 @@ function buildInitialUserMessages(
   redraftFeedback: string | null,
 ): ProviderMessage[] {
   const out: ProviderMessage[] = [];
-  for (const e of ctx.log.slice()) {
-    if (e.type === 'user_prompt') {
-      out.push({ role: 'user', content: [{ type: 'text', text: e.text }] });
-    }
-  }
+  const asked = ctx.log.slice().flatMap((e) => (e.type === 'user_prompt' ? [e.text] : []));
+  const question = asked.at(-1);
+  if (question !== undefined) out.push({ role: 'user', content: [{ type: 'text', text: plannerQuestion(asked.slice(0, -1), question) }] });
   if (redraftFeedback) {
     out.push({
       role: 'user',
@@ -92,6 +89,19 @@ function buildInitialUserMessages(
     });
   }
   return out;
+}
+
+/**
+ * The newest question is the one to research; earlier ones only explain it
+ * ("And in Kraków?"), so the planner does not gather for them again.
+ */
+function plannerQuestion(earlier: ReadonlyArray<string>, question: string): string {
+  if (earlier.length === 0) return question;
+  const context = earlier.slice(-PLANNER_EARLIER_QUESTIONS_MAX).map((q) => `- ${q}`).join('\n');
+  return (
+    `Earlier questions in this conversation, for context only (they are answered; plan no queries for them):\n${context}\n\n` +
+    `The question to research now:\n${question}`
+  );
 }
 
 function buildFollowupUserMessages(

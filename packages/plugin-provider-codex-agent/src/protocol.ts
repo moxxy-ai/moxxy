@@ -1,0 +1,234 @@
+/**
+ * The part of the `codex app-server` protocol Moxxy speaks, written by hand
+ * from `codex app-server generate-ts` (0.155.1). Codex sends far more than
+ * this; anything not listed here is read as unknown and left alone.
+ */
+
+export type CodexApprovalPolicy =
+  | 'untrusted'
+  | 'on-request'
+  | 'never'
+  | { readonly granular: Readonly<Record<string, boolean>> };
+
+export type CodexSandboxPolicy =
+  | { readonly type: 'dangerFullAccess' }
+  | { readonly type: 'readOnly'; readonly networkAccess?: boolean }
+  | { readonly type: 'workspaceWrite'; readonly [key: string]: unknown }
+  | { readonly type: 'externalSandbox'; readonly [key: string]: unknown };
+
+/** The thread's settings in `thread/settings/updated` (only what Moxxy reads). */
+export interface CodexThreadSettingsReport {
+  readonly approvalPolicy: CodexApprovalPolicy;
+  readonly approvalsReviewer: CodexApprovalsReviewer;
+  readonly sandboxPolicy: CodexSandboxPolicy;
+}
+
+/** What `thread/start` and `thread/resume` answer: the thread as Codex really runs it. */
+export interface CodexThreadResponse {
+  readonly thread: { readonly id: string };
+  readonly model: string;
+  readonly approvalPolicy: CodexApprovalPolicy;
+  readonly sandbox: CodexSandboxPolicy;
+  readonly approvalsReviewer?: CodexApprovalsReviewer;
+  readonly reasoningEffort: string | null;
+  readonly serviceTier?: string | null;
+}
+
+/** Who answers Codex's approvals: the person, or Codex's own reviewer. */
+export type CodexApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent';
+
+/** What `config/read` answers: the person's effective Codex config, as far as Moxxy reads it. */
+/** The person's Codex config as `config/read` reports it for the folder (only what Moxxy reads). */
+/** `skills/list`: the skills Codex has where each folder asked for runs (generated `SkillsListResponse`, fields Moxxy reads). */
+export interface CodexSkillsList {
+  readonly data: ReadonlyArray<{
+    readonly cwd: string;
+    readonly skills: ReadonlyArray<{ readonly name: string; readonly description: string; readonly enabled: boolean }>;
+  }>;
+}
+
+export interface CodexConfigRead {
+  readonly config: {
+    readonly model_reasoning_summary?: string | null;
+    readonly approval_policy?: CodexApprovalPolicy | null;
+    readonly sandbox_mode?: 'read-only' | 'workspace-write' | 'danger-full-access' | null;
+    readonly sandbox_workspace_write?: {
+      readonly writable_roots: ReadonlyArray<string>;
+      readonly network_access: boolean;
+      readonly exclude_tmpdir_env_var: boolean;
+      readonly exclude_slash_tmp: boolean;
+    } | null;
+    readonly approvals_reviewer?: CodexApprovalsReviewer | null;
+    readonly tools?: { readonly update_plan?: { readonly enabled?: boolean } | null } | null;
+    /** The person's own MCP servers, by name. */
+    readonly mcp_servers?: Readonly<Record<string, { readonly enabled?: boolean }>> | null;
+  };
+}
+
+export type CodexUserInput =
+  | { readonly type: 'text'; readonly text: string; readonly text_elements: ReadonlyArray<never> }
+  | { readonly type: 'image'; readonly url: string }
+  | { readonly type: 'localImage'; readonly path: string };
+
+export type CodexCollaborationMode = {
+  readonly mode: 'plan' | 'default';
+  readonly settings: { readonly model: string; readonly reasoning_effort: string | null; readonly developer_instructions: null };
+};
+
+/** Fields of `thread/settings/update`; each applies to the thread's later turns. */
+export interface CodexThreadSettings {
+  readonly approvalPolicy?: CodexApprovalPolicy;
+  readonly sandboxPolicy?: CodexSandboxPolicy;
+  readonly model?: string;
+  readonly effort?: string;
+  readonly collaborationMode?: CodexCollaborationMode;
+}
+
+export type CodexTurnStatus = 'completed' | 'interrupted' | 'failed' | 'inProgress';
+
+export interface CodexTurn {
+  readonly id: string;
+  readonly status: CodexTurnStatus;
+  /** `codexErrorInfo` is Codex's code for the failure: a string (`usageLimitExceeded`) or an object for some. */
+  readonly error?: { readonly message: string; readonly codexErrorInfo?: unknown } | null;
+}
+
+/** `resetsAt` is in epoch seconds. */
+export interface CodexRateLimitWindow {
+  readonly usedPercent: number;
+  readonly windowDurationMins: number | null;
+  readonly resetsAt: number | null;
+}
+
+/** `account/rateLimits/updated`: a sparse update, where a missing window keeps the one seen before. */
+export interface CodexRateLimitSnapshot {
+  readonly primary?: CodexRateLimitWindow | null;
+  readonly secondary?: CodexRateLimitWindow | null;
+  readonly rateLimitReachedType?: string | null;
+}
+
+export type CodexGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete';
+
+export interface CodexGoal {
+  readonly objective: string;
+  readonly status: CodexGoalStatus;
+}
+
+/** A question Codex's plan mode asks inside its message (`delivery: 'async'`). */
+export interface CodexAsyncQuestion {
+  readonly title: string;
+  readonly options: ReadonlyArray<string> | null;
+}
+
+export type CodexItem =
+  | {
+      readonly type: 'agentMessage';
+      readonly id: string;
+      readonly text: string;
+      readonly phase?: string | null;
+      readonly delivery?: 'async' | null;
+      readonly questions?: ReadonlyArray<CodexAsyncQuestion> | null;
+    }
+  | { readonly type: 'plan'; readonly id: string; readonly text: string }
+  | { readonly type: 'reasoning'; readonly id: string; readonly summary: ReadonlyArray<string>; readonly content: ReadonlyArray<string> }
+  | {
+      readonly type: 'commandExecution';
+      readonly id: string;
+      readonly command: string;
+      readonly cwd: string;
+      readonly status: string;
+      readonly aggregatedOutput: string | null;
+      readonly exitCode: number | null;
+      readonly commandActions?: ReadonlyArray<{ readonly command?: string }>;
+    }
+  | {
+      readonly type: 'fileChange';
+      readonly id: string;
+      readonly status: string;
+      readonly changes: ReadonlyArray<CodexFileChange>;
+    }
+  | {
+      readonly type: 'mcpToolCall';
+      readonly id: string;
+      readonly server: string;
+      readonly tool: string;
+      readonly status: string;
+      readonly arguments: unknown;
+      readonly result: unknown;
+      readonly error: { readonly message: string } | null;
+    }
+  | { readonly type: 'webSearch'; readonly id: string; readonly query: string; readonly action?: CodexWebSearchAction | null }
+  | { readonly type: 'imageView'; readonly id: string; readonly path: string }
+  | { readonly type: 'sleep'; readonly id: string; readonly durationMs: number }
+  | {
+      readonly type: 'imageGeneration';
+      readonly id: string;
+      readonly status: string;
+      readonly revisedPrompt: string | null;
+      /** The picture, base64. */
+      readonly result: string;
+      readonly failure: { readonly type: string } | null;
+      readonly savedPath?: string;
+    };
+
+export type CodexWebSearchAction =
+  | { readonly type: 'search'; readonly query?: string; readonly queries?: ReadonlyArray<string> }
+  | { readonly type: 'open_page'; readonly url?: string }
+  | { readonly type: 'find_in_page'; readonly url?: string; readonly pattern?: string }
+  | { readonly type: 'other' };
+
+/** One file of a `fileChange`: for `add` the diff is the new content, for `update` a unified diff; `move_path` names where an update moved it. */
+export interface CodexFileChange {
+  readonly path: string;
+  readonly kind: { readonly type: string; readonly move_path?: string | null };
+  readonly diff?: string;
+}
+
+const KNOWN_ITEMS = new Set<string>(['agentMessage', 'plan', 'reasoning', 'commandExecution', 'fileChange', 'mcpToolCall', 'webSearch', 'imageView', 'sleep', 'imageGeneration']);
+
+/** Items Moxxy leaves out of the chat on purpose, and why. Every other kind shows: one Moxxy does not know, as a call named after it. */
+export const CODEX_ITEMS_LEFT_OUT: Readonly<Record<string, string>> = {
+  userMessage: "the person's own message, which Moxxy already shows",
+  hookPrompt: "text the person's Codex hooks add to the prompt, not something Codex did",
+  contextCompaction: "Codex shortening its own context; Moxxy's record of the conversation stays whole",
+  collabAgentToolCall: "Codex starting, waiting on or messaging its subagents, which their own rows show",
+  subAgentActivity: 'shown as the subagent row, read before the turn items',
+};
+
+/** An item Moxxy reads, or `undefined` for one it shows as a plain call or leaves out. */
+export function knownItem(value: unknown): CodexItem | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { type, id } = value as { type?: unknown; id?: unknown };
+  return typeof type === 'string' && typeof id === 'string' && KNOWN_ITEMS.has(type) ? (value as CodexItem) : undefined;
+}
+
+/** An item of a kind Moxxy neither reads nor leaves out: its fields, without the id, kind and status. */
+export interface CodexOtherItem {
+  readonly type: string;
+  readonly id: string;
+  readonly status?: string;
+  readonly fields: Readonly<Record<string, unknown>>;
+}
+
+export function otherItem(value: unknown): CodexOtherItem | undefined {
+  if (typeof value !== 'object' || value === null || knownItem(value)) return undefined;
+  const { type, id, status, ...fields } = value as Record<string, unknown>;
+  if (typeof type !== 'string' || typeof id !== 'string' || type in CODEX_ITEMS_LEFT_OUT) return undefined;
+  return { type, id, ...(typeof status === 'string' ? { status } : {}), fields };
+}
+
+export interface CodexTokenUsage {
+  readonly inputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly outputTokens: number;
+}
+
+/** `item/tool/requestUserInput` (experimental): a blocking question with ids. */
+export interface CodexUserInputQuestion {
+  readonly id: string;
+  readonly header: string;
+  readonly question: string;
+  readonly isOther: boolean;
+  readonly isSecret: boolean;
+  readonly options: ReadonlyArray<{ readonly label: string; readonly description: string }> | null;
+}

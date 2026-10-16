@@ -9,7 +9,8 @@ open a project, and ask moxxy to work.
 - one supported authentication method:
   - an API key for a supported provider;
   - ChatGPT OAuth;
-  - an authenticated Claude Code installation for Claude Pro or Max.
+  - a coding agent already on your computer, signed in: Claude Code (Claude Pro
+    or Max), Codex (ChatGPT) or OpenCode (see [Agent connections](agent-connections.md)).
 
 ## 1. Install
 
@@ -59,31 +60,32 @@ moxxy -p "summarize the README in three bullets"
 
 ## Authentication alternatives
 
-### Claude Code subscription
+### A coding agent you already use
 
-Install the official `claude` CLI and sign in before starting Moxxy:
-
-```sh
-claude auth login
-moxxy
-```
-
-Choose the Claude Code connection. Moxxy reuses the subscription session and
-does not copy Claude's credentials into its vault. Diagnose it with:
+An agent connection hands each turn to the coding agent on your computer —
+Claude Code, Codex or OpenCode — and shows its work in Moxxy. Moxxy reuses the
+agent's own sign-in and never copies its credentials into the vault. Pick one
+on first start (Claude Agent, ChatGPT — Codex agent, or OpenCode agent), or
+set it up from the terminal:
 
 ```sh
-claude auth status
-moxxy doctor
-moxxy login claude-code
+moxxy agents status
+moxxy agents install codex
+moxxy login codex-agent
 ```
 
-If the executable is not on `PATH`, set
-`CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude`.
+`moxxy login claude-code` and `moxxy login opencode` run Claude's and
+OpenCode's own sign-in the same way; OpenCode's free models need no sign-in.
+If the executable is not on `PATH`, set `CLAUDE_CODE_EXECUTABLE`,
+`CODEX_EXECUTABLE` or `OPENCODE_EXECUTABLE` to its absolute path. What each
+agent does, how approvals and modes map onto it, and how updates work is in
+[Agent connections](agent-connections.md).
 
 ### ChatGPT account
 
-Choose the OpenAI Codex connection on first start. Moxxy opens the OAuth
-flow; no OpenAI API key is required. You can also sign in separately:
+Choose the OpenAI Codex connection on first start. Moxxy runs the turn itself
+on your ChatGPT sign-in and opens the OAuth flow; no OpenAI API key is
+required. You can also sign in separately:
 
 ```sh
 moxxy login openai-codex

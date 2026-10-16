@@ -4,7 +4,8 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
-import type { PendingToolCall, PermissionContext } from '@moxxy/sdk';
+import { defineTool, z, type PendingToolCall, type PermissionContext, type QuestionOutcome } from '@moxxy/sdk';
+import { ChatQuestions, type QuestionUpdate } from '@moxxy/channel-kit';
 import { DISCORD_AUTHORIZED_USER_KEY } from '../keys.js';
 import { DiscordApprovalResolver } from '../approval.js';
 import { DiscordPermissionResolver } from '../permission.js';
@@ -67,7 +68,30 @@ function buttonInteraction(customId: string, userId = PAIRED): FakeInteraction {
     followUp: async (p) => {
       replies.push(p);
     },
+    deferUpdate: async () => {
+      updates.push('deferred');
+    },
   };
+}
+
+function askingSession(allowOther: boolean) {
+  const session = new Session({ cwd: '/tmp', silent: true });
+  session.tools.register(
+    defineTool({
+      name: 'asks',
+      description: 'Asks the person.',
+      inputSchema: z.object({}),
+      handler: async (_input, ctx) =>
+        ctx.ask
+          ? ctx.ask([{ id: 'q1', question: 'Which colour?', options: [{ id: 'red', label: 'Red' }], multiSelect: false, allowOther }])
+          : 'no ask',
+    }),
+  );
+  const questions = new ChatQuestions(() => session);
+  const updates: QuestionUpdate[] = [];
+  questions.attach((update) => updates.push(update));
+  const asked = session.tools.execute('asks', {}, new AbortController().signal, { turnId: 't1' }) as Promise<QuestionOutcome>;
+  return { session, questions, updates, asked };
 }
 
 function slashInteraction(
@@ -119,8 +143,8 @@ function autocompleteInteraction(
   return { interaction, responses };
 }
 
-function deps() {
-  return { pairing, allowList, permissionResolver, approvalResolver };
+function deps(questions = new ChatQuestions(() => null)) {
+  return { pairing, allowList, permissionResolver, approvalResolver, questions };
 }
 
 function callbacks() {
@@ -350,5 +374,36 @@ describe('handleInteraction — voice calls', () => {
 
     expect(hangup).toHaveBeenCalledOnce();
     expect(interaction.replies[0]?.content).toBe('📴 Call ended.');
+  });
+});
+
+describe('handleInteraction — a Question button', () => {
+  it('answers the Question with the clicked answer and acks the click without a message', async () => {
+    const { questions, updates, asked } = askingSession(false);
+    await new Promise((resolve) => setImmediate(resolve));
+    const shown = updates[0];
+    if (!shown || shown.kind !== 'show') throw new Error('expected the card');
+    const red = shown.card.rows.flat()[0];
+    if (!red) throw new Error('expected the Red button');
+    const interaction = buttonInteraction(red.data);
+
+    await handleInteraction(interaction, state, deps(questions), callbacks());
+
+    await expect(asked).resolves.toEqual({ kind: 'answered', answers: { q1: { selected: ['red'] } } });
+    expect(interaction.updates).toEqual(['deferred']);
+    expect(interaction.replies).toEqual([]);
+  });
+
+  it('refuses a Question button from someone the bot is not paired with', async () => {
+    const { questions, updates } = askingSession(false);
+    await new Promise((resolve) => setImmediate(resolve));
+    const shown = updates[0];
+    if (!shown || shown.kind !== 'show') throw new Error('expected the card');
+    const red = shown.card.rows.flat()[0];
+    if (!red) throw new Error('expected the Red button');
+
+    await handleInteraction(buttonInteraction(red.data, STRANGER), state, deps(questions), callbacks());
+
+    expect(updates.map((u) => u.kind)).toEqual(['show']);
   });
 });

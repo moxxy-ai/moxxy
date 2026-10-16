@@ -1,9 +1,11 @@
 import {
   MoxxyError,
   asTurnId,
+  conversationTurns,
   defineTool,
   findAttachment,
   listAttachments,
+  searchConversation,
   z,
   type MoxxyEvent,
   type RestoredAttachmentOutput,
@@ -12,20 +14,24 @@ import { dropDanglingSurrogate } from './util.js';
 
 const MAX_FULL_CHARS = 200_000;
 const SUMMARY_CHARS = 1_500;
+const SEARCH_LIMIT = 5;
 
 /**
  * Retrieve content that turn-boundary elision replaced with a stub. The model
  * sees stubs like `[output elided — 4.2 KB · recall("call_123") to view]`; it
  * calls this tool with that callId (or a seq / turnId) to pull the full text
- * back in. Read-only over the event log — must run in-process (it reads
- * `ctx.log`, which an out-of-process isolator wouldn't carry).
+ * back in. It also searches the whole conversation (`query`) and reads a turn
+ * by its number (`turn`): an agent connection whose own session is gone works
+ * from Moxxy's record that way. Read-only over the event log — must run
+ * in-process (it reads `ctx.log`, which an out-of-process isolator wouldn't carry).
  */
 export const recallTool = defineTool({
   name: 'recall',
   icon: 'search',
   description:
-    'Retrieve earlier content that was elided from context to save tokens. ' +
-    'Pass the `callId` shown in an "[output elided — recall(...)]" stub to get a ' +
+    'Search this whole conversation or read back earlier content. `query` finds the ' +
+    'earlier turns that mention its words (with their turn numbers); `turn` reads one ' +
+    'turn in full, by its number. Pass the `callId` shown in an "[output elided — recall(...)]" stub to get a ' +
     'tool result back, or a `seq` / `turnId` to recall an earlier message or whole ' +
     'turn. Pass `attachment` (a file name, or the key a "recall({ attachment })" note gives) ' +
     'to see a file attached earlier again, even one from a summarized turn. ' +
@@ -33,6 +39,8 @@ export const recallTool = defineTool({
     'Only call this when you actually need the detail — the recent context is always ' +
     'present verbatim.',
   inputSchema: z.object({
+    query: z.string().optional().describe('Words to search the whole conversation for, e.g. "database port".'),
+    turn: z.number().int().positive().optional().describe('Read this turn of the conversation in full, by its number.'),
     callId: z.string().optional().describe('The callId from an elided tool-result stub.'),
     seq: z.number().int().nonnegative().optional().describe('Event sequence number to recall.'),
     turnId: z.string().optional().describe('Recall every message from this turn.'),
@@ -50,7 +58,7 @@ export const recallTool = defineTool({
     required: 'inproc',
     capabilities: { net: { mode: 'none' }, timeMs: 5_000 },
   },
-  handler: ({ callId, seq, turnId, attachment, summarize }, ctx) => {
+  handler: ({ query, turn, callId, seq, turnId, attachment, summarize }, ctx) => {
     // An attachment is checked before the anti-thrash belt: restoring one again
     // is how the model gets it back once newer files pushed it out.
     if (attachment !== undefined) return recallAttachment(ctx.log.slice(), attachment, summarize);
@@ -69,10 +77,27 @@ export const recallTool = defineTool({
           e.type === 'tool_call_requested' &&
           e.name === 'recall' &&
           e.callId !== ctx.callId &&
-          recallTargetMatches(e.input, { callId, seq, turnId }),
+          recallTargetMatches(e.input, { query, turn, callId, seq, turnId }),
       );
     if (prior) {
       return `[already recalled just above — not re-injecting to save context; scroll up for the full content]`;
+    }
+
+    if (query !== undefined) {
+      const matches = searchConversation(ctx.log, query, { limit: SEARCH_LIMIT, exceptTurnId: ctx.turnId });
+      if (matches.length === 0) return `No earlier turn mentions "${query}". Try other words, or fewer.`;
+      const found = matches.map(({ turn: t, snippets }) => {
+        const said = t.said.join(' ').replace(/\s+/g, ' ').trim();
+        return [`Turn ${t.number}: ${said.length > 300 ? `${said.slice(0, 299)}…` : said}`, ...snippets.map((s) => `  ${s}`)].join('\n');
+      });
+      return `${found.join('\n\n')}\n\nRead a turn in full with recall({ turn: <number> }).`;
+    }
+
+    if (turn !== undefined) {
+      const found = conversationTurns(ctx.log).find((t) => t.number === turn);
+      if (!found) throw new MoxxyError({ code: 'TOOL_ERROR', message: `recall: this conversation has no turn ${turn}.` });
+      const body = ctx.log.byTurn(found.turnId).map(renderEvent).filter(Boolean).join('\n\n');
+      return present(`[turn ${turn}]\n\n${body}`, summarize);
     }
 
     if (callId) {
@@ -110,7 +135,7 @@ export const recallTool = defineTool({
 
     throw new MoxxyError({
       code: 'TOOL_ERROR',
-      message: 'recall: provide one of `callId`, `seq`, `turnId`, or `attachment`.',
+      message: 'recall: provide one of `query`, `turn`, `callId`, `seq`, `turnId`, or `attachment`.',
     });
   },
 });
@@ -148,10 +173,12 @@ function recallAttachment(
 
 function recallTargetMatches(
   input: unknown,
-  target: { callId?: string; seq?: number; turnId?: string },
+  target: { query?: string; turn?: number; callId?: string; seq?: number; turnId?: string },
 ): boolean {
   if (!input || typeof input !== 'object') return false;
-  const i = input as { callId?: unknown; seq?: unknown; turnId?: unknown };
+  const i = input as { query?: unknown; turn?: unknown; callId?: unknown; seq?: unknown; turnId?: unknown };
+  if (target.query !== undefined) return i.query === target.query;
+  if (target.turn !== undefined) return i.turn === target.turn;
   if (target.callId !== undefined) return i.callId === target.callId;
   if (target.seq !== undefined) return i.seq === target.seq;
   if (target.turnId !== undefined) return i.turnId === target.turnId;

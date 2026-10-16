@@ -1,4 +1,5 @@
 import type {
+  QuestionAsker,
   AppContext,
   ApprovalResolver,
   CacheStrategyDef,
@@ -61,11 +62,15 @@ export interface SessionRuntime {
   readonly cacheStrategies: { getActive(): CacheStrategyDef | null };
   readonly resolver: PermissionResolver;
   readonly approvalResolver: ApprovalResolver | null;
+  /** The conversation's Questions; a turn asks through them (`ModeContext.ask`). */
+  readonly questions?: { readonly ask: QuestionAsker };
   readonly elisionSettings: ElisionSettings | null;
   readonly lazyTools: boolean | undefined;
   readonly unfinishedStepCheck: boolean | undefined;
   /** Reasoning/thinking preference (effort), forwarded to each turn's ModeContext. */
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean | undefined;
+  /** The reasoning a turn runs with: `reasoning`, or low on an agent connection without an effort set. */
+  turnReasoning(): { readonly effort?: ReasoningEffort } | boolean | undefined;
   readonly fast?: boolean;
   /** Stuck-loop guard tuning, forwarded to each turn's ModeContext. */
   readonly loopGuard?: LoopGuardSettings;
@@ -80,6 +85,8 @@ export interface SessionRuntime {
    * the first turn resolves a model.
    */
   lastResolvedModel: string | null;
+  /** The provider of `lastResolvedModel`, so a switch of provider does not carry it over. */
+  lastResolvedProvider: string | null;
   /** The model each provider runs when a turn names none and the conversation has not run yet. */
   readonly defaultModels?: Readonly<Record<string, string>>;
   startTurn(): { turnId: TurnId };

@@ -26,6 +26,7 @@ export function ChannelModelSection({ state }: { readonly state: ChannelModelSta
       </p>
       {state.picking && (
         <ProviderModelGrid
+          workspaceId={state.workspaceId}
           providers={state.providers}
           activeProvider={state.activeProvider}
           activeModel={state.activeModel}

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  subagentGroupHeader,
+  subagentState,
+  subagentToolsLabel,
+  toolImagesLabel,
   buildCompactSummary,
   compactPreviewLine,
   describeToolCall,
@@ -194,5 +198,60 @@ describe('compactPreviewLine', () => {
       { k: 5 },
     );
     expect(compactPreviewLine(nonStr)).toBe('k=5');
+  });
+});
+
+describe('toolImagesLabel', () => {
+  it('names an image by its kind and decoded size', () => {
+    expect(toolImagesLabel([{ mediaType: 'image/jpeg', base64: 'A'.repeat(3000) }])).toBe('image (JPEG, 2.2 KB)');
+    expect(toolImagesLabel([{ mediaType: 'image/png', base64: 'AAAA' }])).toBe('image (PNG, 3 B)');
+  });
+
+  it('counts several images, with their kinds and their size together', () => {
+    const jpeg = { mediaType: 'image/jpeg', base64: 'A'.repeat(3000) };
+    expect(toolImagesLabel([jpeg, jpeg, { mediaType: 'image/png', base64: 'A'.repeat(3000) }])).toBe('3 images (JPEG, PNG, 6.6 KB)');
+  });
+});
+
+describe('subagentToolsLabel', () => {
+  it('counts the tool calls a subagent made', () => {
+    expect(subagentToolsLabel({ toolCallCount: 1 }, 'call')).toBe('1 tool call');
+    expect(subagentToolsLabel({ toolCallCount: 3 }, 'use')).toBe('3 tool uses');
+  });
+
+  it('says nothing when the agent that ran it does not report its tool calls', () => {
+    expect(subagentToolsLabel({ toolCallCount: 0, toolsUnseen: true }, 'call')).toBeNull();
+  });
+});
+
+describe('subagentState', () => {
+  const agent = { completedAtMs: null, error: null } as const;
+
+  it('tells a running subagent from one going on in the background, a finished one and a failed one', () => {
+    expect(subagentState(agent)).toBe('running');
+    expect(subagentState({ ...agent, backgrounded: true })).toBe('background');
+    expect(subagentState({ ...agent, completedAtMs: 5 })).toBe('done');
+    expect(subagentState({ ...agent, completedAtMs: 5, error: 'boom' })).toBe('failed');
+  });
+});
+
+describe('subagentGroupHeader', () => {
+  const agent = { completedAtMs: 5, error: null, agentType: 'Explore' } as const;
+  const group = (agentType: string, agents: ReadonlyArray<{ completedAtMs: number | null; error: string | null; backgrounded?: boolean; continued?: boolean }>) => ({ agentType, agents });
+
+  it('names the kind of the agents, in the same words on every screen', () => {
+    expect(subagentGroupHeader(group('Explore', [agent, agent]))).toBe('2 Explore agents finished');
+    expect(subagentGroupHeader(group('Explore', [{ ...agent, completedAtMs: null }]))).toBe('1 Explore agent running');
+  });
+
+  it('says no kind for a mixed batch or for agents of no particular kind', () => {
+    expect(subagentGroupHeader(group('mixed', [agent, agent]))).toBe('2 agents finished');
+    expect(subagentGroupHeader(group('default', [agent]))).toBe('1 agent finished');
+  });
+
+  it('says where a helper goes on or reported back from, and how many failed', () => {
+    expect(subagentGroupHeader(group('default', [{ ...agent, completedAtMs: null, backgrounded: true }]))).toBe('1 agent in the background');
+    expect(subagentGroupHeader(group('default', [{ ...agent, continued: true }]))).toBe('1 agent finished in the background');
+    expect(subagentGroupHeader(group('default', [agent, { ...agent, error: 'boom' }]))).toBe('2 agents finished, 1 failed');
   });
 });

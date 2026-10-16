@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
+  AgentTurnStart,
   AppContext,
   ComputerControlService,
   ClientSession,
@@ -20,6 +21,7 @@ import { runTurn as runTurnImpl } from './run-turn.js';
 import type { SessionRuntime } from './session-runtime.js';
 import { resolveTurnModel } from './turn-model.js';
 import { EventLog } from './events/log.js';
+import { SessionQuestionsImpl } from './questions/session-questions.js';
 import { HookDispatcherImpl } from './plugins/lifecycle.js';
 import { PluginHost, type PluginLoader } from './plugins/host.js';
 import { ProviderRegistry } from './registries/providers.js';
@@ -58,6 +60,7 @@ import {
   AUTO_APPROVE_PLUGIN_ID,
   AUTO_APPROVE_SUBTYPE,
   autoApproveFromEvents,
+  autoApproveRecorded,
   evaluateToolRule,
   isSelectableMode,
 } from '@moxxy/sdk';
@@ -79,6 +82,7 @@ import type {
 } from '@moxxy/sdk';
 import { createLogger, silentLogger, type Logger } from './logger.js';
 import { clearRetainedChildren } from './subagents/registry.js';
+import { AgentCliWatch } from './agent-cli-watch.js';
 
 export interface SessionOptions {
   readonly cwd: string;
@@ -133,10 +137,14 @@ export class Session implements ClientSession, SessionRuntime {
   readonly id: SessionId;
   readonly cwd: string;
   readonly log: EventLog;
+  /** Questions the agent asks the person, recorded in {@link log} (see `SessionQuestionsImpl`). */
+  readonly questions: SessionQuestionsImpl;
   readonly logger: Logger;
   readonly governance?: GovernanceInfo;
   readonly tools: ToolRegistry;
   readonly providers: ProviderRegistry;
+  /** Where each agent connection's CLI stands; a long-lived host calls `start()` on it. */
+  readonly agentClis: AgentCliWatch;
   readonly modes: ModeRegistry;
   readonly compactors: CompactorRegistry;
   readonly cacheStrategies: CacheStrategyRegistry;
@@ -222,6 +230,7 @@ export class Session implements ClientSession, SessionRuntime {
    * Last-writer-wins for concurrent turns; null until the first turn runs.
    */
   lastResolvedModel: string | null = null;
+  lastResolvedProvider: string | null = null;
   /** The model each provider is set to run when a turn names none, from `plugins.provider.items.<name>.model`. */
   defaultModels: Readonly<Record<string, string>> = {};
   /**
@@ -246,13 +255,29 @@ export class Session implements ClientSession, SessionRuntime {
     this.logger = opts.logger ?? (opts.silent ? silentLogger : createLogger());
     if (opts.governance) this.governance = Object.freeze({ ...opts.governance });
     this.log = opts.log ?? new EventLog();
+    this.questions = new SessionQuestionsImpl({ log: this.log, sessionId: this.id });
+    if (opts.log) {
+      this.questions.closeLeftOver().catch((err: unknown) => {
+        this.logger.warn('could not close questions left open by an earlier run', { err: String(err) });
+      });
+    }
     this.tools = new ToolRegistryImpl({
       logger: this.logger,
       cwd: this.cwd,
       ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
+      questionAsker: this.questions.ask,
     });
     if (opts.secretResolver) this.resolveSecret = opts.secretResolver;
     this.providers = new ProviderRegistry();
+    this.agentClis = new AgentCliWatch(() => this.providers.list(), this.logger);
+    this.stopWatchingAgentTurns = this.providers.onAgentTurn((start) => this.takeUpAgentTurn(start));
+    // A conversation on an agent connection shows how the agent really runs from the first moment.
+    const stopAdopting = this.providers.onActiveChange(() => void this.adoptOwnAutoApprove());
+    const stopAdoptingOnClear = this.log.onClear(() => void this.adoptOwnAutoApprove());
+    this.stopAdoptingOwnAutoApprove = () => {
+      stopAdopting();
+      stopAdoptingOnClear();
+    };
     this.modes = new ModeRegistry();
     this.compactors = new CompactorRegistry();
     this.cacheStrategies = new CacheStrategyRegistry();
@@ -510,6 +535,9 @@ export class Session implements ClientSession, SessionRuntime {
   async close(reason = 'shutdown'): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.stopWatchingAgentTurns();
+    this.stopAdoptingOwnAutoApprove();
+    this.agentClis.stop();
     // Stop deferred approvals/provider calls before disposers await them.
     this.abort(reason);
     try {
@@ -607,11 +635,93 @@ export class Session implements ClientSession, SessionRuntime {
     return runTurnImpl(this, prompt, opts);
   }
 
+  private readonly stopWatchingAgentTurns: () => void;
+  private readonly stopAdoptingOwnAutoApprove: () => void;
+
+  /**
+   * Until the conversation records a switch, its auto-approve is the active
+   * agent's own setup (`ProviderDef.ownAutoApprove`), recorded as the system's.
+   * A switch recorded meanwhile, or another connection made active, wins.
+   */
+  private async adoptOwnAutoApprove(): Promise<void> {
+    const name = this.providers.getActiveName();
+    const def = this.providers.list().find((p) => p.name === name);
+    if (!def?.ownAutoApprove || autoApproveRecorded(this.log.slice())) return;
+    let own: boolean | undefined;
+    try {
+      own = await def.ownAutoApprove({ cwd: this.cwd });
+    } catch (err) {
+      this.logger.warn('could not read how the agent runs on its own', { provider: name, err: String(err) });
+      return;
+    }
+    if (own === undefined || own === this.autoApprove || this.closed) return;
+    if (this.providers.getActiveName() !== name || autoApproveRecorded(this.log.slice())) return;
+    await this.log.append({
+      type: 'plugin_event',
+      sessionId: this.id,
+      turnId: newTurnId(),
+      source: 'system',
+      pluginId: AUTO_APPROVE_PLUGIN_ID,
+      subtype: AUTO_APPROVE_SUBTYPE,
+      payload: { enabled: own },
+    });
+  }
+
+  /**
+   * The agent of an agent connection started a turn by itself: run it as a
+   * turn of this conversation, marked as the agent's, so every client sees
+   * it in the log like any turn. Goes through `this.runTurn`, so a host that
+   * wraps it (the runner, to list and stop running turns) sees this one too.
+   */
+  private takeUpAgentTurn(start: AgentTurnStart): void {
+    if (this.closed || start.sessionId !== String(this.id)) return;
+    const turn = this.runTurn(start.name, { origin: { kind: 'agent', name: start.name } });
+    void (async () => {
+      try {
+        for await (const _event of turn) {
+          // Every client reads the turn from the log.
+        }
+      } catch (err) {
+        this.logger.error('a turn the agent started by itself failed', { error: err instanceof Error ? err.message : String(err) });
+      }
+    })();
+  }
+
   /**
    * Wire-friendly snapshot of the registries for channels to render. Mirrors
    * what a `RemoteSession` fetches from the runner over RPC - keep the two in
    * sync.
    */
+  /**
+   * Called with the new info when it changes outside the log — today, when an
+   * agent connection's CLI was found missing, outdated or updated. Returns the
+   * unsubscribe.
+   */
+  onInfoChanged(listener: (info: SessionInfo) => void): () => void {
+    return this.agentClis.onChange(() => listener(this.getInfo()));
+  }
+
+  /**
+   * The reasoning a turn runs with. An agent connection always thinks, so it
+   * has no "off": one without an effort set runs at low, its lowest level.
+   */
+  turnReasoning(): Session['reasoning'] {
+    const set = typeof this.reasoning === 'object' ? this.reasoning : {};
+    if (set.effort !== undefined || !this.activeIsAgentConnection()) return this.reasoning;
+    return { ...set, effort: 'low' };
+  }
+
+  private activeIsAgentConnection(): boolean {
+    const active = this.providers.getActiveName();
+    if (!active) return false;
+    try {
+      return typeof this.providers.getActive().agentStep === 'function';
+    } catch {
+      // Selected before credentials built an instance: the definition says whether it is an agent.
+      return this.providers.list().some((p) => p.name === active && p.agentName !== undefined);
+    }
+  }
+
   getInfo(): SessionInfo {
     let activeMode: string | null = null;
     let activeModeBadge: SessionInfo['activeModeBadge'] = null;
@@ -645,13 +755,18 @@ export class Session implements ClientSession, SessionRuntime {
       ...(this.governance ? { governance: this.governance } : {}),
       clientChrome: this.pluginHost.listClientChrome(),
       activeProvider: active,
-      providers: this.providers.list().map((p) => ({
-        name: p.name,
-        models: p.name === active && activeProviderModels ? activeProviderModels : p.models,
-        authKind: p.auth?.kind === 'oauth' ? 'oauth' : 'api-key',
-        supportsLiveModelDiscovery: p.supportsLiveModelDiscovery === true,
-        enabled: this.providers.isEnabled(p.name),
-      })),
+      providers: this.providers.list().map((p) => {
+        const agentCli = this.agentClis.report(p.name);
+        return {
+          name: p.name,
+          models: p.name === active && activeProviderModels ? activeProviderModels : p.models,
+          authKind: p.auth?.kind === 'oauth' ? 'oauth' : 'api-key',
+          ...(p.agentName ? { agentName: p.agentName } : {}),
+          ...(agentCli ? { agentCli } : {}),
+          supportsLiveModelDiscovery: p.supportsLiveModelDiscovery === true,
+          enabled: this.providers.isEnabled(p.name),
+        };
+      }),
       activeMode,
       activeModeBadge,
       modes: this.modes.list().filter(isSelectableMode).map((m) => m.name),
@@ -687,7 +802,7 @@ export class Session implements ClientSession, SessionRuntime {
       hasSynthesizer: this.synthesizers.list().length > 0,
       activeSynthesizer: this.synthesizers.getActiveName(),
       autoApprove: this.autoApprove,
-      reasoningEffort: reasoningEffortOf(this.reasoning),
+      reasoningEffort: reasoningEffortOf(this.turnReasoning()),
       fast: this.fast,
       ...(defaultModel !== undefined ? { defaultModel } : {}),
     };
@@ -718,10 +833,10 @@ function wrapWithPolicy(
   // through to the channel resolver's prompt / deny-by-default path, while
   // `policyCheck` callers (auto-approving modes) supply their own fallback
   // so no prompt can ever fire.
-  const policyDecision = async (call: PendingToolCall): Promise<PermissionDecision | null> => {
+  const policyDecision = async (call: PendingToolCall, ctx?: PermissionContext): Promise<PermissionDecision | null> => {
     const policy = engine.check(call);
     if (policy) return policy;
-    return evaluateWorkspaceToolRule(getToolRule(call.name), call, cwd);
+    return evaluateWorkspaceToolRule(ctx?.toolPermission ?? getToolRule(call.name), call, cwd);
   };
   // Use a Proxy so any extra methods on the underlying resolver
   // (`abortAll`, channel-specific helpers) remain accessible — only
@@ -730,23 +845,23 @@ function wrapWithPolicy(
     get(target, prop, receiver) {
       if (prop === 'check') {
         return async (call: PendingToolCall, ctx: PermissionContext) => {
-          const decided = await policyDecision(call);
+          const decided = await policyDecision(call, ctx);
           if (decided) return decided;
           // Auto-approve replaces only the asking: policy denies above still
           // win, and a scoped resolver (subagent, goal run) keeps its own say.
           const scoped = currentPermissionScope();
-          if (!scoped && isAutoApprove()) return { mode: 'allow', reason: 'auto-approve', decidedNow: true };
+          if (!scoped && isAutoApprove() && !ctx.askPerson) return { mode: 'allow', reason: 'auto-approve', decidedNow: true };
           return (scoped ?? target).check(call, ctx);
         };
       }
       if (prop === 'policyCheck') {
-        return async (call: PendingToolCall) => policyDecision(call);
+        return async (call: PendingToolCall, ctx?: PermissionContext) => policyDecision(call, ctx);
       }
       if (prop === 'mandatoryCheck') {
         return async (call: PendingToolCall, ctx: PermissionContext) => {
           const scoped = currentPermissionScope();
           if (!scoped) return null;
-          const policy = await policyDecision(call);
+          const policy = await policyDecision(call, ctx);
           return policy ?? scoped.check(call, ctx);
         };
       }

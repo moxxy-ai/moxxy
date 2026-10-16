@@ -16,8 +16,12 @@ import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 
 export const EFFORT_LEVELS: ReadonlyArray<ReasoningEffort> = ['off', 'low', 'medium', 'high', 'xhigh'];
 
-/** The levels an effort menu offers: `default` only while it is the effort, since it cannot be asked for. */
-export function effortLevelsFor(effort: EffortLevel): ReadonlyArray<EffortLevel> {
+/**
+ * The levels an effort menu offers: `default` only while it is the effort, since it cannot be asked for.
+ * An agent connection always thinks, so it has no Off and starts from Low (the runner runs it at Low until one is set).
+ */
+export function effortLevelsFor(effort: EffortLevel, opts: { readonly agent?: boolean } = {}): ReadonlyArray<EffortLevel> {
+  if (opts.agent === true) return EFFORT_LEVELS.slice(1);
   return effort === 'default' ? ['off', 'default', ...EFFORT_LEVELS.slice(1)] : EFFORT_LEVELS;
 }
 
@@ -166,9 +170,10 @@ export function useModelTuning(workspaceId: string, info: SessionInfo, model: st
 
   const offered = offers(info, model);
   const effort = pending.effort ?? reported.effort;
+  const agent = info.providers.some((p) => p.name === info.activeProvider && p.agentName !== undefined);
   return {
     effort,
-    effortLevels: effortLevelsFor(effort),
+    effortLevels: effortLevelsFor(effort, { agent }),
     fast: pending.fast ?? reported.fast,
     canSetEffort: offered.reasoning,
     canSetFast: offered.fast,

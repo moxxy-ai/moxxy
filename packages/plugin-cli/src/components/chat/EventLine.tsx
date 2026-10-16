@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import type { MoxxyEvent, TriggerOrigin } from '@moxxy/sdk';
+import { accountLimitOfEvent, type MoxxyEvent, type TriggerOrigin } from '@moxxy/sdk';
+import { accountLimitText } from '@moxxy/chat-model';
 import { Colors, Glyphs } from '../../theme.js';
 import { wrapLogicalLine } from '../prompt/BufferLines.js';
 import { blockGap } from './density.js';
@@ -131,6 +132,17 @@ export const EventLine: React.FC<{
           <Text color={Colors.danger}> aborted: {event.reason}</Text>
         </Box>
       );
+    case 'plugin_event': {
+      // An agent's used-up account limit, where the turn stopped, in place of its raw error.
+      const limit = accountLimitOfEvent(event);
+      if (!limit || limit.limit.state !== 'reached') return null;
+      return (
+        <Box marginTop={blockGap()}>
+          <ActivityDot state="error" />
+          <Text color={Colors.danger}>{` ${accountLimitText(limit, event.ts)}`}</Text>
+        </Box>
+      );
+    }
     default:
       return null;
   }
@@ -153,6 +165,7 @@ const TRIGGER_VERBS: Record<TriggerOrigin['kind'], string> = {
   workflow: 'Workflow ran',
   checkpoint: 'Checkpoint intervened',
   voice: 'Voice conversation',
+  agent: 'Agent continued',
 };
 
 export function formatTriggerOrigin(origin: TriggerOrigin): string {

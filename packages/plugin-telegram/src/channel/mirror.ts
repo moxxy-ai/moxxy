@@ -4,7 +4,7 @@ import { sendMarkdown, type TelegramSender } from './send-rich.js';
 export type { TelegramSender } from './send-rich.js';
 
 export interface TelegramMirrorOptions {
-  readonly turns: Pick<TurnCoordinator, 'mirrorPrompt' | 'mirrorText'>;
+  readonly turns: Pick<TurnCoordinator, 'mirrorPrompt' | 'mirrorText' | 'mirrorAgentTurn' | 'mirrorHelperAnswer'>;
   /** The running bot's API, or null while it is stopped. */
   readonly api: () => TelegramSender | null;
   /** The paired chat, or null while unpaired. */
@@ -30,6 +30,7 @@ export function createTelegramMirror(opts: TelegramMirrorOptions): {
       if (api) await sendMarkdown(api, chatId, text);
     },
     formatPrompt: (prompt) => `_typed in moxxy:_ ${prompt}`,
+    formatAgentTurn: (name) => `_agent continued:_ ${name}`,
     onError: (err) => opts.logger?.warn('telegram mirror failed', { err: String(err) }),
   });
   return { mirror, target };

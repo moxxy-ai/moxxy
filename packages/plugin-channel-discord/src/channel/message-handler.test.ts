@@ -3,7 +3,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
-import type { ClientSession as Session } from '@moxxy/sdk';
+import { defineTool, z, type ClientSession as Session, type QuestionOutcome } from '@moxxy/sdk';
+import { Session as CoreSession } from '@moxxy/core';
+import { ChatQuestions, type QuestionUpdate } from '@moxxy/channel-kit';
 import { DISCORD_AUTHORIZED_USER_KEY } from '../keys.js';
 import type { InboundMessage } from '../schema.js';
 import { extractInboundMessage, MAX_CONTENT_CHARS } from '../schema.js';
@@ -113,9 +115,30 @@ function makeCallbacks(overrides: Partial<MessageHandlerCallbacks> = {}): Messag
   } as never;
 }
 
-function deps() {
-  return { pairing, allowList, approvalResolver, permissionResolver };
+function deps(questions = new ChatQuestions(() => null)) {
+  return { pairing, allowList, approvalResolver, permissionResolver, questions };
 }
+
+function askingSession(allowOther: boolean) {
+  const session = new CoreSession({ cwd: '/tmp', silent: true });
+  session.tools.register(
+    defineTool({
+      name: 'asks',
+      description: 'Asks the person.',
+      inputSchema: z.object({}),
+      handler: async (_input, ctx) =>
+        ctx.ask
+          ? ctx.ask([{ id: 'q1', question: 'Which colour?', options: [{ id: 'red', label: 'Red' }], multiSelect: false, allowOther }])
+          : 'no ask',
+    }),
+  );
+  const questions = new ChatQuestions(() => session);
+  const updates: QuestionUpdate[] = [];
+  questions.attach((update) => updates.push(update));
+  const asked = session.tools.execute('asks', {}, new AbortController().signal, { turnId: 't1' }) as Promise<QuestionOutcome>;
+  return { session, questions, updates, asked };
+}
+
 
 describe('handleInboundMessage — gating (every session-reaching path)', () => {
   it('drops an unpaired DM with pairing guidance (no window armed)', async () => {
@@ -292,5 +315,21 @@ describe('handleInboundMessage — dispatch', () => {
     await handleInboundMessage(ctx, makeState(), deps(), cb);
     expect(cb.runVoiceMessage).toHaveBeenCalledWith(ctx);
     expect(cb.runUserTurn).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleInboundMessage — a reply to an open Question', () => {
+  it('answers the Question with the reply, even while the turn that asked runs', async () => {
+    await pairAs(PAIRED);
+    const { questions, asked } = askingSession(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    const { ctx, replies } = makeCtx(msg({ content: 'Teal' }));
+    const cb = makeCallbacks();
+
+    await handleInboundMessage(ctx, makeState({ busy: true }), deps(questions), cb);
+
+    await expect(asked).resolves.toEqual({ kind: 'answered', answers: { q1: { selected: [], other: 'Teal' } } });
+    expect(cb.runUserTurn).not.toHaveBeenCalled();
+    expect(replies).toEqual([]);
   });
 });

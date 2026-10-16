@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { questionAnswersSchema } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -9,6 +10,7 @@ import type {
   PermissionContext,
   PermissionDecision,
   Principal,
+  QuestionAnswers,
   OpenSurfaceResult,
   SessionInfo,
   SurfaceDataMessage,
@@ -178,7 +180,13 @@ import type {
  * out (`content: ''` + `omittedBytes`), and `session.readAttachment` reads them
  * back in bounded slices (additive: older clients just see the size).
  */
-export const RUNNER_PROTOCOL_VERSION = 26;
+/** v27: `setResolver` takes `question` (this client shows Questions) and `question.answer` answers one (additive). */
+/**
+ * v28: `ProviderInfo.agentCli` reports each agent connection's CLI (missing,
+ * update required/available, current), pushed by `info.changed` whenever it
+ * changes; `provider.checkAgents` checks every one again now (additive).
+ */
+export const RUNNER_PROTOCOL_VERSION = 28;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -238,6 +246,8 @@ export const RunnerMethod = {
   SessionSetAutoApprove: 'session.setAutoApprove',
   /** client->server: declare which resolvers this client will answer. */
   SetResolver: 'setResolver',
+  /** client->server: answer an open Question the session recorded (v27). */
+  QuestionAnswer: 'question.answer',
   /** client->server: switch the active mode. */
   ModeSetActive: 'mode.setActive',
   /** client->server: set the session's reasoning/thinking effort (v9). */
@@ -250,6 +260,8 @@ export const RunnerMethod = {
   ProviderSetEnabled: 'provider.setEnabled',
   /** client->server: re-probe every provider's credentials → readyProviders (v7). */
   ProviderRefreshReady: 'provider.refreshReady',
+  /** client->server: check every agent connection's CLI again, asking the vendors' registry anew (v28). */
+  ProviderCheckAgents: 'provider.checkAgents',
   /** client->server: patch a stored (runtime-registered) provider's config (v7). */
   ProviderConfigure: 'provider.configure',
   /** client->server: persist an allow-always permission rule. */
@@ -414,6 +426,14 @@ export interface SetResolverParams {
   readonly permission?: boolean;
   /** This client will answer `approval.confirm` for the turns it owns. */
   readonly approval?: boolean;
+  /** This client shows the session's Questions and can answer them (v27). */
+  readonly question?: boolean;
+}
+
+/** Params for `question.answer` (v27). */
+export interface QuestionAnswerParams {
+  readonly questionId: string;
+  readonly answers: QuestionAnswers;
 }
 
 export interface ModeSetActiveParams {
@@ -682,7 +702,12 @@ export const abortParamsSchema = z.object({ turnId: z.string() });
 export const setResolverParamsSchema = z.object({
   permission: z.boolean().optional(),
   approval: z.boolean().optional(),
+  question: z.boolean().optional(),
 });
+
+export const questionAnswerParamsSchema = z
+  .object({ questionId: z.string().min(1), answers: questionAnswersSchema })
+  .strict();
 
 export const modeSetActiveParamsSchema = z.object({ name: z.string() });
 

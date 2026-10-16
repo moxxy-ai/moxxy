@@ -1,5 +1,9 @@
 import type { HostedTool, ToolDef } from './tool.js';
 import type { ReasoningReplayItem } from './events.js';
+import type { StopReason } from './provider-utils.js';
+import type { QuestionItem, QuestionOutcome } from './question.js';
+import type { AgentAccountLimit } from './agent-account-limit.js';
+import type { Skill } from './skill.js';
 
 export interface ProviderMessage {
   readonly role: 'system' | 'user' | 'assistant' | 'tool_result';
@@ -173,6 +177,8 @@ export interface ModelDescriptor {
 export interface LLMProvider {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"), the same as its `ProviderDef.agentName`. */
+  readonly agentName?: string;
   /**
    * Optional provider-owned metadata preparation for a dynamically selected
    * model. The runtime awaits it before it calculates context budgets, so a
@@ -184,6 +190,28 @@ export interface LLMProvider {
     options?: { readonly signal?: AbortSignal },
   ): Promise<void>;
   stream(req: ProviderRequest): AsyncIterable<ProviderEvent>;
+  /**
+   * Present on an agent connection: run one turn of the vendor's own coding
+   * agent. The shared loop then calls this instead of {@link stream} for the
+   * conversation's turns; `stream` still serves one-shot text calls.
+   */
+  agentStep?(req: AgentStepRequest): AsyncIterable<AgentStepEvent>;
+  /**
+   * On an agent connection: the plan and goal the vendor's agent keeps itself
+   * (Claude, Codex), handed back as `plan` and `goal` events. Moxxy's plan and
+   * goal modes steer an agent without them like any model: through
+   * `plan_complete` / `goal_complete` it calls over MCP, and a nudge when it
+   * stops without one.
+   */
+  readonly agentOwns?: AgentOwnModes;
+  /**
+   * On an agent connection whose agent can start a turn by itself (Claude after
+   * a task it ran in the background finished): tell the listener when it does
+   * while no Moxxy turn is running, so the conversation opens a turn for it
+   * (`origin.kind: 'agent'`) whose `agentStep` reads the agent's turn
+   * (`continuesAgentTurn`). Returns the unsubscribe.
+   */
+  onAgentTurn?(listener: (start: AgentTurnStart) => void): () => void;
   countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number>;
 }
 
@@ -337,9 +365,55 @@ export interface ProviderOAuthStatus {
   readonly message?: string;
 }
 
+/**
+ * Where an agent connection's CLI stands on this computer:
+ * - `missing`: not found, so the connection cannot work until it is installed;
+ * - `update-required`: older than the oldest version Moxxy was checked against;
+ * - `update-available`: works, and the vendor has published a newer one;
+ * - `current`: works, and nothing newer is known;
+ * - `unknown`: found, but its version could not be read.
+ */
+export type AgentCliState = 'missing' | 'update-required' | 'update-available' | 'current' | 'unknown';
+
+/** The last check of an agent connection's CLI, as every surface shows it. */
+export interface AgentCliReport {
+  readonly state: AgentCliState;
+  /** The CLI's command ("codex"), which also names it to `moxxy agents`. */
+  readonly command: string;
+  /** The version found on this computer; null when missing or unreadable. */
+  readonly installed: string | null;
+  /** The vendor's latest published version; null when the registry could not be asked. */
+  readonly latest: string | null;
+  /** The oldest version Moxxy works with. */
+  readonly minimum: string;
+  /** When the check ran, in epoch milliseconds. */
+  readonly checkedAt: number;
+  /** Whether the agent is signed in; absent when the CLI is missing or the connection does not say. */
+  readonly signedIn?: boolean;
+  /** Who it is signed in as, in the agent's words (Claude's e-mail, "ChatGPT" for Codex); null when it does not say. */
+  readonly account?: string | null;
+}
+
+/** How an agent connection's CLI is checked; the host runs it at start and every hour. */
+export interface ProviderAgentCli {
+  /** `refresh` asks the vendor's registry again instead of trusting a recent answer. */
+  check(opts?: { readonly refresh?: boolean }): Promise<AgentCliReport>;
+}
+
 export interface ProviderDef {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"), which surfaces use to say what it does. */
+  readonly agentName?: string;
+  /** For an agent connection, how its CLI is checked for presence and updates. */
+  readonly agentCli?: ProviderAgentCli;
+  /**
+   * For an agent connection, whether the agent as the person set it up acts
+   * without asking in `cwd` (`undefined` when it cannot tell). Read as a
+   * conversation starts on the connection, so its auto-approve is the truth
+   * from the first moment; a switch the conversation recorded always wins.
+   */
+  ownAutoApprove?(opts: { readonly cwd: string }): Promise<boolean | undefined>;
   /**
    * True when the provider can return its current model catalog at runtime.
    * Hosts use this capability signal to offer live discovery instead of
@@ -367,3 +441,171 @@ export interface ProviderDef {
    */
   readonly auth?: ProviderAuthDescriptor;
 }
+
+/**
+ * Agent connections: the vendor's own coding agent (Claude, Codex, OpenCode)
+ * does the turn, unmodified. A provider that runs one implements
+ * `LLMProvider.agentStep`; the shared loop then runs one agent turn instead of
+ * "call the model, run the tools, repeat" and records what the agent did as
+ * ordinary Moxxy events. Everything the agent needs from Moxxy (its tools, the
+ * person's approval, a Question) goes through {@link AgentStepHost}.
+ */
+
+/** One turn of the vendor's agent. */
+export interface AgentStepRequest {
+  /** The Moxxy conversation, so an adapter keeps one live agent per conversation. */
+  readonly sessionId: string;
+  /** The model the person picked, exactly as the agent names it. */
+  readonly model: string;
+  /** The person's message for this turn (or the loop's follow-up), with its images and documents. */
+  readonly prompt: ReadonlyArray<ContentBlock>;
+  readonly cwd: string;
+  /** The active Moxxy mode (`default`, `plan`, `goal`, …), mapped by the adapter onto the agent's own. */
+  readonly mode: string;
+  /** Moxxy tools this mode offers; the adapter lends the ones the agent lacks over Moxxy's MCP server. */
+  readonly tools: ReadonlyArray<ToolDef>;
+  /**
+   * Every Moxxy tool of the conversation, in any mode. Agents read their tool
+   * list once (Codex as a thread opens, Claude as it starts), so the adapter
+   * lists these and refuses, with the reason, a call to one `tools` lacks.
+   */
+  readonly allTools?: ReadonlyArray<ToolDef>;
+  /** The conversation's Moxxy skills now; the adapter offers the agent those meant for it, through Moxxy's MCP server. */
+  readonly skills?: ReadonlyArray<Skill>;
+  /** The agent's own session from an earlier turn of this conversation, to resume. */
+  readonly resumeSessionId?: string;
+  /**
+   * The conversation before this turn, from Moxxy's record, for an agent that
+   * starts a new session of its own while the conversation already has turns
+   * (its earlier session is gone, or it joins partway). `undefined` when no
+   * turn came before. Built only when called.
+   */
+  readonly earlierConversation?: () => string | undefined;
+  /**
+   * The turns that ran on another connection since this agent's own last turn
+   * of the conversation, from Moxxy's record, for an agent that goes on in its
+   * own session: it was away for them. `undefined` when it missed none or
+   * never ran here. Built only when called.
+   */
+  readonly missedTurns?: () => string | undefined;
+  /** The conversation's auto-approve, one state with the agent's approval policy. */
+  readonly autoApprove: boolean;
+  /**
+   * The conversation recorded a switch: the adapter keeps `autoApprove` as it
+   * is, never the agent's own setup over it. Until one is recorded, the agent
+   * runs and shows the way the person set it up.
+   */
+  readonly autoApproveRecorded?: boolean;
+  /**
+   * The switch in force is the agent's own setup Moxxy took on, not the
+   * person's choice; an agent whose own setup still asks the person about
+   * something (OpenCode: work outside the project) keeps asking then.
+   */
+  readonly autoApproveFromAgent?: boolean;
+  readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
+  /** The person asked for fast mode; the adapter runs the agent on its own faster tier, where it has one. */
+  readonly fast?: boolean;
+  readonly signal: AbortSignal;
+  readonly host: AgentStepHost;
+  /**
+   * The turn is one the agent started by itself (see `onAgentTurn`): read the
+   * agent's turn through to its end and send it nothing; `prompt` is only the
+   * marker Moxxy recorded for it.
+   */
+  readonly continuesAgentTurn?: true;
+}
+
+/** The agent started a turn by itself in a Moxxy conversation. */
+export interface AgentTurnStart {
+  /** The Moxxy conversation (`AgentStepRequest.sessionId`). */
+  readonly sessionId: string;
+  /** What the agent took up, for the marker that opens the turn ("List files finished in the background"). */
+  readonly name: string;
+}
+
+/** What Moxxy does for the agent during its turn. */
+export interface AgentStepHost {
+  /** Run a Moxxy tool the agent called (over MCP) through Moxxy's hooks, permissions and log. */
+  runTool(call: AgentToolCall): Promise<AgentToolOutcome>;
+  /**
+   * Decide whether the agent may run one of its own tools. The person answers
+   * unless auto-approve or a standing rule does; with `policyOnly` only hooks
+   * and standing rules (`permissions.json`) are consulted, never the person;
+   * with `askPerson` the person answers even while auto-approve is on.
+   */
+  approve(request: AgentApprovalRequest): Promise<AgentApprovalDecision>;
+  /** Show the agent's Question in every Moxxy window of the conversation. */
+  ask(questions: ReadonlyArray<QuestionItem>): Promise<QuestionOutcome>;
+}
+
+export interface AgentToolCall {
+  readonly callId: string;
+  readonly name: string;
+  readonly input: unknown;
+}
+
+export type AgentToolOutcome =
+  | { readonly ok: true; readonly output: unknown }
+  | {
+      readonly ok: false;
+      readonly message: string;
+      /** The person refused a tool whose refusal ends the turn: stop the agent's turn. */
+      readonly endsTurn?: boolean;
+    };
+
+export interface AgentApprovalRequest extends AgentToolCall {
+  readonly description?: string;
+  readonly policyOnly?: boolean;
+  /** The agent's own setting would have asked the person about this call, and auto-approve was not their choice. */
+  readonly askPerson?: boolean;
+}
+
+export type AgentApprovalDecision =
+  | { readonly allow: true; /** The person allowed it for the rest of the session. */ readonly always?: boolean }
+  | { readonly allow: false; readonly reason: string };
+
+export type AgentGoalStatus = 'active' | 'complete';
+
+export interface AgentOwnModes {
+  readonly plan?: boolean;
+  readonly goal?: boolean;
+}
+
+/** What the agent did, in the order it did it. */
+export type AgentStepEvent =
+  | { readonly type: 'text_delta'; readonly delta: string }
+  | { readonly type: 'reasoning_delta'; readonly delta: string }
+  /** A finished assistant message; `tool_use` when the agent went on to call tools. */
+  | { readonly type: 'message'; readonly text: string; readonly stopReason?: StopReason }
+  | { readonly type: 'reasoning'; readonly text: string }
+  /** A tool the agent runs itself (its Bash, Edit, …). */
+  | { readonly type: 'tool_call'; readonly callId: string; readonly name: string; readonly input: unknown }
+  | { readonly type: 'tool_result'; readonly callId: string; readonly ok: boolean; readonly output?: unknown; readonly error?: string }
+  /** The agent's own session id, kept to resume it. */
+  | { readonly type: 'session'; readonly sessionId: string }
+  /**
+   * The agent's real approval policy; it becomes the conversation's auto-approve.
+   * `elsewhere` when it changed without Moxxy (a hook, another client, the agent itself).
+   */
+  | { readonly type: 'auto_approve'; readonly enabled: boolean; readonly elsewhere?: true }
+  /**
+   * Something outside Moxxy let the agent act without asking while auto-approve
+   * was off, and the connection set it back: only the person turns auto-approve on.
+   */
+  | { readonly type: 'auto_approve_restored' }
+  /** The state of the agent's own goal after its turn: still open, or met. */
+  | { readonly type: 'goal'; readonly status: AgentGoalStatus }
+  /** The agent's own finished plan (Markdown), waiting for the person to carry it out. */
+  | { readonly type: 'plan'; readonly text: string }
+  /**
+   * A helper agent the agent started itself (Claude's Agent tool, a Codex subagent, OpenCode's task),
+   * its tool calls, and its end. `id` ties them together; it need not be a Moxxy session.
+   */
+  /** `toolsUnseen` when the agent does not report the subagent's own tool calls (OpenCode). */
+  | { readonly type: 'subagent_started'; readonly id: string; readonly label: string; readonly agentType: string; readonly prompt?: string; readonly toolsUnseen?: true }
+  | { readonly type: 'subagent_tool_call'; readonly id: string; readonly name: string; readonly input: unknown }
+  | { readonly type: 'subagent_completed'; readonly id: string; readonly text: string; readonly tokensUsed?: number; readonly error?: string }
+  /** How much of the person's account the agent may still use; a reached limit ends the turn without a raw error. */
+  | { readonly type: 'account_limit'; readonly limit: AgentAccountLimit }
+  | { readonly type: 'usage'; readonly usage: TokenUsage }
+  | { readonly type: 'error'; readonly message: string; readonly retryable: boolean };

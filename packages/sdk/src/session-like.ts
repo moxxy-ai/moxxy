@@ -3,8 +3,9 @@ import type { SessionId, TurnId } from './ids.js';
 import type { CapabilitySpec } from './isolation.js';
 import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
+import type { SessionQuestions } from './question.js';
 import type { PermissionResolver } from './permission.js';
-import type { ModelDescriptor, ProviderKeyValidation, ReasoningEffort } from './provider.js';
+import type { AgentCliReport, ModelDescriptor, ProviderKeyValidation, ReasoningEffort } from './provider.js';
 import type { PluginSetupSpec } from './schemas.js';
 import type { ToolIcon } from './tool-icon.js';
 import type { ToolCompactPresentation } from './tool.js';
@@ -67,6 +68,10 @@ export interface ProviderInfo {
    *  definition, 'api-key' otherwise. Defaults to 'api-key' for
    *  providers that don't declare. */
   readonly authKind: ProviderAuthKind;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"). */
+  readonly agentName?: string;
+  /** For an agent connection, the last check of its CLI; absent until the first check ends, and from older runners. */
+  readonly agentCli?: AgentCliReport;
   /** True when the provider's plugin can list its models live (e.g.
    *  via /v1/models). Lets the desktop's model picker show a
    *  "Fetch live" affordance only where it makes sense. */
@@ -558,6 +563,12 @@ export interface SessionLike {
   pluginsAdmin?: PluginsAdminView;
   /** Provider onboarding slice backing in-channel connect (key entry / OAuth). */
   providerSetup?: ProviderSetupView;
+  /**
+   * Questions the agent asks the person. Open questions are read from the log
+   * with `openQuestionsFromEvents`; this slice attaches a surface and answers.
+   * Optional capability per the seam convention: callers MUST guard.
+   */
+  readonly questions?: SessionQuestions;
   /**
    * Re-read the merged config from disk and live-apply the safe subset —
    * backs the TUI /settings panel's write-then-apply. Structurally matches

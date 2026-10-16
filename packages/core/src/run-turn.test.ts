@@ -195,6 +195,7 @@ describe('runTurn turnId filtering', () => {
 
   describe('the model a turn runs on when it names none', () => {
     const models = [{ id: 'noop-first' }, { id: 'noop-chosen' }, { id: 'noop-last' }];
+    const otherModels = [{ id: 'other-first' }, { id: 'other-chosen' }];
     const modelEcho = (): Session => {
       const session = new Session({ cwd: '/tmp', silent: true });
       session.pluginHost.registerStatic(
@@ -206,6 +207,11 @@ describe('runTurn turnId filtering', () => {
               name: 'noop',
               models,
               createClient: () => ({ name: 'noop', models, stream: async function* () {}, countTokens: async () => 0 }),
+            }),
+            defineProvider({
+              name: 'other',
+              models: otherModels,
+              createClient: () => ({ name: 'other', models: otherModels, stream: async function* () {}, countTokens: async () => 0 }),
             }),
           ],
           modes: [
@@ -246,6 +252,19 @@ describe('runTurn turnId filtering', () => {
 
       expect(session.getInfo().defaultModel).toBe('noop-last');
       expect(await ranOn(session)).toMatchObject({ text: 'noop-last' });
+    });
+
+    it("is the new provider's default once the conversation switches provider, never the old provider's model", async () => {
+      const session = modelEcho();
+      session.defaultModels = { noop: 'noop-chosen', other: 'other-chosen' };
+      expect(await ranOn(session, 'noop-last')).toMatchObject({ text: 'noop-last' });
+
+      session.providers.setActive('other');
+
+      expect(session.getInfo().defaultModel).toBe('other-chosen');
+      expect(await ranOn(session)).toMatchObject({ text: 'other-chosen' });
+      expect(await ranOn(session, 'other-first')).toMatchObject({ text: 'other-first' });
+      expect(await ranOn(session)).toMatchObject({ text: 'other-first' });
     });
 
     it('gives way to the model the turn names', async () => {

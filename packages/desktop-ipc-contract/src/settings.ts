@@ -1,5 +1,7 @@
 // ---------- Settings -------------------------------------------------------
 
+import type { AgentCliReport } from '@moxxy/sdk';
+
 /** Reasoning/thinking effort the desktop can request for the active session.
  *  `off` clears the preference; the others map to `config.context.reasoning`
  *  on the runner (`settings.setReasoning`). Mirrors the runner protocol's
@@ -53,6 +55,28 @@ export interface ProviderEntry {
    *  selector. Derived from the runner's model catalog (the desktop never sees
    *  raw `ModelDescriptor`s). Absent ⇒ unknown/false. */
   supportsReasoning?: boolean;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"). */
+  agentName?: string;
+  /** For an agent connection, the last check of its CLI: installed, current, signed in. */
+  agentCli?: AgentCliReport;
+}
+
+/** What installing or updating an agent's CLI does. */
+export type AgentCliAction = 'install' | 'update';
+
+/** How an install or update ended: `message` is the last line it printed, or why it failed. */
+export interface AgentCliRunResult {
+  ok: boolean;
+  message: string;
+}
+
+/** A line an installer or updater printed, and how far it got when it said so. */
+export interface AgentCliProgress {
+  provider: string;
+  action: AgentCliAction;
+  line?: string;
+  /** 0–1, from a percentage it printed. */
+  fraction?: number;
 }
 
 export interface McpServerEntry {
@@ -77,6 +101,8 @@ export interface SkillFile {
   name: string;
   /** True if the file is editable (lives under ~/.moxxy/skills/). */
   editable: boolean;
-  /** First line of the skill's frontmatter `description`, when present. */
+  /** The skill's frontmatter `description`, when present. */
   description?: string;
+  /** Why the agent cannot load this skill (invalid frontmatter), when it can't. */
+  problem?: string;
 }

@@ -15,7 +15,9 @@
  * Kept React-free so the runtime can be driven directly by tests.
  */
 
-import type { MoxxyEvent } from '@moxxy/sdk';
+import type { MoxxyEvent, ReasoningMessageEvent } from '@moxxy/sdk';
+import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
+import { QUESTION_PLUGIN_ID } from '@moxxy/sdk/questions';
 import {
   ChunkedBlockLog,
   FILE_DIFF_TOOL_NAMES,
@@ -56,7 +58,42 @@ export type Extension =
 export type RenderNode =
   | { readonly kind: 'block'; readonly block: FoldedBlock }
   | { readonly kind: 'ext'; readonly ext: Extension }
-  | { readonly kind: 'tool-group'; readonly id: string; readonly tools: ReadonlyArray<ToolCallBlockData> };
+  | { readonly kind: 'tool-group'; readonly id: string; readonly tools: ReadonlyArray<ToolCallBlockData> }
+  | { readonly kind: 'thinking'; readonly id: string; readonly events: ReadonlyArray<ReasoningMessageEvent> };
+
+function reasoningOf(node: RenderNode): ReasoningMessageEvent | null {
+  if (node.kind !== 'block' || node.block.kind !== 'event') return null;
+  return node.block.event.type === 'reasoning_message' ? node.block.event : null;
+}
+
+/**
+ * Fold runs of ≥2 consecutive "Thinking" blocks into one `thinking` node: an
+ * agent that thinks between every step would otherwise stack a row per
+ * thought. Anything else, a tool included, breaks the run.
+ */
+export function groupThinkingNodes(nodes: ReadonlyArray<RenderNode>): RenderNode[] {
+  const out: RenderNode[] = [];
+  let run: RenderNode[] = [];
+  const flush = (): void => {
+    const first = run[0];
+    if (first && run.length >= 2 && first.kind === 'block') {
+      out.push({ kind: 'thinking', id: `thinking:${first.block.id}`, events: run.flatMap((node) => reasoningOf(node) ?? []) });
+    } else {
+      out.push(...run);
+    }
+    run = [];
+  };
+  for (const node of nodes) {
+    if (reasoningOf(node)) {
+      run.push(node);
+    } else {
+      flush();
+      out.push(node);
+    }
+  }
+  flush();
+  return out;
+}
 
 /**
  * Collapse runs of ≥2 consecutive top-level `tool-call` nodes into a single
@@ -144,7 +181,8 @@ const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
  * in via {@link registerRenderablePlugin} instead of editing this module (an
  * open-for-extension seam, matching the rest of the registry-driven codebase).
  */
-const renderablePluginIds = new Set<string>([SUBAGENT_PLUGIN_ID, COLLAB_PLUGIN_ID]);
+// Question records stay in the chat so its open Question can be read from it.
+const renderablePluginIds = new Set<string>([SUBAGENT_PLUGIN_ID, COLLAB_PLUGIN_ID, QUESTION_PLUGIN_ID]);
 
 /** Opt a plugin's `plugin_event`s into the rendered transcript. Idempotent. */
 export function registerRenderablePlugin(pluginId: string): void {
@@ -206,7 +244,8 @@ export function createRuntime(initialEvents: ReadonlyArray<MoxxyEvent> = []): Ch
 
 /** Should this runner event be committed to the rendered log? */
 export function isRenderedEvent(event: MoxxyEvent): boolean {
-  if (event.type === 'plugin_event') return renderablePluginIds.has(event.pluginId);
+  // An agent connection's account limit shows in the chat; its other records are bookkeeping.
+  if (event.type === 'plugin_event') return renderablePluginIds.has(event.pluginId) || accountLimitOfEvent(event) !== undefined;
   return RENDERED_EVENT_TYPES.has(event.type);
 }
 

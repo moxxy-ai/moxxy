@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, promises as fs } from 'node:fs';
 import * as path from 'node:path';
+import { readLoginShellPath, withLoginShellPath } from './login-shell-path.js';
 
 /**
  * First-launch runtime seeding: unpack the Node, Python and Git the installer ships
@@ -176,20 +177,33 @@ export function activateRuntimes(moxxyHome: string, platform: NodeJS.Platform = 
 
 let ready: Promise<void> = Promise.resolve();
 
+export interface PrepareRuntimesOptions extends SeedRuntimesOptions {
+  readonly env?: NodeJS.ProcessEnv;
+  /** The PATH the person's terminal has; defaults to asking their login shell. */
+  readonly loginShellPath?: () => Promise<string | null>;
+}
+
 /**
- * Unpacks the bundled runtimes and puts them on PATH, in the background of the
- * app's start. It never rejects: a runtime that cannot be unpacked is logged
- * and the app works as it does on a computer without one.
+ * Unpacks the bundled runtimes and puts them on PATH, behind the PATH the
+ * person's terminal has, in the background of the app's start. It never
+ * rejects: a runtime that cannot be unpacked is logged and the app works as it
+ * does on a computer without one; a shell that cannot be asked leaves the PATH
+ * the app started with.
  */
-export function prepareBundledRuntimes(opts: SeedRuntimesOptions & { readonly env?: NodeJS.ProcessEnv }): Promise<void> {
-  ready = seedRuntimesFromResources(opts)
-    .catch((error: unknown) => {
-      const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : '';
-      opts.log?.(`runtimes-seed: ${error instanceof Error ? error.message : String(error)}${cause}`);
-    })
-    .then(() => activateRuntimes(opts.moxxyHome, opts.platform, opts.env));
+export function prepareBundledRuntimes(opts: PrepareRuntimesOptions): Promise<void> {
+  const env = opts.env ?? process.env;
+  const platform = opts.platform ?? process.platform;
+  const terminalPath = (opts.loginShellPath ?? (() => readLoginShellPath({ env, platform })))().catch(() => null);
+  const seeded = seedRuntimesFromResources(opts).catch((error: unknown) => {
+    const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : '';
+    opts.log?.(`runtimes-seed: ${error instanceof Error ? error.message : String(error)}${cause}`);
+  });
+  ready = Promise.all([terminalPath, seeded]).then(([loginShellPath]) => {
+    if (loginShellPath) env.PATH = withLoginShellPath(env.PATH, loginShellPath, platform === 'win32' ? ';' : ':');
+    activateRuntimes(opts.moxxyHome, platform, env);
+  });
   return ready;
 }
 
-/** Resolves once the bundled runtimes are on PATH: wait for it before looking for `node`, `npm` or `python`. */
+/** Resolves once the terminal's PATH and the bundled runtimes are on PATH: wait for it before looking for `node`, `npm`, `python` or an agent CLI. */
 export const bundledRuntimesReady = (): Promise<void> => ready;

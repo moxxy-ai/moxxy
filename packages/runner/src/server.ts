@@ -34,6 +34,7 @@ import {
   attachParamsSchema,
   runTurnParamsSchema,
   setResolverParamsSchema,
+  questionAnswerParamsSchema,
   type AttachResult,
   type RunTurnResult,
 } from './protocol.js';
@@ -41,6 +42,7 @@ import {
   handleProviderSetActive,
   handleProviderSetEnabled,
   handleProviderRefreshReady,
+  handleProviderCheckAgents,
   handleProviderConfigure,
   handleTranscribe,
   handleSynthesize,
@@ -90,6 +92,8 @@ interface ConnectedClient {
   attached: boolean;
   handlesPermission: boolean;
   handlesApproval: boolean;
+  /** Detaches this client's Question surface; set while it shows Questions (v27). */
+  detachQuestions?: () => void;
   /** Identity this connection asserted at attach (v11), if any. */
   principal?: Principal;
   /** Turns this client started - aborted if it disconnects. */
@@ -128,6 +132,7 @@ export class RunnerServer {
   private readonly logUnsub: () => void;
   private readonly logClearUnsub: () => void;
   private readonly modesUnsub: () => void;
+  private readonly infoUnsub: () => void;
   private readonly surfacesUnsub: () => void;
   /** The Computer Use service this runner pushes changes from; a plugin reload may replace it. */
   private computerService: ComputerControlService | undefined;
@@ -195,6 +200,8 @@ export class RunnerServer {
     // Mirror active-mode changes to clients — covers both the SetMode RPC and a
     // mode handing off to another mode post-turn.
     this.modesUnsub = session.modes.onActiveChange(() => this.broadcastInfo());
+    // An agent CLI found missing, outdated or updated reaches every client.
+    this.infoUnsub = session.onInfoChanged(() => this.broadcastInfo());
     // Multiplex every open surface's output to all attached clients (v8). The
     // host emits one SurfaceDataMessage per frame; a client routes it to the
     // matching pane by surfaceId and ignores surfaces it isn't showing.
@@ -227,6 +234,7 @@ export class RunnerServer {
     this.logUnsub();
     this.logClearUnsub();
     this.modesUnsub();
+    this.infoUnsub();
     this.surfacesUnsub();
     this.computerUnsub();
     abortActiveSyntheses();
@@ -265,12 +273,14 @@ export class RunnerServer {
     peer.handle(RunnerMethod.SessionRecordExchange, (raw) => handleSessionRecordExchange(ctx, raw));
     peer.handle(RunnerMethod.SessionSetAutoApprove, (raw) => handleSessionSetAutoApprove(ctx, raw));
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
+    peer.handle(RunnerMethod.QuestionAnswer, (raw) => this.handleQuestionAnswer(raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));
     peer.handle(RunnerMethod.SessionSetReasoning, (raw) => handleSessionSetReasoning(ctx, raw));
     peer.handle(RunnerMethod.SessionSetFast, (raw) => handleSessionSetFast(ctx, raw));
     peer.handle(RunnerMethod.ProviderSetActive, (raw) => handleProviderSetActive(ctx, raw));
     peer.handle(RunnerMethod.ProviderSetEnabled, (raw) => handleProviderSetEnabled(ctx, raw));
     peer.handle(RunnerMethod.ProviderRefreshReady, () => handleProviderRefreshReady(ctx));
+    peer.handle(RunnerMethod.ProviderCheckAgents, () => handleProviderCheckAgents(ctx));
     peer.handle(RunnerMethod.ProviderConfigure, (raw) => handleProviderConfigure(ctx, raw));
     peer.handle(RunnerMethod.PermissionAddAllow, (raw) => handlePermissionAddAllow(ctx, raw));
     peer.handle(RunnerMethod.CommandRun, (raw) => handleCommandRun(ctx, raw));
@@ -306,6 +316,7 @@ export class RunnerServer {
 
   private onDisconnect(client: ConnectedClient): void {
     this.clients.delete(client);
+    client.detachQuestions?.();
     // Tear down any turns this client was driving - there's no one left to
     // answer their prompts or consume their output.
     for (const turnId of client.turns) {
@@ -563,6 +574,18 @@ export class RunnerServer {
     const params = setResolverParamsSchema.parse(raw);
     if (params.permission !== undefined) client.handlesPermission = params.permission;
     if (params.approval !== undefined) client.handlesApproval = params.approval;
+    if (params.question === true && !client.detachQuestions) {
+      client.detachQuestions = this.session.questions.attachSurface();
+    } else if (params.question === false && client.detachQuestions) {
+      client.detachQuestions();
+      delete client.detachQuestions;
+    }
+    return {};
+  }
+
+  private async handleQuestionAnswer(raw: unknown): Promise<Record<string, never>> {
+    const params = questionAnswerParamsSchema.parse(raw);
+    await this.session.questions.answer(params.questionId, params.answers);
     return {};
   }
 
@@ -585,7 +608,7 @@ export class RunnerServer {
   private trackLocalTurns(): void {
     const runTurn = this.session.runTurn.bind(this.session);
     this.session.runTurn = (prompt, opts = {}) =>
-      this.scope.getStore() ? runTurn(prompt, opts) : this.runLocalTurn(runTurn, prompt, opts);
+      this.liveScope() ? runTurn(prompt, opts) : this.runLocalTurn(runTurn, prompt, opts);
   }
 
   private async *runLocalTurn(
@@ -641,11 +664,22 @@ export class RunnerServer {
     };
   }
 
+  /**
+   * The client turn the current code runs in. Work a client's turn set going
+   * keeps that turn's async context after the turn ended (a vendor agent's
+   * process, reading on between turns), so a scope whose turn is over is no
+   * scope: what runs in it is the runner's own, not that client's.
+   */
+  private liveScope(): TurnScope | undefined {
+    const scope = this.scope.getStore();
+    return scope && this.turnControllers.has(scope.turnId) ? scope : undefined;
+  }
+
   private async resolvePermission(
     call: PendingToolCall,
     ctx: PermissionContext,
   ): Promise<PermissionDecision> {
-    const scope = this.scope.getStore();
+    const scope = this.liveScope();
     if (scope && scope.client.handlesPermission && !scope.client.peer.isClosed) {
       try {
         return await scope.client.peer.request<PermissionDecision>(
@@ -664,7 +698,7 @@ export class RunnerServer {
   }
 
   private async resolveApproval(request: ApprovalRequest): Promise<ApprovalDecision> {
-    const scope = this.scope.getStore();
+    const scope = this.liveScope();
     if (scope) {
       if (scope.client.handlesApproval && !scope.client.peer.isClosed) {
         try {

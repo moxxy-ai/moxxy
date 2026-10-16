@@ -118,7 +118,9 @@ export async function signOut(profile: BrowserProfile, site?: string): Promise<{
     const claim = claimProfile(profile);
     if (typeof claim !== 'function') throw new ProfileBusyError(claim.busy);
     try {
-      rmSync(profile.dir, { recursive: true, force: true });
+      // Windows refuses the delete (EPERM / EBUSY) while Chromium's helper
+      // processes still hold the profile's files for a moment after it closed.
+      rmSync(profile.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     } finally {
       claim();
     }

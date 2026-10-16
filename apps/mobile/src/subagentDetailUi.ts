@@ -1,11 +1,11 @@
-import type { SubagentGroupTranscriptItem, SubagentTranscriptItem } from './chatTranscript';
+import type { SubagentGroupTranscriptItem, SubagentStatus, SubagentTranscriptItem } from './chatTranscript';
 import { buildToolDetailUi, type ToolDetailUi } from './toolGroupUi';
 
 export interface SubagentDetailUi {
   readonly title: string;
   readonly subtitle: string;
   readonly statusLabel: string;
-  readonly statusTone: 'running' | 'done' | 'failed';
+  readonly statusTone: SubagentStatus;
   readonly meta: string;
   readonly responseTitle: 'Response';
   readonly responseText: string;
@@ -18,15 +18,23 @@ export function buildSubagentDetailUi(agent: SubagentTranscriptItem): SubagentDe
   return {
     title: agent.label,
     subtitle: `${agent.agentType || 'default'} subagent`,
-    statusLabel: agent.status === 'done' ? 'Done' : agent.status === 'failed' ? 'Failed' : 'running',
+    statusLabel: subagentStatusLabel(agent),
     statusTone: agent.status,
     meta: buildMeta(agent),
     responseTitle: 'Response',
-    responseText: agent.error || agent.responseText.trim() || agent.finalPreview || (agent.status === 'running' ? 'Working...' : 'No output captured.'),
+    responseText: agent.error || agent.responseText.trim() || agent.finalPreview || (agent.status === 'running' ? 'Working...' : agent.status === 'background' ? 'Went on in the background.' : 'No output captured.'),
     toolsTitle: 'Tools',
     emptyToolsText: agent.toolCalls.length === 0 ? 'No tools yet.' : null,
     tools: agent.toolCalls.map(buildToolDetailUi),
   };
+}
+
+/** How a helper stands, in a word or two; a helper reporting back from the background says so. */
+export function subagentStatusLabel(agent: Pick<SubagentTranscriptItem, 'status' | 'continued'>): string {
+  if (agent.status === 'failed') return 'Failed';
+  if (agent.status === 'background') return 'In the background';
+  if (agent.status === 'running') return 'running';
+  return agent.continued === true ? 'Done in the background' : 'Done';
 }
 
 export function selectSubagentDetailAgent(

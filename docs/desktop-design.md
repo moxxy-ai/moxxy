@@ -130,8 +130,12 @@ pane.
 |---|---|
 | What the person said | A bubble on the right, filled with the action colour. A prompt over 12 lines opens clamped, with a control that says how many lines it holds. Attachments sit above the bubble. |
 | What the agent said | A bubble on the left, in its own neutral tone. Code, tables and quotes inside it are tinted against the bubble, and each has a copy control in its corner (shown for the block under the pointer or holding focus, always on a touch screen). A table copies as tab-separated rows. |
-| Tool calls, reasoning, sub-agents | Quiet lines down the left, no wider than a bubble. The ones with a body open in place. |
-| Triggers, stops, errors | A note with a short label. |
+| Tool calls, reasoning, sub-agents | Quiet lines down the left, no wider than a bubble. The ones with a body open in place. Thoughts one after another are one folded "Thinking" line with their count, opening to every thought in order (`groupThinkingNodes` in client-core, `ThinkingGroupView`), so an agent that thinks before every step does not stretch the conversation with a line per thought. The images a tool returned (screenshots an agent looked at, an image file it read) show under its line as a wrapping row of thumbnails drawn like attached images, every one of them, and each opens in the same preview; opening the line shows the text beside them, never an image as text (`chat/blocks/ToolImages.tsx`). |
+| A helper that outlives its turn | An agent's helper still working when its turn ends keeps its row there, saying "in the background" with the accent light held still (no breathing: that row no longer follows it). What it does after that, up to its answer, is a row of its own where it happens, marked "from the background"; the earlier row is left as it was, so a terminal that froze it and the desktop tell the same story (`chat/blocks/SubagentGroupView.tsx`). |
+| An agent's account limit | The limit an agent reports for the person's account, said in one sentence that names the agent, the window and when it resets: "Claude has used 94% of its weekly limit · resets Sat at 08:00". It sits under the effort and fast mode in the Model & usage window (the telemetry in the instrument bar opens it), dim while there is room, amber when nearly used up and red once it is, and leaves by itself when the window resets (`shell/instrument/Telemetry.tsx`, `chat/useAccountLimit.ts`). It is not a line above the message box: that line could not be closed and stood over every message for days. A turn that stopped on it ends with a "Limit" note in the conversation saying the same, in place of the agent's raw error. |
+| An agent's CLI | When the CLI behind the active agent connection is missing, older than Moxxy works with, or behind the vendor's latest, one quiet line above the message box says so in the words the terminal uses ("Codex 0.162.1 is out — you have 0.155.1"), with the fix after it (Install, Update). Amber for an update it can live without, red for one it cannot. The amber one can be closed, and stays closed until the vendor publishes another version (`dismissedAgentUpdates` in the desktop prefs); the red one cannot. While the fix runs the line shows what the installer prints (`chat/composer/AgentCliBar.tsx`, `chat/useAgentCliNotice.ts`, the words from `agentCliNotice` in `@moxxy/chat-model`). |
+| An agent's list of steps | One card per turn, drawn where the agent first wrote the list and updated in place each time it changes it: a "Steps" head with how many are done, then one row per step with a round mark (green tick done, accent dot in progress, empty ring waiting, struck through when dropped). The calls that changed the list never show as lines of their own; they sit under the card in the turn's activity (`chat/blocks/StepList.tsx`). |
+| Triggers, stops, errors | A note with a short label. A turn the agent opened by itself (Claude going on after its background helper finished) is the same note, "Agent continued" with what finished, on every surface: desktop, terminal and phone (`chat/blocks/trigger-meta.ts`). |
 
 Under a message sit its time and, for an answer, copy, read aloud and feedback.
 That line always takes its height and is shown for the message under the
@@ -150,6 +154,21 @@ mode other than the default one, auto-approve on, or a goal waiting for its
 objective. It says it the way a run says its state, as a toned dot and a line
 of text (`.status-chip`), never as a filled capsule: amber for what runs
 without asking, the accent for a goal. The model is read in the header.
+
+While a turn runs and the agent keeps a list of steps, a thin bar sits above
+the composer card and says where it is: "Step 2 of 3" and the step's text, or
+how many are done once none is left. Pressing it shows the whole list under it.
+It goes when the turn ends (`chat/composer/TurnStepsBar.tsx`,
+`chat/useTurnSteps.ts`).
+
+When the agent of an agent connection (Claude, Codex, OpenCode) uses the
+person's computer with its own tools, the strip Moxxy's own Computer Use draws
+sits at the top of the conversation: "Codex is using your computer", the app it
+last named, and Stop, which stops the turn. Moxxy cannot pause that agent or
+take over from it, so the strip offers neither. It shows from the agent's first
+computer call in the turn until the turn ends, and only while Moxxy's own strip
+is not shown (`computer-control/useAgentComputer.ts`, the call recognised by
+name in `agentComputerUseOf` of `@moxxy/sdk`).
 
 Files reach the composer four ways: the add menu, the file browser, a paste,
 and a drop anywhere on the conversation, which says it will take them while
@@ -211,9 +230,9 @@ so no mode has a look of its own.
 | Mode chip | `chat/modes/ModeChip.tsx` | In the composer's status row for every mode but the default: "Plan mode · read-only", "Goal mode · unattended", "Research mode". Its × goes back to the default mode. A mode that acts without asking takes the caution tone. |
 | Mode menu | the add menu | Each mode by name with its one-line hint under it. |
 | Outcome card | `chat/modes/ModeOutcomeCard.tsx` | What a mode hands back (a plan, a finished or paused goal, a research plan, a follow-up round) is a card with a title and its facts as chips, then the text. The signal tool call that precedes it is not drawn unless it failed. |
-| Plan answers | `chat/modes/plan-next.ts` | The plan nothing has followed offers "Implement" and "Run as goal", the one it recommends filled. Each switches the session's mode first and then sends the prompt, so the prompt cannot run as another round of planning. A goal run starts from the default mode, which is where it hands back. They are not offered while a turn runs, while a question waits, or on an older plan. |
+| Plan answers | `chat/modes/plan-next.ts`, `chat/modes/plan-dismissals.ts` | The plan nothing has followed offers "Implement" and "Run as goal", the one it recommends filled, then "Rewrite" and "Dismiss". Each way on switches the session's mode first and then sends the prompt, so the prompt cannot run as another round of planning. A goal run starts from the default mode, which is where it hands back. "Rewrite" puts a field in place of the answers for what does not fit (Enter sends, Escape goes back) and sends it in plan mode. "Dismiss" puts the answers away and tags the plan "Dismissed"; the agent is not told, and the dismissal is kept in this window's storage because only the desktop draws plan answers. Only the person moves past a plan: the agent saying more after it in the same turn leaves the answers in place, so a second or third plan offers the same four. They are not offered while a turn runs, while a question waits, or on an older plan. |
 | Step note | `chat/modes/ModeNoteLine.tsx` | A phase of the run (goal started, research round, research complete) is one quiet line with a toned dot. |
-| Agents | `chat/blocks/SubagentGroupView.tsx` | A fan-out lists its agents as rows: a state light, what the agent is working on, its tool and token counts, and its state. A research agent is named by its question. |
+| Agents | `chat/blocks/SubagentGroupView.tsx` | A fan-out lists its agents as rows: a state light, what the agent is working on, its tool and token counts, and its state. A research agent is named by its question. Its one-line summary ("2 agents finished, 1 failed") is `subagentGroupHeader` from `@moxxy/chat-model`, so the terminal and the phone say the same words. |
 
 `chat/modes/mode-events.ts` reads the modes' own events out of the run's log
 and says which message is an outcome and which event is a note. The desktop
@@ -239,6 +258,45 @@ answer is filled, the rest are quiet pills, and the one that throws work away
 is red. Asking leave to act marks the card amber; asking which way to go on
 marks it with the accent. Focus goes to the safe answer, Tab stays inside the
 card and Escape gives the safe answer.
+
+### A Question from the agent
+
+When the agent asks the person something (the `ask_user` tool, or a connected
+agent's own question) the card sits in the same place and is of the same make,
+titled "Question" with the accent mark (`chat/ask/QuestionCard.tsx`, placed by
+`chat/QuestionSheet.tsx`). An approval the run is blocked on comes first; the
+Question shows once it is answered.
+
+Each question is a group: an optional short header as an accent chip, the
+question as prose, the suggested answers as bordered chips (a picked one takes
+the accent border and soft fill), and, where the question takes one, a field
+for an answer of the person's own. Several questions stack in one card and go
+out with one "Send answer". Send stays disabled until every question has an
+answer, and its tooltip says which one is missing. A failed send says why in a
+red line above it.
+
+A Question blocks no action, so nothing in the card is safe to pick for the
+person: no answer is preselected and Escape answers nothing. Focus goes to the
+first suggested answer, Tab stays inside the card and ⌘↵ / Ctrl+↵ sends. The
+question is read from the conversation's own events (`useQuestion` in
+`@moxxy/client-core`), so every client of the conversation shows the same card
+and the first answer from any of them closes it everywhere. A chat with an
+open Question counts as waiting on the person in the sidebar and the
+instrument bar.
+
+The focus window shows the same card, after any approval, beside the mark and
+at the head of the Mini Chat (`focus/FocusAskCard.tsx`, read by
+`focus/useFocusAsk.ts`). There it is a group, not a dialog: it takes no focus
+and no key, and drops the ⌘↵ hint, because the window floats over other work.
+Picks and the field work as in the desktop, and Send answer sends. Its frame
+is fixed, so the questions scroll inside it and Send stays in view below them.
+
+Once answered, the card goes and the transcript keeps the decision: a quiet
+bordered block headed "You answered", each question in muted text (with its
+chip) and what the person chose under it in the text colour, their own words
+in italics and quotes (`chat/blocks/AnsweredQuestionBlock.tsx`). It reads the
+`question-answer` display `ask_user` returns, so it is never folded away like
+an ordinary tool row.
 
 ### A voice conversation
 
@@ -334,6 +392,9 @@ as the same app.
 | State chip | `.tag`, `components/StateToggle.tsx` | A state is a word in a filled pill, toned good, bad or warn. The chip that switches a workflow, schedule or webhook on is the same chip. |
 | Table | `.data-table`, `.data-row` | Fixed tracks for the trailing columns, so a head sits over its cells. |
 | Approvals | `workflows/WorkflowApprovals.tsx` | Shown only while a workflow waits on the person. |
+| Provider groups | `CardGroup` in `settings/settings-primitives.tsx` | Providers is two lists, not one: "Coding agents" (the agent on this computer does the work, on its own sign-in) above "Model providers" (Moxxy does the work and calls the model, with an API key or a sign-in). Each has a quiet heading with its count and one line on what sets it apart; a hairline and 20 px of air sit between them, so the split reads before any row does. A kind with no rows shows no heading. No motion: it is a list. |
+| Model picker providers | `chat/agent-picker/ProviderModelGrid.tsx`, `useConnectedProviders.ts` | The provider column of the model picker (Model & usage, and a channel's model) lists only the providers Settings → Providers shows as connected — an agent installed and signed in, a provider whose key resolved, a local server that answers — read from the same `settings.providers` answer through `isProviderConnected` in `@moxxy/client-core`, so the two never disagree. The running provider always stays. It splits them the way Providers does: "Coding agents" above "Model providers", each under a quiet heading, a kind with none showing no heading. Until Settings answers only the running provider shows, so a list never grows and then shrinks under the pointer; when Settings cannot answer, every provider shows rather than none. |
+| Agent connection | `settings/agents/AgentConnectionRow.tsx` | Claude, Codex and OpenCode each get a row in the "Coding agents" group at the head of Providers, and the same row in the first-run provider step: the agent's name with its state as a chip beside it (so the line under the name has the whole width and stays one line), one line under it (the account it is signed in to and the version, or what is wrong), the one action that moves it on (Install, Update, Sign in, Check again) and a menu with "Check for updates". While its CLI installs or updates, a thin bar under the line fills as the installer reports a percentage, or slides while it says none. The state comes from the runner (`ProviderEntry.agentCli`) and from the install this window runs (`agentConnectionView` in `@moxxy/client-core`). |
 
 ### The focus window
 

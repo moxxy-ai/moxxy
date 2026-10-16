@@ -1,0 +1,7 @@
+---
+"@moxxy/sdk": minor
+"@moxxy/cli": minor
+"@moxxy/plugin-provider-acp": minor
+---
+
+OpenCode agent connection: the new `opencode` provider (`@moxxy/plugin-provider-acp`, an Agent Client Protocol adapter with OpenCode as its first agent) hands each turn to OpenCode itself through `opencode acp`, with the person's own OpenCode setup, permission rules and models (the picker offers what `opencode models` lists). Moxxy shows what OpenCode does, answers its permission asks through the usual approval (by itself while auto-approve is on, standing deny rules still applying), shows its real approval state in auto-approve (on with OpenCode's defaults, which ask for nothing; turning it off restarts that conversation's OpenCode once with the person's rules made to ask, for that process only, denials kept), hands it the person's reason after a refusal, cancels its prompt on Stop, loads its session after a restart, and lends it Moxxy's tools over a local MCP server, which now tells an agent that read the tool list once (OpenCode reads it when its session opens) that a turn brought other tools; OpenCode's config is never edited. Providers now say through `agentOwns` whether their agent keeps its own plan and goal (Claude, Codex); for an agent without them, Moxxy's plan and goal modes lend `plan_complete` and the goal tools and nudge it like any model, and a round in which the agent ran its own tools counts as work.

@@ -414,6 +414,22 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
+  // An answer is the person's choice plus their own words: bounded like ask.respond's text.
+  'session.answerQuestion': z
+    .object({
+      workspaceId: optionalWorkspace,
+      questionId: z.string().min(1).max(128),
+      answers: z.record(
+        z.string().min(1).max(64),
+        z
+          .object({
+            selected: z.array(z.string().min(1).max(128)).max(32),
+            other: z.string().max(10_000).optional(),
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
   'workspace.listDir': z.object({
     workspaceId: z.string().min(1).max(256),
     path: z.string().max(4096).optional(),
@@ -436,6 +452,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: z.string().min(1).max(256),
     path: z.string().min(1).max(4096),
   }),
+  // Runs the vendor's installer or the agent's own update on this computer:
+  // only a known action, and a connection name that cannot carry shell text.
+  'agents.run': z.object({ provider: providerName, action: z.enum(['install', 'update']) }),
+  'agents.check': z.object({ workspaceId: optionalWorkspace }).optional(),
   'settings.fetchProviderModels': z.object({ provider: providerName }),
   // Session config mutation — pin the effort to the known enum so a renderer
   // can't push an arbitrary string through to the runner / provider request.
@@ -540,6 +560,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       replySound: z.boolean().optional(),
       systemNotifications: z.boolean().optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
+      dismissedAgentUpdates: z.record(providerName, z.string().min(1).max(64)).optional(),
     })
     .strict(),
   // Mobile-gateway control. Both no-arg variants pin the payload to "nothing"

@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from 'react';
-import { askStore, chatStore } from '@moxxy/client-core';
+import { askStore, chatStore, pendingQuestion } from '@moxxy/client-core';
 import { turnInFlight } from '@/lib/turn-in-flight';
 import type { SessionActivity } from './calls-for-attention';
 
@@ -17,7 +17,8 @@ function subscribe(listener: () => void): () => void {
 }
 
 /**
- * What each of `ids` is doing: working on an answer, or stopped on a question.
+ * What each of `ids` is doing: working on an answer, or stopped on the person
+ * (an approval it is blocked on, or a Question it asked).
  * The stores tick on every streamed chunk; the result changes identity only
  * when a chat changes what it is doing.
  */
@@ -26,8 +27,9 @@ export function useSessionActivity(ids: ReadonlySet<string>): ReadonlyMap<string
     const asking = new Set(askStore.getAll().map((ask) => ask.workspaceId));
     const lines: string[] = [];
     for (const id of ids) {
-      if (asking.has(id)) lines.push(`${id}${BETWEEN_PARTS}asking`);
-      else if (turnInFlight(chatStore.getChat(id))) lines.push(`${id}${BETWEEN_PARTS}working`);
+      const chat = chatStore.getChat(id);
+      if (asking.has(id) || pendingQuestion(chat.events, chat.activeTurnId)) lines.push(`${id}${BETWEEN_PARTS}asking`);
+      else if (turnInFlight(chat)) lines.push(`${id}${BETWEEN_PARTS}working`);
     }
     return lines.join(BETWEEN_CHATS);
   };

@@ -42,5 +42,6 @@ export async function applySessionHeaderPreferences(
 
   if (meta.model) {
     session.lastResolvedModel = meta.model;
+    session.lastResolvedProvider = meta.provider ?? null;
   }
 }

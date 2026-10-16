@@ -47,5 +47,8 @@ export interface DesktopPrefs {
    *  entry is `manual`. Host-owned — not writable through `prefs.update`,
    *  because changing it installs/removes an OS background service. */
   channelRunModes: Readonly<Record<string, ChannelRunMode>>;
+  /** The agent update the person closed the notice of, by connection name
+   *  (`codex-agent` → `0.162.1`): it shows again for a newer version. */
+  dismissedAgentUpdates: Readonly<Record<string, string>>;
   version: 1;
 }

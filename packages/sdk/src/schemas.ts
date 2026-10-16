@@ -63,7 +63,8 @@ export const skillScheduleSchema = z
 
 export const skillFrontmatterSchema = z.object({
   name: z.string().min(1).max(120).regex(/^[a-z0-9][a-z0-9-]*$/, 'name must be slug-like'),
-  description: z.string().min(1).max(240),
+  // 1024 is the Agent Skills limit; installers like `npx skills` ship skills written to it.
+  description: z.string().min(1).max(1024),
   triggers: z.array(z.string().min(1)).optional(),
   'allowed-tools': z.array(z.string().min(1)).optional(),
   aliases: z.array(z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'alias must be slug-like')).optional(),

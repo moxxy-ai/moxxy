@@ -33,7 +33,11 @@ Checklist:
 8. Tests: a test that needs its own home moves `HOME` and `USERPROFILE`
    together. One that needs a POSIX shell, real mode bits or symlinks says so
    with `it.skipIf(!posixShell | !posixFileModes | !canSymlink)` from
-   `@moxxy/vitest-preset/platform` — and prefer a portable fixture to a skip.
+   `@moxxy/vitest-preset/platform` — and prefer a portable fixture to a skip:
+   a stand-in CLI or installer is a Node script from
+   `@moxxy/vitest-preset/fake-cli`, not a `#!/bin/sh` file. A test that starts
+   many processes (real `git`, installers) takes `manyProcessesTimeout` from
+   `@moxxy/vitest-preset/platform`; each process start is far slower there.
    A test removes its files with `removeDir` / `removeDirSync` from
    `@moxxy/vitest-preset/fs` (lint rejects a bare recursive `rm`), after its
    own writes have settled and its child processes have exited; a child that

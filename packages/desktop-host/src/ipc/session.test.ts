@@ -175,6 +175,27 @@ describe('session.setProvider handler', () => {
   });
 });
 
+describe('session.answerQuestion handler', () => {
+  it('answers through the driver of the named workspace', async () => {
+    const answerQuestion = vi.fn(async () => undefined);
+    drivers.set('ws-q', { answerQuestion } as unknown as SessionDriver);
+    const pool = { activeWorkspaceId: () => 'ws-other', get: () => null } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    try {
+      const handler = handlers.get('session.answerQuestion');
+      assertDefined(handler, 'session.answerQuestion handler');
+      await handler({ workspaceId: 'ws-q', questionId: 'q-1', answers: { q1: { selected: ['o1'] } } });
+
+      expect(answerQuestion).toHaveBeenCalledWith('q-1', { q1: { selected: ['o1'] } });
+    } finally {
+      drivers.delete('ws-q');
+    }
+  });
+});
+
 describe('session.setAutoApprove handler', () => {
   it('updates the driver and broadcasts the shared auto-approve state to every surface', async () => {
     const events: Array<{ channel: keyof IpcEvents; payload: unknown }> = [];

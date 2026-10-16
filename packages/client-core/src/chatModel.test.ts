@@ -10,6 +10,7 @@ import {
   applyEvent,
   buildRenderNodes,
   createRuntime,
+  groupThinkingNodes,
   groupToolNodes,
   isRenderedEvent,
   registerRenderablePlugin,
@@ -402,10 +403,41 @@ describe('isRenderedEvent plugin registry seam', () => {
     expect(isRenderedEvent(pluginEvent('@moxxy/something-else'))).toBe(false);
   });
 
+  it("keeps an agent's account limit in the chat, and none of the connection's other bookkeeping", () => {
+    const connection = (subtype: string): MoxxyEvent =>
+      evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype, payload: { provider: 'claude-code', limit: { state: 'near' } } });
+    expect(isRenderedEvent(connection('account_limit'))).toBe(true);
+    expect(isRenderedEvent(connection('agent_session'))).toBe(false);
+  });
+
   it('registerRenderablePlugin opts a plugin in without editing the core module', () => {
     const id = '@moxxy/plugin-author-test';
     expect(isRenderedEvent(pluginEvent(id))).toBe(false);
     registerRenderablePlugin(id);
     expect(isRenderedEvent(pluginEvent(id))).toBe(true);
+  });
+});
+
+describe('groupThinkingNodes', () => {
+  const thinking = (): RenderNode =>
+    blockNode({
+      kind: 'event',
+      id: `th${(g += 1)}`,
+      event: { type: 'reasoning_message', id: `th${g}`, content: 'hmm' } as unknown as MoxxyEvent,
+    });
+
+  it('folds thinking one after another into one node keyed on the first, in order', () => {
+    const [a, b, c] = [thinking(), thinking(), thinking()];
+    const out = groupThinkingNodes([eventNode(), a, b, c, toolNode('bash')]);
+    expect(out.map((node) => node.kind)).toEqual(['block', 'thinking', 'block']);
+    const group = out[1];
+    if (group?.kind !== 'thinking') throw new Error('expected a thinking node');
+    expect(group.id).toBe(`thinking:${(a as { block: FoldedBlock }).block.id}`);
+    expect(group.events.map((event) => event.id)).toEqual([a, b, c].map((node) => (node as { block: FoldedBlock }).block.id));
+  });
+
+  it('leaves a lone thinking, and thinking a tool comes between, as they are', () => {
+    const out = groupThinkingNodes([thinking(), toolNode('bash'), thinking()]);
+    expect(out.map((node) => node.kind)).toEqual(['block', 'block', 'block']);
   });
 });

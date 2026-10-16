@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { LLMProvider, ProviderEvent } from '@moxxy/sdk';
 import { Session } from '../session.js';
-import { asSkillId, asTurnId, defineProvider, definePlugin } from '@moxxy/sdk';
+import { asSkillId, asToolCallId, asTurnId, defineProvider, definePlugin } from '@moxxy/sdk';
 import { synthesizeSkill, buildSynthesizeSkillPlugin } from './synthesize.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
@@ -237,6 +237,56 @@ describe('buildSynthesizeSkillPlugin', () => {
     const invoked = session.log.ofType('skill_invoked');
     expect(invoked).toHaveLength(1);
     expect(invoked[0].turnId).toBe(turnId);
+  });
+});
+
+describe('reading a skill', () => {
+  it('never asks the person: it only reads what is already loaded', async () => {
+    const session = newSessionWithProvider(new InlineProvider([]));
+    session.pluginHost.registerStatic(buildSynthesizeSkillPlugin(session));
+    const asked: string[] = [];
+    session.setPermissionResolver({ name: 'person', check: async (call) => (asked.push(call.name), { mode: 'deny', reason: 'no' }) });
+
+    const decision = await session.resolver.check({ callId: asToolCallId('c1'), name: 'load_skill', input: { name: 'demo' } }, { sessionId: String(session.id) });
+
+    expect(decision.mode).toBe('allow');
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('skill folders read again before a turn', () => {
+  class InlineAgentProvider extends InlineProvider {
+    override readonly name = 'inline-agent';
+    async *agentStep(): AsyncIterable<never> {}
+  }
+
+  async function startTurn(provider: InlineProvider, rescanBeforeAgentTurns: boolean): Promise<Session> {
+    const session = newSessionWithProvider(provider);
+    session.pluginHost.registerStatic(
+      buildSynthesizeSkillPlugin(session, { userDir: path.join(tmp, 'user'), projectDir: path.join(tmp, 'project'), rescanBeforeAgentTurns }),
+    );
+    await fs.mkdir(path.join(tmp, 'project'), { recursive: true });
+    await fs.writeFile(path.join(tmp, 'project', 'weekly-report.md'), '---\nname: weekly-report\ndescription: Write the weekly report\n---\nsteps\n');
+    await session.dispatcher.dispatchTurnStart({ ...session.appContext(), turnId: asTurnId('t1'), iteration: 0 });
+    return session;
+  }
+
+  it('finds a skill saved during the conversation before a turn on an agent connection', async () => {
+    const session = await startTurn(new InlineAgentProvider([]), true);
+
+    expect(session.skills.byName('weekly-report')).toBeDefined();
+  });
+
+  it('leaves the skills as they are on a model API, whose model calls reload_skills itself', async () => {
+    const session = await startTurn(new InlineProvider([]), true);
+
+    expect(session.skills.byName('weekly-report')).toBeUndefined();
+  });
+
+  it('leaves the skills as they are unless asked to, since the rescan replaces skills registered in memory alone', async () => {
+    const session = await startTurn(new InlineAgentProvider([]), false);
+
+    expect(session.skills.byName('weekly-report')).toBeUndefined();
   });
 });
 

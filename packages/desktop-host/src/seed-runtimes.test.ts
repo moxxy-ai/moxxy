@@ -213,6 +213,21 @@ describe('prepareBundledRuntimes', () => {
     expect(env.PATH).toBe(['/usr/bin', path.join(home, 'runtimes', 'node', 'bin')].join(':'));
   });
 
+  it("puts the terminal's PATH ahead of the one the app started with, so the agent CLIs are the terminal's", async () => {
+    const env: NodeJS.ProcessEnv = { PATH: '/usr/bin:/opt/homebrew/bin' };
+
+    await prepareBundledRuntimes({
+      resourcesPath: resources,
+      moxxyHome: home,
+      platform: 'darwin',
+      arch: 'arm64',
+      env,
+      loginShellPath: async () => '/Users/me/.local/bin:/opt/homebrew/bin:/usr/bin',
+    });
+
+    expect(env.PATH).toBe('/Users/me/.local/bin:/opt/homebrew/bin:/usr/bin');
+  });
+
   it('reports a runtime that cannot be unpacked and lets the app start without it', async () => {
     await fs.mkdir(seedDir(), { recursive: true });
     await fs.writeFile(path.join(seedDir(), 'python.tar.gz'), 'not an archive');

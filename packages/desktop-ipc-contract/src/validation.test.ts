@@ -90,6 +90,25 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('onboarding.saveProviderKey', { provider: '../x', secret: 'k' })).toThrow();
   });
 
+  it("runs only an agent CLI's install or update, by connection name", () => {
+    expect(() => validateIpcInput('agents.run', { provider: 'codex-agent', action: 'install' })).not.toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: 'claude-code', action: 'update' })).not.toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: 'codex-agent', action: 'uninstall' })).toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: '; rm -rf /', action: 'install' })).toThrow();
+    expect(() => validateIpcInput('agents.check', undefined)).not.toThrow();
+    expect(() => validateIpcInput('agents.check', { workspaceId: '' })).toThrow();
+  });
+
+  it('remembers a dismissed agent update by connection and version only', () => {
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { 'codex-agent': '0.162.1' } })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { '../x': '0.162.1' } })).toThrow();
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { opencode: 'v'.repeat(65) } })).toThrow();
+  });
+
+  it('keeps installing agent CLIs on this computer, out of reach of a remote client', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('agents.run')).toBe(false);
+  });
+
   it('guards interactive-login ids + bounds the pasted answer', () => {
     expect(() =>
       validateIpcInput('provider.login.start', { loginId: 'A1-b2', provider: 'claude-code' }),
@@ -330,6 +349,21 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('session.setAutoApprove', { enabled: false })).not.toThrow();
     expect(() => validateIpcInput('session.setAutoApprove', { enabled: 'yes' })).toThrow();
     expect(() => validateIpcInput('session.setAutoApprove', {})).toThrow();
+  });
+
+  it('takes an answer to a question as chosen option ids and bounded words of the person own', () => {
+    const answer = (answers: unknown) => () =>
+      validateIpcInput('session.answerQuestion', { workspaceId: 'ws', questionId: 'q-1', answers });
+    expect(answer({ q1: { selected: ['o1'] } })).not.toThrow();
+    expect(answer({ q1: { selected: [], other: 'Teal' } })).not.toThrow();
+    expect(answer({ q1: { selected: 'o1' } })).toThrow();
+    expect(answer({ q1: { selected: [], other: 'x'.repeat(10_001) } })).toThrow();
+    expect(answer({ q1: { selected: ['o1'], extra: true } })).toThrow();
+    expect(() => validateIpcInput('session.answerQuestion', { questionId: '', answers: {} })).toThrow();
+  });
+
+  it('lets a paired phone answer the conversation questions', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('session.answerQuestion')).toBe(true);
   });
 
   it('requires a strict boolean for mobileGateway.setEnabled', () => {

@@ -25,6 +25,8 @@ export interface ChannelModelState {
   readonly openPicker: () => void;
   readonly closePicker: () => void;
   readonly providers: ReadonlyArray<ProviderInfo>;
+  /** The workspace whose Settings say which providers are connected. */
+  readonly workspaceId?: string | null;
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
   readonly busy: boolean;
@@ -101,6 +103,7 @@ export function useChannelModel(options: {
     openPicker: useCallback(() => setPicking(true), []),
     closePicker: useCallback(() => setPicking(false), []),
     providers,
+    workspaceId,
     activeProvider: choice?.provider ?? appProvider,
     activeModel: choice?.model ?? null,
     busy,

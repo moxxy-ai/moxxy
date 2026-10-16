@@ -26,6 +26,7 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       'session.setModel',
       'session.setMode',
       'session.setAutoApprove',
+      'session.answerQuestion',
       'session.newSession',
       'session.runCommand',
       'sessions.list',

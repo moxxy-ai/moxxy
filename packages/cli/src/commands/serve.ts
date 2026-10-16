@@ -258,6 +258,8 @@ async function runServeForeground(
     );
     return 1;
   }
+  // Agent connections' CLIs: checked now and every hour, pushed to attached clients when one changes.
+  session.agentClis.start();
 
   const allBackgroundIds = new Set(BACKGROUND_UNITS.map((u) => u.id));
   const allChannelDefs = session.channels.list();

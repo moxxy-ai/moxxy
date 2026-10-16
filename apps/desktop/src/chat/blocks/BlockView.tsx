@@ -5,6 +5,7 @@ import { ToolBlock } from './ToolBlock';
 import { SubagentView } from './SubagentView';
 import { SubagentGroupView } from './SubagentGroupView';
 import { CollaborationCard } from './CollaborationCard';
+import { StepListView } from './StepList';
 import type { ImagePreviewItem } from '../image-preview/types';
 import { LiveToolGroupView } from '../ToolGroupView';
 import { TraceEntry } from '../trace/TraceEntry';
@@ -20,6 +21,7 @@ import { TraceEntry } from '../trace/TraceEntry';
  *   - skill-scope              SkillGroupView (banner + nested children).
  *   - subagent / -group        an agent row, or a foldable tree of siblings.
  *   - live-tools               each in-flight call as a row.
+ *   - step-list                the agent's own list of steps for the turn.
  *
  * The in-flight streaming assistant text is NOT a block: Transcript renders it
  * via {@link StreamingAssistant} at the tail.
@@ -63,6 +65,12 @@ export function BlockView({
       );
     case 'collab':
       return <CollaborationCard block={block} />;
+    case 'step-list':
+      return (
+        <TraceEntry kind="tool">
+          <StepListView block={block} />
+        </TraceEntry>
+      );
     default: {
       // Exhaustiveness guard: a new Block kind in @moxxy/chat-model must be
       // handled here or this becomes a compile error rather than rendering blank.

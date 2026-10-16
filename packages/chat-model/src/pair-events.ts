@@ -1,6 +1,15 @@
 import type { MoxxyEvent, PluginEvent, ToolCompactPresentation } from '@moxxy/sdk';
 import { assertDefined, invariant } from './assert.js';
-import { isFileDiffDisplay } from '@moxxy/sdk/tool-display';
+import {
+  isFileDiffDisplay,
+  isQuestionAnswerDisplay,
+  isStepListDisplay,
+  isToolDisplayResult,
+  toolImagesOf,
+  type QuestionAnswerDisplay,
+  type StepListDisplay,
+  type ToolImage,
+} from '@moxxy/sdk/tool-display';
 import type {
   Block,
   CollabAgentView,
@@ -8,11 +17,12 @@ import type {
   LiveToolBlockData,
   LiveToolCall,
   SkillScopeBlock,
+  StepListBlock,
   SubagentBlock,
   SubagentGroupBlock,
   ToolCallBlockData,
 } from './types.js';
-import { oneLine } from './format.js';
+import { oneLine, subagentState } from './format.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
 const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
@@ -39,6 +49,19 @@ export function isFileDiffResult(
   );
 }
 
+/** What the person chose, when this settled outcome is an answered Question (`ask_user`); else null. */
+export function questionAnswerOf(outcome: ToolCallBlockData['outcome']): QuestionAnswerDisplay | null {
+  if (outcome === null || outcome.type !== 'tool_result' || !outcome.ok) return null;
+  const display = (outcome.output as { display?: unknown } | undefined)?.display;
+  return isQuestionAnswerDisplay(display) ? display : null;
+}
+
+/** The images a settled tool result carries (screenshots, images an agent looked at) and the text beside them; else null. */
+export function toolImagesResultOf(outcome: ToolCallBlockData['outcome']): { readonly images: ReadonlyArray<ToolImage>; readonly text: string } | null {
+  if (outcome === null || outcome.type !== 'tool_result' || !outcome.ok) return null;
+  return toolImagesOf(outcome.output);
+}
+
 /**
  * Fold a subagent `plugin_event` into the `subagents` map / `root` array.
  * Subagent events render as one-line scope blocks so a fleet of children
@@ -49,6 +72,7 @@ export function isFileDiffResult(
 function handleSubagentEvent(
   e: PluginEvent,
   subagents: Map<string, SubagentBlock>,
+  background: Map<string, SubagentBlock>,
   root: Block[],
   groupRef: { current: SubagentGroupBlock | null },
 ): void {
@@ -66,6 +90,7 @@ function handleSubagentEvent(
       startedAtMs: new Date(e.ts).getTime(),
       completedAtMs: null,
       toolCallCount: 0,
+      ...(payload.toolsUnseen === true ? { toolsUnseen: true } : {}),
       tokensUsed: null,
       toolCalls: [],
       stopReason: null,
@@ -73,26 +98,10 @@ function handleSubagentEvent(
       error: null,
     };
     subagents.set(childSessionId, block);
-    // Fold consecutive sibling agents (a dispatch_agent fan-out) into one
-    // group. The run is broken by any non-subagent block (see pushBlock /
-    // boundary resets), so a fresh `subagent_started` after that opens a new
-    // group. A lone agent renders as a group of one.
-    if (groupRef.current) {
-      groupRef.current.agents.push(block);
-      if (groupRef.current.agentType !== agentType) groupRef.current.agentType = 'mixed';
-    } else {
-      const group: SubagentGroupBlock = {
-        kind: 'subagent-group',
-        id: `subagentgroup:${e.id}`,
-        agentType,
-        agents: [block],
-      };
-      groupRef.current = group;
-      root.push(group);
-    }
+    addToGroup(block, e, root, groupRef);
     return;
   }
-  const block = subagents.get(childSessionId);
+  const block = subagents.get(childSessionId) ?? continuedFrom(background.get(childSessionId));
   if (!block) return;
   if (e.subtype === 'subagent_tool_call') {
     block.toolCallCount += 1;
@@ -122,6 +131,54 @@ function handleSubagentEvent(
   }
   // chunk / tool_result / nested-grand-child: ignore at top level;
   // the /agents modal exposes the raw stream when needed.
+
+  /** A subagent from an earlier turn reporting again: its row there stays as it was, a new one shows what it does now. */
+  function continuedFrom(earlier: SubagentBlock | undefined): SubagentBlock | undefined {
+    if (!earlier) return undefined;
+    background.delete(childSessionId);
+    const block: SubagentBlock = {
+      kind: 'subagent',
+      id: e.id,
+      childSessionId,
+      label: earlier.label,
+      agentType: earlier.agentType,
+      startedAtMs: earlier.startedAtMs,
+      completedAtMs: null,
+      toolCallCount: 0,
+      ...(earlier.toolsUnseen === true ? { toolsUnseen: true } : {}),
+      tokensUsed: null,
+      toolCalls: [],
+      stopReason: null,
+      finalPreview: null,
+      error: null,
+      continued: true,
+    };
+    subagents.set(childSessionId, block);
+    addToGroup(block, e, root, groupRef);
+    return block;
+  }
+}
+
+/**
+ * Fold consecutive sibling agents (a dispatch_agent fan-out) into one group.
+ * The run is broken by any non-subagent block (see pushBlock / boundary
+ * resets), so a fresh agent after that opens a new group. A lone agent renders
+ * as a group of one.
+ */
+function addToGroup(block: SubagentBlock, e: PluginEvent, root: Block[], groupRef: { current: SubagentGroupBlock | null }): void {
+  if (groupRef.current) {
+    groupRef.current.agents.push(block);
+    if (groupRef.current.agentType !== block.agentType) groupRef.current.agentType = 'mixed';
+    return;
+  }
+  const group: SubagentGroupBlock = {
+    kind: 'subagent-group',
+    id: `subagentgroup:${e.id}`,
+    agentType: block.agentType,
+    agents: [block],
+  };
+  groupRef.current = group;
+  root.push(group);
 }
 
 function collabUpsertAgent(
@@ -369,12 +426,17 @@ export interface FoldState {
   // into it until something non-compact closes it.
   openLive: LiveToolBlockData | null;
   readonly subagents: Map<string, SubagentBlock>;
+  // Subagents of earlier turns still running when their turn ended (an agent's
+  // helper going on in the background), by childSessionId.
+  readonly backgroundSubagents: Map<string, SubagentBlock>;
   // Open subagent group, if any. Consecutive `subagent_started` events accrete
   // into it; any non-subagent block (or a turn/scope boundary) closes the run.
   readonly subagentGroup: { current: SubagentGroupBlock | null };
   // Open collaborative-run block, if any. Opened on collab_started; collab_*
   // events mutate it in place; reset at the turn boundary.
   readonly collab: { current: CollaborationBlock | null };
+  // This turn's list of steps, once an agent call returned one; later changes join it.
+  openSteps: StepListBlock | null;
 }
 
 /** A fresh, empty fold state for the given compact-tool map. */
@@ -390,8 +452,10 @@ export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MA
     continuationSkillEvent: null,
     openLive: null,
     subagents: new Map<string, SubagentBlock>(),
+    backgroundSubagents: new Map<string, SubagentBlock>(),
     subagentGroup: { current: null },
     collab: { current: null },
+    openSteps: null,
   };
 }
 
@@ -482,13 +546,22 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     s.suppressedCallIds.clear();
     s.suppressedSkillScopes.clear();
     s.subagentGroup.current = null;
-    // Subagents run to completion within the turn that dispatched them, so the
-    // lookup map is a within-turn concern like callTargets. Clearing it bounds
-    // the map to one turn and drops a late completion bearing a stale/colliding
-    // childSessionId from an earlier turn (it would otherwise mutate the old
-    // block). The blocks themselves stay reachable from `root`.
+    // Moxxy's own subagents run to completion within the turn that dispatched
+    // them, so the lookup map is a within-turn concern like callTargets.
+    // Clearing it bounds the map to one turn and drops a late completion
+    // bearing a stale/colliding childSessionId from an earlier turn (it would
+    // otherwise mutate the old block). An agent's helper may outlive its turn:
+    // one still running is marked as going on in the background (settled, so
+    // a terminal can freeze it) and what it does later gets a row of its own.
+    for (const [id, agent] of s.subagents) {
+      if (agent.completedAtMs !== null || agent.error !== null) continue;
+      agent.backgrounded = true;
+      s.backgroundSubagents.set(id, agent);
+    }
     s.subagents.clear();
     s.collab.current = null;
+    if (s.openSteps) s.openSteps.closed = true;
+    s.openSteps = null;
     s.root.push({ kind: 'event', id: e.id, event: e });
     return;
   }
@@ -572,6 +645,7 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     const target = s.callTargets.get(e.callId);
     if (target) {
       target.outcome = e;
+      if (isToolCallBlock(target) && stepListOfCall(target)) joinStepList(s, target);
       return;
     }
   }
@@ -629,7 +703,7 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     // compact calls and render chronologically out of order (above the agents
     // it actually followed). The verbose-tool path does the same.
     closeOpenLive();
-    handleSubagentEvent(e, s.subagents, s.root, s.subagentGroup);
+    handleSubagentEvent(e, s.subagents, s.backgroundSubagents, s.root, s.subagentGroup);
     return;
   }
   // Collaborative-run events fold into one team-level block (roster, bus,
@@ -640,6 +714,69 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     return;
   }
   pushBlock({ kind: 'event', id: e.id, event: e });
+}
+
+function isToolCallBlock(target: CallTarget): target is ToolCallBlockData {
+  return (target as { kind?: unknown }).kind === 'tool-call';
+}
+
+/** The list of steps a call's result carries, or null. */
+export function stepListOfCall(call: ToolCallBlockData): StepListDisplay | null {
+  const outcome = call.outcome;
+  if (outcome === null || outcome.type !== 'tool_result' || !outcome.ok) return null;
+  const output = outcome.output;
+  return isToolDisplayResult(output) && isStepListDisplay(output.display) ? output.display : null;
+}
+
+/** The list as it stands: the last call of the turn that returned one. */
+export function stepListOf(block: StepListBlock): StepListDisplay | null {
+  for (let i = block.calls.length - 1; i >= 0; i -= 1) {
+    const call = block.calls[i];
+    const list = call ? stepListOfCall(call) : null;
+    if (list) return list;
+  }
+  return null;
+}
+
+/**
+ * The list of steps of the turn running now (since the person's last prompt),
+ * as it stands, or null when no agent returned one in it.
+ */
+export function turnStepList(events: ReadonlyArray<MoxxyEvent>): StepListDisplay | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i];
+    if (!e) continue;
+    if (e.type === 'user_prompt' && e.origin?.kind !== 'checkpoint') return null;
+    if (e.type !== 'tool_result' || !e.ok) continue;
+    if (isToolDisplayResult(e.output) && isStepListDisplay(e.output.display)) return e.output.display;
+  }
+  return null;
+}
+
+/**
+ * A call whose result is a list of steps leaves its own row: the first of the
+ * turn becomes the turn's list where it stood, later ones join that list.
+ */
+function joinStepList(s: FoldState, call: ToolCallBlockData): void {
+  const open = s.openSteps;
+  if (open) {
+    replaceCallBlock(s.root, call.request.callId, null);
+    open.calls.push(call);
+    return;
+  }
+  const list: StepListBlock = { kind: 'step-list', id: call.id, calls: [call], closed: false };
+  if (replaceCallBlock(s.root, call.request.callId, list)) s.openSteps = list;
+}
+
+/** Swap (or with `null` remove) a call's row, at the top level or inside a skill scope. */
+function replaceCallBlock(list: Block[], callId: string, replacement: Block | null): boolean {
+  const index = list.findIndex((b) => b.kind === 'tool-call' && b.request.callId === callId);
+  if (index >= 0) {
+    if (replacement) list.splice(index, 1, replacement);
+    else list.splice(index, 1);
+    return true;
+  }
+  return list.some((b) => b.kind === 'skill-scope' && replaceCallBlock(b.children, callId, replacement));
 }
 
 export function pairToolEvents(
@@ -856,12 +993,13 @@ export class IncrementalFold {
  * Static-rendered items are frozen, so this gate must be conservative:
  * pending tool calls (animated dot), open skill scopes (children still
  * arriving), and running subagents (live elapsed counter) all stay in
- * the dynamic area until they finish.
+ * the dynamic area until they finish or their turn ends with them going
+ * on in the background.
  */
 export function isSettled(block: Block): boolean {
   if (block.kind === 'event') return true;
   if (block.kind === 'tool-call') return block.outcome !== null;
-  if (block.kind === 'subagent') return block.completedAtMs !== null || block.error !== null;
+  if (block.kind === 'subagent') return subagentState(block) !== 'running';
   if (block.kind === 'subagent-group') return block.agents.every(isSettled);
   if (block.kind === 'collab') return block.completedAtMs !== null;
   if (block.kind === 'skill-scope') {
@@ -870,6 +1008,8 @@ export function isSettled(block: Block): boolean {
   if (block.kind === 'live-tools') {
     return block.closed && block.calls.every((c) => c.outcome !== null);
   }
+  // A later change in the same turn joins the list.
+  if (block.kind === 'step-list') return block.closed;
   return true;
 }
 
@@ -950,6 +1090,13 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
         b.contracts.map((x) => `${x.status}|${x.version}|${x.title}|${x.owner}`).join(',')
     );
   }
+  if (a.kind === 'step-list' && b.kind === 'step-list') {
+    if (a.closed !== b.closed || a.calls.length !== b.calls.length) return false;
+    return a.calls.every((call, i) => {
+      const other = b.calls[i];
+      return other !== undefined && call.request === other.request && call.outcome === other.outcome;
+    });
+  }
   if (a.kind === 'live-tools' && b.kind === 'live-tools') {
     if (a.closed !== b.closed) return false;
     if (a.calls.length !== b.calls.length) return false;
@@ -972,6 +1119,7 @@ export function countToolCalls(blocks: ReadonlyArray<Block>): number {
     if (b.kind === 'tool-call') n += 1;
     else if (b.kind === 'skill-scope') n += countToolCalls(b.children);
     else if (b.kind === 'live-tools') n += b.calls.length;
+    else if (b.kind === 'step-list') n += b.calls.length;
     else if (b.kind === 'subagent-group') {
       for (const a of b.agents) n += a.toolCallCount;
     }

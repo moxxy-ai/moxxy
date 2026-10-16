@@ -11,6 +11,7 @@ import {
   type MoxxyEvent,
   type PluginEvent,
   type SkillInvokedEvent,
+  type StepStatus,
   type ToolCallDeniedEvent,
   type ToolCallRequestedEvent,
   type ToolCompactPresentation,
@@ -23,12 +24,18 @@ import {
   isFileDiffResult,
   isSettled,
   pairToolEvents,
+  questionAnswerOf,
+  stepListOf,
+  toolImagesResultOf,
+  turnStepList,
   type CompactToolMap,
 } from './pair-events.js';
+import { subagentState } from './format.js';
 import type {
   CollaborationBlock,
   LiveToolBlockData,
   SkillScopeBlock,
+  StepListBlock,
   SubagentBlock,
   SubagentGroupBlock,
   ToolCallBlockData,
@@ -732,6 +739,38 @@ describe('pairToolEvents — file-edit tools', () => {
     const plain = pairToolEvents([toolRequest('b1', 'bash'), toolResult('b1', 'ok')]);
     expect(isFileDiffResult(asToolCall(plain[0]).outcome)).toBe(false);
   });
+
+  it('questionAnswerOf reads what the person chose from a settled ask_user result', () => {
+    const display = {
+      kind: 'question-answer' as const,
+      questions: [{ header: 'Colour', question: 'Which colour?', chosen: ['Blue'] }],
+    };
+    const blocks = pairToolEvents([
+      toolRequest('a1', 'ask_user'),
+      toolResult('a1', { forModel: 'The user answered: …', display }),
+    ]);
+    expect(questionAnswerOf(asToolCall(blocks[0]).outcome)).toEqual(display);
+    const plain = pairToolEvents([toolRequest('b1', 'bash'), toolResult('b1', 'ok')]);
+    expect(questionAnswerOf(asToolCall(plain[0]).outcome)).toBeNull();
+    expect(questionAnswerOf(null)).toBeNull();
+  });
+
+  it('toolImagesResultOf reads every image a settled result carries, and the text beside them', () => {
+    const blocks = pairToolEvents([
+      toolRequest('i1', 'mcp__cua_repl__js'),
+      toolResult('i1', { forModel: 'Two windows', mediaType: 'image/jpeg', base64: '/9j/AAA', moreImages: [{ mediaType: 'image/png', base64: 'iVBOR' }] }),
+    ]);
+    expect(toolImagesResultOf(asToolCall(blocks[0]).outcome)).toEqual({
+      images: [
+        { mediaType: 'image/jpeg', base64: '/9j/AAA' },
+        { mediaType: 'image/png', base64: 'iVBOR' },
+      ],
+      text: 'Two windows',
+    });
+    const plain = pairToolEvents([toolRequest('b2', 'bash'), toolResult('b2', 'ok')]);
+    expect(toolImagesResultOf(asToolCall(plain[0]).outcome)).toBeNull();
+    expect(toolImagesResultOf(null)).toBeNull();
+  });
 });
 
 describe('pairToolEvents — open live aggregate sealed by a subagent/collab start', () => {
@@ -798,6 +837,34 @@ describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
     expect(agent0.finalPreview).toBe('first');
     // The stale event produced no new block (no matching started block post-clear).
     expect(blocks.filter((b) => b.kind === 'subagent-group')).toHaveLength(1);
+  });
+
+  it("leaves a subagent still running when the turn ends as going on in the background, settled", () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'bg1', label: 'List files' }),
+      userPrompt('next turn'),
+    ]);
+    const agent = asSubagent(blocks[0]);
+    expect(subagentState(agent)).toBe('background');
+    expect(isSettled(agent)).toBe(true);
+  });
+
+  it('shows what a background subagent did later in a row of its own where it happened, and leaves the earlier row as it was', () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'bg1', label: 'List files', agentType: 'general-purpose' }),
+      userPrompt('next turn'),
+      subagentEvent('subagent_tool_call', { childSessionId: 'bg1', name: 'Bash', input: { command: 'ls' } }),
+      subagentEvent('subagent_completed', { childSessionId: 'bg1', stopReason: 'end_turn', text: 'Two files.', tokensUsed: 900 }),
+    ]);
+    const groups = blocks.filter((b) => b.kind === 'subagent-group');
+    expect(groups).toHaveLength(2);
+    const earlier = asSubagent(groups[0]);
+    const later = asSubagent(groups[1]);
+    expect(subagentState(earlier)).toBe('background');
+    expect(earlier.toolCalls).toEqual([]);
+    expect(later).toMatchObject({ label: 'List files', agentType: 'general-purpose', continued: true, toolCallCount: 1, finalPreview: 'Two files.', tokensUsed: 900 });
+    expect(subagentState(later)).toBe('done');
+    expect(blocks.indexOf(groups[1] as (typeof blocks)[number])).toBeGreaterThan(blocks.findIndex((b) => b.kind === 'event'));
   });
 });
 
@@ -873,5 +940,64 @@ describe('pairToolEvents — collab_completed malformed counts fall back to rost
     // Derived: 1 of 2 agents done — meaningful, not null/null.
     expect(collab.doneCount).toBe(1);
     expect(collab.totalCount).toBe(2);
+  });
+});
+
+describe("an agent's list of steps", () => {
+  const listed = (forModel: string, ...steps: Array<[string, StepStatus]>) => ({
+    forModel,
+    display: { kind: 'step-list', steps: steps.map(([text, status]) => ({ text, status })) },
+  });
+
+  it('folds every change of a turn into one list where the first change was, the last change being the list', () => {
+    const events = [
+      userPrompt('make three files'),
+      toolRequest('c1', 'TaskCreate', { subject: 'a' }),
+      toolResult('c1', listed('Task #1 created', ['a', 'pending'])),
+      toolRequest('b1', 'Bash', { command: 'echo a > a.txt' }),
+      toolResult('b1', ''),
+      toolRequest('u1', 'TaskUpdate', { taskId: '1', status: 'completed' }),
+      toolResult('u1', listed('Updated task #1 status', ['a', 'completed'])),
+      assistantMessage('Done.'),
+    ];
+
+    const blocks = pairToolEvents(events);
+
+    expect(blocks.map((b) => b.kind)).toEqual(['event', 'step-list', 'tool-call', 'event']);
+    const list = blocks[1] as StepListBlock;
+    expect(list.calls.map((c) => c.request.name)).toEqual(['TaskCreate', 'TaskUpdate']);
+    expect(stepListOf(list)).toEqual({ kind: 'step-list', steps: [{ text: 'a', status: 'completed' }] });
+    expect(countToolCalls(blocks)).toBe(3);
+    expect(isSettled(list)).toBe(false);
+  });
+
+  it('starts a new list in the next turn and settles the one before', () => {
+    const blocks = pairToolEvents([
+      userPrompt('one'),
+      toolRequest('c1', 'TodoWrite'),
+      toolResult('c1', listed('ok', ['a', 'in_progress'])),
+      userPrompt('two'),
+      toolRequest('c2', 'TodoWrite'),
+      toolResult('c2', listed('ok', ['a', 'completed'])),
+    ]);
+
+    const lists = blocks.filter((b): b is StepListBlock => b.kind === 'step-list');
+    expect(lists).toHaveLength(2);
+    expect(isSettled(lists[0] as StepListBlock)).toBe(true);
+    expect(stepListOf(lists[1] as StepListBlock)).toMatchObject({ steps: [{ text: 'a', status: 'completed' }] });
+  });
+
+  it('keeps a call that failed or was refused as its own row', () => {
+    const blocks = pairToolEvents([userPrompt('one'), toolRequest('c1', 'TodoWrite'), toolResult('c1', 'boom', false), toolRequest('c2', 'TaskUpdate'), toolDenied('c2', 'no')]);
+
+    expect(blocks.map((b) => b.kind)).toEqual(['event', 'tool-call', 'tool-call']);
+  });
+
+  it('says what the running turn list is, and nothing once the person writes again', () => {
+    const before = [userPrompt('one'), toolRequest('c1', 'TodoWrite'), toolResult('c1', listed('ok', ['a', 'in_progress'], ['b', 'pending']))];
+
+    expect(turnStepList(before)).toMatchObject({ steps: [{ text: 'a' }, { text: 'b' }] });
+    expect(turnStepList([...before, checkpointPrompt('lint')])).not.toBeNull();
+    expect(turnStepList([...before, userPrompt('two')])).toBeNull();
   });
 });

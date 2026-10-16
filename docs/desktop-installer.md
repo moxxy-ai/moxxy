@@ -109,7 +109,8 @@ already in place are reused) and the runtimes (`bundle-runtimes-seed.mjs`;
 on an Apple Silicon Mac the x64 Python is prepared under Rosetta; in a signed
 macOS release the Python and the Git are signed before they are packed, see
 `docs/desktop-code-signing.md`). `verify:resources` and `verify:packaged` fail the
-build when the seed lacks Piper, the Gemini voice, any Piper voice, or Node,
+build when the seed lacks Piper, the Gemini voice, any Piper voice, the Codex
+or OpenCode agent connection (neither is on npm), or Node,
 Python or Git for an architecture the installer serves. `scripts/smoke-runtimes.mjs`
 unpacks the runtimes as a first launch does and runs them.
 

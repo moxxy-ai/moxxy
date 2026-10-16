@@ -74,9 +74,15 @@ export interface UserPromptAttachment {
  * `kind: 'voice'` marks the voice conversation (GPT-Live) held while an agent
  * turn ran and recorded after it as one transcript: context for later turns,
  * not a request, and shown as one collapsed block.
+ *
+ * `kind: 'agent'` opens a turn the vendor's agent of an agent connection
+ * started by itself (Claude after a task it ran in the background finished),
+ * or one Moxxy opened to show work the agent left running ending (Codex's
+ * helper or background command); `name` says what it took up. Nothing is
+ * sent to the agent for it.
  */
 export interface TriggerOrigin {
-  readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint' | 'voice';
+  readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint' | 'voice' | 'agent';
   /** The trigger's name (webhook/schedule/workflow/checkpoint), for the marker label. */
   readonly name: string;
 }
@@ -147,6 +153,8 @@ export interface ToolCallRequestedEvent extends EventBase {
   readonly name: string;
   readonly input: unknown;
   readonly skillContext?: SkillId;
+  /** Set when the provider's own agent ran the tool (an agent connection), not Moxxy. */
+  readonly executedBy?: 'provider';
 }
 
 export interface ToolCallApprovedEvent extends EventBase {

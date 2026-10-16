@@ -31,6 +31,13 @@ export interface SynthesizeOptions {
   readonly builtinDir?: string;
   /** Extra plugin-supplied skill directories. Same boot-vs-reload story. */
   readonly pluginDirs?: ReadonlyArray<string>;
+  /**
+   * Read the skill folders again before each turn on an agent connection. The
+   * vendor agent has a `reload_skills` of its own, so a skill file saved while
+   * the conversation runs would otherwise reach it only after a restart. Off
+   * by default: the rescan replaces skills registered in memory alone.
+   */
+  readonly rescanBeforeAgentTurns?: boolean;
 }
 
 export interface SynthesizedSkill {
@@ -222,9 +229,35 @@ export function buildSynthesizeSkillPlugin(
   const auditGlob = opts.auditPath
     ? `${path.dirname(opts.auditPath)}/**`
     : `${defaultUserSkillsDir()}/**`;
+  // Discover first, swap second: never empty the registry while the fs scan
+  // is in flight, because concurrent skill lookups would observe an empty
+  // registry mid-reload. Pass the SAME source set the boot loader used
+  // (builtin + pluginDirs + user + project); a previous version omitted
+  // builtinDir/pluginDirs and reload silently nuked the builtin skill set.
+  const rescan = async (): Promise<number> => {
+    const { discoverSkills } = await import('./loader.js');
+    const discovered = await discoverSkills({
+      projectDir: opts.projectDir ?? defaultProjectSkillsDir(session.cwd),
+      userDir: opts.userDir ?? defaultUserSkillsDir(),
+      ...(opts.builtinDir ? { builtinDir: opts.builtinDir } : {}),
+      // Read at call time: plugins load after this plugin is built.
+      pluginDirs: [...session.pluginHost.skillDirs(), ...(opts.pluginDirs ?? [])],
+    });
+    session.skills.replaceAll(discovered);
+    return discovered.length;
+  };
   return definePlugin({
     name: '@moxxy/synthesize-skill',
     version: '0.0.0',
+    ...(opts.rescanBeforeAgentTurns
+      ? {
+          hooks: {
+            onTurnStart: async () => {
+              if (session.providers.getActive().agentStep) await rescan();
+            },
+          },
+        }
+      : {}),
     tools: [
       defineTool({
         name: 'synthesize_skill',
@@ -284,7 +317,10 @@ export function buildSynthesizeSkillPlugin(
             .min(1)
             .describe('The exact skill name from the "Available skills" list in the system prompt.'),
         }),
-        // Registry lookup — the skill body is already in memory.
+        // Registry lookup — the skill body is already in memory. Like
+        // reload_skills it never prompts: a vendor agent reads the person's
+        // skills through it, and a question per skill read only gets in the way.
+        permission: { action: 'allow' },
         isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
         handler: async ({ name }, ctx) => {
           const skill = session.skills.byName(name);
@@ -349,23 +385,8 @@ export function buildSynthesizeSkillPlugin(
           },
         },
         handler: async () => {
-          const { discoverSkills } = await import('./loader.js');
-          // Discover first, swap second: never empty the registry while
-          // the fs scan is in flight, because concurrent skill lookups
-          // would observe an empty registry mid-reload. Pass the SAME
-          // source set the boot loader used (builtin + pluginDirs +
-          // user + project); a previous version of this handler omitted
-          // builtinDir/pluginDirs and reload silently nuked the builtin
-          // skill set.
-          const discovered = await discoverSkills({
-            projectDir: opts.projectDir ?? defaultProjectSkillsDir(session.cwd),
-            userDir: opts.userDir ?? defaultUserSkillsDir(),
-            ...(opts.builtinDir ? { builtinDir: opts.builtinDir } : {}),
-            // Read at call time: plugins load after this tool is built.
-            pluginDirs: [...session.pluginHost.skillDirs(), ...(opts.pluginDirs ?? [])],
-          });
-          session.skills.replaceAll(discovered);
-          return `loaded ${discovered.length} skill${discovered.length === 1 ? '' : 's'}`;
+          const count = await rescan();
+          return `loaded ${count} skill${count === 1 ? '' : 's'}`;
         },
       }),
       defineTool({

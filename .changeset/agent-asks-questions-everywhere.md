@@ -1,0 +1,9 @@
+---
+'@moxxy/cli': minor
+'@moxxy/sdk': minor
+'@moxxy/desktop': minor
+---
+
+The agent can ask you a Question when a decision is genuinely yours (`ask_user`): one to four questions, each with two to four suggested answers and room for an answer of your own. The Question is part of the conversation, so every place you talk to it shows the same one: a card above the composer in the desktop, a dialog in the terminal UI, a message with answer buttons in Telegram and Discord (a plain reply counts as your own answer), and a card on the phone. The first answer, from any of them, closes it everywhere, and the conversation keeps it: the transcript shows each question and what you chose ("You answered") in the desktop, the terminal UI and on the phone, and the bot's message is edited to say it. The focus window shows the Question too, beside the mark and in the Mini Chat. A Question never asks leave to act and auto-approve never answers it; with nobody to answer (a headless run) the agent is told to decide on its own and say what it chose. Goal mode runs unattended, so it does not offer the Question at all: the agent picks the sensible default and lists those choices in its final summary. A Question left open by a run that stopped is closed when the conversation resumes, so none is offered for an answer nobody waits on.
+
+For plugin authors, `@moxxy/sdk` adds the Question types and helpers (`QuestionItem`, `QuestionOutcome`, `openQuestionsFromEvents`, `questionAnswersProblem`, the draft helpers) and `ToolContext.ask`, `ToolDef.notInModes` (the opposite of `modes`), plus a `question-answer` tool display (`QuestionAnswerDisplay`, `isQuestionAnswerDisplay`, `questionAnswerLines`) for showing what the person chose. Runner protocol 26 adds `question.answer`; a newer client on an older runner gets an "update the CLI" error.

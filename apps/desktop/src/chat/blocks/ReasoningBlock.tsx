@@ -40,3 +40,41 @@ export function ReasoningBlock({ event }: { readonly event: ReasoningMessageEven
     </div>
   );
 }
+
+/**
+ * Many thoughts one after another, as one folded "Thinking" row with their
+ * count: an agent that thinks before every step would otherwise stack a row
+ * per thought. Opening it shows every thought in order.
+ */
+export function ThinkingGroupView({ events }: { readonly events: ReadonlyArray<ReasoningMessageEvent> }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="reasoning" data-testid="block-reasoning">
+      <button
+        type="button"
+        className="reasoning__toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="reasoning__chevron" data-open={open} aria-hidden>
+          <Icon name="chevron-right" size={12} />
+        </span>
+        <span className="reasoning__label">Thinking</span>
+        <span className="reasoning__count">{events.length}</span>
+      </button>
+      {open && (
+        <div className="reasoning__body reasoning__thoughts" data-testid="reasoning-thoughts">
+          {events.map((event) =>
+            event.redacted ? (
+              <div key={event.id} className="reasoning--withheld">
+                Reasoning withheld
+              </div>
+            ) : (
+              <MarkdownBody key={event.id} text={event.content} />
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -9,6 +9,11 @@ import { asPluginId } from './ids.js';
  */
 export const AUTO_APPROVE_PLUGIN_ID = asPluginId('@moxxy/auto-approve');
 export const AUTO_APPROVE_SUBTYPE = 'auto_approve';
+/**
+ * An agent connection undid a change made outside Moxxy that let the agent act
+ * without asking: a note for the person, not a switch (the state stays as it was).
+ */
+export const AUTO_APPROVE_RESTORED_SUBTYPE = 'auto_approve_restored';
 
 /** The on/off an event records, or null when it isn't an auto-approve switch. */
 export function autoApproveSwitch(event: MoxxyEvent): boolean | null {
@@ -24,6 +29,20 @@ export function autoApproveFromEvents(events: ReadonlyArray<MoxxyEvent>): boolea
     const event = events[i];
     const enabled = event ? autoApproveSwitch(event) : null;
     if (enabled !== null) return enabled;
+  }
+  return false;
+}
+
+/** Whether the conversation recorded any switch (the person's, or the agent's own setup Moxxy took on): until then its agent's own setup shows. */
+export function autoApproveRecorded(events: ReadonlyArray<MoxxyEvent>): boolean {
+  return events.some((event) => autoApproveSwitch(event) !== null);
+}
+
+/** Whether the switch in force is the agent's own setup Moxxy took on (recorded by the system), not the person's choice. */
+export function autoApproveFromAgent(events: ReadonlyArray<MoxxyEvent>): boolean {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event && autoApproveSwitch(event) !== null) return event.source !== 'user';
   }
   return false;
 }

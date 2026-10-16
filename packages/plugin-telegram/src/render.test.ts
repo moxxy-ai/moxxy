@@ -151,6 +151,23 @@ describe('TurnRenderer', () => {
     expect(frame.diffHtml).not.toContain('<Foo');
   });
 
+  it("says in the footer that the agent's limit is used up and when it resets, as the desktop does", () => {
+    const r = new TurnRenderer();
+    const out = r.accept(
+      baseEvent(
+        {
+          type: 'plugin_event',
+          source: 'system',
+          pluginId: asPluginId('@moxxy/agent-connection'),
+          subtype: 'account_limit',
+          payload: { provider: 'codex-agent', agent: 'Codex', limit: { state: 'reached', windowMinutes: 10080 } },
+        },
+        0,
+      ),
+    );
+    expect(out.errorHtml).toBe("⛔ <b>Codex's weekly limit is used up</b>");
+  });
+
   it('appends an error footer when an error event arrives', () => {
     const r = new TurnRenderer();
     const out = r.accept(baseEvent({ type: 'error', kind: 'fatal', message: 'boom', source: 'system' }, 0));
@@ -176,9 +193,88 @@ describe('TurnRenderer', () => {
     return r;
   };
 
+  const stepList = (steps: ReadonlyArray<{ text: string; status: string }>) => ({
+    forModel: 'list updated',
+    display: { kind: 'step-list', steps },
+  });
+
+  it('folds every step-list tool result into one list of the latest steps', () => {
+    const r = new TurnRenderer();
+    const first = asToolCallId('s1');
+    const second = asToolCallId('s2');
+    r.accept(baseEvent({ type: 'tool_call_requested', callId: first, name: 'TodoWrite', input: {}, source: 'model' }, 0));
+    r.accept(baseEvent({
+      type: 'tool_result', callId: first, ok: true, source: 'tool',
+      output: stepList([{ text: 'Read the logs', status: 'in_progress' }, { text: 'Fix <the> bug', status: 'pending' }]),
+    }, 1));
+    r.accept(baseEvent({ type: 'tool_call_requested', callId: second, name: 'TodoWrite', input: {}, source: 'model' }, 2));
+    const frame = r.accept(baseEvent({
+      type: 'tool_result', callId: second, ok: true, source: 'tool',
+      output: stepList([
+        { text: 'Read the logs', status: 'completed' },
+        { text: 'Fix <the> bug', status: 'in_progress' },
+        { text: 'Run the tests', status: 'pending' },
+        { text: 'Ask for review', status: 'cancelled' },
+      ]),
+    }, 3));
+
+    expect(frame.activityHtml).toContain('<b>Steps · 2 of 4 done</b>');
+    expect(frame.activityHtml).toContain('✓ Read the logs');
+    expect(frame.activityHtml).toContain('● <b>Fix &lt;the&gt; bug</b>');
+    expect(frame.activityHtml).toContain('○ Run the tests');
+    expect(frame.activityHtml).toContain('✗ <s>Ask for review</s>');
+    expect(frame.activityHtml.match(/Steps ·/g)).toHaveLength(1);
+    expect(frame.activityHtml).not.toContain('<code>TodoWrite</code>');
+  });
+
+  it('does not count step-list calls as steps of the collapsed trace', () => {
+    const r = withTools(4);
+    const id = asToolCallId('list');
+    r.accept(baseEvent({ type: 'tool_call_requested', callId: id, name: 'update_plan', input: {}, source: 'model' }, 20));
+    r.accept(baseEvent({
+      type: 'tool_result', callId: id, ok: true, source: 'tool',
+      output: stepList([{ text: 'One', status: 'completed' }]),
+    }, 21));
+    expect(r.snapshot({ final: true }).activityHtml).toContain('🔧 <b>4 steps</b>');
+  });
+
+  it('names how many images the tools returned and keeps each image once', () => {
+    const r = new TurnRenderer();
+    const shot = { mediaType: 'image/png', base64: 'AAAA' };
+    for (const [i, output] of [
+      { forModel: 'screen', ...shot, moreImages: [{ mediaType: 'image/jpeg', base64: 'BBBB' }] },
+      { forModel: 'screen again', ...shot },
+    ].entries()) {
+      const id = asToolCallId(`shot${i}`);
+      r.accept(baseEvent({ type: 'tool_call_requested', callId: id, name: 'screenshot', input: {}, source: 'model' }, i * 2));
+      r.accept(baseEvent({ type: 'tool_result', callId: id, ok: true, output, source: 'tool' }, i * 2 + 1));
+    }
+    expect(r.images()).toEqual([shot, { mediaType: 'image/jpeg', base64: 'BBBB' }]);
+    expect(r.snapshot().activityHtml).toContain('🖼 2 images came back');
+  });
+
+  it('says while the turn runs that the agent of a connection is using the computer, and how to stop it', () => {
+    const r = new TurnRenderer({ agentName: () => 'Codex' });
+    const frame = r.accept(baseEvent({
+      type: 'tool_call_requested', callId: c1, name: 'mcp__computer-use__click', input: { app: 'Arc' },
+      executedBy: 'provider', source: 'model',
+    }, 0));
+    expect(frame.activityHtml).toContain('🖥 <b>Codex is using your computer · Arc</b> — send /cancel to stop');
+    // The turn is over on the final frame: nothing is using the computer any more.
+    expect(r.snapshot({ final: true }).activityHtml).not.toContain('using your computer');
+  });
+
+  it('does not report Moxxy’s own computer tools as an agent using the computer', () => {
+    const r = new TurnRenderer({ agentName: () => 'Codex' });
+    const frame = r.accept(baseEvent({
+      type: 'tool_call_requested', callId: c1, name: 'mcp__computer-use__click', input: { app: 'Arc' }, source: 'model',
+    }, 0));
+    expect(frame.activityHtml).not.toContain('using your computer');
+  });
+
   it('folds a long activity trace into an expandable box with a summary on the final frame', () => {
     const r = withTools(4);
-    const snap = r.snapshot({ collapse: true });
+    const snap = r.snapshot({ final: true });
     expect(snap.activityHtml).toContain('<blockquote expandable>');
     expect(snap.activityHtml).toContain('🔧 <b>4 steps</b>');
     // The tool lines are still in the (collapsed) box.
@@ -187,7 +283,7 @@ describe('TurnRenderer', () => {
 
   it('keeps the activity open (no expandable) while streaming', () => {
     const r = withTools(5);
-    const snap = r.snapshot(); // default collapse=false
+    const snap = r.snapshot(); // streaming frame
     expect(snap.activityHtml).toContain('<blockquote>');
     expect(snap.activityHtml).not.toContain('expandable');
     expect(snap.activityHtml).not.toContain('🔧');
@@ -195,7 +291,7 @@ describe('TurnRenderer', () => {
 
   it('keeps a short activity trace inline even on the final frame', () => {
     const r = withTools(2); // below the collapse threshold
-    const snap = r.snapshot({ collapse: true });
+    const snap = r.snapshot({ final: true });
     expect(snap.activityHtml).toContain('<blockquote>');
     expect(snap.activityHtml).not.toContain('expandable');
   });
@@ -210,7 +306,7 @@ describe('TurnRenderer', () => {
     r.accept(baseEvent({ type: 'tool_result', callId: id, ok: true, output: 'ok', source: 'tool' }, 2));
     r.accept(baseEvent({ type: 'skill_created', name: 's1', source: 'system' }, 3));
     r.accept(baseEvent({ type: 'skill_created', name: 's2', source: 'system' }, 4));
-    const snap = r.snapshot({ collapse: true });
+    const snap = r.snapshot({ final: true });
     expect(snap.activityHtml).toContain('<blockquote expandable>');
     expect(snap.activityHtml).toContain('🔧 <b>1 step</b>');
   });

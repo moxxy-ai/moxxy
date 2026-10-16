@@ -10,6 +10,8 @@ const KIND_META: Record<TriggerOrigin['kind'], { readonly icon: IconName; readon
   checkpoint: { icon: 'check', verb: 'intervened' },
   // Voice conversation held while the agent worked — "Voice conversation".
   voice: { icon: 'mic', verb: 'conversation' },
+  // A turn the vendor's agent took up by itself (a task it ran in the background finished) — "Agent continued".
+  agent: { icon: 'agent', verb: 'continued' },
 };
 
 function titleCase(s: string): string {

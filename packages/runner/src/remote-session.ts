@@ -1,4 +1,5 @@
 import { EventLog } from '@moxxy/core';
+import { RemoteQuestions } from './remote-questions.js';
 import type {
   AgentsClientView,
   ApprovalDecision,
@@ -203,6 +204,7 @@ export class RemoteSession implements ClientSession {
   readonly providerAdmin: ProviderAdminClientView;
   readonly computerControl: ComputerControlService;
   readonly workflows: WorkflowsClientView;
+  readonly questions: RemoteQuestions;
   /**
    * Turns that completed before their `runTurn` stream was registered. A fast
    * turn can finish on the runner before the client processes the `runTurn`
@@ -240,6 +242,10 @@ export class RemoteSession implements ClientSession {
 
   constructor(transport: Transport) {
     this.peer = new JsonRpcPeer(transport);
+    this.questions = new RemoteQuestions({
+      request: (method, params) => this.peer.request(method, params),
+      requireServerProtocol: (minVersion, feature) => this.requireServerProtocol(minVersion, feature),
+    });
 
     // Server->client notifications.
     this.peer.on(RunnerNotification.Event, (params) => {

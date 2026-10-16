@@ -219,7 +219,7 @@ describe('mobile live activity state', () => {
       active: true,
       phase: 'subagents',
       progress: 0.7,
-      detail: '2 default agents running',
+      detail: '2 agents running',
       subagentCount: 2,
     });
   });

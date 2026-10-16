@@ -5,6 +5,7 @@ import type {
   MoxxyEvent,
   SessionInfo,
   OpenSurfaceResult,
+  QuestionAnswers,
   SurfaceInfo,
   SurfaceInputMessage,
   SurfaceSize,
@@ -35,6 +36,8 @@ import type {
   ReasoningEffort,
   ModelDefaultsChange,
   StoredModelDefaults,
+  AgentCliAction,
+  AgentCliRunResult,
 } from './settings.js';
 import type { Desk, DeskSession, DesksOverview, SessionsOverview } from './desks.js';
 import type {
@@ -334,6 +337,14 @@ export interface IpcCommands {
   'session.setAutoApprove': (args: {
     workspaceId?: string;
     enabled: boolean;
+  }) => Promise<void>;
+  /** Answer an open Question of the workspace's conversation. Questions are
+   *  read from the conversation log, so every client of it shows the same one
+   *  and the first answer closes it everywhere; a later answer rejects. */
+  'session.answerQuestion': (args: {
+    workspaceId?: string;
+    questionId: string;
+    answers: QuestionAnswers;
   }) => Promise<void>;
   /** Run a slash command on the workspace's runner. The runner returns
    *  a CommandOutput (text / session-action / noop / error) which the
@@ -889,6 +900,13 @@ export interface IpcCommands {
   /** Subset of providers that the user added via `provider_add` — the
    *  ones for which live /v1/models fetching is wired. */
   'settings.adminProviders': () => Promise<ReadonlyArray<string>>;
+  /** Check every agent connection's CLI now, asking the registry again; the
+   *  new state arrives in each runner's info (`ProviderEntry.agentCli`). */
+  'agents.check': (args?: { workspaceId?: string }) => Promise<void>;
+  /** Install the CLI behind an agent connection with the vendor's installer,
+   *  or update it with its own command, on this computer. Lines and progress
+   *  stream as `agents.progress`. An update is refused while any turn runs. */
+  'agents.run': (args: { provider: string; action: AgentCliAction }) => Promise<AgentCliRunResult>;
   'settings.mcpServers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<McpServerEntry>>;
   'settings.mcpToggle': (args: {
     workspaceId?: string;

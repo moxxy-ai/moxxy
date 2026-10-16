@@ -3,6 +3,7 @@ export {
   handleProviderSetActive,
   handleProviderSetEnabled,
   handleProviderRefreshReady,
+  handleProviderCheckAgents,
   handleProviderConfigure,
 } from './provider-handlers.js';
 export {
