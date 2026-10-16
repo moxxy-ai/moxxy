@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
-import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
+import type { MoxxyApi, ProviderEntry } from '@moxxy/desktop-ipc-contract';
+import type { AgentCliReport } from '@moxxy/sdk';
 import { ProviderModelGrid } from './ProviderModelGrid';
 
 afterEach(() => {
@@ -199,5 +200,89 @@ describe('ProviderModelGrid layout', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use custom model' }));
 
     expect(onPick).toHaveBeenCalledWith('openai', 'vendor/model-v2', 64_000);
+  });
+});
+
+describe('ProviderModelGrid providers', () => {
+  const entry = (over: Partial<ProviderEntry> & { name: string }): ProviderEntry => ({
+    ready: true,
+    enabled: true,
+    active: false,
+    authKind: 'api-key',
+    kind: 'builtin',
+    keyName: `${over.name.toUpperCase()}_API_KEY`,
+    ...over,
+  });
+  const signedIn: AgentCliReport = {
+    state: 'current',
+    command: 'opencode',
+    installed: '1.19.3',
+    latest: '1.19.3',
+    minimum: '1.0.0',
+    checkedAt: 1,
+    signedIn: true,
+  };
+  const catalog = [
+    { name: 'opencode', agentName: 'OpenCode', models: [{ id: 'opencode/big-pickle' }] },
+    { name: 'claude-code', agentName: 'Claude', models: [{ id: 'claude-opus-5-5' }] },
+    { name: 'codex-agent', agentName: 'Codex', models: [{ id: 'gpt-6-sol' }] },
+    { name: 'anthropic', models: [{ id: 'claude-opus-5-5' }] },
+    { name: 'openai-codex', models: [{ id: 'gpt-6-luna' }] },
+    { name: 'local', models: [{ id: 'llama3.3' }] },
+    { name: 'xai', models: [{ id: 'grok-5' }] },
+  ];
+  const settings = [
+    entry({ name: 'opencode', agentName: 'OpenCode', authKind: 'oauth', active: true, agentCli: signedIn }),
+    entry({ name: 'claude-code', agentName: 'Claude', authKind: 'oauth', agentCli: { ...signedIn, command: 'claude' } }),
+    entry({ name: 'codex-agent', agentName: 'Codex', authKind: 'oauth', agentCli: { ...signedIn, command: 'codex', signedIn: false } }),
+    entry({ name: 'anthropic', ready: false }),
+    entry({ name: 'openai-codex', authKind: 'oauth' }),
+    entry({ name: 'local', connected: false }),
+    entry({ name: 'xai', ready: false }),
+  ];
+
+  function renderGrid(invoke: (command: string, args?: unknown) => Promise<unknown>) {
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+    render(
+      <ProviderModelGrid
+        workspaceId="ws-1"
+        providers={catalog}
+        activeProvider="opencode"
+        activeModel={null}
+        onPick={() => {}}
+      />,
+    );
+  }
+
+  it('lists only the providers connected in Settings, coding agents apart from model providers', async () => {
+    const invoke = vi.fn(async (command: string) => {
+      if (command === 'settings.providers') return settings;
+      return [];
+    });
+    renderGrid(invoke);
+
+    const agents = await screen.findByRole('group', { name: 'Coding agents' });
+    const models = screen.getByRole('group', { name: 'Model providers' });
+    expect(within(agents).getAllByRole('option').map((o) => o.textContent)).toEqual(['opencode', 'claude-code']);
+    expect(within(models).getAllByRole('option').map((o) => o.textContent)).toEqual(['openai-codex']);
+    expect(screen.queryByRole('option', { name: 'anthropic' })).toBeNull();
+    expect(screen.queryByRole('option', { name: 'local' })).toBeNull();
+    expect(invoke).toHaveBeenCalledWith('settings.providers', { workspaceId: 'ws-1' });
+  });
+
+  it('shows only the running provider until Settings answers', () => {
+    renderGrid(() => new Promise(() => {}));
+
+    expect(screen.getAllByRole('option', { name: /./ }).filter((o) => o.closest('[aria-label="Providers"]')).map((o) => o.textContent)).toEqual(['opencode']);
+  });
+
+  it('keeps every provider when Settings cannot answer, rather than none', async () => {
+    renderGrid(async (command) => {
+      if (command === 'settings.providers') throw new Error('runner not attached');
+      return [];
+    });
+
+    const models = await screen.findByRole('group', { name: 'Model providers' });
+    expect(within(models).getAllByRole('option')).toHaveLength(4);
   });
 });

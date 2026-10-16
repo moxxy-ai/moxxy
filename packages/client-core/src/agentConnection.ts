@@ -86,3 +86,18 @@ export function agentConnectionView(
   }
   return view('connected', withAccount(`${agent} ${report.installed ?? ''}`.trim()), null);
 }
+
+/**
+ * Whether a provider shows as connected in Settings → Providers, and so can be
+ * picked: an agent that is installed, new enough and signed in, a local server
+ * that answers, or a provider whose key resolved. Never one turned off.
+ */
+export function isProviderConnected(entry: ProviderEntry): boolean {
+  if (!entry.enabled) return false;
+  if (entry.agentName !== undefined) {
+    const { state } = agentConnectionView(entry, { job: null, checking: false });
+    return state === 'connected' || state === 'update-available';
+  }
+  if (entry.name === 'local') return entry.connected === true;
+  return entry.ready;
+}

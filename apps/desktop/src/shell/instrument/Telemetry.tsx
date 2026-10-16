@@ -140,6 +140,7 @@ export function Telemetry({
                 Model
               </h3>
               <ProviderModelGrid
+                workspaceId={workspaceId}
                 providers={info.providers}
                 activeProvider={info.activeProvider}
                 activeModel={selectedModel}

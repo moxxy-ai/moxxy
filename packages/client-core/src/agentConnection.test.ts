@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentCliReport } from '@moxxy/sdk';
 import type { ProviderEntry } from '@moxxy/desktop-ipc-contract';
-import { agentConnectionView, type AgentCliJob } from './agentConnection.js';
+import { agentConnectionView, isProviderConnected, type AgentCliJob } from './agentConnection.js';
 
 const report = (over: Partial<AgentCliReport> = {}): AgentCliReport => ({
   state: 'current',
@@ -105,5 +105,44 @@ describe('an agent connection row', () => {
       detail: 'Wait until the running turns end',
       action: 'update',
     });
+  });
+});
+
+describe('whether a provider can be picked', () => {
+  const api = (over: Partial<ProviderEntry> = {}): ProviderEntry => ({
+    name: 'openai',
+    ready: true,
+    enabled: true,
+    active: false,
+    authKind: 'api-key',
+    kind: 'builtin',
+    keyName: 'OPENAI_API_KEY',
+    ...over,
+  });
+
+  it('takes a provider whose credentials resolved', () => {
+    expect(isProviderConnected(api())).toBe(true);
+  });
+
+  it('leaves out a provider with no key, and one turned off', () => {
+    expect(isProviderConnected(api({ ready: false }))).toBe(false);
+    expect(isProviderConnected(api({ enabled: false }))).toBe(false);
+  });
+
+  it('leaves out a local server that does not answer, though it is configured', () => {
+    expect(isProviderConnected(api({ name: 'local', connected: false }))).toBe(false);
+    expect(isProviderConnected(api({ name: 'local', connected: true }))).toBe(true);
+  });
+
+  it('takes an agent that is installed and signed in, also with an update waiting', () => {
+    expect(isProviderConnected(entry(report()))).toBe(true);
+    expect(isProviderConnected(entry(report({ state: 'update-available', latest: '0.163.0' })))).toBe(true);
+  });
+
+  it('leaves out an agent that is missing, signed out, too old or not checked yet', () => {
+    expect(isProviderConnected(entry(report({ state: 'missing', installed: null, signedIn: undefined })))).toBe(false);
+    expect(isProviderConnected(entry(report({ signedIn: false })))).toBe(false);
+    expect(isProviderConnected(entry(report({ state: 'update-required', installed: '0.150.0' })))).toBe(false);
+    expect(isProviderConnected(entry())).toBe(false);
   });
 });
