@@ -35,7 +35,7 @@ moxxy login claude-code          # the vendor's own sign-in (also codex-agent, o
 moxxy doctor                     # includes the agent CLIs
 ```
 
-Moxxy looks for each CLI on `PATH` first, then where the vendor's installer puts it (`~/.local/bin` for Claude and Codex, `~/.opencode/bin` for OpenCode). A desktop app often starts without your shell's `PATH`, which is why the second place matters. To point at another file, set `CLAUDE_CODE_EXECUTABLE`, `CODEX_EXECUTABLE` or `OPENCODE_EXECUTABLE`.
+Moxxy looks for each CLI on `PATH` first, then where the vendor's installer puts it (`~/.local/bin` for Claude and Codex, `~/.opencode/bin` for OpenCode). On macOS and Linux the desktop app asks your login shell once at start for the `PATH` your terminal has and puts it first, so it finds the same CLI the terminal runs, also when two are installed (an old Homebrew `claude` and a current one in `~/.local/bin`). A shell that does not answer within 5 seconds leaves the `PATH` the app started with. To point at another file, set `CLAUDE_CODE_EXECUTABLE`, `CODEX_EXECUTABLE` or `OPENCODE_EXECUTABLE`.
 
 | Agent | Installer | Update command | Oldest version Moxxy accepts |
 |---|---|---|---|
