@@ -23,7 +23,10 @@ const SIGN_IN_PROVIDERS = [CODEX_PROVIDER, '@moxxy/plugin-provider-claude-code']
 /** Both voices Settings offers work without npm: offline Piper (with every
  *  voice it offers, checked below) and Gemini. */
 const VOICE_PLUGINS = ['@moxxy/plugin-tts-local', '@moxxy/plugin-tts-gemini'];
-const REQUIRED_SEED_PACKAGES = [...SIGN_IN_PROVIDERS, ...VOICE_PLUGINS];
+/** Settings → Providers → Coding agents lists Claude, Codex and OpenCode; the
+ *  last two are not on npm, so a seed without them leaves no way to add them. */
+const AGENT_CONNECTIONS = ['@moxxy/plugin-provider-codex-agent', '@moxxy/plugin-provider-acp'];
+const REQUIRED_SEED_PACKAGES = [...SIGN_IN_PROVIDERS, ...VOICE_PLUGINS, ...AGENT_CONNECTIONS];
 
 export async function verifyDesktopResources(resourcesPath, options = {}) {
   const root = path.resolve(resourcesPath);

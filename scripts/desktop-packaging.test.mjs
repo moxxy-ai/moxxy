@@ -103,7 +103,7 @@ test('desktop resource verifier starts the embedded CLI and finds the Codex prov
     const report = await verifyDesktopResources(root);
     assert.equal(report.cliVersion, '1.2.3');
     assert.equal(report.providerVersion, '1.2.3');
-    assert.equal(report.seedPackageCount, 4);
+    assert.equal(report.seedPackageCount, 6);
     assert.equal(report.voiceCount, VOICE_CATALOG.length);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -118,6 +118,25 @@ test('desktop resource verifier rejects a plugin seed without the Claude sign-in
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false }),
       /plugins-seed manifest does not include @moxxy\/plugin-provider-claude-code/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a plugin seed without the Codex and OpenCode agent connections', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-agents-resources-'));
+  try {
+    await writeValidResources(root, { seedProviders: SIGN_IN_PROVIDERS });
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-provider-codex-agent/,
+    );
+
+    await writeValidResources(root, { seedProviders: [...SIGN_IN_PROVIDERS, '@moxxy/plugin-provider-codex-agent'] });
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-provider-acp/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -466,10 +485,16 @@ async function writePackage(packageDir, name, extra = {}) {
 const OFFLINE_VOICE = '@moxxy/plugin-tts-local';
 const CLOUD_VOICE = '@moxxy/plugin-tts-gemini';
 const SIGN_IN_PROVIDERS = ['@moxxy/plugin-provider-openai-codex', '@moxxy/plugin-provider-claude-code'];
+const AGENT_CONNECTIONS = ['@moxxy/plugin-provider-codex-agent', '@moxxy/plugin-provider-acp'];
 
 async function writeValidResources(
   root,
-  { includeSeedLock = true, seedProviders = SIGN_IN_PROVIDERS, offlineVoice = true, cloudVoice = true } = {},
+  {
+    includeSeedLock = true,
+    seedProviders = [...SIGN_IN_PROVIDERS, ...AGENT_CONNECTIONS],
+    offlineVoice = true,
+    cloudVoice = true,
+  } = {},
 ) {
   const seedPackages = [
     ...seedProviders,

@@ -45,6 +45,9 @@ const SEED_PLUGINS = [
   // Claude Pro/Max sign-in — the desktop signs in through it, so it must be
   // registered before the user picks it (not installed on demand).
   'plugin-provider-claude-code',
+  // The other coding agents beside it in Settings: Codex and OpenCode.
+  'plugin-provider-codex-agent',
+  'plugin-provider-acp',
   // Slim-wave batch 1.
   'mode-goal',
   'mode-deep-research',
