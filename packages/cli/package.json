@@ -57,11 +57,11 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "undici": "^8.11.2",
+    "undici": "^8.12.2",
     "zod": "catalog:"
   },
   "optionalDependencies": {
-    "@napi-rs/keyring": "^2.1.0"
+    "@napi-rs/keyring": "^2.1.1"
   },
   "devDependencies": {
     "@clack/prompts": "catalog:",
