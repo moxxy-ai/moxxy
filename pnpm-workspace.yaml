@@ -22,7 +22,7 @@ catalog:
   ink: ^5.0.0
   react: ^18.3.0
   react-dom: ^18.3.0
-  tsup: ^8.0.0
+  tsup: ^9.0.0
   tsx: ^4.23.15
   typescript: ^6.0.3
   vitest: ^5.0.3
