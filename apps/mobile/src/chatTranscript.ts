@@ -1,5 +1,6 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
+import { AGENT_NO_REPLY_TEXT, isAgentNoReplyEvent } from '@moxxy/sdk/agent-no-reply';
 import { isQuestionAnswerDisplay, questionAnswerLines } from '@moxxy/sdk/tool-display';
 import { accountLimitText } from '@moxxy/chat-model/account-limit';
 import { subagentGroupHeader } from '@moxxy/chat-model/format';
@@ -15,7 +16,15 @@ export type TranscriptItem =
   | SubagentGroupTranscriptItem
   | SystemGroupTranscriptItem
   | AnsweredTranscriptItem
+  | NoticeTranscriptItem
   | TriggerTranscriptItem;
+
+export interface NoticeTranscriptItem {
+  readonly id: string;
+  readonly kind: 'notice';
+  readonly label: 'Finished';
+  readonly text: string;
+}
 
 /** A turn something other than the person started (an agent continuing, a webhook, a schedule): what started it. */
 export interface TriggerTranscriptItem {
@@ -458,6 +467,14 @@ export function buildCommittedChatTranscript(
     }
 
     if (type === 'plugin_event') {
+      if (isAgentNoReplyEvent(event as unknown as MoxxyEvent)) {
+        flushAssistant();
+        flushTools();
+        flushSystem();
+        closeSubagentRun();
+        pushItem({ id: eventId(event, `no-reply-${index}`), kind: 'notice', label: 'Finished', text: AGENT_NO_REPLY_TEXT });
+        continue;
+      }
       // An agent's used-up account limit says where the turn stopped, in place of its raw error.
       const limit = accountLimitOfEvent(event as unknown as MoxxyEvent);
       if (limit) {

@@ -1,5 +1,6 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
+import { AGENT_NO_REPLY_TEXT, isAgentNoReplyEvent } from '@moxxy/sdk/agent-no-reply';
 import { accountLimitText } from '@moxxy/chat-model';
 import { UserBlock } from './UserBlock';
 import { TriggerBlock } from './TriggerBlock';
@@ -85,6 +86,13 @@ export function EventBlockView({
         return (
           <TraceEntry kind="error" label="Limit" meta={stamp(event.ts)}>
             <SystemBlock text={accountLimitText(limit, event.ts ?? Date.now())} tone="error" />
+          </TraceEntry>
+        );
+      }
+      if (isAgentNoReplyEvent(event)) {
+        return (
+          <TraceEntry kind="system">
+            <SystemBlock text={AGENT_NO_REPLY_TEXT} tone="info" />
           </TraceEntry>
         );
       }

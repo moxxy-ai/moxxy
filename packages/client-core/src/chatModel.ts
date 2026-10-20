@@ -17,6 +17,7 @@
 
 import type { MoxxyEvent, ReasoningMessageEvent } from '@moxxy/sdk';
 import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
+import { isAgentNoReplyEvent } from '@moxxy/sdk/agent-no-reply';
 import { QUESTION_PLUGIN_ID } from '@moxxy/sdk/questions';
 import {
   ChunkedBlockLog,
@@ -244,8 +245,10 @@ export function createRuntime(initialEvents: ReadonlyArray<MoxxyEvent> = []): Ch
 
 /** Should this runner event be committed to the rendered log? */
 export function isRenderedEvent(event: MoxxyEvent): boolean {
-  // An agent connection's account limit shows in the chat; its other records are bookkeeping.
-  if (event.type === 'plugin_event') return renderablePluginIds.has(event.pluginId) || accountLimitOfEvent(event) !== undefined;
+  // An agent connection's account limit and its "finished without replying" show in the chat; its other records are bookkeeping.
+  if (event.type === 'plugin_event') {
+    return renderablePluginIds.has(event.pluginId) || accountLimitOfEvent(event) !== undefined || isAgentNoReplyEvent(event);
+  }
   return RENDERED_EVENT_TYPES.has(event.type);
 }
 

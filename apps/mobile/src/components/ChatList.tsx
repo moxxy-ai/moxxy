@@ -302,6 +302,14 @@ function MessageBlock({
     return <TriggerMessage item={item} />;
   }
 
+  if (item.kind === 'notice') {
+    return (
+      <View style={{ alignSelf: 'center', maxWidth: '92%', paddingVertical: 4 }}>
+        <Text style={sx('text-center text-[12px] text-dim')}>{item.text}</Text>
+      </View>
+    );
+  }
+
   return (
     <View
       style={{

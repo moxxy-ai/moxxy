@@ -142,6 +142,14 @@ That line always takes its height and is shown for the message under the
 pointer or holding focus, so revealing it moves nothing. On a touch screen it
 is always shown.
 
+When a turn marked "Agent continued" finishes without assistant text, tool
+activity or a helper's activity, one neutral note says "The agent finished
+without replying." The agent loop records it only after finishing, so live
+clients and reopened history show the same note. A stopped turn, an error or
+an exhausted account limit already explains the end and gets no extra note.
+The terminal, phone and messaging channels use the same wording; the note
+does not become an assistant message or get read aloud by a channel.
+
 `chat/trace/TraceEntry.tsx` maps an entry's kind to its side and owns the row.
 The bubble is drawn by the block inside it (`UserBlock`, `AssistantBlock`).
 

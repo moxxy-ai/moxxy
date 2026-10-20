@@ -1,5 +1,6 @@
 import { AGENT_ACCOUNT_LIMIT_SUBTYPE, recordedAccountLimit, sameAccountLimit, withKnownReset } from '../agent-account-limit.js';
 import { AGENT_CONTEXT_WINDOW_SUBTYPE, isContextWindowSize, recordedContextWindows } from '../agent-context-window.js';
+import { AGENT_NO_REPLY_SUBTYPE } from '../agent-no-reply.js';
 import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from '../agent-step.js';
 import {
   AUTO_APPROVE_PLUGIN_ID,
@@ -46,6 +47,53 @@ const DEFAULT_MAX_INJECT_CHARS = 16_384;
  * the agent decides when its turn is done.
  */
 export async function* runAgentStepLoop(ctx: ModeContext, opts: ReactLoopOptions): AsyncGenerator<MoxxyEvent, void> {
+  if (ctx.isSubagent || turnOrigin(ctx) !== 'agent') {
+    yield* runAgentStepRounds(ctx, opts, {});
+    return;
+  }
+  // A turn the agent took up by itself that shows nothing would leave its "Agent continued" marker alone.
+  const end: TurnEnd = {};
+  let shown = false;
+  for await (const event of runAgentStepRounds(ctx, opts, end)) {
+    shown ||= showsInChat(event);
+    yield event;
+  }
+  if (shown || end.limitReached) return;
+  yield await ctx.emit({
+    type: 'plugin_event',
+    sessionId: ctx.sessionId,
+    turnId: ctx.turnId,
+    source: 'system',
+    pluginId: AGENT_CONNECTION_PLUGIN_ID,
+    subtype: AGENT_NO_REPLY_SUBTYPE,
+    payload: {},
+  });
+}
+
+interface TurnEnd {
+  /** The turn stopped on a used-up account limit, which the chat already shows. */
+  limitReached?: true;
+}
+
+/** Whether the chat shows the event as something the turn did: its words, a tool or helper it ran, or why it stopped. */
+function showsInChat(event: MoxxyEvent): boolean {
+  switch (event.type) {
+    case 'assistant_chunk':
+      return event.delta.trim() !== '';
+    case 'assistant_message':
+      return event.content.trim() !== '';
+    case 'tool_call_requested':
+    case 'error':
+    case 'abort':
+      return true;
+    case 'plugin_event':
+      return event.pluginId === SUBAGENTS_PLUGIN_ID;
+    default:
+      return false;
+  }
+}
+
+async function* runAgentStepRounds(ctx: ModeContext, opts: ReactLoopOptions, end: TurnEnd): AsyncGenerator<MoxxyEvent, void> {
   const agentStep = ctx.provider.agentStep;
   if (!agentStep) return;
   if (opts.preflightAbortReason && ctx.signal.aborted) {
@@ -89,6 +137,7 @@ export async function* runAgentStepLoop(ctx: ModeContext, opts: ReactLoopOptions
 
     const round = await runRound(ctx, agentStep.bind(ctx.provider), prompt, iteration, opts.strategyName, agentsOwnTurn && iteration === 1);
     yield* round.events;
+    if (round.limitReached) end.limitReached = true;
 
     if (round.endsTurn !== undefined) {
       yield await ctx.emit({

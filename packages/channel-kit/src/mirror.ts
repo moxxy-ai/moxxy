@@ -24,7 +24,7 @@ export class MirrorTarget<Target> {
 }
 
 export interface ForeignTurnMirrorOptions<Target> {
-  readonly turns: Pick<TurnCoordinator, 'mirrorPrompt' | 'mirrorText' | 'mirrorAgentTurn' | 'mirrorHelperAnswer'>;
+  readonly turns: Pick<TurnCoordinator, 'mirrorPrompt' | 'mirrorText' | 'mirrorAgentTurn' | 'mirrorHelperAnswer' | 'mirrorNoReply'>;
   readonly target: MirrorTarget<Target>;
   /** Deliver one mirrored message (the channel splits it to its size cap). */
   readonly post: (target: Target, text: string) => Promise<void>;
@@ -53,7 +53,7 @@ export class ForeignTurnMirror<Target> {
     const prompt = this.opts.turns.mirrorPrompt(event);
     const reply = this.opts.turns.mirrorText(event) ?? this.opts.turns.mirrorHelperAnswer(event);
     if (reply != null) this.opts.onReply?.(reply);
-    const text = agentTurn != null ? this.opts.formatAgentTurn(agentTurn) : prompt != null ? this.opts.formatPrompt(prompt) : reply;
+    const text = agentTurn != null ? this.opts.formatAgentTurn(agentTurn) : prompt != null ? this.opts.formatPrompt(prompt) : (reply ?? this.opts.turns.mirrorNoReply(event));
     if (text == null) return;
     this.queue = this.queue
       .then(async () => {

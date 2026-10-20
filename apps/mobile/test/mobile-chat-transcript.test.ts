@@ -2,6 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { buildChatTranscript } from '../src/chatTranscript';
 
 describe('mobile chat transcript model', () => {
+  it('shows when a continued agent turn finished without replying, also after history replay', () => {
+    const started = { id: 'continued', type: 'user_prompt', text: 'Task finished', origin: { kind: 'agent', name: 'Task finished' } };
+    const ended = { id: 'no-reply', type: 'plugin_event', pluginId: '@moxxy/agent-connection', subtype: 'no_reply', payload: {} };
+
+    expect(buildChatTranscript([started])).toEqual([
+      { id: 'continued', kind: 'trigger', label: 'Agent continued', name: 'Task finished' },
+    ]);
+    const transcript = buildChatTranscript([started, ended]);
+    expect(transcript).toEqual([
+      { id: 'continued', kind: 'trigger', label: 'Agent continued', name: 'Task finished' },
+      { id: 'no-reply', kind: 'notice', label: 'Finished', text: 'The agent finished without replying.' },
+    ]);
+    expect(buildChatTranscript([started, ended, ended])).toEqual(transcript);
+  });
+
   it('folds streamed assistant chunks into one assistant message instead of event cards', () => {
     const transcript = buildChatTranscript([
       { id: 'u1', type: 'user_prompt', text: 'Powiedz OK' },

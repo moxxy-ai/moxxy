@@ -57,6 +57,10 @@
       "types": "./dist/agent-account-limit.d.ts",
       "import": "./dist/agent-account-limit.js"
     },
+    "./agent-no-reply": {
+      "types": "./dist/agent-no-reply.d.ts",
+      "import": "./dist/agent-no-reply.js"
+    },
     "./agent-computer-use": {
       "types": "./dist/agent-computer-use.d.ts",
       "import": "./dist/agent-computer-use.js"

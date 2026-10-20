@@ -13,14 +13,17 @@ import {
   AGENT_CONNECTION_PLUGIN_ID,
   AGENT_CONTEXT_WINDOW_SUBTYPE,
   AGENT_GOAL_SUBTYPE,
+  AGENT_NO_REPLY_SUBTYPE,
   AGENT_SESSION_SUBTYPE,
   AUTO_APPROVE_PLUGIN_ID,
   autoApproveFromEvents,
   defineMode,
   definePlugin,
   defineTool,
+  isAgentNoReplyEvent,
   recordedAccountLimit,
   runReactLoop,
+  type AgentStepEvent,
   type AgentStepHost,
   type MoxxyEvent,
   type PermissionResolver,
@@ -579,6 +582,124 @@ describe('a turn the agent starts by itself', () => {
     expect(provider.steps.at(-1)?.continuesAgentTurn).toBe(true);
     expect(provider.steps[0]?.continuesAgentTurn).toBeUndefined();
     expect(session.log.ofType('assistant_message').at(-1)).toMatchObject({ content: 'The background task found two files.', turnId: prompts.at(-1)?.turnId });
+  });
+
+  const agentsOwn = (name: string) => ({ origin: { kind: 'agent' as const, name } });
+  const noReplies = (events: ReadonlyArray<MoxxyEvent>) => events.filter(isAgentNoReplyEvent);
+
+  it('does not announce completion while the agent is still running', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'usage', usage: { inputTokens: 900, outputTokens: 0 } };
+      expect(noReplies(session.log.ofType('plugin_event'))).toEqual([]);
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'Task finished', agentsOwn('Task finished'));
+
+    expect(noReplies(session.log.ofType('plugin_event'))).toHaveLength(1);
+  });
+
+  it('does not call a turn empty when it ran a Moxxy tool without replying', async () => {
+    let runs = 0;
+    const provider = new FakeAgentProvider(async function* (request) {
+      await request.host.runTool({ callId: 'read-status', name: 'status', input: {} });
+      yield { type: 'usage', usage: { inputTokens: 900, outputTokens: 0 } };
+    });
+    const session = sessionWith(provider);
+    session.tools.register(defineTool({
+      name: 'status',
+      description: 'Read the task status',
+      inputSchema: z.object({}),
+      handler: async () => { runs += 1; return 'finished'; },
+    }));
+
+    const events = await collectTurn(session, 'Task finished', agentsOwn('Task finished'));
+
+    expect(runs).toBe(1);
+    expect(noReplies(events)).toEqual([]);
+  });
+
+  it('does not announce an empty completion when the person stopped the turn', async () => {
+    const controller = new AbortController();
+    const provider = new FakeAgentProvider(async function* () {
+      controller.abort();
+      yield { type: 'usage', usage: { inputTokens: 900, outputTokens: 0 } };
+    });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'Task finished', { ...agentsOwn('Task finished'), signal: controller.signal });
+
+    expect(types(events)).toContain('abort');
+    expect(noReplies(events)).toEqual([]);
+  });
+
+  it('records that the agent finished without replying when its turn said nothing and ran nothing', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'reasoning', text: 'Nothing left to say.' };
+      yield { type: 'usage', usage: { inputTokens: 900, outputTokens: 4 } };
+    });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'List files finished in the background', agentsOwn('List files finished in the background'));
+
+    const notes = noReplies(events);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ pluginId: AGENT_CONNECTION_PLUGIN_ID, subtype: AGENT_NO_REPLY_SUBTYPE, turnId: events[0]?.turnId });
+    expect(events.at(-1)).toBe(notes[0]);
+  });
+
+  it('records no such note when the agent replied, ran a tool or its helper answered', async () => {
+    const turns: ReadonlyArray<ReadonlyArray<AgentStepEvent>> = [
+      [{ type: 'message', text: 'The background task found two files.' }],
+      [{ type: 'text_delta', delta: 'The task finished.' }],
+      [
+        { type: 'tool_call', callId: 'c1', name: 'Bash', input: { command: 'ls' } },
+        { type: 'tool_result', callId: 'c1', ok: true, output: 'a b' },
+      ],
+      [
+        { type: 'subagent_started', id: 'sub-1', label: 'List files', agentType: 'Explore' },
+        { type: 'subagent_completed', id: 'sub-1', text: 'Two files.' },
+      ],
+    ];
+    for (const turn of turns) {
+      const provider = new FakeAgentProvider(async function* () {
+        yield* turn;
+      });
+      const session = sessionWith(provider);
+
+      const events = await collectTurn(session, 'Task finished', agentsOwn('Task finished'));
+
+      expect(noReplies(events)).toEqual([]);
+    }
+  });
+
+  it('records no such note when the agent turn ended on an error or a used-up limit, which say why themselves', async () => {
+    const turns: ReadonlyArray<ReadonlyArray<AgentStepEvent>> = [
+      [{ type: 'error', message: 'codex exited with code 1', retryable: false }],
+      [{ type: 'account_limit', limit: { state: 'reached', resetsAt: Date.now() + 60_000 } }, { type: 'error', message: 'usage limit', retryable: false }],
+      [{ type: 'account_limit', limit: { state: 'reached', resetsAt: Date.now() + 60_000 } }],
+    ];
+    for (const turn of turns) {
+      const provider = new FakeAgentProvider(async function* () {
+        yield* turn;
+      });
+      const session = sessionWith(provider);
+
+      const events = await collectTurn(session, 'Task finished', agentsOwn('Task finished'));
+
+      expect(noReplies(events)).toEqual([]);
+    }
+  });
+
+  it('records no such note in a turn the person started, where an empty reply is the agent answer', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'usage', usage: { inputTokens: 900, outputTokens: 0 } };
+    });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'hi');
+
+    expect(noReplies(events)).toEqual([]);
   });
 
   it('ignores a turn the agent started in another conversation', async () => {

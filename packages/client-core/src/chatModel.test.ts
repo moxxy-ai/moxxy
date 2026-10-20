@@ -410,6 +410,23 @@ describe('isRenderedEvent plugin registry seam', () => {
     expect(isRenderedEvent(connection('agent_session'))).toBe(false);
   });
 
+  it('keeps the note that the agent finished a turn it took up by itself without replying', () => {
+    expect(isRenderedEvent(evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype: 'no_reply', payload: {} }))).toBe(true);
+  });
+
+  it('keeps the same empty-completion note on live delivery and history replay', () => {
+    const prompt = evt('user_prompt', { text: 'Task finished', origin: { kind: 'agent', name: 'Task finished' } });
+    const note = evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype: 'no_reply', payload: {} });
+    const live = createRuntime();
+    applyEvent(live, prompt);
+    applyEvent(live, note);
+    applyEvent(live, note);
+
+    expect(blocksOf(live)).toEqual(blocksOf(createRuntime([prompt, note])));
+    expect(blocksOf(live)).toHaveLength(2);
+    expect(blocksOf(live)[1]).toMatchObject({ kind: 'event', event: note });
+  });
+
   it('registerRenderablePlugin opts a plugin in without editing the core module', () => {
     const id = '@moxxy/plugin-author-test';
     expect(isRenderedEvent(pluginEvent(id))).toBe(false);

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { accountLimitOfEvent, type MoxxyEvent, type TriggerOrigin } from '@moxxy/sdk';
+import { AGENT_NO_REPLY_TEXT, accountLimitOfEvent, isAgentNoReplyEvent, type MoxxyEvent, type TriggerOrigin } from '@moxxy/sdk';
 import { accountLimitText } from '@moxxy/chat-model';
 import { Colors, Glyphs } from '../../theme.js';
 import { wrapLogicalLine } from '../prompt/BufferLines.js';
@@ -133,6 +133,14 @@ export const EventLine: React.FC<{
         </Box>
       );
     case 'plugin_event': {
+      if (isAgentNoReplyEvent(event)) {
+        return (
+          <Box marginTop={blockGap()}>
+            <ActivityDot state="neutral" />
+            <Text color={Colors.chrome} dimColor>{` ${AGENT_NO_REPLY_TEXT}`}</Text>
+          </Box>
+        );
+      }
       // An agent's used-up account limit, where the turn stopped, in place of its raw error.
       const limit = accountLimitOfEvent(event);
       if (!limit || limit.limit.state !== 'reached') return null;

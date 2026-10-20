@@ -4,7 +4,7 @@ import { sendMarkdown, type TelegramSender } from './send-rich.js';
 export type { TelegramSender } from './send-rich.js';
 
 export interface TelegramMirrorOptions {
-  readonly turns: Pick<TurnCoordinator, 'mirrorPrompt' | 'mirrorText' | 'mirrorAgentTurn' | 'mirrorHelperAnswer'>;
+  readonly turns: Pick<TurnCoordinator, 'mirrorPrompt' | 'mirrorText' | 'mirrorAgentTurn' | 'mirrorHelperAnswer' | 'mirrorNoReply'>;
   /** The running bot's API, or null while it is stopped. */
   readonly api: () => TelegramSender | null;
   /** The paired chat, or null while unpaired. */

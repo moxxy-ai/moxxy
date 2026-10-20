@@ -93,3 +93,22 @@ describe("EventBlockView — an agent's account limit", () => {
     expect(container.textContent).toBe('');
   });
 });
+
+describe('EventBlockView — a turn the agent took up by itself and finished without replying', () => {
+  it('says so where the turn ended', () => {
+    const noReply = {
+      type: 'plugin_event',
+      id: 'e3' as MoxxyEvent['id'],
+      seq: 3,
+      ts: 0,
+      sessionId: 's1' as MoxxyEvent['sessionId'],
+      turnId: 't1' as MoxxyEvent['turnId'],
+      source: 'system',
+      pluginId: '@moxxy/agent-connection',
+      subtype: 'no_reply',
+      payload: {},
+    } as MoxxyEvent;
+    render(<EventBlockView event={noReply} />);
+    expect(screen.getByTestId('block-system').textContent).toBe('The agent finished without replying.');
+  });
+});

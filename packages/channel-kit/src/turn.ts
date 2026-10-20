@@ -1,4 +1,4 @@
-import type { MoxxyEvent, RunTurnOptions, TurnId } from '@moxxy/sdk';
+import { AGENT_NO_REPLY_TEXT, isAgentNoReplyEvent, type MoxxyEvent, type RunTurnOptions, type TurnId } from '@moxxy/sdk';
 
 /**
  * Turn machinery shared by messaging channels that multiplex onto ONE shared
@@ -203,7 +203,13 @@ export class TurnCoordinator {
   mirrorReply(event: MoxxyEvent): string | null {
     const agentTurn = this.mirrorAgentTurn(event);
     if (agentTurn != null) return `Agent continued: ${agentTurn}`;
-    return this.mirrorText(event) ?? this.mirrorHelperAnswer(event);
+    return this.mirrorText(event) ?? this.mirrorHelperAnswer(event) ?? this.mirrorNoReply(event);
+  }
+
+  /** That the agent finished a turn it took up by itself without replying, as the desktop says it. */
+  mirrorNoReply(event: MoxxyEvent): string | null {
+    if (!isAgentNoReplyEvent(event) || !this.agentTurnIds.has(event.turnId) || this.busyFlag) return null;
+    return AGENT_NO_REPLY_TEXT;
   }
 
   /**

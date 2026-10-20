@@ -44,4 +44,13 @@ describe('visibleTranscriptNodes', () => {
 
     expect(visibleTranscriptNodes(nodes).map((node) => (node.kind === 'block' ? node.block.id : node.kind))).toEqual(['event-2']);
   });
+
+  it('keeps the line saying the agent finished without replying', () => {
+    const nodes = buildRenderNodes([
+      event('user_prompt', { text: 'Task finished', origin: { kind: 'agent', name: 'Task finished' } }, 1),
+      event('plugin_event', { pluginId: '@moxxy/agent-connection', subtype: 'no_reply', payload: {} }, 2),
+    ], []);
+
+    expect(visibleTranscriptNodes(nodes).map((node) => (node.kind === 'block' ? node.block.id : node.kind))).toEqual(['event-1', 'event-2']);
+  });
 });
