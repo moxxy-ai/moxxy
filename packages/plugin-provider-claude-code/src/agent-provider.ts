@@ -31,12 +31,12 @@ const agentCapabilities = {
   hostedTools: ['web_search'],
 } as const;
 
-/** Models Claude Code offers on a Claude subscription; Claude Code decides what the account may use. */
+/** Models Claude Code offers on a Claude subscription, used until Claude's own `supportedModels()` answered; Claude Code decides what the account may use. */
 export const claudeCodeModels: ReadonlyArray<ModelDescriptor> = [
   { id: 'claude-fable-5-1', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities },
   { id: 'claude-opus-5-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities },
   { id: CLAUDE_CODE_DEFAULT_MODEL, contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities },
-  { id: 'claude-haiku-4-5', contextWindow: 200_000, maxOutputTokens: 64_000, ...agentCapabilities },
+  { id: 'claude-haiku-5-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities },
 ];
 
 export interface ClaudeAgentProviderConfig {

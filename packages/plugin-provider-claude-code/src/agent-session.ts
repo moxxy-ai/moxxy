@@ -18,11 +18,13 @@ import {
   untilStopped,
   withoutOwnMcpServers,
 } from '@moxxy/agent-connection-kit';
+import { isContextWindowSize } from '@moxxy/sdk';
 import { fromClaudeQuestions, toClaudeAnswers } from './questions.js';
 import type {
   ClaudeAgentSdk,
   ClaudeEffort,
   ClaudeMessage,
+  ClaudeModelUsage,
   ClaudePermissionMode,
   ClaudePermissionResult,
   ClaudePreToolUseOutput,
@@ -294,13 +296,13 @@ export class ClaudeAgentSession implements LiveSession {
             this.agentTurnPending = false;
             this.finishedTask = undefined;
             if (ownTurn) {
-              yield* resultEvents(item.message, req.signal.aborted);
+              yield* resultEvents(item.message, req.signal.aborted, this.model);
               break;
             }
           }
           if (isPersonResult(item.message)) {
             this.owesResult = false;
-            yield* resultEvents(item.message, req.signal.aborted);
+            yield* resultEvents(item.message, req.signal.aborted, this.model);
             break;
           }
           const reported = isInit(item.message) || isModeChange(item.message) ? item.message.permissionMode : undefined;
@@ -660,11 +662,26 @@ function refuse(item: Exclude<Item, { kind: 'message' | 'ended' }>): void {
   }
 }
 
-function* resultEvents(message: Extract<ClaudeMessage, { type: 'result' }>, stopped: boolean): Generator<AgentStepEvent> {
+function* resultEvents(message: Extract<ClaudeMessage, { type: 'result' }>, stopped: boolean, model: string): Generator<AgentStepEvent> {
   if (message.usage) yield { type: 'usage', usage: toTokenUsage(message.usage) };
+  const tokens = contextWindowOf(message.modelUsage, model);
+  if (tokens !== undefined) yield { type: 'context_window', model, tokens };
   if (!message.is_error || stopped) return;
   const detail = message.errors && message.errors.length > 0 ? message.errors.join('; ') : (message.result ?? message.subtype);
   yield { type: 'error', message: `Claude Code: ${detail}`, retryable: false };
+}
+
+/**
+ * The window Claude ran the model with. `modelUsage` is keyed by the model string Claude
+ * used (`claude-opus-5-5[1m]`) and also lists helper models, so match the turn's own.
+ */
+function contextWindowOf(usage: Readonly<Record<string, ClaudeModelUsage>> | undefined, model: string): number | undefined {
+  if (!usage) return undefined;
+  for (const [key, entry] of Object.entries(usage)) {
+    const named = key === model || key.replace(/\[[^\]]*\]$/, '') === model || entry.canonicalModel === model;
+    if (named && isContextWindowSize(entry.contextWindow)) return entry.contextWindow;
+  }
+  return undefined;
 }
 
 /** The `result` of a turn Claude took up by itself. */

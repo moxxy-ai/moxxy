@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type { Readable, Writable } from 'node:stream';
-import { waitFor, type AgentApprovalDecision, type AgentStepEvent, type AgentStepRequest, type AgentToolCall, type AgentToolOutcome, type Skill, type ToolDef } from '@moxxy/sdk';
+import { isContextWindowSize, waitFor, type AgentApprovalDecision, type AgentStepEvent, type AgentStepRequest, type AgentToolCall, type AgentToolOutcome, type Skill, type ToolDef } from '@moxxy/sdk';
 import {
   Inbox,
   JsonRpcError,
@@ -442,6 +442,17 @@ export class AcpAgentSession implements LiveSession {
     }
   }
 
+  /** How full OpenCode's context is (`used`) and the window it runs the turn's model with (`size`), from its `usage_update`. */
+  private contextOf(update: AcpSessionUpdate, requested: string): AgentStepEvent[] {
+    if (update.sessionUpdate !== 'usage_update') return [];
+    const { used, size } = update as { used?: unknown; size?: unknown };
+    const model = requested || this.option('model')?.currentValue;
+    return [
+      ...(typeof used === 'number' && Number.isSafeInteger(used) && used >= 0 ? [{ type: 'context_used' as const, tokens: used }] : []),
+      ...(typeof model === 'string' && model !== '' && isContextWindowSize(size) ? [{ type: 'context_window' as const, model, tokens: size }] : []),
+    ];
+  }
+
   /** Model, effort and mode for this turn, changed on the session only where they differ. */
   private async configure(req: AgentStepRequest, mode: AgentMode): Promise<void> {
     const model = this.option('model');
@@ -493,6 +504,7 @@ export class AcpAgentSession implements LiveSession {
         case 'note': {
           const params = (item.params ?? {}) as { sessionId?: unknown; update?: AcpSessionUpdate };
           if (params.sessionId !== this.sessionId || !params.update) continue;
+          yield* this.contextOf(params.update, req.model);
           yield* translator.update(params.update);
           continue;
         }

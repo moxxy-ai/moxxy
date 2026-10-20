@@ -25,4 +25,12 @@ describe('the Claude plugin', () => {
     expect(claudeSessions().size).toBe(0);
     await session.close();
   });
+
+  it("lists the models the person's Claude offers, and still knows Haiku 5.5 when Claude is not asked", async () => {
+    const { claudeCodeProviderDef, claudeCodeModels } = await import('./index.js');
+
+    expect(typeof claudeCodeProviderDef.agentCli?.models).toBe('function');
+    expect(claudeCodeModels.map((m) => m.id)).toContain('claude-haiku-5-5');
+    expect(claudeCodeModels.map((m) => m.id)).not.toContain('claude-haiku-4-5');
+  });
 });

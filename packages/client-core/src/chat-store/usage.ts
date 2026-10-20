@@ -13,7 +13,7 @@ import type { MoxxyEvent } from '@moxxy/sdk';
  * Token accounting accumulated from `provider_response` events.
  */
 export interface UsageSnapshot {
-  /** Prompt size of the most recent call (input + cache read + cache write). */
+  /** Prompt size of the most recent call (input + cache read + cache write), or the context an agent reported. */
   readonly latestPrompt: number | null;
   /** Per-call prompt sizes in order — feeds the growth sparkline. */
   readonly perCall: ReadonlyArray<number>;
@@ -66,7 +66,8 @@ export function recordUsage(prev: UsageSnapshot, e: ProviderResponse): UsageSnap
     e.inputTokens !== undefined ||
     e.cacheReadTokens !== undefined ||
     e.cacheCreationTokens !== undefined;
-  const prompt = (e.inputTokens ?? 0) + (e.cacheReadTokens ?? 0) + (e.cacheCreationTokens ?? 0);
+  // An agent connection's usage adds up its whole turn; the context it reports is the size.
+  const prompt = e.contextTokens ?? (e.inputTokens ?? 0) + (e.cacheReadTokens ?? 0) + (e.cacheCreationTokens ?? 0);
   // Append the new prompt size, then head-evict so the sparkline source stays
   // bounded at PER_CALL_CAP. `slice(-cap)` keeps the most recent window; the
   // cumulative counters below are unaffected, so the meter loses nothing.

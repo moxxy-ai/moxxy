@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
 import { CLAUDE_CLI, checkAgentCli } from '@moxxy/agent-connection-kit';
 import { CLAUDE_AGENT_NAME, CLAUDE_CODE_PROVIDER_ID, CLAUDE_CODE_SERVICE_NAME } from './constants.js';
@@ -7,7 +8,7 @@ import {
   createClaudeCodeClient,
   type ClaudeAgentProviderConfig,
 } from './agent-provider.js';
-import { claudeExecutableForSdk, resolveClaudeForSdk } from './executable.js';
+import { claudeForSdk } from './executable.js';
 import {
   claudeLogin,
   claudeLogout,
@@ -17,7 +18,8 @@ import {
   resolveClaudeExecutable,
 } from './login.js';
 import { claudeOwnAutoApprove } from './own-settings.js';
-import { ensureClaudeAgentSdk } from './sdk-install.js';
+import { claudeOfferedModels } from './offered-models.js';
+import { ensureClaudeAgentSdk, installedClaudeAgentSdk } from './sdk-install.js';
 
 export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
@@ -27,6 +29,13 @@ export const claudeCodeProviderDef = defineProvider({
     check: (opts) => {
       const command = resolveClaudeExecutable();
       return checkAgentCli(CLAUDE_CLI, { command, refresh: opts?.refresh === true }, { signIn: () => claudeSignIn(command) });
+    },
+    // The SDK is installed when the connection is first used, never just to list models; until then the built-in list stands.
+    models: async () => {
+      const sdk = await installedClaudeAgentSdk();
+      if (!sdk) return [];
+      const executable = claudeForSdk(resolveClaudeExecutable());
+      return claudeOfferedModels({ sdk, cwd: homedir(), ...(executable ? { executable } : {}) });
     },
   },
   ownAutoApprove: ({ cwd }) => claudeOwnAutoApprove(cwd),
@@ -45,7 +54,7 @@ export const claudeCodeProviderDef = defineProvider({
     }
     // The Agent SDK is fetched the first time the Claude connection is used, not with Moxxy.
     await ensureClaudeAgentSdk();
-    const executable = command.includes('/') || command.includes('\\') ? claudeExecutableForSdk(command) : resolveClaudeForSdk(command);
+    const executable = claudeForSdk(command);
     return { ...config, ...(executable ? { executable } : {}) };
   },
   // No validateKey: readiness is reported by the installed Claude CLI.

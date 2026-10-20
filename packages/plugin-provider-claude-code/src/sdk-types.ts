@@ -58,6 +58,14 @@ export interface ClaudeUsage {
   readonly cache_creation_input_tokens?: number;
 }
 
+/** One model's share of a query (`ModelUsage`); only the fields Moxxy reads. */
+export interface ClaudeModelUsage {
+  readonly contextWindow?: number;
+  readonly maxOutputTokens?: number;
+  /** The model id behind an alias or a provider-specific id (`claude-opus-4-7`). */
+  readonly canonicalModel?: string;
+}
+
 /** The plan limit Claude reports for a claude.ai sign-in (absent on an API key). `resetsAt` is in epoch seconds. */
 export interface ClaudeRateLimitInfo {
   readonly status: 'allowed' | 'allowed_warning' | 'rejected';
@@ -81,7 +89,8 @@ export type ClaudeMessage =
   | { readonly type: 'system'; readonly subtype: string; readonly session_id?: string }
   | {
       readonly type: 'assistant';
-      readonly message: { readonly model?: string; readonly content: ReadonlyArray<ClaudeContentBlock> };
+      /** `usage` is that of the one API call the message came from. */
+      readonly message: { readonly model?: string; readonly content: ReadonlyArray<ClaudeContentBlock>; readonly usage?: ClaudeUsage };
       readonly parent_tool_use_id: string | null;
       readonly session_id?: string;
       /** Set on a message Claude Code wrote itself about a failed request (`rate_limit` when the plan's limit is used up). */
@@ -115,6 +124,7 @@ export type ClaudeMessage =
       readonly stop_reason?: string | null;
       readonly terminal_reason?: string | null;
       readonly usage?: ClaudeUsage;
+      readonly modelUsage?: Readonly<Record<string, ClaudeModelUsage>>;
       readonly errors?: ReadonlyArray<string>;
     };
 
@@ -199,10 +209,22 @@ export interface ClaudeSlashCommand {
   readonly builtin?: boolean;
 }
 
+/** One model of `supportedModels`: an alias row (`opus`) names the full id it stands for in `resolvedModel`. */
+export interface ClaudeModelInfo {
+  readonly value: string;
+  readonly resolvedModel?: string;
+  readonly displayName: string;
+  readonly description: string;
+  readonly supportsEffort?: boolean;
+  readonly supportsFastMode?: boolean;
+}
+
 export interface ClaudeQuery extends AsyncIterable<ClaudeMessage> {
   interrupt(): Promise<unknown>;
   /** The skills and commands this Claude has. */
   supportedCommands(): Promise<ClaudeSlashCommand[]>;
+  /** The models this Claude offers the signed-in account, as its own picker lists them. */
+  supportedModels(): Promise<ClaudeModelInfo[]>;
   /** The MCP servers this Claude has, Moxxy's among them. */
   mcpServerStatus(): Promise<ClaudeMcpServerStatus[]>;
   setPermissionMode(mode: ClaudePermissionMode): Promise<void>;

@@ -20,6 +20,7 @@ import type {
   ClaudeResolvedSettings,
   ClaudeSettings,
   ClaudeMcpServerStatus,
+  ClaudeModelInfo,
   ClaudeSlashCommand,
   ClaudeUserContent,
   ClaudeUserMessage,
@@ -64,6 +65,8 @@ export class FakeClaude implements ClaudeAgentSdk {
   ownSkills: ReadonlyArray<string> = [];
   /** The person's own MCP servers, as `mcpServerStatus` reports them next to Moxxy's. */
   ownMcpServers: ReadonlyArray<string> = [];
+  /** What `supportedModels` answers, as the Claude the person signed in to lists them; an error is thrown instead. */
+  models: ReadonlyArray<ClaudeModelInfo> | Error = [];
   /** The folders `resolveSettings` was asked about. */
   readonly settingsRead: string[] = [];
   /** The own mode comes from the repository's settings, which the trust filter drops. */
@@ -96,7 +99,7 @@ export class FakeClaude implements ClaudeAgentSdk {
     this.sessions += 1;
     const sessionId = params.options.resume ?? `claude-session-${this.sessions}`;
     this.saved.add(sessionId);
-    const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene, this.ownMode, () => this.ownSkills, () => this.ownMcpServers);
+    const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene, this.ownMode, () => this.ownSkills, () => this.ownMcpServers, () => this.models);
     this.queries.push(query);
     return query;
   }
@@ -134,6 +137,7 @@ export class FakeQuery implements ClaudeQuery {
     ownMode: ClaudePermissionMode = 'default',
     private readonly ownSkills: () => ReadonlyArray<string> = () => [],
     private readonly ownMcpServers: () => ReadonlyArray<string> = () => [],
+    private readonly models: () => ReadonlyArray<ClaudeModelInfo> | Error = () => [],
   ) {
     this.permissionMode = options.permissionMode ?? ownMode;
   }
@@ -243,6 +247,12 @@ export class FakeQuery implements ClaudeQuery {
       { name: 'compact', description: 'Clear the conversation history but keep a summary', argumentHint: '', builtin: true },
       ...this.ownSkills().map((name) => ({ name, description: `The person's ${name}`, argumentHint: '' })),
     ];
+  }
+
+  async supportedModels(): Promise<ClaudeModelInfo[]> {
+    const models = this.models();
+    if (models instanceof Error) throw models;
+    return [...models];
   }
 
   async mcpServerStatus(): Promise<ClaudeMcpServerStatus[]> {

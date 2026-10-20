@@ -59,6 +59,8 @@ import { currentPermissionScope } from './permissions/scope.js';
 import {
   AUTO_APPROVE_PLUGIN_ID,
   AUTO_APPROVE_SUBTYPE,
+  recordedContextWindows,
+  withRecordedContextWindows,
   autoApproveFromEvents,
   autoApproveRecorded,
   evaluateToolRule,
@@ -749,6 +751,7 @@ export class Session implements ClientSession, SessionRuntime {
       ? resolveTurnModel(this, { name: active, models: activeProviderModels ?? (declared ? declared.models : []) })
       : undefined;
     const ready = this.readyProviders;
+    const contextWindowEvents = this.log.ofType('plugin_event');
     return {
       sessionId: this.id,
       cwd: this.cwd,
@@ -759,7 +762,10 @@ export class Session implements ClientSession, SessionRuntime {
         const agentCli = this.agentClis.report(p.name);
         return {
           name: p.name,
-          models: p.name === active && activeProviderModels ? activeProviderModels : p.models,
+          models: withRecordedContextWindows(
+            this.agentClis.models(p.name) ?? (p.name === active && activeProviderModels ? activeProviderModels : p.models),
+            recordedContextWindows(contextWindowEvents, p.name),
+          ),
           authKind: p.auth?.kind === 'oauth' ? 'oauth' : 'api-key',
           ...(p.agentName ? { agentName: p.agentName } : {}),
           ...(agentCli ? { agentCli } : {}),

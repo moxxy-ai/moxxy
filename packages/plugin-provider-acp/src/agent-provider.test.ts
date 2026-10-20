@@ -287,6 +287,34 @@ describe('a turn on the OpenCode agent connection', () => {
   });
 });
 
+describe('the context window OpenCode reports', () => {
+  it('replaces the 200k starting window of the turn model with the size OpenCode gives', async () => {
+    const { session } = connect(async (turn) => {
+      turn.server.update(turn.session, { sessionUpdate: 'usage_update', used: 12_000, size: 256_000 });
+      turn.say('Hi.');
+    });
+    const windowOf = () =>
+      session.getInfo().providers.find((p) => p.name === 'opencode')?.models.find((m) => m.id === 'opencode/big-pickle')?.contextWindow;
+    expect(windowOf()).toBe(200_000);
+
+    await collectTurn(session, 'hi');
+
+    expect(windowOf()).toBe(256_000);
+  });
+
+  it('shows how full OpenCode says its context is, not the usage its turn added up', async () => {
+    const { session } = connect(async (turn) => {
+      turn.server.update(turn.session, { sessionUpdate: 'usage_update', used: 12_000, size: 256_000 });
+      turn.say('Hi.');
+      turn.usage({ inputTokens: 40_000, outputTokens: 300, totalTokens: 40_300 });
+    });
+
+    const events = await collectTurn(session, 'hi');
+
+    expect(events.find((e) => e.type === 'provider_response')).toMatchObject({ contextTokens: 12_000 });
+  });
+});
+
 describe('approvals: OpenCode asks, Moxxy answers', () => {
   it('asks the person when OpenCode asks, and tells OpenCode the answer', async () => {
     let allowed: boolean | undefined;

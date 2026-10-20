@@ -1,9 +1,11 @@
+import { homedir } from 'node:os';
 import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
 import { CODEX_CLI, checkAgentCli } from '@moxxy/agent-connection-kit';
 import { CODEX_AGENT_NAME, CODEX_AGENT_PROVIDER_ID, CODEX_SERVICE_NAME } from './constants.js';
 import { codexAgentModels, codexSessions, createCodexAgentClient, type CodexAgentProviderConfig } from './agent-provider.js';
 import { codexTarget, spawnCodexAppServer } from './executable.js';
 import { codexOwnAutoApprove } from './own-settings.js';
+import { codexOfferedModels } from './offered-models.js';
 import { authError, checkCodexAuth, codexLogin, codexLogout, codexSignIn, codexStatus, resolveCodexExecutable } from './login.js';
 
 export const codexAgentProviderDef = defineProvider({
@@ -15,6 +17,8 @@ export const codexAgentProviderDef = defineProvider({
       const command = resolveCodexExecutable();
       return checkAgentCli(CODEX_CLI, { command, refresh: opts?.refresh === true }, { signIn: () => codexSignIn(command) });
     },
+    // Asked outside any project, so no folder's config narrows the list.
+    models: () => codexOfferedModels(homedir(), spawnCodexAppServer(resolveCodexExecutable())),
   },
   ownAutoApprove: ({ cwd }) => codexOwnAutoApprove(cwd, spawnCodexAppServer(resolveCodexExecutable())),
   createClient: (config) => createCodexAgentClient(providerConfigFrom(config)),

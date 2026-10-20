@@ -317,6 +317,12 @@ export interface ProviderResponseEvent extends EventBase {
   readonly outputTokens?: number;
   readonly cacheReadTokens?: number;
   readonly cacheCreationTokens?: number;
+  /**
+   * How many tokens the model's context holds after this response, when the usage
+   * above is not that: an agent connection reports one response per turn whose usage
+   * adds up every call the agent made.
+   */
+  readonly contextTokens?: number;
   readonly timing?: ProviderCallTiming;
 }
 

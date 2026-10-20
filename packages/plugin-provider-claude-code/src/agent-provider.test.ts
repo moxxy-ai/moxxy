@@ -693,6 +693,25 @@ describe('stopping and failing', () => {
     expect(said(next)).toEqual(['fine now']);
   });
 
+  it('records the context window Claude runs the turn model with, not that of a helper model', async () => {
+    const usage = (contextWindow: number, canonicalModel?: string) => ({
+      inputTokens: 3, outputTokens: 7, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0, costUSD: 0,
+      contextWindow, maxOutputTokens: 128_000, ...(canonicalModel ? { canonicalModel } : {}),
+    });
+    const { session } = connect(async function* (turn) {
+      yield turn.query.result('success', false, {
+        result: 'Hi.',
+        modelUsage: { 'claude-fable-5-1[1m]': usage(640_000, 'claude-fable-5-1'), 'claude-haiku-5-5': usage(200_000) },
+      });
+    });
+
+    await collectTurn(session, 'hi');
+
+    const models = session.getInfo().providers.find((p) => p.name === 'claude-code')?.models ?? [];
+    expect(models.find((m) => m.id === 'claude-fable-5-1')?.contextWindow).toBe(640_000);
+    expect(models.find((m) => m.id === 'claude-haiku-5-5')?.contextWindow).toBe(1_000_000);
+  });
+
   it('reports a failed Claude turn as an error', async () => {
     const { session } = connect(async function* (turn) {
       yield turn.query.result('error_max_turns', true, { errors: ['Reached the maximum number of turns'] });

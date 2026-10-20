@@ -28,7 +28,7 @@ const LEFT_ALONE: Record<string, string> = {
   config_option_update: 'the agent reporting its model, mode and effort, which Moxxy sets itself',
   current_mode_update: 'the agent reporting its mode, which Moxxy sets itself',
   session_info_update: "the session's title and details, for the agent's own list",
-  usage_update: "how full the agent's context is, not the tokens of the turn",
+  usage_update: "how full the agent's context is; the session reads the window size from it, not the tokens of the turn",
   notice: "a note for the agent's own screen",
   compaction_update: "the agent shortening its own context; Moxxy's record of the conversation stays whole",
   compaction_summary_chunk: "the agent shortening its own context; Moxxy's record of the conversation stays whole",

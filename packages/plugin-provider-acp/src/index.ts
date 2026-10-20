@@ -15,6 +15,7 @@ export const opencodeProviderDef = defineProvider({
       const command = resolveOpenCodeExecutable();
       return checkAgentCli(OPENCODE_CLI, { command, refresh: opts?.refresh === true }, { signIn: () => openCodeSignIn(command) });
     },
+    models: async () => (await listOpenCodeModels(resolveOpenCodeExecutable())).map(acpModel),
   },
   ownAutoApprove: ({ cwd }) => openCodeOwnAutoApprove(cwd, readOpenCodeRules(resolveOpenCodeExecutable())),
   createClient: (config) => createAcpAgentClient(providerConfigFrom(config)),

@@ -26,6 +26,19 @@ describe('the OpenCode plugin', () => {
     expect(client.models.map((model) => model.id)).toEqual(['openai/gpt-6-luna', 'opencode/big-pickle']);
   });
 
+  it('lists the models the person OpenCode offers without switching it on', async () => {
+    __setOpenCodeCommandRunner(async (_executable, args) =>
+      args[0] === 'models' ? { code: 0, stdout: 'opencode/big-pickle\nopenai/gpt-6-luna\n', stderr: '' } : { code: 1, stdout: '', stderr: '' },
+    );
+    const models = opencodeProviderDef.agentCli?.models;
+    assertDefined(models, 'agentCli.models');
+
+    const offered = await models();
+
+    expect(offered.map((model) => model.id)).toEqual(['opencode/big-pickle', 'openai/gpt-6-luna']);
+    expect(offered.every((model) => model.contextWindow === 200_000)).toBe(true);
+  });
+
   it('offers OpenCode free models before it is switched on', () => {
     expect(opencodeProviderDef.models.map((model) => model.id)).toEqual(['opencode/big-pickle', 'opencode/space-bunny-free']);
   });

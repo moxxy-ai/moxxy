@@ -1,4 +1,4 @@
-import type { AgentCliReport, ProviderDef } from '@moxxy/sdk';
+import type { AgentCliReport, ModelDescriptor, ProviderDef } from '@moxxy/sdk';
 import type { Logger } from './logger.js';
 
 const HOUR_MS = 60 * 60_000;
@@ -14,6 +14,7 @@ const HOUR_MS = 60 * 60_000;
  */
 export class AgentCliWatch {
   private readonly reports = new Map<string, AgentCliReport>();
+  private readonly offered = new Map<string, ReadonlyArray<ModelDescriptor>>();
   private readonly listeners = new Set<() => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private running: Promise<void> | null = null;
@@ -25,6 +26,11 @@ export class AgentCliWatch {
 
   report(name: string): AgentCliReport | undefined {
     return this.reports.get(name);
+  }
+
+  /** The models the agent last said it offers; undefined until it answered. */
+  models(name: string): ReadonlyArray<ModelDescriptor> | undefined {
+    return this.offered.get(name);
   }
 
   /** Called when a CLI's state or version changed; returns the unsubscribe. */
@@ -67,6 +73,7 @@ export class AgentCliWatch {
           const before = this.reports.get(def.name);
           this.reports.set(def.name, next);
           if (!before || differs(before, next)) changed = true;
+          if (await this.listModels(def, next)) changed = true;
         } catch (err) {
           this.logger.warn('could not check an agent CLI', {
             provider: def.name,
@@ -77,6 +84,26 @@ export class AgentCliWatch {
     );
     if (!changed) return;
     for (const listener of this.listeners) listener();
+  }
+
+  /** Ask a usable agent for its models; true when the list changed. A failed or empty answer keeps the last list. */
+  private async listModels(def: ProviderDef, report: AgentCliReport): Promise<boolean> {
+    const list = def.agentCli?.models;
+    if (!list || report.state === 'missing' || report.signedIn === false) return false;
+    let models: ReadonlyArray<ModelDescriptor>;
+    try {
+      models = await list();
+    } catch (err) {
+      this.logger.warn('could not list an agent\'s models', {
+        provider: def.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+    if (models.length === 0) return false;
+    const before = this.offered.get(def.name);
+    this.offered.set(def.name, models);
+    return !before || before.map((m) => m.id).join('\n') !== models.map((m) => m.id).join('\n');
   }
 }
 

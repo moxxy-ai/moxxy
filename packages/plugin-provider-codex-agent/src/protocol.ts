@@ -65,6 +65,18 @@ export interface CodexConfigRead {
   };
 }
 
+/** `model/list`: one page of the models Codex offers the account (generated `ModelListResponse`, fields Moxxy reads). */
+export interface CodexModelList {
+  readonly data: ReadonlyArray<{
+    readonly id: string;
+    readonly hidden?: boolean;
+    readonly inputModalities?: ReadonlyArray<string>;
+    readonly supportedReasoningEfforts?: ReadonlyArray<unknown>;
+    readonly additionalSpeedTiers?: ReadonlyArray<string>;
+  }>;
+  readonly nextCursor?: string | null;
+}
+
 export type CodexUserInput =
   | { readonly type: 'text'; readonly text: string; readonly text_elements: ReadonlyArray<never> }
   | { readonly type: 'image'; readonly url: string }

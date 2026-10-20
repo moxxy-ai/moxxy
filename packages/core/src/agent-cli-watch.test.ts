@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentCliReport, ProviderDef } from '@moxxy/sdk';
+import { assertDefined, type AgentCliReport, type ModelDescriptor, type ProviderDef } from '@moxxy/sdk';
+import { resolveTurnModel } from './turn-model.js';
 import { AgentCliWatch } from './agent-cli-watch.js';
 import { silentLogger } from './logger.js';
 import { Session } from './session.js';
@@ -123,7 +124,112 @@ describe('AgentCliWatch', () => {
   });
 });
 
+const model = (id: string): ModelDescriptor => ({ id, contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true });
+const signedIn = (): AgentCliReport => ({ ...report('current', '0.163.0'), signedIn: true });
+
+function withModels(name: string, check: () => Promise<AgentCliReport>, models: () => Promise<ReadonlyArray<ModelDescriptor>>): ProviderDef {
+  return { name, models: [model('built-in')], createClient: () => ({}) as never, agentCli: { check, models } };
+}
+
+describe('AgentCliWatch — the models an agent offers', () => {
+  it('asks a signed-in agent for the models it offers now', async () => {
+    const watch = new AgentCliWatch(
+      () => [withModels('codex-agent', async () => signedIn(), async () => [model('gpt-6.1-sol'), model('gpt-6-astra')])],
+      silentLogger,
+    );
+
+    await watch.check();
+
+    expect(watch.models('codex-agent')?.map((m) => m.id)).toEqual(['gpt-6.1-sol', 'gpt-6-astra']);
+  });
+
+  it('does not ask an agent that is missing or signed out', async () => {
+    const models = vi.fn(async () => [model('x')]);
+    const watch = new AgentCliWatch(
+      () => [
+        withModels('codex-agent', async () => report('missing', null), models),
+        withModels('claude-code', async () => ({ ...report('current', '2.1.0'), signedIn: false }), models),
+      ],
+      silentLogger,
+    );
+
+    await watch.check();
+
+    expect(models).not.toHaveBeenCalled();
+    expect(watch.models('codex-agent')).toBeUndefined();
+  });
+
+  it('keeps the last list when the agent cannot answer, and the report still lands', async () => {
+    let fail = false;
+    const watch = new AgentCliWatch(
+      () => [
+        withModels('codex-agent', async () => signedIn(), async () => {
+          if (fail) throw new Error('app-server crashed');
+          return [model('gpt-6.1-sol')];
+        }),
+      ],
+      silentLogger,
+    );
+
+    await watch.check();
+    fail = true;
+    await watch.check();
+
+    expect(watch.models('codex-agent')?.map((m) => m.id)).toEqual(['gpt-6.1-sol']);
+    expect(watch.report('codex-agent')).toMatchObject({ state: 'current' });
+  });
+
+  it('ignores an empty answer rather than offering no models', async () => {
+    const watch = new AgentCliWatch(() => [withModels('codex-agent', async () => signedIn(), async () => [])], silentLogger);
+
+    await watch.check();
+
+    expect(watch.models('codex-agent')).toBeUndefined();
+  });
+
+  it('says when the offered models changed, not when they were listed again', async () => {
+    let ids = ['gpt-6-astra'];
+    const watch = new AgentCliWatch(
+      () => [withModels('codex-agent', async () => signedIn(), async () => ids.map(model))],
+      silentLogger,
+    );
+    const changes = vi.fn();
+    watch.onChange(changes);
+
+    await watch.check();
+    await watch.check();
+    expect(changes).toHaveBeenCalledTimes(1);
+    ids = ['gpt-6.1-sol', 'gpt-6-astra'];
+    await watch.check();
+    expect(changes).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("the session's info", () => {
+  it("offers the models the agent listed in place of the connection's built-in ones", async () => {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.providers.register(withModels('codex-agent', async () => signedIn(), async () => [model('gpt-6.1-sol')]));
+
+    expect(session.getInfo().providers.find((p) => p.name === 'codex-agent')?.models.map((m) => m.id)).toEqual(['built-in']);
+    await session.agentClis.check();
+
+    expect(session.getInfo().providers.find((p) => p.name === 'codex-agent')?.models.map((m) => m.id)).toEqual(['gpt-6.1-sol']);
+    await session.close();
+  });
+
+  it('keeps running the model the conversation chose when the agent stops listing it', async () => {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.providers.register(withModels('codex-agent', async () => signedIn(), async () => [model('gpt-6.1-sol')]));
+    session.lastResolvedProvider = 'codex-agent';
+    session.lastResolvedModel = 'gpt-6-retired';
+    await session.agentClis.check();
+
+    const listed = session.getInfo().providers.find((p) => p.name === 'codex-agent');
+    assertDefined(listed, 'codex-agent in the info');
+    expect(resolveTurnModel(session, listed)).toBe('gpt-6-retired');
+    await session.close();
+  });
+
   it("carries each connection's CLI report", async () => {
     const session = new Session({ cwd: '/tmp', silent: true });
     session.providers.register(agent('codex-agent', async () => report('update-required', '0.150.0')));

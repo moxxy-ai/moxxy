@@ -398,6 +398,12 @@ export interface AgentCliReport {
 export interface ProviderAgentCli {
   /** `refresh` asks the vendor's registry again instead of trusting a recent answer. */
   check(opts?: { readonly refresh?: boolean }): Promise<AgentCliReport>;
+  /**
+   * The models the agent offers the signed-in account now, as its own picker
+   * lists them. Asked after a check finds the agent installed and signed in;
+   * the connection's built-in `models` stay the answer until it succeeds.
+   */
+  models?(): Promise<ReadonlyArray<ModelDescriptor>>;
 }
 
 export interface ProviderDef {
@@ -608,4 +614,8 @@ export type AgentStepEvent =
   /** How much of the person's account the agent may still use; a reached limit ends the turn without a raw error. */
   | { readonly type: 'account_limit'; readonly limit: AgentAccountLimit }
   | { readonly type: 'usage'; readonly usage: TokenUsage }
+  /** How many tokens the agent's context holds now, when its usage is not per call (a whole turn's total). */
+  | { readonly type: 'context_used'; readonly tokens: number }
+  /** The context window the agent runs the model with, as it reports it after a response. */
+  | { readonly type: 'context_window'; readonly model: string; readonly tokens: number }
   | { readonly type: 'error'; readonly message: string; readonly retryable: boolean };

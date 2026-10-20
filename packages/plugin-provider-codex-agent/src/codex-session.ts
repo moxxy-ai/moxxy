@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import type { Readable, Writable } from 'node:stream';
 import type { AgentAccountLimit, AgentApprovalDecision, AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome, Skill, ToolDef } from '@moxxy/sdk';
+import { isContextWindowSize } from '@moxxy/sdk';
 import {
   Inbox,
   JsonRpcError,
@@ -646,6 +647,7 @@ export class CodexAgentSession implements LiveSession {
         yield* this.subagents.activity(params.item);
         continue;
       }
+      yield* contextWindowOf(item.method, params, req.model || this.current.model);
       yield* translator.translate(item.method, params);
     }
   }
@@ -969,4 +971,12 @@ function isSubagentActivity(method: string, params: Record<string, unknown>): bo
   if (method !== 'item/started' && method !== 'item/completed') return false;
   const item = params.item as { type?: unknown } | undefined;
   return item !== undefined && item.type === 'subAgentActivity';
+}
+
+/** The window Codex runs the turn's model with: its config's `model_context_window` or Codex's own default. */
+function contextWindowOf(method: string, params: unknown, model: string): AgentStepEvent[] {
+  if (method !== 'thread/tokenUsage/updated' || !model) return [];
+  const usage = (params as { tokenUsage?: { modelContextWindow?: unknown } } | undefined)?.tokenUsage;
+  const tokens = usage?.modelContextWindow;
+  return isContextWindowSize(tokens) ? [{ type: 'context_window', model, tokens }] : [];
 }

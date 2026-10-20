@@ -23,7 +23,7 @@ import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
 import { AgentSessionPool } from '@moxxy/agent-connection-kit';
-import { CodexAgentProvider, codexAgentModels } from './agent-provider.js';
+import { CODEX_AGENT_DEFAULT_MODEL, CodexAgentProvider, codexAgentModels } from './agent-provider.js';
 import { toolsLentToCodex, type CodexAgentSession } from './codex-session.js';
 import { FakeCodex, type CodexScene, type FakeCodexDefaults } from './fake-codex.testkit.js';
 
@@ -989,6 +989,30 @@ describe('stopping and failing', () => {
     expect(stopped.map((e) => e.type)).toContain('abort');
     expect(stopped).toContainEqual(expect.objectContaining({ type: 'tool_result', callId: 'exec-1', ok: false }));
     expect(said(next)).toEqual(['back']);
+  });
+
+  it('shows the prompt of the last Codex call as how full the context is, not the sum of the turn', async () => {
+    const { session } = connect(async (turn) => {
+      turn.usage(150_000, 40, 148_000);
+      turn.usage(152_000, 60, 150_000);
+      turn.say('Done.');
+    });
+
+    const events = await collectTurn(session, 'fix it');
+
+    expect(events.find((e) => e.type === 'provider_response')).toMatchObject({ contextTokens: 152_000 });
+  });
+
+  it('records the context window Codex runs the model with, for every surface to show', async () => {
+    const { session } = connect(async (turn) => {
+      turn.usage(1200, 40, 0, 380_000);
+      turn.say('Hi.');
+    });
+
+    await collectTurn(session, 'hi');
+
+    const model = session.getInfo().providers.find((p) => p.name === 'codex-agent')?.models.find((m) => m.id === CODEX_AGENT_DEFAULT_MODEL);
+    expect(model?.contextWindow).toBe(380_000);
   });
 
   it('reports a failed Codex turn as an error', async () => {

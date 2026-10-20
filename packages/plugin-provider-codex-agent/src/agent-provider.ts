@@ -31,11 +31,13 @@ const agentCapabilities = {
   hostedTools: ['web_search'],
 } as const;
 
-/** Models Codex offers on a ChatGPT sign-in (its `model/list`); Codex decides what the account may use. */
+/** Models Codex offers on a ChatGPT sign-in, used until Codex's own `model/list` answered; Codex decides what the account may use. */
 export const codexAgentModels: ReadonlyArray<ModelDescriptor> = [
-  { id: CODEX_AGENT_DEFAULT_MODEL, contextWindow: 380_000, maxOutputTokens: 128_000, ...agentCapabilities },
-  { id: 'gpt-6-sol', contextWindow: 380_000, maxOutputTokens: 128_000, ...agentCapabilities },
-  { id: 'gpt-6-luna', contextWindow: 380_000, maxOutputTokens: 128_000, ...agentCapabilities },
+  { id: CODEX_AGENT_DEFAULT_MODEL, contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities },
+  // Codex 0.163's own catalog: 500k for 6.1 Sol, 272k for the rest (the API models have 1.05M).
+  { id: 'gpt-6.1-sol', contextWindow: 500_000, maxOutputTokens: 128_000, ...agentCapabilities },
+  { id: 'gpt-6-sol', contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities },
+  { id: 'gpt-6-luna', contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities },
   { id: 'gpt-5.6-sol', contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities },
   { id: 'gpt-5.6-terra', contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities },
   { id: 'gpt-5.6-luna', contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities },

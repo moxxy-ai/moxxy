@@ -11,6 +11,7 @@ import { z } from 'zod';
 import {
   AGENT_ACCOUNT_LIMIT_SUBTYPE,
   AGENT_CONNECTION_PLUGIN_ID,
+  AGENT_CONTEXT_WINDOW_SUBTYPE,
   AGENT_GOAL_SUBTYPE,
   AGENT_SESSION_SUBTYPE,
   AUTO_APPROVE_PLUGIN_ID,
@@ -488,6 +489,77 @@ describe("the agent's account limit", () => {
     const again = await collectTurn(session, 'hi again');
 
     expect(limitsIn(again)).toEqual([{ provider: 'fake-agent', limit: { state: 'reached' } }]);
+  });
+});
+
+describe('how full the agent context is', () => {
+  const response = (events: ReadonlyArray<MoxxyEvent>) => events.find((e) => e.type === 'provider_response');
+
+  it('reports the context the agent says it holds, apart from the usage its turn added up', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'usage', usage: { inputTokens: 1_000, outputTokens: 50, cacheReadTokens: 150_000 } };
+      yield { type: 'usage', usage: { inputTokens: 2_000, outputTokens: 80, cacheReadTokens: 151_000 } };
+      yield { type: 'context_used', tokens: 153_100 };
+      yield { type: 'message', text: 'Done.' };
+    });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'fix it');
+
+    expect(response(events)).toMatchObject({ inputTokens: 3_000, cacheReadTokens: 301_000, contextTokens: 153_100 });
+  });
+
+  it('takes the prompt of the last call when the agent reports usage per call and no context', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'usage', usage: { inputTokens: 1_000, outputTokens: 50, cacheReadTokens: 150_000 } };
+      yield { type: 'usage', usage: { inputTokens: 2_000, outputTokens: 80, cacheReadTokens: 151_000, cacheCreationTokens: 100 } };
+      yield { type: 'message', text: 'Done.' };
+    });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'fix it');
+
+    expect(response(events)).toMatchObject({ contextTokens: 153_100 });
+  });
+});
+
+describe('the context window the agent reports', () => {
+  const windowOf = (session: Session) =>
+    session.getInfo().providers.find((p) => p.name === 'fake-agent')?.models.find((m) => m.id === 'fake-model')?.contextWindow;
+  const windowsIn = (events: ReadonlyArray<MoxxyEvent>) =>
+    events.filter((e) => e.type === 'plugin_event' && e.subtype === AGENT_CONTEXT_WINDOW_SUBTYPE);
+
+  it('replaces the starting window in the session info, once per change', async () => {
+    let tokens = 380_000;
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'context_window', model: 'fake-model', tokens };
+      yield { type: 'message', text: 'Hi.' };
+    });
+    const session = sessionWith(provider);
+    expect(windowOf(session)).toBe(200_000);
+
+    const first = await collectTurn(session, 'hi');
+    const same = await collectTurn(session, 'hi again');
+    tokens = 400_000;
+    const changed = await collectTurn(session, 'and again');
+
+    expect(windowsIn(first)).toHaveLength(1);
+    expect(windowsIn(same)).toEqual([]);
+    expect(windowsIn(changed)).toHaveLength(1);
+    expect(windowOf(session)).toBe(400_000);
+  });
+
+  it('ignores a window that is not a positive whole number', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'context_window', model: 'fake-model', tokens: 0 };
+      yield { type: 'message', text: 'Hi.' };
+    });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'hi');
+
+    expect(windowsIn(events)).toEqual([]);
+    expect(windowOf(session)).toBe(200_000);
   });
 });
 

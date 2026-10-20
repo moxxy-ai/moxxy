@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
-import { claudeExecutableForSdk } from './executable.js';
+import { claudeExecutableForSdk, claudeForSdk } from './executable.js';
 
 describe('the Claude Code CLI the SDK runs', () => {
   it('runs a native or linked CLI as found', () => {
@@ -22,5 +22,11 @@ describe('the Claude Code CLI the SDK runs', () => {
 
   it('refuses a shim it cannot see through, rather than running it through a shell', () => {
     expect(() => claudeExecutableForSdk('C:\\npm\\claude.cmd', () => false, path.win32)).toThrow(/claude\.cmd/);
+  });
+});
+
+describe('claudeForSdk', () => {
+  it('takes a configured path as it is', () => {
+    expect(claudeForSdk('/opt/claude/bin/claude')).toBe('/opt/claude/bin/claude');
   });
 });

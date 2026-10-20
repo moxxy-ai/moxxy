@@ -1,4 +1,5 @@
 import { AGENT_ACCOUNT_LIMIT_SUBTYPE, recordedAccountLimit, sameAccountLimit, withKnownReset } from '../agent-account-limit.js';
+import { AGENT_CONTEXT_WINDOW_SUBTYPE, isContextWindowSize, recordedContextWindows } from '../agent-context-window.js';
 import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from '../agent-step.js';
 import {
   AUTO_APPROVE_PLUGIN_ID,
@@ -234,12 +235,16 @@ async function runRound(
   let lastText = '';
   let stopReason: StopReason = 'end_turn';
   let usage: TokenUsage | undefined;
+  // How full the agent's context is: what it says, else the prompt of its last call.
+  let contextTokens: number | undefined;
+  let reportsContext = false;
   let error: string | undefined;
   let sessionId = resumeSessionId;
   let goal: AgentGoalStatus | undefined;
   let plan: string | undefined;
   let limit = recordedAccountLimit(ctx.log.ofType('plugin_event'), ctx.provider.name)?.limit;
   let limitReached = false;
+  const windows = new Map(recordedContextWindows(ctx.log.ofType('plugin_event'), ctx.provider.name));
   /** The agent's own subagents started in this step, to name them in their later events (one started in an earlier turn goes unnamed). */
   const subagents = new Map<string, { readonly label: string; readonly agentType: string }>();
   let ranTools = false;
@@ -371,6 +376,18 @@ async function runRound(
           });
           break;
         }
+        case 'context_window':
+          if (!isContextWindowSize(event.tokens) || windows.get(event.model) === event.tokens) break;
+          windows.set(event.model, event.tokens);
+          await emit({
+            ...base,
+            type: 'plugin_event',
+            source: 'system',
+            pluginId: AGENT_CONNECTION_PLUGIN_ID,
+            subtype: AGENT_CONTEXT_WINDOW_SUBTYPE,
+            payload: { provider: ctx.provider.name, model: event.model, tokens: event.tokens },
+          });
+          break;
         case 'subagent_started':
           subagents.set(event.id, { label: event.label, agentType: event.agentType });
           await emit({
@@ -421,6 +438,11 @@ async function runRound(
         }
         case 'usage':
           usage = usage ? addUsage(usage, event.usage) : event.usage;
+          if (!reportsContext) contextTokens = promptTokens(event.usage);
+          break;
+        case 'context_used':
+          reportsContext = true;
+          contextTokens = event.tokens;
           break;
         case 'error':
           error = event.message;
@@ -451,6 +473,7 @@ async function runRound(
     provider: ctx.provider.name,
     model: ctx.model,
     ...usageEventFields(usage),
+    ...(usage && contextTokens !== undefined ? { contextTokens } : {}),
   });
 
   return {
@@ -602,3 +625,6 @@ function turnPrompt(ctx: ModeContext): ReadonlyArray<ContentBlock> {
   return projectUserPrompt(mine, computeElisionState([]));
 }
 
+function promptTokens(usage: TokenUsage): number {
+  return usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheCreationTokens ?? 0);
+}

@@ -36,7 +36,7 @@ export interface FakeCodexTurn {
   run(command: string, output: string, opts?: { readonly approval?: boolean; readonly reason?: string }): Promise<unknown>;
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
   callMoxxyTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown; isError?: boolean }>;
-  usage(input: number, output: number, cached?: number): void;
+  usage(input: number, output: number, cached?: number, contextWindow?: number): void;
   goal(status: CodexGoalStatus): void;
   /** The next text Moxxy steers into this running turn (`turn/steer`). */
   steered(): Promise<string>;
@@ -85,6 +85,8 @@ export interface FakeCodexDefaults {
   readonly ownSkills?: ReadonlyArray<string>;
   /** The person's own MCP servers, as `config/read` reports them under `mcp_servers`. */
   readonly mcpServers?: Readonly<Record<string, { readonly enabled: boolean }>>;
+  /** `model/list` pages as Codex answers them, each `{ data, nextCursor }`. */
+  readonly modelPages?: ReadonlyArray<{ readonly data: ReadonlyArray<unknown>; readonly nextCursor?: string | null }>;
 }
 
 /** The person's Codex install: every app-server Moxxy starts, and the threads it saved. */
@@ -225,6 +227,19 @@ export class FakeCodexServer {
         const thread = this.threads.get(String((started.result as { thread: { id: string } }).thread.id));
         if (thread) thread.moxxyTools = await this.readMoxxyTools(thread);
         return started;
+      }
+      case 'model/list': {
+        // Codex's cursor is the offset of the next page's first model.
+        const pages = this.codex.defaults.modelPages ?? [];
+        const offset = typeof params.cursor === 'string' ? Number(params.cursor) : 0;
+        let start = 0;
+        const page = pages.find((candidate) => {
+          const here = start === offset;
+          start += candidate.data.length;
+          return here;
+        });
+        if (!page) throw new Error(`no model/list page for cursor ${String(params.cursor)}`);
+        return { result: page };
       }
       case 'config/read':
         return {
@@ -442,9 +457,9 @@ export class FakeCodexServer {
         const result = await client.callTool({ name, arguments: args });
         return { content: result.content, ...(result.isError ? { isError: true } : {}) };
       },
-      usage: (inputTokens, outputTokens, cached = 0) => {
+      usage: (inputTokens, outputTokens, cached = 0, contextWindow = 258_400) => {
         const last = { totalTokens: inputTokens + outputTokens, inputTokens, cachedInputTokens: cached, cacheWriteInputTokens: 0, outputTokens, reasoningOutputTokens: 0 };
-        this.notify('thread/tokenUsage/updated', { ...base, tokenUsage: { total: last, last, modelContextWindow: 380_000 } });
+        this.notify('thread/tokenUsage/updated', { ...base, tokenUsage: { total: last, last, modelContextWindow: contextWindow } });
       },
       goal: (status) => {
         if (!thread.goal) throw new Error('no goal is set');

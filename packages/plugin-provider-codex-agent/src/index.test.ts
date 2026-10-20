@@ -25,4 +25,11 @@ describe('the Codex plugin', () => {
     expect(codexSessions().size).toBe(0);
     await session.close();
   });
+
+  it("lists the models the person's Codex offers, and still knows its newest when Codex is not asked", async () => {
+    const { codexAgentProviderDef, codexAgentModels } = await import('./index.js');
+
+    expect(typeof codexAgentProviderDef.agentCli?.models).toBe('function');
+    expect(codexAgentModels.map((m) => m.id)).toContain('gpt-6.1-sol');
+  });
 });

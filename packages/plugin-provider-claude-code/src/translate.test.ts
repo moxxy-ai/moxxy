@@ -32,6 +32,18 @@ describe('Claude messages as Moxxy events', () => {
     expect(t.translate(init('bypassPermissions'))).toContainEqual({ type: 'auto_approve', enabled: true });
   });
 
+  it('says how full its context is from the usage of its last call, not that of a helper agent', () => {
+    const t = new TurnTranslator();
+    const withUsage = (message: ClaudeMessage, usage: Record<string, number>): ClaudeMessage =>
+      ({ ...message, message: { ...(message as { message: object }).message, usage } }) as ClaudeMessage;
+
+    const main = t.translate(withUsage(assistant([{ type: 'text', text: 'Reading.' }]), { input_tokens: 2_000, cache_read_input_tokens: 150_000, cache_creation_input_tokens: 500, output_tokens: 40 }));
+    const helper = t.translate(withUsage(assistant([{ type: 'text', text: 'Found it.' }], 'toolu_task'), { input_tokens: 9_000, output_tokens: 10 }));
+
+    expect(main).toContainEqual({ type: 'context_used', tokens: 152_500 });
+    expect(helper.filter((e) => e.type === 'context_used')).toEqual([]);
+  });
+
   it('leaves the approval policy alone in plan mode, which says nothing about it', () => {
     expect(new TurnTranslator().translate(init('plan'))).toEqual([{ type: 'session', sessionId: 's-1' }]);
     expect(autoApproveFor('auto')).toBeUndefined();

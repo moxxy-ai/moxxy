@@ -27,3 +27,8 @@ export function resolveClaudeForSdk(command: string): string | undefined {
   const found = findAgentCli(CLAUDE_CLI, { command });
   return found ? claudeExecutableForSdk(found) : undefined;
 }
+
+/** The SDK's file for the configured command: a path as given (shim resolved), a bare name looked up. */
+export function claudeForSdk(command: string): string | undefined {
+  return command.includes('/') || command.includes('\\') ? claudeExecutableForSdk(command) : resolveClaudeForSdk(command);
+}

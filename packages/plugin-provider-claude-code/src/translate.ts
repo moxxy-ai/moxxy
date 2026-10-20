@@ -61,7 +61,7 @@ export class TurnTranslator {
         return isMainThread(message) ? fromDelta(message) : [];
       case 'assistant':
         if (message.error === 'rate_limit' && isMainThread(message)) return [this.limitReached()];
-        return isMainThread(message) ? this.fromAssistant(message) : this.fromSubagent(message);
+        return isMainThread(message) ? [...this.fromAssistant(message), ...contextUsed(message.message.usage)] : this.fromSubagent(message);
       case 'rate_limit_event':
         this.limit = accountLimitFrom(message.rate_limit_info);
         return [{ type: 'account_limit', limit: this.limit }];
@@ -168,6 +168,13 @@ export function goalStatusFrom(text: string): AgentGoalStatus | undefined {
   if (/^Goal active\b/.test(text)) return 'active';
   if (/^No goal set\b/.test(text)) return 'complete';
   return undefined;
+}
+
+/** The prompt of one call of the main agent is how full its context is; a turn's result adds every call up. */
+function contextUsed(usage: ClaudeUsage | undefined): AgentStepEvent[] {
+  if (!usage) return [];
+  const tokens = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
+  return tokens > 0 ? [{ type: 'context_used', tokens }] : [];
 }
 
 export function toTokenUsage(usage: ClaudeUsage): TokenUsage {
