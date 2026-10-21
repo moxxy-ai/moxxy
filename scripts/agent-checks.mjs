@@ -61,7 +61,8 @@ export function summarize(results) {
 }
 
 const RESULT_WORD = { 0: 'PASSED', 1: 'FAILED', 2: 'INCOMPLETE (some checks did not run)' };
-const cell = (text) => String(text ?? '').replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+// Backslashes first, so a detail's own `\` cannot turn the pipe escape back into a column break.
+const cell = (text) => String(text ?? '').replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
 
 export function renderReport({ title, commit, dirty, startedAt, versions, results }) {
   const { counts, exitCode } = summarize(results);
@@ -110,8 +111,22 @@ export function parseAgentArgs(argv, known) {
  * description has no such box (written without the template). Boxes inside HTML comments do not count.
  */
 export function liveCheckBox(body) {
-  const visible = (body ?? '').replace(/<!--[\s\S]*?-->/g, '');
+  const visible = withoutHtmlComments(body ?? '');
   const box = visible.match(/^\s*[-*]\s+\[([ xX])\]\s+.*`pnpm test:agents:live`/m);
   if (!box) return 'missing';
   return box[1] === ' ' ? 'unchecked' : 'checked';
+}
+
+/** The text GitHub shows: every `<!-- … -->` dropped, and an unclosed `<!--` hides the rest. One left-to-right pass. */
+function withoutHtmlComments(text) {
+  let shown = '';
+  let at = 0;
+  for (;;) {
+    const open = text.indexOf('<!--', at);
+    if (open === -1) return shown + text.slice(at);
+    shown += text.slice(at, open);
+    const close = text.indexOf('-->', open + 4);
+    if (close === -1) return shown;
+    at = close + 3;
+  }
 }

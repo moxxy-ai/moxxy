@@ -121,3 +121,21 @@ test('reads whether the PR author ticked the live check box in the PR descriptio
     'a box inside an HTML comment of the template does not count',
   );
 });
+
+test('a backslash in a detail stays a backslash in the report table, so it cannot unescape a pipe', () => {
+  const report = renderReport({
+    title: 't',
+    commit: 'abc1234',
+    dirty: false,
+    startedAt: '2026-10-21T10:00:00.000Z',
+    versions: {},
+    results: [{ agent: 'codex', check: 'stop', status: 'fail', detail: 'C:\\tmp\\| still running' }],
+  });
+
+  assert.match(report, /\| C:\\\\tmp\\\\\\\| still running \|/);
+});
+
+test('an HTML comment left open hides the rest of the description, as GitHub renders it', () => {
+  assert.equal(liveCheckBox('<!-- note\n- [x] I ran `pnpm test:agents:live` on this commit'), 'missing');
+  assert.equal(liveCheckBox('<!-- a --> text <!-- b -->\n- [x] I ran `pnpm test:agents:live` on this commit'), 'checked');
+});
