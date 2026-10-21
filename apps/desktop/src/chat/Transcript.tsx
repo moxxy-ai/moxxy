@@ -7,7 +7,7 @@ import {
   type Block as FoldedBlock,
   type CompactToolMap,
 } from '@moxxy/chat-model';
-import { buildRenderNodes, groupThinkingNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
+import { buildRenderNodes, keyOfNode, type Extension, type RenderNode } from '@moxxy/client-core';
 import { BlockView, StreamingAssistant } from './BlockView';
 import { AttachmentReaderProvider } from './attachments/AttachmentReaderContext';
 import { ToolIconProvider } from './ToolIconContext';
@@ -20,7 +20,8 @@ import { ThinkingGroupView } from './blocks/ReasoningBlock';
 import { TraceEntry } from './trace/TraceEntry';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 import type { ImagePreviewItem } from './image-preview/types';
-import { visibleTranscriptNodes } from './transcript-nodes';
+import { transcriptNodes } from './transcript-nodes';
+import { WorkGroupView } from './WorkGroupView';
 import { ModeTranscriptContext } from './modes/ModeTranscriptContext';
 import { PlanNextContext, type AnswerPlan } from './modes/plan-next';
 import { readModeEvents } from './modes/mode-events';
@@ -68,14 +69,14 @@ const MemoBlock = memo(
     a.onPreviewImage === b.onPreviewImage,
 );
 
-function keyOf(node: RenderNode): string {
-  if (node.kind === 'ext') return node.ext.id;
-  if (node.kind === 'tool-group' || node.kind === 'thinking') return node.id;
-  return node.block.id;
-}
+const keyOf = keyOfNode;
 
-/** A row a group can grow over as older history pages in: a tool or a thought. */
+/** A row a group can grow over as older history pages in: a tool, a thought, or a turn's work. */
 function toolAnchorId(node: RenderNode): string | null {
+  if (node.kind === 'work') {
+    const last = node.nodes.at(-1);
+    return last ? toolAnchorId(last) : null;
+  }
   if (node.kind === 'tool-group') return node.tools.at(-1)?.id ?? null;
   if (node.kind === 'thinking') return node.events.at(-1)?.id ?? null;
   if (node.kind === 'block' && (node.block.kind === 'tool-call' || node.block.kind === 'event')) return node.block.id;
@@ -83,6 +84,7 @@ function toolAnchorId(node: RenderNode): string | null {
 }
 
 function containsToolAnchor(node: RenderNode, anchorId: string): boolean {
+  if (node.kind === 'work') return node.nodes.some((inner) => containsToolAnchor(inner, anchorId));
   if (node.kind === 'tool-group') return node.tools.some((tool) => tool.id === anchorId);
   if (node.kind === 'thinking') return node.events.some((event) => event.id === anchorId);
   return node.kind === 'block' && node.block.id === anchorId;
@@ -98,21 +100,34 @@ function findAnchoredIndex(nodes: ReadonlyArray<RenderNode>, previousHead: Rende
   return nodes.findIndex((node) => containsToolAnchor(node, anchorId));
 }
 
-function Row({
-  node,
-  workspaceId,
-  onPreviewImage,
-  foldVersion,
-}: {
+interface RowProps {
   readonly node: RenderNode;
   readonly workspaceId?: string;
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
   readonly foldVersion: number;
-}): JSX.Element {
+}
+
+function Row(props: RowProps): JSX.Element {
   return (
     <div className="transcript__row">
+      <NodeView {...props} />
+    </div>
+  );
+}
+
+function NodeView({ node, workspaceId, onPreviewImage, foldVersion }: RowProps): JSX.Element {
+  return (
+    <>
       {node.kind === 'ext' ? (
         <ExtensionCard ext={node.ext} workspaceId={workspaceId} />
+      ) : node.kind === 'work' ? (
+        <WorkGroupView group={node}>
+          {node.nodes.map((inner) => (
+            <div key={keyOf(inner)} className="work-group__step">
+              <NodeView node={inner} workspaceId={workspaceId} onPreviewImage={onPreviewImage} foldVersion={foldVersion} />
+            </div>
+          ))}
+        </WorkGroupView>
       ) : node.kind === 'tool-group' ? (
         <ToolGroupView tools={node.tools} />
       ) : node.kind === 'thinking' ? (
@@ -126,7 +141,7 @@ function Row({
           foldVersion={foldVersion}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -180,12 +195,15 @@ export function Transcript({
   }
   // What the plan, goal and research modes reported about these turns.
   const modes = useMemo(() => readModeEvents(events), [events]);
+  // The turn still going stays unfolded; once it ends, its work folds under the answer.
+  const running = sending === true;
   const nodes = useMemo(
-    () => groupThinkingNodes(groupToolNodes(visibleTranscriptNodes(
+    () => transcriptNodes(
       buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools),
-      modes.notes,
-    ))),
-    [events, extensions, compactTools, modes],
+      modes,
+      running,
+    ),
+    [events, extensions, compactTools, modes, running],
   );
   const foldVersion = foldRef.current?.version ?? events.length;
 

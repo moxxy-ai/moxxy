@@ -2711,6 +2711,21 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 /* A tool group is drawn straight into the row, without an entry around it. */
 .transcript__row > .activity-block { padding-bottom: var(--space-8); }
 
+/* A turn's folded work. The header keeps to a work line's width; opened, the
+ * steps are drawn as the conversation draws them, hung off a quiet rule so they
+ * read as part of the group and not as the answer under it. */
+.transcript__row > .work-group { max-width: none; padding-bottom: var(--space-12); }
+.work-group > .activity-row { max-width: min(100%, 640px); }
+.work-group__steps {
+  display: flex;
+  flex-direction: column;
+  margin: var(--space-8) 0 0 var(--space-4);
+  padding-left: var(--space-12);
+  border-left: 1px solid var(--color-border);
+}
+.work-group__step { display: flex; flex-direction: column; min-width: 0; }
+.work-group__step > .activity-block { padding-bottom: var(--space-8); max-width: min(100%, 640px); }
+
 .tr {
   display: flex;
   flex-direction: column;

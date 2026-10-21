@@ -24,6 +24,7 @@ import {
   FILE_DIFF_TOOL_NAMES,
   newBlockId,
   pairToolEvents,
+  questionAnswerOf,
   type Block as FoldedBlock,
   type CompactToolMap,
   type IncrementalFold,
@@ -60,7 +61,23 @@ export type RenderNode =
   | { readonly kind: 'block'; readonly block: FoldedBlock }
   | { readonly kind: 'ext'; readonly ext: Extension }
   | { readonly kind: 'tool-group'; readonly id: string; readonly tools: ReadonlyArray<ToolCallBlockData> }
-  | { readonly kind: 'thinking'; readonly id: string; readonly events: ReadonlyArray<ReasoningMessageEvent> };
+  | { readonly kind: 'thinking'; readonly id: string; readonly events: ReadonlyArray<ReasoningMessageEvent> }
+  | WorkNode;
+
+/**
+ * What an agent did on its way to an answer in one finished turn (thoughts,
+ * tool runs, the comments in between), folded into one row: see `groupWorkNodes`.
+ */
+export interface WorkNode {
+  readonly kind: 'work';
+  readonly id: string;
+  readonly nodes: ReadonlyArray<RenderNode>;
+  /** Tool calls, thoughts and comments the group holds. */
+  readonly steps: number;
+  /** From the turn's message (or the first step), to whatever came after the last step. */
+  readonly startedAtMs: number | null;
+  readonly endedAtMs: number | null;
+}
 
 function reasoningOf(node: RenderNode): ReasoningMessageEvent | null {
   if (node.kind !== 'block' || node.block.kind !== 'event') return null;
@@ -94,6 +111,133 @@ export function groupThinkingNodes(nodes: ReadonlyArray<RenderNode>): RenderNode
   }
   flush();
   return out;
+}
+
+function eventOf(node: RenderNode): MoxxyEvent | null {
+  return node.kind === 'block' && node.block.kind === 'event' ? node.block.event : null;
+}
+
+/** A row that is part of an agent's work; anything else (errors, Stopped, notices, cards) stays in view. */
+function isWorkStep(node: RenderNode): boolean {
+  if (node.kind === 'thinking') return true;
+  if (node.kind === 'tool-group') return !node.tools.some((tool) => questionAnswerOf(tool.outcome));
+  if (node.kind !== 'block') return false;
+  const block = node.block;
+  if (block.kind === 'tool-call') return !questionAnswerOf(block.outcome);
+  if (block.kind === 'event') return block.event.type === 'assistant_message' || block.event.type === 'reasoning_message';
+  return block.kind === 'live-tools' || block.kind === 'skill-scope' || block.kind === 'subagent' || block.kind === 'subagent-group';
+}
+
+function stepsIn(node: RenderNode): number {
+  if (node.kind === 'tool-group') return node.tools.length;
+  if (node.kind === 'thinking') return node.events.length;
+  if (node.kind === 'block' && node.block.kind === 'live-tools') return node.block.calls.length;
+  if (node.kind === 'block' && node.block.kind === 'subagent-group') return node.block.agents.length;
+  return 1;
+}
+
+function startOf(node: RenderNode): number | null {
+  const ts = (() => {
+    if (node.kind === 'tool-group') return node.tools[0]?.request.ts;
+    if (node.kind === 'thinking') return node.events[0]?.ts;
+    if (node.kind !== 'block') return undefined;
+    const block = node.block;
+    if (block.kind === 'event') return block.event.ts;
+    if (block.kind === 'tool-call') return block.request.ts;
+    if (block.kind === 'live-tools') return block.calls[0]?.request.ts;
+    if (block.kind === 'skill-scope') return block.skillEvent.ts;
+    if (block.kind === 'subagent') return block.startedAtMs;
+    if (block.kind === 'subagent-group') return block.agents[0]?.startedAtMs;
+    return undefined;
+  })();
+  return typeof ts === 'number' && Number.isFinite(ts) ? ts : null;
+}
+
+/** The latest moment a row records: its start, or the last result it got. */
+function endOf(node: RenderNode): number | null {
+  const calls =
+    node.kind === 'tool-group' ? node.tools
+    : node.kind === 'block' && node.block.kind === 'tool-call' ? [node.block]
+    : node.kind === 'block' && node.block.kind === 'live-tools' ? node.block.calls
+    : [];
+  const ends = calls.flatMap((call) => (call.outcome && call.outcome.type !== 'denied' ? [call.outcome.ts] : []));
+  if (node.kind === 'thinking') ends.push(...node.events.map((event) => event.ts));
+  const start = startOf(node);
+  if (start !== null) ends.push(start);
+  const finite = ends.filter((ts) => Number.isFinite(ts));
+  return finite.length > 0 ? Math.max(...finite) : null;
+}
+
+export interface WorkGroupOptions {
+  /** The last turn is still going: its steps stay in view as they come. */
+  readonly running?: boolean;
+  /** A row the surface draws as more than a step, such as a plan card: never folded. */
+  readonly keep?: (node: RenderNode) => boolean;
+}
+
+/**
+ * Fold what an agent did in each finished turn before its answer into one
+ * `work` row, so a long piece of work reads as "worked 4m · 12 steps" over the
+ * answer instead of a screen of comments, thoughts and tool runs.
+ *
+ * A turn runs from one person's (or agent-started) message to the next. Its
+ * last message stays in view as the answer; errors, Stopped, notices, answered
+ * questions, step lists and whatever `keep` names stay in view too, so the
+ * work folds in runs between them, in order. A run of one step stays as it is,
+ * and the turn still running is left alone.
+ */
+export function groupWorkNodes(nodes: ReadonlyArray<RenderNode>, options: WorkGroupOptions = {}): RenderNode[] {
+  const keep = options.keep ?? (() => false);
+  const prompts = nodes.flatMap((node, at) => (eventOf(node)?.type === 'user_prompt' ? [at] : []));
+  const out: RenderNode[] = [...nodes.slice(0, prompts[0] ?? nodes.length)];
+  prompts.forEach((from, index) => {
+    const to = prompts[index + 1] ?? nodes.length;
+    const turn = nodes.slice(from, to);
+    const isLast = index === prompts.length - 1;
+    if (isLast && options.running) {
+      out.push(...turn);
+      return;
+    }
+    const answerAt = turn.findLastIndex((node) => eventOf(node)?.type === 'assistant_message' && !keep(node));
+    const turnStart = startOf(turn[0]!);
+    let run: RenderNode[] = [];
+    const flush = (next: RenderNode | undefined): void => {
+      const first = run[0];
+      if (first && run.length >= 2) {
+        const startedFirst = out.at(-1) === turn[0];
+        const ends = run.map(endOf).filter((ts): ts is number => ts !== null);
+        out.push({
+          kind: 'work',
+          id: `work:${keyOfNode(first)}`,
+          nodes: run,
+          steps: run.reduce((sum, node) => sum + stepsIn(node), 0),
+          startedAtMs: (startedFirst ? turnStart : null) ?? startOf(first),
+          endedAtMs: (next ? startOf(next) : null) ?? (ends.length > 0 ? Math.max(...ends) : null),
+        });
+      } else {
+        out.push(...run);
+      }
+      run = [];
+    };
+    out.push(turn[0]!);
+    turn.slice(1).forEach((node, at) => {
+      if (at + 1 !== answerAt && isWorkStep(node) && !keep(node)) {
+        run.push(node);
+      } else {
+        flush(node);
+        out.push(node);
+      }
+    });
+    flush(undefined);
+  });
+  return out;
+}
+
+/** The id a row is known by, stable while the row stays the same. */
+export function keyOfNode(node: RenderNode): string {
+  if (node.kind === 'ext') return node.ext.id;
+  if (node.kind === 'block') return node.block.id;
+  return node.id;
 }
 
 /**
