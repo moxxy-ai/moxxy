@@ -65,7 +65,8 @@ const READ_CHUNK = 1024 * 1024;
 const HEAD_BYTES = 64 * 1024;
 /** An image Electron cannot shrink is drawn whole up to this size. */
 const WHOLE_THUMBNAIL_MAX_BYTES = 1536 * 1024;
-const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+/** One path segment: no separators, no dots. A leading `_` is the startup chat's `__unbound__`. */
+const SAFE_SESSION_ID = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 
 export class ChatMediaStore {
   private readonly sessionsDir: string;

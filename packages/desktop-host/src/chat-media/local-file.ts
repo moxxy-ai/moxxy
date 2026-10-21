@@ -13,5 +13,15 @@ export function localMediaFilePath(href: string, windows = process.platform === 
     }
   }
   if (href.startsWith('//') || href.startsWith('\\\\')) return null;
-  return (windows ? path.win32 : path.posix).isAbsolute(href) ? href : null;
+  // A markdown link escapes its destination (a space becomes %20).
+  return (windows ? path.win32 : path.posix).isAbsolute(href) ? decodeEscapes(href) : null;
+}
+
+/** A `%` that does not start an escape (`100%.md`) leaves the path as written. */
+function decodeEscapes(target: string): string {
+  try {
+    return decodeURIComponent(target);
+  } catch {
+    return target;
+  }
 }

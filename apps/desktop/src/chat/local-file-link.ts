@@ -6,6 +6,9 @@ import { api } from '@moxxy/client-core';
  * sanitizing empties a `file:` href and a bare path resolves against the app's
  * own URL, so either way the click opened the app itself in the OS browser.
  * They open through `files.open` instead.
+ *
+ * Markdown escapes a link's destination (a space becomes `%20`), so a bare
+ * path is decoded too, or a folder with a space in its name is never found.
  */
 export function localFilePath(href: string | undefined): string | null {
   if (!href) return null;
@@ -18,12 +21,19 @@ export function localFilePath(href: string | undefined): string | null {
       return null;
     }
   }
-  return href.startsWith('/') && !href.startsWith('//') ? href : null;
+  return href.startsWith('/') && !href.startsWith('//') ? decodeEscapes(href) : null;
 }
 
-/** Ask the host to open (or reveal) a linked local file. */
-export function openLocalFile(filePath: string): void {
-  void api()
-    .invoke('files.open', { path: filePath })
-    .catch(() => undefined);
+/** A `%` that does not start an escape (`100%.md`) leaves the path as written. */
+function decodeEscapes(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
+/** Ask the host to open (or reveal) a linked local file; rejects with why it could not. */
+export async function openLocalFile(filePath: string): Promise<void> {
+  await api().invoke('files.open', { path: filePath });
 }

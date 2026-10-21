@@ -186,17 +186,27 @@ export function Workbench({
           />}
 
           <div className="bench__tabs">
-            {/* The tab row scrolls; the collapse cell after it never shrinks. Four
+            {/* The tab row scrolls; the collapse cell after it never shrinks. The
                 labelled tabs are wider than a narrow workbench, and when they lived
                 in the same flex row as the collapse button they pushed it past the
-                right edge — so an opened workbench could not be closed at all. */}
+                right edge — so an opened workbench could not be closed at all. Below
+                the labelled width the inactive tabs drop their words (styles.css). */}
             <div className="bench__tablist" role="tablist" aria-label="Workbench panes">
               {TABS.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   role="tab"
-                  className="bench__tab"
+                  className="bench__tab tip"
+                  // A narrow strip draws an inactive tab as its icon alone: the
+                  // name stays for assistive tech and in the tooltip.
+                  aria-label={
+                    t.id === 'files' && changedCount !== undefined && changedCount > 0
+                      ? `${t.label}, ${changedCount} changed`
+                      : t.label
+                  }
+                  data-tip={t.label}
+                  data-tip-side="bottom"
                   data-testid={`bench-tab-${t.id}`}
                   data-active={t.id === tab}
                   aria-selected={t.id === tab}
@@ -206,7 +216,7 @@ export function Workbench({
                   onClick={() => (t.id === tab ? onClose() : onPick(t.id))}
                 >
                   <Icon name={t.icon} size={13} />
-                  <span>{t.label}</span>
+                  <span className="bench__tab-label">{t.label}</span>
                   {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
                     <b>{changedCount}</b>
                   )}

@@ -29,6 +29,31 @@ describe('MarkdownBody links', () => {
     );
   });
 
+  it('opens a linked path with a space in a folder name as that path', async () => {
+    const invoke = installApi();
+    render(<MarkdownBody text="[raport](</Users/me/Propozycje YouTube/RECLAIM-RESULTS.md>)" />);
+
+    fireEvent.click(screen.getByRole('link', { name: 'raport' }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('files.open', { path: '/Users/me/Propozycje YouTube/RECLAIM-RESULTS.md' }),
+    );
+  });
+
+  it('says so beside the link when the file cannot be opened', async () => {
+    const invoke = vi.fn(async () => {
+      throw new Error('file not found: /Users/me/gone.md');
+    });
+    __setApiOverride({ invoke, subscribe: () => () => undefined } as never);
+    render(<MarkdownBody text="[gone](/Users/me/gone.md)" />);
+
+    fireEvent.click(screen.getByRole('link', { name: 'gone' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Couldn’t open this file');
+    expect(alert).toHaveAttribute('title', 'file not found: /Users/me/gone.md');
+  });
+
   it('keeps web links opening in the browser', () => {
     installApi();
     render(<MarkdownBody text="[docs](https://example.com/docs)" />);

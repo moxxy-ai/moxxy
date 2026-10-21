@@ -1407,6 +1407,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 
 /* The tabs get the leftover room and scroll inside it. */
 .bench__tablist {
+  container: bench-tabs / inline-size;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -1448,6 +1449,14 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-weight: 600;
   font-size: var(--type-label);
   color: var(--color-text-dim);
+}
+
+/* Five labelled tabs need about 362 px and the strip has 295 at the panel's
+ * default width, where the last one scrolled out of sight. Below the labelled
+ * width an inactive tab is its icon alone (named by aria-label and its tooltip);
+ * the open one keeps its word, so the strip still says where you are. */
+@container bench-tabs (max-width: 380px) {
+  .bench__tab:not([data-active='true']) .bench__tab-label { display: none; }
 }
 
 .bench__body {

@@ -150,6 +150,13 @@ an exhausted account limit already explains the end and gets no extra note.
 The terminal, phone and messaging channels use the same wording; the note
 does not become an assistant message or get read aloud by a channel.
 
+A link the agent writes to a file on this computer (a `file://` URL or an
+absolute path, spaces and all) opens through the host, never in the browser:
+the file's own app for a type that only views or plays, otherwise the file
+manager (`chat/local-file-link.ts`, `files.open`). A click that cannot open it
+leaves a short red "Couldn’t open this file" beside the link, with the reason
+under the pointer, instead of doing nothing.
+
 `chat/trace/TraceEntry.tsx` maps an entry's kind to its side and owns the row.
 The bubble is drawn by the block inside it (`UserBlock`, `AssistantBlock`).
 
@@ -390,7 +397,10 @@ because the browser parked inside it has to keep painting to keep its pages.
 ### Shared media
 
 Media is a fifth pane beside Terminal, Files, Diff and Browser, also found by
-name in ⌘K. It belongs to the current chat, including its older history, and
+name in ⌘K. Five labelled tabs are wider than the strip at the panel's default width, so
+below that width an inactive tab is drawn as its icon alone, named by its
+tooltip and for assistive tech; the open tab keeps its word, and every tab
+stays in view (`@container bench-tabs` in `styles.css`). It belongs to the current chat, including its older history, and
 does not open automatically when the agent captures a screen. Its three
 sections — Media, Files and Links — use the existing recessed segmented
 control. Search and the All / You / Agent sender filter sit below it; changing

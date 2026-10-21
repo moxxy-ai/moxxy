@@ -250,6 +250,12 @@ describe('ChatMediaStore', () => {
     ]);
   });
 
+  it("reads the startup chat, whose id is '__unbound__'", async () => {
+    await appendFile(path.join(sessionsDir, '__unbound__.jsonl'), `${JSON.stringify(say('https://one.example'))}\n`);
+    const store = new ChatMediaStore({ sessionsDir, cacheDir, thumbnail: halve });
+    expect((await store.library('__unbound__')).map((entry) => entry.item.id)).toEqual(['l:https://one.example/']);
+  });
+
   it('refuses a session id that could leave the sessions folder', async () => {
     const store = new ChatMediaStore({ sessionsDir, cacheDir, thumbnail: halve });
     await expect(store.library('../../etc')).rejects.toThrow();

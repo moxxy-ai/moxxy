@@ -12,6 +12,11 @@ describe('local media paths', () => {
     expect(localMediaFilePath('C:\\Users\\me\\report.pdf', true)).toBe('C:\\Users\\me\\report.pdf');
     expect(localMediaFilePath('/Users/me/report.pdf', false)).toBe('/Users/me/report.pdf');
   });
+  it('decodes the escapes a markdown link puts in a bare path', () => {
+    expect(localMediaFilePath('/Users/me/Propozycje%20YouTube/report.md', false)).toBe('/Users/me/Propozycje YouTube/report.md');
+    expect(localMediaFilePath('C:\\Users\\me\\My%20Files\\report.md', true)).toBe('C:\\Users\\me\\My Files\\report.md');
+    expect(localMediaFilePath('/Users/me/100%.md', false)).toBe('/Users/me/100%.md');
+  });
   it('rejects remote shares, relative paths and other URL schemes', () => {
     for (const windows of [true, false]) {
       for (const input of [

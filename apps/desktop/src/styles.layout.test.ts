@@ -70,3 +70,15 @@ describe('styles.css — the terminal is part of the work panel', () => {
   });
 });
 
+
+describe('styles.css — every work panel tab stays in view', () => {
+  it('drops the words of the inactive tabs, not the tabs, once the strip is too narrow for every label', () => {
+    // Five labelled tabs need about 362 px; the strip has 295 at the panel's
+    // default width, so the fifth (Media) scrolled out of sight.
+    expect(rule('.bench__tablist')).toMatch(/container:\s*bench-tabs\s*\/\s*inline-size/);
+    const narrow = /@container bench-tabs \(max-width:\s*(\d+)px\)\s*\{([^}]*)\}/.exec(css);
+    expect(narrow, 'no narrow rule for the tab strip').not.toBeNull();
+    expect(Number(narrow?.[1])).toBeGreaterThanOrEqual(380);
+    expect(narrow?.[2]).toMatch(/\.bench__tab:not\(\[data-active='true'\]\)\s+\.bench__tab-label\s*\{\s*display:\s*none/);
+  });
+});
