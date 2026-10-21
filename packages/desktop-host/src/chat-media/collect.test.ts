@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { ChatMediaCollector } from './collect';
@@ -161,10 +163,16 @@ describe('ChatMediaCollector', () => {
   });
 
   it('files a link to a file on this computer under files, as the agent wrote it', () => {
+    // A path of the platform the test runs on: `file:///Users/…` names no drive
+    // on Windows, so there it is no file on this computer.
+    const home = process.platform === 'win32' ? 'C:\\Users\\me' : '/Users/me';
+    const report = path.join(home, 'report.pdf');
+    const notes = path.join(home, 'notes v2.md');
+    const reportLink = process.platform === 'win32' ? pathToFileURL(report).href : report;
     const collector = collect([
       ev('assistant_message', {
         stopReason: 'end_turn',
-        content: 'Saved [the report](/Users/me/report.pdf) and [notes](file:///Users/me/notes%20v2.md).',
+        content: `Saved [the report](${reportLink}) and [notes](${pathToFileURL(notes).href}).`,
       }),
     ]);
     expect(items(collector)).toEqual([
@@ -172,14 +180,14 @@ describe('ChatMediaCollector', () => {
         kind: 'file',
         owner: 'agent',
         name: 'notes v2.md',
-        path: '/Users/me/notes v2.md',
-        id: 'f:/Users/me/notes v2.md',
+        path: notes,
+        id: `f:${notes}`,
       }),
       expect.objectContaining({
         kind: 'file',
         owner: 'agent',
         name: 'report.pdf',
-        path: '/Users/me/report.pdf',
+        path: report,
       }),
     ]);
   });
