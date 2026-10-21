@@ -104,3 +104,14 @@ export function parseAgentArgs(argv, known) {
   }
   return { agents: agents.length > 0 ? agents : [...known], install };
 }
+
+/**
+ * The PR template's "I ran `pnpm test:agents:live`" task box: 'checked', 'unchecked', or 'missing' when the
+ * description has no such box (written without the template). Boxes inside HTML comments do not count.
+ */
+export function liveCheckBox(body) {
+  const visible = (body ?? '').replace(/<!--[\s\S]*?-->/g, '');
+  const box = visible.match(/^\s*[-*]\s+\[([ xX])\]\s+.*`pnpm test:agents:live`/m);
+  if (!box) return 'missing';
+  return box[1] === ' ' ? 'unchecked' : 'checked';
+}

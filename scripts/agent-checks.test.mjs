@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   codexKindsFromGenerated,
   diffKinds,
+  liveCheckBox,
   newestFixture,
   parseAgentArgs,
   renderReport,
@@ -104,4 +105,19 @@ test('takes the agents to check from --agent, all of them by default, and refuse
   assert.deepEqual(parseAgentArgs(['--install', 'minimum'], known).install, 'minimum');
   assert.throws(() => parseAgentArgs(['--agent', 'grok'], known), /unknown agent "grok"/);
   assert.throws(() => parseAgentArgs(['--install', 'nightly'], known), /--install must be/);
+});
+
+test('reads whether the PR author ticked the live check box in the PR description', () => {
+  const box = (mark) => `## What\nFixes Stop.\n\n- [${mark}] I ran \`pnpm test:agents:live\` on this PR's latest commit and every agent passed.\n`;
+
+  assert.equal(liveCheckBox(box('x')), 'checked');
+  assert.equal(liveCheckBox(box('X')), 'checked');
+  assert.equal(liveCheckBox(box(' ')), 'unchecked');
+  assert.equal(liveCheckBox('## What\nA body written without the template.'), 'missing');
+  assert.equal(liveCheckBox(null), 'missing', 'GitHub sends no body for an empty description');
+  assert.equal(
+    liveCheckBox('<!-- - [x] I ran `pnpm test:agents:live` -->\n- [ ] I ran `pnpm test:agents:live` on this commit'),
+    'unchecked',
+    'a box inside an HTML comment of the template does not count',
+  );
 });
