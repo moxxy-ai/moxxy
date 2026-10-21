@@ -107,14 +107,15 @@ OpenCode itself does each turn through `opencode acp`, with its own instructions
 
 Moxxy checks the three CLIs when the TUI, `moxxy serve` or the desktop starts and every hour after: whether each is installed, signed in, and as new as the vendor's latest release on npm. A CLI older than the oldest version Moxxy was checked against (Claude Code 2.1.296, Codex 0.155.1, OpenCode 1.19.0) must be updated before its connection is used. The TUI says so in one line above the prompt, the desktop above the message box and in Settings → Providers, and `moxxy doctor` lists it. `moxxy agents install <agent>` runs the vendor's installer (Claude `claude.ai/install.sh`, Codex `chatgpt.com/codex/install.sh`, OpenCode `opencode.ai/install`; on Windows their PowerShell installers, and npm for OpenCode); `moxxy agents update <agent>` runs the agent's own update command, which knows how it was installed. Moxxy never updates a CLI by itself, and the desktop refuses to update one while a turn runs.
 
-Contributors with an authenticated subscription can run the opt-in, no-API-key smoke gate after `pnpm build`:
+Two checks keep the connections honest as the vendors ship new CLIs:
 
 ```sh
-node scripts/e2e-claude-cli-live.mjs
-# optional: MOXXY_CLAUDE_E2E_MODEL=claude-opus-5-5 node scripts/e2e-claude-cli-live.mjs
+pnpm test:agents:compat              # no sign-in: each CLI's handshake and protocol (also daily on CI)
+pnpm test:agents:live                # real conversations with your own sign-ins
+pnpm test:agents:live --agent codex  # one agent
 ```
 
-It skips clearly when `claude` is missing or signed out, streams a real text prompt, and has Claude write a file only inside a generated temporary git repository.
+The live check drives `moxxy serve` the way the desktop does, on a throwaway Moxxy home with this repo's connection packages: a reply, a file change, a Moxxy tool, a follow-up that needs the earlier turn, Stop during a running command, and a restart that must resume the conversation. An agent that is not installed or not signed in is reported as not checked, never as passed; the report is saved under `.live-reports/`.
 
 ## Quickstart
 

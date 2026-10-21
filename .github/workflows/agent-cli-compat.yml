@@ -1,0 +1,75 @@
+# Do Claude Code, Codex and OpenCode still speak the way Moxxy's agent
+# connections expect? The vendors ship new CLIs on their own schedule, so this
+# runs every day (an hour before the daily release) against the NEWEST CLIs on
+# npm, and against the MINIMUM versions Moxxy still supports.
+#
+# It needs no account, key or secret: each CLI starts in a throwaway home and
+# answers the handshake its connection opens with; Codex's protocol kinds are
+# compared with the fixture the connection was written against. No model is
+# called, so it cannot prove a real conversation — that is the local
+# `pnpm test:agents:live` (see AGENTS.md, "Agent connections: live check").
+#
+# A red run here means a vendor changed something Moxxy depends on: read the
+# job summary, then update the connection (and its fixture) before releasing.
+#
+#   gh workflow run agent-cli-compat.yml --ref development
+#   gh run list --workflow=agent-cli-compat.yml
+name: Agent CLI compatibility
+
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+  pull_request:
+    branches: [development, staging-agent-update]
+    paths:
+      - 'packages/agent-connection-kit/**'
+      - 'packages/plugin-provider-claude-code/**'
+      - 'packages/plugin-provider-codex-agent/**'
+      - 'packages/plugin-provider-acp/**'
+      - 'scripts/agent-check*.mjs'
+      - 'scripts/agent-cli-*.mjs'
+      - '.github/workflows/agent-cli-compat.yml'
+
+concurrency:
+  group: agent-cli-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compat:
+    name: Agent CLIs (${{ matrix.install }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        install: [latest, minimum]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the agent connections
+        run: >-
+          pnpm turbo run build
+          --filter=@moxxy/agent-connection-kit...
+          --filter=@moxxy/plugin-provider-claude-code...
+          --filter=@moxxy/plugin-provider-acp...
+
+      - name: Check the ${{ matrix.install }} CLIs
+        run: node scripts/agent-cli-compat.mjs --install ${{ matrix.install }}
