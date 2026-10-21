@@ -68,12 +68,29 @@ import { registerSettingsHandlers } from './ipc/settings';
 import { registerAgentsHandlers } from './ipc/agents';
 import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
+import { registerChatMediaHandlers, watchChatMediaCleanup } from './ipc/chat-media';
+import { ChatMediaStore } from './chat-media/store';
+import { electronFingerprint, electronThumbnail } from './chat-media/electron-images';
 import { registerMobileGatewayHandlers, type MobileGatewayController } from './ipc/mobile-gateway';
 import { registerChannelsHandlers } from './ipc/channels';
-import { registerFilesHandlers } from './ipc/files';
+import { electronFiles, registerFilesHandlers } from './ipc/files';
 import { registerVoiceHandlers, type VoiceHandlerDependencies } from './ipc/voice';
 
 let stopBotModelWatch: (() => void) | null = null;
+
+let chatMedia: ChatMediaStore | null = null;
+
+/** One library store per process, whichever transport asks: its queue is what
+ *  keeps two readers of one chat from writing the index over each other. */
+function chatMediaStore(): ChatMediaStore {
+  if (!chatMedia) {
+    chatMedia = new ChatMediaStore({ thumbnail: electronThumbnail, fingerprint: electronFingerprint });
+    watchChatMediaCleanup(chatMedia, desktopEventBus);
+    // The index of a chat removed since (from any surface) goes at start.
+    void chatMedia.sweep().catch(() => undefined);
+  }
+  return chatMedia;
+}
 
 /** A bot's `/model` (run in its own process) shows in the desktop's chat with
  *  the bot as soon as the bot saves it. Once per process, not per transport. */
@@ -141,6 +158,7 @@ export function registerIpcHandlers(
     registerAgentsHandlers(pool);
     registerVaultHandlers();
     registerChatHandlers(pool, desks);
+    registerChatMediaHandlers(desks, chatMediaStore(), electronFiles);
     registerMobileGatewayHandlers(opts.mobileGateway ?? null);
     registerChannelsHandlers({
       attachChat: async (sessionId, socketPath) => void (await pool.attach(sessionId, socketPath)),

@@ -228,6 +228,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
     onShowShortcuts: showShortcuts,
     onOpenPalette: openPalette,
     onSection: sections.show,
+    onPane: bench.setTab,
   });
   const { view, go } = nav;
   useAttention({

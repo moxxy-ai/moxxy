@@ -34,12 +34,13 @@ import { TerminalPane } from './surfaces/TerminalPane';
 import { FilesPane } from './surfaces/FilesPane';
 import { FilesExplorerPane } from './surfaces/FilesExplorerPane';
 import { BrowserPane } from './surfaces/BrowserPane';
+import { MediaPane } from './surfaces/media/MediaPane';
 
 /** The workbench tabs. Names say what the pane IS: `diff` is the git-changed
  *  set with its diff (the old "Files changed"), `files` browses the workspace
  *  (the old "Files"). The old ids are kept so persisted state and the
  *  agent-reveal seam below do not need a migration. */
-export type WorkbenchTab = 'terminal' | 'files' | 'explorer' | 'browser';
+export type WorkbenchTab = 'terminal' | 'files' | 'explorer' | 'browser' | 'media';
 
 interface TabDef {
   readonly id: WorkbenchTab;
@@ -52,6 +53,7 @@ const TABS: ReadonlyArray<TabDef> = [
   { id: 'explorer', label: 'Files', icon: 'file' },
   { id: 'files', label: 'Diff', icon: 'diff' },
   { id: 'browser', label: 'Browser', icon: 'globe' },
+  { id: 'media', label: 'Media', icon: 'image' },
 ];
 
 /**
@@ -250,6 +252,7 @@ export function Workbench({
         {tab === 'terminal' && <TerminalPane workspaceId={workspaceId} />}
         {tab === 'files' && <FilesPane workspaceId={workspaceId} cwd={active?.cwd ?? null} />}
         {tab === 'explorer' && <FilesExplorerPane workspaceId={workspaceId} />}
+        {tab === 'media' && <MediaPane key={workspaceId} workspaceId={workspaceId} />}
         {browserStarted && (
           <div
             className="bench__browser"

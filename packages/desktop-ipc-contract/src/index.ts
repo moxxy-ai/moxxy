@@ -122,6 +122,16 @@ export type {
   RunTurnVisibility,
   ActiveTurnSnapshot,
 } from './chat.js';
+export type {
+  ChatMediaFile,
+  ChatMediaImage,
+  ChatMediaImageChunk,
+  ChatMediaImageData,
+  ChatMediaItem,
+  ChatMediaLibrary,
+  ChatMediaLink,
+  ChatMediaOwner,
+} from './chat-media.js';
 
 // ---------- Focus window layout ------------------------------------------
 export {

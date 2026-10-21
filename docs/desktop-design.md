@@ -387,6 +387,29 @@ Its width is never animated: the terminal measures its columns when it mounts.
 The closed panel stays in the layout at zero width instead of being removed,
 because the browser parked inside it has to keep painting to keep its pages.
 
+### Shared media
+
+Media is a fifth pane beside Terminal, Files, Diff and Browser, also found by
+name in ⌘K. It belongs to the current chat, including its older history, and
+does not open automatically when the agent captures a screen. Its three
+sections — Media, Files and Links — use the existing recessed segmented
+control. Search and the All / You / Agent sender filter sit below it; changing
+chats resets these controls. Typing and switching filters do not animate.
+
+Images form a responsive square grid under quiet month headings. Only visible
+tiles and their immediate neighbours request thumbnails. A small spark marks
+an agent image without making its tile a different colour. Clicking opens the
+existing image preview, with previous/next controls and arrow keys through the
+filtered images. File and link rows share one layout: a quiet icon, a truncated
+name, then size or host and date. Missing local files say so and cannot open.
+Links open as links in the chat do; the library never fetches a page preview.
+Empty, loading, search-without-results and read-error states are distinct.
+
+The full log is indexed into a disposable cache per chat that holds no
+attachment bytes; an attached file is copied there only when it is opened. Completed messages supply links; code and pages merely visited
+by browser tools do not. Repeated images and links appear once. Rebuilding
+the cache never rewrites the conversation. The phone has no new screen yet.
+
 ## The other views
 
 Every view outside the conversation is built from one small kit, so they read

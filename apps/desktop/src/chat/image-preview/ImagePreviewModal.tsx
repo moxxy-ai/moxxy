@@ -59,9 +59,17 @@ function clampPan(
 export function ImagePreviewModal({
   image,
   onClose,
+  position,
+  onPrevious,
+  onNext,
 }: {
   readonly image: ImagePreviewItem | null;
   readonly onClose: () => void;
+  /** Where this image is among those it steps through ("2 of 3"). */
+  readonly position?: string;
+  /** Given only when there is an image before / after this one. */
+  readonly onPrevious?: () => void;
+  readonly onNext?: () => void;
 }): JSX.Element | null {
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState<PanPoint>(CENTER_PAN);
@@ -90,10 +98,12 @@ export function ImagePreviewModal({
     if (!image) return;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onClose();
+      else if (event.key === 'ArrowLeft' && onPrevious) onPrevious();
+      else if (event.key === 'ArrowRight' && onNext) onNext();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [image, onClose]);
+  }, [image, onClose, onPrevious, onNext]);
 
   useEffect(() => {
     if (!dragging) return undefined;
@@ -194,6 +204,32 @@ export function ImagePreviewModal({
           }}
         />
       </div>
+      {onPrevious && (
+        <button
+          type="button"
+          aria-label="Previous image"
+          onClick={(event) => {
+            event.stopPropagation();
+            onPrevious();
+          }}
+          style={{ ...stepButtonStyle, left: 18 }}
+        >
+          <Icon name="chevron-right" size={20} style={{ transform: 'rotate(180deg)' }} />
+        </button>
+      )}
+      {onNext && (
+        <button
+          type="button"
+          aria-label="Next image"
+          onClick={(event) => {
+            event.stopPropagation();
+            onNext();
+          }}
+          style={{ ...stepButtonStyle, right: 18 }}
+        >
+          <Icon name="chevron-right" size={20} />
+        </button>
+      )}
       <button
         type="button"
         aria-label="Close image preview"
@@ -237,6 +273,9 @@ export function ImagePreviewModal({
           boxShadow: '0 14px 36px rgba(0,0,0,0.35)',
         }}
       >
+        {position && (
+          <span style={{ padding: '0 6px', fontSize: 'var(--type-ui)', color: 'rgba(248,250,252,0.72)' }}>{position}</span>
+        )}
         <button
           type="button"
           aria-label="Zoom out"
@@ -265,6 +304,23 @@ export function ImagePreviewModal({
 
   return createPortal(modal, document.body);
 }
+
+/** The round controls on either side that step to the image before or after. */
+const stepButtonStyle: CSSProperties = {
+  position: 'fixed',
+  top: '50%',
+  transform: 'translateY(-50%)',
+  width: 44,
+  height: 44,
+  borderRadius: '50%',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: '#f8fafc',
+  background: 'rgba(255,255,255,0.14)',
+  border: '1px solid rgba(255,255,255,0.12)',
+  boxShadow: '0 10px 30px rgba(0,0,0,0.28)',
+};
 
 const zoomButtonStyle: CSSProperties = {
   width: 34,

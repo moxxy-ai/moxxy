@@ -72,6 +72,10 @@ const vaultKeyName = z
   .refine((s) => !s.includes('..'), 'vault key name may not contain ".."');
 
 const optionalWorkspace = z.string().min(1).max(256).optional();
+
+const chatMediaItemArgs = z
+  .object({ workspaceId: z.string().min(1).max(256), id: z.string().min(1).max(200) })
+  .strict();
 /** Mirrors the runner's per-side cap for a recorded exchange. */
 const MAX_VOICE_EXCHANGE_TEXT = 100_000;
 /** ~30 MB of base64 — generous for a voice clip, bounded so a renderer
@@ -585,6 +589,11 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       offset: z.number().int().nonnegative(),
     })
     .strict(),
+  // The media library names an item by the id the host gave it, never a path.
+  'chat.media': z.object({ workspaceId: z.string().min(1).max(256) }).strict(),
+  'chat.mediaThumbnail': chatMediaItemArgs,
+  'chat.readMediaImage': chatMediaItemArgs.extend({ offset: z.number().int().nonnegative() }).strict(),
+  'chat.openMediaFile': chatMediaItemArgs,
   // Collaboration control. All three touch the on-disk collab store
   // (~/.moxxy/collab/{active.lock,runs}) — a filesystem-touching surface — so
   // each gets the boundary check the module header promises:

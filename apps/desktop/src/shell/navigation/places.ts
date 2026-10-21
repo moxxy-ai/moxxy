@@ -10,7 +10,7 @@ export type SectionTarget =
   | { readonly destination: 'channels'; readonly section: string };
 
 /** Where a place is: a view, or one section of it. */
-export type PlaceTarget = { readonly destination: DestinationId } | SectionTarget;
+export type PlaceTarget = { readonly destination: DestinationId } | SectionTarget | { readonly destination: 'chat'; readonly pane: 'media' };
 
 /** Something a person can ask the palette for by name. */
 export interface Place {
@@ -97,6 +97,7 @@ export const STATIC_PLACES: ReadonlyArray<Place> = [
   ...destinationPlaces,
   ...SETTINGS_SECTIONS.flatMap(sectionPlaces),
   ...automationPlaces,
+  { id: 'chat/media', label: 'Media', trail: 'Chat', icon: 'image', keywords: ['photos', 'images', 'shared files', 'shared links', 'library', 'attachments'], target: { destination: 'chat', pane: 'media' } },
 ];
 
 export function channelPlace(channel: { readonly id: string; readonly name: string }): Place {

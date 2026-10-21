@@ -12,6 +12,9 @@ const PREFERENCES: PlaceTarget = { destination: 'settings', section: 'preference
 
 describe('searchPlaces', () => {
   it.each<[string, PlaceTarget]>([
+    ['media', { destination: 'chat', pane: 'media' }],
+    ['photos', { destination: 'chat', pane: 'media' }],
+    ['shared links', { destination: 'chat', pane: 'media' }],
     ['provider', { destination: 'settings', section: 'providers' }],
     ['openai', { destination: 'settings', section: 'providers' }],
     ['default model', { destination: 'settings', section: 'providers' }],

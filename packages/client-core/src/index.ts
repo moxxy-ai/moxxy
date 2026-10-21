@@ -33,6 +33,7 @@ export * from './useChat.js';
 export * from './useConnection.js';
 export * from './useWorkflowApprovals.js';
 export * from './useQuestion.js';
+export * from './useChatMedia.js';
 export * from './question-draft.js';
 export * from './usePrefs.js';
 export * from './useSettings.js';

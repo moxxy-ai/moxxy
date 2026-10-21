@@ -14,12 +14,14 @@ export function useShellNavigation({
   onShowShortcuts,
   onOpenPalette,
   onSection,
+  onPane,
 }: {
   readonly sessionLoading: boolean;
   readonly onShowShortcuts: () => void;
   readonly onOpenPalette: () => void;
   /** Shows a section in the view that owns it; the views keep that state. */
   readonly onSection: (target: SectionTarget) => void;
+  readonly onPane?: (pane: 'media') => void;
 }): ShellNav {
   const [view, setView] = useState<View>('chat');
 
@@ -39,9 +41,10 @@ export function useShellNavigation({
   const open = useCallback(
     (target: PlaceTarget): void => {
       if ('section' in target) onSection(target);
+      if ('pane' in target) onPane?.(target.pane);
       go(target.destination);
     },
-    [go, onSection],
+    [go, onSection, onPane],
   );
 
   // The session can start loading under a view that needs it.

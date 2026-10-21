@@ -1100,6 +1100,15 @@ importers:
       '@moxxy/workspace-registry':
         specifier: workspace:*
         version: link:../workspace-registry
+      mdast-util-from-markdown:
+        specifier: ^2.0.3
+        version: 2.0.3
+      mdast-util-gfm:
+        specifier: ^3.1.0
+        version: 3.1.0
+      micromark-extension-gfm:
+        specifier: ^3.0.0
+        version: 3.0.0
       officeparser:
         specifier: ~8.1.0
         version: 8.1.1(encoding@0.1.13)
@@ -1109,6 +1118,9 @@ importers:
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@moxxy/testing':
         specifier: workspace:*

@@ -46,6 +46,7 @@ import type {
   RunTurnArgs,
   RunTurnResult,
 } from './chat.js';
+import type { ChatMediaImageChunk, ChatMediaImageData, ChatMediaLibrary } from './chat-media.js';
 import type {
   AppUpdateInfo,
   AppUpdateCheck,
@@ -655,6 +656,24 @@ export interface IpcCommands {
     index: number;
     offset: number;
   }) => Promise<{ data: string; total: number } | null>;
+  /** The chat's photos, files and links, newest first, read from its whole
+   *  log (not just the loaded page) through an index the host keeps beside it.
+   *  `null` for an unknown/unreadable session. */
+  'chat.media': (args: { workspaceId: string }) => Promise<ChatMediaLibrary | null>;
+  /** A small copy of a library image, made once and kept. `null` when the
+   *  item is gone or cannot be drawn small. */
+  'chat.mediaThumbnail': (args: { workspaceId: string; id: string }) => Promise<ChatMediaImageData | null>;
+  /** One slice of a library image's bytes from `offset` characters; repeat
+   *  with `offset += data.length` until `total`. */
+  'chat.readMediaImage': (args: {
+    workspaceId: string;
+    id: string;
+    offset: number;
+  }) => Promise<ChatMediaImageChunk | null>;
+  /** Open a library file with its default app (only types that just view or
+   *  play), or show it in the file manager. An attached copy is written out
+   *  under the host's cache first. */
+  'chat.openMediaFile': (args: { workspaceId: string; id: string }) => Promise<{ opened: 'app' | 'folder' }>;
 
   // Workflows
   'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;

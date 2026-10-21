@@ -78,6 +78,25 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput(command, { ...args, path: '/etc/passwd' })).toThrow();
   });
 
+  it('asks for a chat media library by workspace only', () => {
+    expect(() => validateIpcInput('chat.media', { workspaceId: 'w1' })).not.toThrow();
+    expect(() => validateIpcInput('chat.media', { workspaceId: '' })).toThrow();
+    expect(() => validateIpcInput('chat.media', { workspaceId: 'w1', dir: '/tmp' })).toThrow();
+  });
+
+  it('names a library item by its id, never by a path', () => {
+    for (const command of ['chat.mediaThumbnail', 'chat.openMediaFile'] as const) {
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: 'a:4:0' })).not.toThrow();
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: '' })).toThrow();
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: 'x'.repeat(201) })).toThrow();
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: 'a:4:0', path: '/etc/passwd' })).toThrow();
+    }
+    const read = { workspaceId: 'w1', id: 't:9:1', offset: 0 };
+    expect(() => validateIpcInput('chat.readMediaImage', read)).not.toThrow();
+    expect(() => validateIpcInput('chat.readMediaImage', { ...read, offset: -4 })).toThrow();
+    expect(() => validateIpcInput('chat.readMediaImage', { ...read, offset: 0.5 })).toThrow();
+  });
+
   it('rejects non-http(s) openExternal URLs', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'https://ok.com' })).not.toThrow();
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'file:///etc/passwd' })).toThrow();

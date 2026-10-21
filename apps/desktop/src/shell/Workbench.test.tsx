@@ -67,6 +67,12 @@ describe('Workbench, collapsed', () => {
 });
 
 describe('Workbench, open', () => {
+  it('offers the media library beside the existing panes', () => {
+    const onPick = vi.fn();
+    render(<Workbench tab="terminal" onPick={onPick} onClose={vi.fn()} workspaceId="ws" />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Media' }));
+    expect(onPick).toHaveBeenCalledWith('media');
+  });
   it('keeps the collapse button reachable', () => {
     const onClose = vi.fn();
     render(<Workbench tab="terminal" onPick={vi.fn()} onClose={onClose} workspaceId="ws" />);
