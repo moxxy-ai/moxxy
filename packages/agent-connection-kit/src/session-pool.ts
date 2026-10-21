@@ -1,4 +1,4 @@
-import { waitFor } from '@moxxy/sdk';
+import { waitFor, type AgentTurnStart } from '@moxxy/sdk';
 
 /** A running vendor agent session (a process, a thread on an app-server). */
 export interface LiveSession {
@@ -43,6 +43,7 @@ type Take<T> = { readonly kind: 'ready'; readonly entry: Entry<T> } | { readonly
 export class AgentSessionPool<T extends LiveSession> {
   private readonly entries = new Map<string, Entry<T>>();
   private readonly listeners = new Set<() => void>();
+  private readonly agentTurnListeners = new Set<(start: AgentTurnStart) => void>();
   private clock = 0;
   private closed = false;
 
@@ -71,6 +72,22 @@ export class AgentSessionPool<T extends LiveSession> {
       }
     }
     return this.lease(conversation, taken.entry);
+  }
+
+  /**
+   * Hear the turns an agent of this pool takes up by itself. The pool, not the
+   * provider client that started an agent, carries them: a conversation that
+   * went to another connection and came back has a new client, while its agent
+   * keeps running here.
+   */
+  onAgentTurn(listener: (start: AgentTurnStart) => void): () => void {
+    this.agentTurnListeners.add(listener);
+    return () => this.agentTurnListeners.delete(listener);
+  }
+
+  /** An agent of this pool took up a turn by itself. */
+  agentTurn(start: AgentTurnStart): void {
+    for (const listener of [...this.agentTurnListeners]) listener(start);
   }
 
   /** The conversation ended: close its agent, even mid-turn. */

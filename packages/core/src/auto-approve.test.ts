@@ -162,6 +162,57 @@ describe("an agent connection's own setting", () => {
     await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(true));
   });
 
+  /** Two agent connections, each answering its own setting, and one connection without any. */
+  function twoAgents(own: Record<string, boolean | undefined>) {
+    const s = new Session({ cwd: '/tmp/project', silent: true });
+    for (const name of Object.keys(own)) {
+      s.providers.register({ name, models: [], createClient: () => ({}) as never, ownAutoApprove: async () => own[name] });
+    }
+    s.providers.register({ name: 'anthropic', models: [], createClient: () => ({}) as never });
+    return s;
+  }
+
+  it("takes up each agent's own setting as the conversation goes from one to another, while the person never chose", async () => {
+    const s = twoAgents({ 'claude-agent': false, 'codex-agent': true });
+    s.providers.setActive('claude-agent');
+    s.providers.setActive('codex-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(true));
+
+    s.providers.setActive('claude-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(false));
+
+    s.providers.setActive('codex-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(true));
+    s.providers.setActive('anthropic');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(false));
+  });
+
+  it("does not keep another agent's setting on an agent whose own settings say nothing", async () => {
+    const s = twoAgents({ 'claude-agent': undefined, 'codex-agent': true });
+    s.providers.setActive('codex-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(true));
+
+    s.providers.setActive('claude-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(false));
+  });
+
+  it("keeps the person's choice on every connection the conversation goes to, both ways", async () => {
+    const s = twoAgents({ 'claude-agent': false, 'codex-agent': true });
+    s.providers.setActive('claude-agent');
+    await s.setAutoApprove(true);
+
+    s.providers.setActive('codex-agent');
+    s.providers.setActive('claude-agent');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(s.getInfo().autoApprove).toBe(true);
+
+    s.providers.setActive('codex-agent');
+    await s.setAutoApprove(false);
+    s.providers.setActive('claude-agent');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(s.getInfo().autoApprove).toBe(false);
+  });
+
   it('is not read for a connection without one, nor kept when the person switched connection meanwhile', async () => {
     let answer: (own: boolean) => void = () => undefined;
     const { s } = agentSession(() => new Promise((resolve) => (answer = resolve)));

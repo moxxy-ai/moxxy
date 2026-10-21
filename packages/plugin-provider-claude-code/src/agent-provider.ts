@@ -75,7 +75,6 @@ export class ClaudeAgentProvider implements LLMProvider {
   readonly models = claudeCodeModels;
   private readonly defaultModel: string;
   private readonly loadSdk: () => Promise<ClaudeAgentSdk>;
-  private readonly agentTurnListeners = new Set<(start: AgentTurnStart) => void>();
 
   constructor(private readonly config: ClaudeAgentProviderConfig = {}) {
     this.defaultModel = config.model ?? config.defaultModel ?? CLAUDE_CODE_DEFAULT_MODEL;
@@ -100,8 +99,11 @@ export class ClaudeAgentProvider implements LLMProvider {
 
   /** Claude takes up a turn by itself once a task it ran in the background finished. */
   onAgentTurn(listener: (start: AgentTurnStart) => void): () => void {
-    this.agentTurnListeners.add(listener);
-    return () => this.agentTurnListeners.delete(listener);
+    return this.sessions().onAgentTurn(listener);
+  }
+
+  private sessions(): AgentSessionPool<ClaudeAgentSession> {
+    return this.config.sessions ?? claudeSessions();
   }
 
   /** One-off text (summaries, skill drafts): Claude with no tools and no MCP servers, keeping no session. */
@@ -166,7 +168,7 @@ export class ClaudeAgentProvider implements LLMProvider {
     // The person's own Claude is asked only when their recorded switch is off: then a default that acts without asking must not win.
     const ownMode = req.autoApproveRecorded && !req.autoApprove ? await ownPermissionMode(sdk, req.cwd) : undefined;
     const settings = this.settingsFor(req, sdk, ownMode);
-    const sessions = this.config.sessions ?? claudeSessions();
+    const sessions = this.sessions();
     const create = () => ClaudeAgentSession.start(settings);
     const lease = await sessions.acquire(req.sessionId, { signal: req.signal, create });
     if (lease.session.isAlive && lease.session.fits(settings)) return lease;
@@ -187,9 +189,7 @@ export class ClaudeAgentProvider implements LLMProvider {
       ...(permissionMode ? { permissionMode } : {}),
       tools: req.allTools ?? req.tools,
       ...(req.skills ? { skills: req.skills } : {}),
-      onAgentTurn: (name) => {
-        for (const listener of [...this.agentTurnListeners]) listener({ sessionId: req.sessionId, name });
-      },
+      onAgentTurn: (name) => this.sessions().agentTurn({ sessionId: req.sessionId, name }),
     };
   }
 }

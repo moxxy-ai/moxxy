@@ -79,7 +79,6 @@ export class CodexAgentProvider implements LLMProvider {
   readonly models = codexAgentModels;
   private readonly defaultModel: string;
   private readonly start: StartCodexAppServer;
-  private readonly agentTurnListeners = new Set<(start: AgentTurnStart) => void>();
 
   constructor(private readonly config: CodexAgentProviderConfig = {}) {
     this.defaultModel = config.model ?? config.defaultModel ?? CODEX_AGENT_DEFAULT_MODEL;
@@ -107,8 +106,11 @@ export class CodexAgentProvider implements LLMProvider {
    * between turns. Codex starts no turn then, so Moxxy opens one to show it.
    */
   onAgentTurn(listener: (start: AgentTurnStart) => void): () => void {
-    this.agentTurnListeners.add(listener);
-    return () => this.agentTurnListeners.delete(listener);
+    return this.sessions().onAgentTurn(listener);
+  }
+
+  private sessions(): AgentSessionPool<CodexAgentSession> {
+    return this.config.sessions ?? codexSessions();
   }
 
   /** One-off text (summaries, skill drafts): an ephemeral read-only Codex thread, kept nowhere. */
@@ -195,11 +197,9 @@ export class CodexAgentProvider implements LLMProvider {
       tools: req.allTools ?? req.tools,
       ...(req.skills ? { skills: req.skills } : {}),
       ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
-      onAgentTurn: (name: string) => {
-        for (const listener of [...this.agentTurnListeners]) listener({ sessionId: req.sessionId, name });
-      },
+      onAgentTurn: (name: string) => this.sessions().agentTurn({ sessionId: req.sessionId, name }),
     };
-    const sessions = this.config.sessions ?? codexSessions();
+    const sessions = this.sessions();
     const create = () => CodexAgentSession.start(settings);
     const lease = await sessions.acquire(req.sessionId, { signal: req.signal, create });
     if (lease.session.isAlive && lease.session.fits(settings)) return lease;

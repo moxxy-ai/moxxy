@@ -74,6 +74,7 @@ Auto-approve is **one state shared with the agent**, never a separate Moxxy flag
 
 - when a conversation opens, Moxxy reads the agent's real setting and shows it. A Codex config that never asks shows as auto-approve on;
 - turning auto-approve on or off in Moxxy changes the agent for this conversation only. Moxxy never writes the agent's own configuration (`~/.codex/config.toml`, Claude's settings, `opencode.json`);
+- when the conversation goes to another connection, a switch you set stays as you set it, on every agent, both ways. Until you set it, each agent runs as it is set up on its own, and that does not carry over: coming back from a Codex that never asks to a Claude whose settings ask or name no mode, Claude asks again, as does a model provider of Moxxy's own;
 - a change made to the agent from outside Moxxy may only make it stricter. Moxxy follows a stricter setting and never loosens it back; a looser one while auto-approve is off is set back at once. Only you turn auto-approve on.
 
 | Agent | Auto-approve on means |
@@ -98,7 +99,7 @@ Every Moxxy mode works on an agent connection. Where the agent has its own versi
 | Research | Every sub-question runs in its own agent session; the summary is a turn of the parent session. |
 | Collaborative | Every peer is its own Moxxy process with its own agent session; coordination tools go over MCP. |
 
-A turn the agent starts by itself (a helper it left working finished) opens its own entry in the conversation, "agent continued", on every surface.
+A turn the agent starts by itself (a helper it left working finished) opens its own entry in the conversation, "agent continued", on every surface. It does so also when the conversation went to another connection and came back while the work ran.
 
 ## Effort, models and fast mode
 
@@ -113,7 +114,7 @@ The context window a model shows starts from the built-in list (Codex's defaults
 - The agent's account limit (for example "Claude has used 56% of its weekly limit · resets Wed at 05:00") is in the desktop's Model & usage window. A turn that stopped on a used-up limit ends with a "Limit" note instead of the agent's raw error.
 - Images you attach go to the agent as images; other files are passed as files.
 - Stop ends the turn and the commands that turn started. Codex keeps a stopped turn's commands running on its own, so Moxxy ends them (`thread/backgroundTerminals/terminate`); a dev server an earlier turn left running keeps running.
-- Switching to another connection in the middle of a conversation tells the new agent that it joins partway and hands it the earlier turns. Switching back hands the first agent the turns it was away for. A conversation reopened after a restart resumes the agent's own session.
+- Switching to another connection in the middle of a conversation tells the new agent that it joins partway and hands it the earlier turns. Switching back hands the first agent the turns it was away for. The record ends by saying that the person's newest message comes next; Claude gets it in a message of its own, just before the person's message. A conversation reopened after a restart resumes the agent's own session.
 - Moxxy's one-off requests to the agent (summaries, skill drafts, memory, the research plan) pass their instructions as the agent's instructions, apart from the text it works on. On Claude they load none of the person's MCP servers or claude.ai connectors: a one-off request has one step, so a tool call there could only fail. The person's turns keep every server.
 
 ## Things to know

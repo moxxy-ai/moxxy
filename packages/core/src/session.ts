@@ -62,6 +62,7 @@ import {
   recordedContextWindows,
   withRecordedContextWindows,
   autoApproveFromEvents,
+  autoApproveFromAgent,
   autoApproveRecorded,
   evaluateToolRule,
   isSelectableMode,
@@ -641,23 +642,28 @@ export class Session implements ClientSession, SessionRuntime {
   private readonly stopAdoptingOwnAutoApprove: () => void;
 
   /**
-   * Until the conversation records a switch, its auto-approve is the active
-   * agent's own setup (`ProviderDef.ownAutoApprove`), recorded as the system's.
-   * A switch recorded meanwhile, or another connection made active, wins.
+   * The person's switch stands on every connection the conversation goes to.
+   * Until they choose, the auto-approve is the active agent's own setup
+   * (`ProviderDef.ownAutoApprove`), recorded as the system's, and that is not
+   * handed on: a connection whose settings say nothing goes back to asking.
+   * Another connection made active meanwhile wins.
    */
   private async adoptOwnAutoApprove(): Promise<void> {
     const name = this.providers.getActiveName();
     const def = this.providers.list().find((p) => p.name === name);
-    if (!def?.ownAutoApprove || autoApproveRecorded(this.log.slice())) return;
+    if (this.personChoseAutoApprove()) return;
     let own: boolean | undefined;
-    try {
-      own = await def.ownAutoApprove({ cwd: this.cwd });
-    } catch (err) {
-      this.logger.warn('could not read how the agent runs on its own', { provider: name, err: String(err) });
-      return;
+    if (def?.ownAutoApprove) {
+      try {
+        own = await def.ownAutoApprove({ cwd: this.cwd });
+      } catch (err) {
+        this.logger.warn('could not read how the agent runs on its own', { provider: name, err: String(err) });
+      }
     }
+    // An agent whose own settings say nothing does not take over another agent's.
+    own ??= autoApproveFromAgent(this.log.slice()) ? false : undefined;
     if (own === undefined || own === this.autoApprove || this.closed) return;
-    if (this.providers.getActiveName() !== name || autoApproveRecorded(this.log.slice())) return;
+    if (this.providers.getActiveName() !== name || this.personChoseAutoApprove()) return;
     await this.log.append({
       type: 'plugin_event',
       sessionId: this.id,
@@ -667,6 +673,11 @@ export class Session implements ClientSession, SessionRuntime {
       subtype: AUTO_APPROVE_SUBTYPE,
       payload: { enabled: own },
     });
+  }
+
+  private personChoseAutoApprove(): boolean {
+    const events = this.log.slice();
+    return autoApproveRecorded(events) && !autoApproveFromAgent(events);
   }
 
   /**

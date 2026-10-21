@@ -158,4 +158,18 @@ describe('the live agent sessions', () => {
     expect(started.every((a) => a.closed)).toBe(true);
     await expect(sessions.acquire('conv-c')).rejects.toThrow(/closed/);
   });
+
+  it('passes a turn an agent takes up by itself to whoever listens now, and to nobody who stopped', () => {
+    const sessions = new AgentSessionPool<{ close(): void }>({ limit: 1 });
+    const before: string[] = [];
+    const now: string[] = [];
+    const stop = sessions.onAgentTurn((start) => before.push(start.name));
+    stop();
+    sessions.onAgentTurn((start) => now.push(`${start.sessionId}: ${start.name}`));
+
+    sessions.agentTurn({ sessionId: 'conv-a', name: 'A command finished' });
+
+    expect(before).toEqual([]);
+    expect(now).toEqual(['conv-a: A command finished']);
+  });
 });

@@ -135,6 +135,20 @@ describe('what an agent coming back to the conversation gets of the turns it mis
     expect(text).not.toContain('Use port 5433');
     expect(text).not.toContain('What did Codex rename?');
   });
+
+  it("ends by saying the record is over and the person's newest message comes next, so it is not taken for part of the record", () => {
+    const log = reader(
+      conversation([
+        { said: 'Use port 5433', reply: 'OK.', provider: 'claude-code' },
+        { said: 'Answer with OK', reply: 'OK', provider: 'codex-agent' },
+        { said: 'Create notes.txt', provider: 'claude-code' },
+      ]),
+    );
+
+    for (const text of [renderMissedTurns(log, 'claude-code', asTurnId('t3')), renderEarlierConversation(log, asTurnId('t3'))]) {
+      expect(text).toMatch(/End of Moxxy's record\. The person's newest message comes next: that is the request to act on\.$/);
+    }
+  });
 });
 
 describe('searching the conversation', () => {

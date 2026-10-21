@@ -10,6 +10,7 @@ import {
   QUESTION_ASKED,
   autoApproveFromEvents,
   definePlugin,
+  defineProvider,
   defineTool,
   type MoxxyEvent,
   type PermissionResolver,
@@ -1205,7 +1206,7 @@ describe('work Codex leaves running when its turn ends', () => {
   async function leaveRunning(start: (turn: Parameters<CodexScene>[0]) => void) {
     let later: ((method: string, params: Record<string, unknown>) => void) | undefined;
     let ids = { threadId: '', turnId: '' };
-    const { codex, session } = connect(async (turn) => {
+    const { codex, session, pool } = connect(async (turn) => {
       if (turn.text === '2+2?') return turn.say('4');
       ids = { threadId: turn.threadId, turnId: turn.id };
       later = (method, params) => turn.server.notify(method, params);
@@ -1214,7 +1215,7 @@ describe('work Codex leaves running when its turn ends', () => {
     });
     session.setPermissionResolver(allowAll);
     const first = await collectTurn(session, 'Start it and do not wait');
-    return { codex, session, first, ids, later: (method: string, params: Record<string, unknown>) => later?.(method, params) };
+    return { codex, session, pool, first, ids, later: (method: string, params: Record<string, unknown>) => later?.(method, params) };
   }
 
   const opened = (session: Session) => session.log.ofType('user_prompt').filter((e) => e.origin?.kind === 'agent');
@@ -1239,6 +1240,22 @@ describe('work Codex leaves running when its turn ends', () => {
     expect(codex.last.sent('turn/start')).toHaveLength(1);
 
     expect(said(await collectTurn(session, '2+2?'))).toEqual(['4']);
+  });
+
+  it('opens the turn when the conversation went to another connection and came back while the command ran', async () => {
+    const command = { type: 'commandExecution', id: 'bg-2', command: "/bin/zsh -lc 'sleep 20'", cwd: '/work/app', status: 'inProgress', aggregatedOutput: null, exitCode: null };
+    const { codex, session, pool, ids, later } = await leaveRunning((turn) => turn.started(command));
+    addFakeProvider(session, new FakeProvider({ name: 'stand-in', script: [] }));
+
+    // The runner switches connections this way: a fresh client each time the conversation comes back.
+    session.providers.setActive('stand-in');
+    session.providers.replace(
+      defineProvider({ name: 'codex-agent', models: [], createClient: () => new CodexAgentProvider({ startAppServer: codex.start, sessions: pool }) }),
+    );
+    session.providers.setActive('codex-agent');
+
+    later('item/completed', { ...ids, item: { ...command, status: 'completed', aggregatedOutput: '', exitCode: 0 } });
+    await vi.waitFor(() => expect(opened(session)).toHaveLength(1));
   });
 
   it("shows a subagent's work and answer after the turn in a turn Moxxy opens for it", async () => {

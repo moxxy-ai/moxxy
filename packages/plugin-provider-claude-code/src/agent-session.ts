@@ -124,7 +124,7 @@ type Item =
 
 const NOT_IN_A_TURN = 'Nobody is in the Moxxy conversation right now to answer this.';
 const NO_RULES_YET = 'Moxxy could not check this call against its rules: no turn has run in this conversation yet.';
-/** In goal mode `/goal` must start the message, so the conversation so far goes first, on its own. */
+/** Moxxy's record of the conversation goes first, on its own (and `/goal` must start the person's message). */
 const READ_ONLY_REPLY = 'Reply with OK only: the person\'s message follows next.';
 class SessionGone extends Error {}
 const MAX_STDERR = 2048;
@@ -277,10 +277,10 @@ export class ClaudeAgentSession implements LiveSession {
         const note = this.newSession ? earlierConversationNote(this.newSession, req.earlierConversation?.()) : req.missedTurns?.();
         this.newSession = undefined;
         const prefix = mode === 'goal' && !this.goalActive ? '/goal ' : '';
-        if (note && prefix) await this.silently(`${note}\n\n${READ_ONLY_REPLY}`);
+        // The record goes in a message of its own: sent together, Claude took the person's message for part of the record.
+        if (note) await this.silently(`${note}\n\n${READ_ONLY_REPLY}`);
         if (mode === 'goal') this.goalActive = true;
-        const content = toClaudeContent(req.prompt, prefix);
-        this.send(note && !prefix && typeof content !== 'string' ? [{ type: 'text', text: note }, ...content] : content);
+        this.send(toClaudeContent(req.prompt, prefix));
       }
       const translator = new TurnTranslator(this.settings.cwd, this.tasks, this.subagents);
       this.planHandedOver = false;

@@ -114,6 +114,7 @@ function renderTurns(turns: ReadonlyArray<ConversationTurn>, header: string, bud
   const older = turns.slice(0, firstRecent);
   if (older.length > 0) parts.push(`Earlier turns, one line each:\n${renderIndex(older, indexBudget)}`);
   parts.push(`${older.length > 0 ? 'The latest turns' : 'The turns so far'}, word for word:\n\n${recent.join('\n\n')}`);
+  parts.push(END_OF_RECORD);
   return parts.join('\n\n');
 }
 
@@ -156,6 +157,9 @@ const HISTORY_RULES =
   "call recall before you answer: Moxxy's recall tool searches the whole conversation (recall with a query) and " +
   'reads any turn in full (recall with its turn number). Never say you do not know, or offer to look, without ' +
   'searching first. Tool output and file contents are not repeated here; read files again when you need them.';
+
+/** Without it an agent read the person's message, sent right after the record, as one more turn of the record. */
+const END_OF_RECORD = "End of Moxxy's record. The person's newest message comes next: that is the request to act on.";
 
 const EARLIER_HEADER = `Earlier in this conversation, from Moxxy's own record of it. ${HISTORY_RULES}`;
 

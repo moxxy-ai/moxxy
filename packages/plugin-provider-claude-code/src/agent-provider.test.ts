@@ -15,6 +15,7 @@ import {
   assertDefined,
   autoApproveFromEvents,
   definePlugin,
+  defineProvider,
   defineTool,
   type MoxxyEvent,
   type PermissionResolver,
@@ -124,10 +125,12 @@ describe('a turn on the Claude agent connection', () => {
     await collectTurn(session, 'thanks');
 
     expect(claude.last.options.resume).toBeUndefined();
-    const [first, second] = claude.last.received.map((m) => m.message.content) as Array<Array<{ text: string }>>;
-    expect(first?.[0]?.text).toMatch(/^Your earlier session for this Moxxy conversation no longer exists/);
-    expect(first?.[0]?.text).toContain('### Turn 1\nPerson: use port 5433\nAgent: port 5433 it is');
-    expect(first?.[1]?.text).toBe('which port?');
+    // The record goes first, in a message of its own, so Claude cannot take the person's message for part of it.
+    const [record, asked, second] = claude.last.received.map((m) => m.message.content);
+    expect(String(record)).toMatch(/^Your earlier session for this Moxxy conversation no longer exists/);
+    expect(String(record)).toContain('### Turn 1\nPerson: use port 5433\nAgent: port 5433 it is');
+    expect(String(record)).toMatch(/Reply with OK only: the person's message follows next\.$/);
+    expect(asked).toEqual([{ type: 'text', text: 'which port?' }]);
     expect(second).toEqual([{ type: 'text', text: 'thanks' }]);
     expect(said(events)).toEqual(['5433']);
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'agent_session', payload: { provider: 'claude-code', sessionId: 'claude-session-2' } }));
@@ -147,11 +150,12 @@ describe('a turn on the Claude agent connection', () => {
     await collectTurn(session, 'thanks');
 
     expect(claude.queries).toHaveLength(1);
-    const [, back, after] = claude.last.received.map((m) => m.message.content) as Array<Array<{ text: string }>>;
-    expect(back?.[0]?.text).toMatch(/another connection/);
-    expect(back?.[0]?.text).toContain('### Turn 2\nPerson: rename the table to orders\nAgent: Renamed it to orders.');
-    expect(back?.[0]?.text).not.toContain('use port 5433');
-    expect(back?.[1]?.text).toBe('what did you rename?');
+    const [, missed, back, after] = claude.last.received.map((m) => m.message.content);
+    expect(String(missed)).toMatch(/another connection/);
+    expect(String(missed)).toContain('### Turn 2\nPerson: rename the table to orders\nAgent: Renamed it to orders.');
+    expect(String(missed)).not.toContain('use port 5433');
+    expect(String(missed)).toMatch(/Reply with OK only: the person's message follows next\.$/);
+    expect(back).toEqual([{ type: 'text', text: 'what did you rename?' }]);
     expect(after).toEqual([{ type: 'text', text: 'thanks' }]);
   });
 
@@ -630,6 +634,31 @@ describe('turns Claude takes up by itself', () => {
 
     const next = await collectTurn(session, '2+2?');
     expect(said(next)).toEqual(['4']);
+  });
+
+  it('opens the turn when the conversation went to another connection and came back while the helper ran', async () => {
+    const { claude, session, pool } = connect(async function* () {
+      yield* launchInBackground();
+    });
+    session.setPermissionResolver(allowAll);
+    addFakeProvider(session, new FakeProvider({ name: 'stand-in', script: [] }));
+    await collectTurn(session, 'List the files in the background');
+
+    // The runner switches connections this way: a fresh client each time the conversation comes back.
+    session.providers.setActive('stand-in');
+    session.providers.replace(
+      defineProvider({
+        name: 'claude-code',
+        models: [],
+        createClient: () =>
+          new ClaudeAgentProvider({ executable: '/Users/me/.local/bin/claude', defaultModel: 'claude-opus-5-5', loadSdk: async () => claude, sessions: pool }),
+      }),
+    );
+    session.providers.setActive('claude-code');
+
+    claude.last.startOwnTurn(backgroundFinished);
+    await vi.waitFor(() => expect(said(session.log.ofType('assistant_message'))).toContain('The helper found two files.'));
+    expect(session.log.ofType('user_prompt').at(-1)).toMatchObject({ origin: { kind: 'agent' } });
   });
 
   it("checks Moxxy's rules for a background helper's call while no turn runs", async () => {
