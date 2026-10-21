@@ -15,7 +15,7 @@ Per-agent detail (what each agent reports, how each one's sign-in, approvals and
 |---|---|---|---|---|
 | Claude Agent | `claude-code` | Claude Code, through the Claude Agent SDK | your Claude Pro or Max sign-in (`claude auth login`) | the ones your Claude Code offers |
 | ChatGPT — Codex agent | `codex-agent` | Codex, through `codex app-server` | your ChatGPT sign-in (`codex login`) | the ones your Codex offers |
-| OpenCode agent | `opencode` | OpenCode, through `opencode acp` (the Agent Client Protocol) | nothing for OpenCode's free models; `opencode auth login` for any other provider | the ones your OpenCode setup offers; `opencode/big-pickle` and `opencode/space-bunny-free` before it is switched on |
+| OpenCode agent | `opencode` | OpenCode, through `opencode acp` (the Agent Client Protocol) | nothing for OpenCode's free models; `opencode auth login` for any other provider | the ones your OpenCode setup offers; `opencode/big-pickle` before it is switched on |
 
 Moxxy reads only whether the agent is signed in, and as whom. It never copies, stores or refreshes the agent's tokens.
 
@@ -112,6 +112,7 @@ The context window a model shows starts from the built-in list (Codex's defaults
 - Thoughts one after another fold into one "Thinking" row with their count.
 - The agent's account limit (for example "Claude has used 56% of its weekly limit · resets Wed at 05:00") is in the desktop's Model & usage window. A turn that stopped on a used-up limit ends with a "Limit" note instead of the agent's raw error.
 - Images you attach go to the agent as images; other files are passed as files.
+- Stop ends the turn and the commands that turn started. Codex keeps a stopped turn's commands running on its own, so Moxxy ends them (`thread/backgroundTerminals/terminate`); a dev server an earlier turn left running keeps running.
 - Switching to another connection in the middle of a conversation tells the new agent that it joins partway and hands it the earlier turns. Switching back hands the first agent the turns it was away for. A conversation reopened after a restart resumes the agent's own session.
 - Moxxy's one-off requests to the agent (summaries, skill drafts, memory, the research plan) pass their instructions as the agent's instructions, apart from the text it works on. On Claude they load none of the person's MCP servers or claude.ai connectors: a one-off request has one step, so a tool call there could only fail. The person's turns keep every server.
 

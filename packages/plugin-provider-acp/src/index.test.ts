@@ -39,8 +39,8 @@ describe('the OpenCode plugin', () => {
     expect(offered.every((model) => model.contextWindow === 200_000)).toBe(true);
   });
 
-  it('offers OpenCode free models before it is switched on', () => {
-    expect(opencodeProviderDef.models.map((model) => model.id)).toEqual(['opencode/big-pickle', 'opencode/space-bunny-free']);
+  it('offers only the free model OpenCode keeps before it is switched on, not a promotional one that comes and goes', () => {
+    expect(opencodeProviderDef.models.map((model) => model.id)).toEqual(['opencode/big-pickle']);
   });
 
   it('will not switch on when OpenCode is not installed', async () => {

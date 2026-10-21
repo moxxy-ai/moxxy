@@ -991,6 +991,26 @@ describe('stopping and failing', () => {
     expect(said(next)).toEqual(['back']);
   });
 
+  it('on Stop ends the commands the stopped turn started, and leaves running what an earlier turn started', async () => {
+    const controller = new AbortController();
+    const { codex, session } = connect(async (turn) => {
+      if (turn.text === 'serve') {
+        turn.started({ type: 'commandExecution', id: 'exec-server', command: "/bin/zsh -lc 'npm run dev'", cwd: '/work/app', status: 'inProgress', aggregatedOutput: null, exitCode: null });
+        turn.say('The dev server runs.');
+        return;
+      }
+      turn.started({ type: 'commandExecution', id: 'exec-wait', command: "/bin/zsh -lc 'sleep 100'", cwd: '/work/app', status: 'inProgress', aggregatedOutput: null, exitCode: null });
+      controller.abort();
+      await new Promise(() => undefined);
+    });
+
+    await collectTurn(session, 'serve');
+    await collectTurn(session, 'wait', { signal: controller.signal });
+
+    expect(codex.last.sent('thread/backgroundTerminals/terminate')).toEqual([{ threadId: 'thread-1', processId: '2' }]);
+    expect([...codex.last.thread.terminals.keys()]).toEqual(['exec-server']);
+  });
+
   it('shows the prompt of the last Codex call as how full the context is, not the sum of the turn', async () => {
     const { session } = connect(async (turn) => {
       turn.usage(150_000, 40, 148_000);

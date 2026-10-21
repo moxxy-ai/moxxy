@@ -1,6 +1,6 @@
 /**
  * The part of the `codex app-server` protocol Moxxy speaks, written by hand
- * from `codex app-server generate-ts` (0.155.1). Codex sends far more than
+ * from `codex app-server generate-ts` (0.155.1, checked against 0.163.0). Codex sends far more than
  * this; anything not listed here is read as unknown and left alone.
  */
 
@@ -45,6 +45,16 @@ export interface CodexSkillsList {
     readonly cwd: string;
     readonly skills: ReadonlyArray<{ readonly name: string; readonly description: string; readonly enabled: boolean }>;
   }>;
+}
+
+/**
+ * `thread/backgroundTerminals/list` (experimental, 0.155.1 and later): the
+ * commands still running in a thread, by the item that started them. An
+ * interrupted turn's commands stay here until `terminate` ends them.
+ */
+export interface CodexBackgroundTerminals {
+  readonly data: ReadonlyArray<{ readonly itemId: string; readonly processId: string }>;
+  readonly nextCursor: string | null;
 }
 
 export interface CodexConfigRead {

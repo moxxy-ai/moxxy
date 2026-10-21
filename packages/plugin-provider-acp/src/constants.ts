@@ -10,8 +10,12 @@ export const OPENCODE_EXECUTABLE_ENV = 'OPENCODE_EXECUTABLE';
 /** What a fresh OpenCode runs; the person's own default wins when they set one. */
 export const OPENCODE_DEFAULT_MODEL = 'opencode/big-pickle';
 
-/** OpenCode's free models: what the picker offers before OpenCode is switched on and lists the person's own. */
-export const OPENCODE_FREE_MODELS: ReadonlyArray<string> = [OPENCODE_DEFAULT_MODEL, 'opencode/space-bunny-free'];
+/**
+ * What the picker offers before OpenCode is switched on and lists the person's own. Only the free model OpenCode
+ * keeps: its promotional free models come and go (space-bunny-free was one), and the daily compat check fails
+ * when one listed here is no longer offered.
+ */
+export const OPENCODE_FREE_MODELS: ReadonlyArray<string> = [OPENCODE_DEFAULT_MODEL];
 
 /** The name Moxxy's MCP server has in the agent's session; OpenCode calls its tools `moxxy_<tool>`. */
 export const MOXXY_MCP_SERVER = 'moxxy';

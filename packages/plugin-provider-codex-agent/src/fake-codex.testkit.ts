@@ -64,6 +64,12 @@ export interface FakeThread {
   mcp: { readonly url: string; readonly headers: Record<string, string> } | undefined;
   /** Moxxy's tools as Codex read them when the thread opened; Codex 0.155 keeps that list for the thread. */
   moxxyTools: ReadonlyArray<string>;
+  /**
+   * Commands still running, by item id: a command item started and not yet
+   * completed. Like Codex 0.155–0.163, interrupting a turn leaves its commands
+   * running; only `thread/backgroundTerminals/terminate` (or closing) ends them.
+   */
+  readonly terminals: Map<string, { readonly processId: string; readonly command: string }>;
 }
 
 export interface FakeCodexDefaults {
@@ -96,6 +102,7 @@ export class FakeCodex {
   readonly saved = new Map<string, FakeThread>();
   threadCount = 0;
   turnCount = 0;
+  processCount = 0;
   resumeFailures = 0;
   /** A Codex that started but answers nothing, as one stuck on startup. */
   silent = false;
@@ -335,6 +342,24 @@ export class FakeCodexServer {
       }
       case 'thread/goal/get':
         return { result: { goal: this.threadOf(params).goal ?? null } };
+      case 'thread/backgroundTerminals/list': {
+        const terminals = [...this.threadOf(params).terminals].map(([itemId, { processId, command }]) => ({
+          itemId,
+          processId,
+          command,
+          cwd: this.cwd,
+          osPid: null,
+          cpuPercent: null,
+          rssKb: null,
+        }));
+        return { result: { data: terminals, nextCursor: null } };
+      }
+      case 'thread/backgroundTerminals/terminate': {
+        const { terminals } = this.threadOf(params);
+        const running = [...terminals].find(([, terminal]) => terminal.processId === params.processId);
+        if (running) terminals.delete(running[0]);
+        return { result: { terminated: running !== undefined } };
+      }
       default:
         throw new Error(`Method not found: ${method}`);
     }
@@ -359,6 +384,7 @@ export class FakeCodexServer {
       goal: undefined,
       mcp: mcpOf(params.config),
       moxxyTools: [],
+      terminals: new Map(),
     };
     this.threads.set(id, thread);
     if (!thread.ephemeral) this.codex.saved.set(id, thread);
@@ -405,6 +431,13 @@ export class FakeCodexServer {
   ): FakeCodexTurn {
     const base = { threadId: thread.id, turnId: id };
     const text = input.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
+    const item = (method: 'item/started' | 'item/completed', it: Record<string, unknown>) => {
+      if (it.type === 'commandExecution' && typeof it.id === 'string') {
+        if (method === 'item/started') thread.terminals.set(it.id, { processId: String(++this.codex.processCount), command: String(it.command) });
+        else thread.terminals.delete(it.id);
+      }
+      this.notify(method, { ...base, item: it });
+    };
     return {
       id,
       threadId: thread.id,
@@ -415,8 +448,8 @@ export class FakeCodexServer {
       server: this,
       signal,
       steered: () => steers.next(),
-      started: (item) => this.notify('item/started', { ...base, item }),
-      completed: (item) => this.notify('item/completed', { ...base, item }),
+      started: (it) => item('item/started', it),
+      completed: (it) => item('item/completed', it),
       say: (said, extra = {}) => {
         const itemId = `msg-${Math.random().toString(36).slice(2)}`;
         const item = { type: 'agentMessage', id: itemId, text: said, phase: 'final_answer', delivery: null, questions: null, ...extra };
@@ -427,8 +460,8 @@ export class FakeCodexServer {
       run: async (command, output, opts = {}) => {
         const itemId = `exec-${Math.random().toString(36).slice(2)}`;
         const wrapped = `/bin/zsh -lc '${command.replace(/'/g, `'\\''`)}'`;
-        const item = { type: 'commandExecution', id: itemId, command: wrapped, cwd: thread.cwd, status: 'inProgress', aggregatedOutput: null, exitCode: null };
-        this.notify('item/started', { ...base, item });
+        const execution = { type: 'commandExecution', id: itemId, command: wrapped, cwd: thread.cwd, status: 'inProgress', aggregatedOutput: null, exitCode: null };
+        item('item/started', execution);
         let decision: unknown;
         // Codex's own reviewer answers in its place; Moxxy never hears of it.
         if (opts.approval && thread.approvalsReviewer !== 'user') decision = { decision: 'accept' };
@@ -443,11 +476,11 @@ export class FakeCodexServer {
           });
           const answer = (decision as { decision?: unknown }).decision;
           if (answer !== 'accept' && answer !== 'acceptForSession') {
-            this.notify('item/completed', { ...base, item: { ...item, status: 'declined' } });
+            item('item/completed', { ...execution, status: 'declined' });
             return decision;
           }
         }
-        this.notify('item/completed', { ...base, item: { ...item, status: 'completed', aggregatedOutput: output, exitCode: 0 } });
+        item('item/completed', { ...execution, status: 'completed', aggregatedOutput: output, exitCode: 0 });
         return decision;
       },
       request: (method, params) => this.request(method, { ...base, ...params }),

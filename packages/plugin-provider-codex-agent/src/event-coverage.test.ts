@@ -1,5 +1,5 @@
 /**
- * Everything `codex app-server` 0.155.1 can send — its generated protocol types,
+ * Everything `codex app-server` 0.163.0 can send (0.155.1, the oldest supported, sends a part of it) — its generated protocol types,
  * listed in fixtures/ — checked against what Moxxy does with it. An item shows
  * in the chat or is left out on purpose, a notification is read or left alone
  * on purpose, a request always gets an answer. A newer Codex brings a new
@@ -25,9 +25,9 @@ interface CodexKinds {
   readonly requests: ReadonlyArray<string>;
 }
 
-const kinds = JSON.parse(readFileSync(new URL('./fixtures/codex-app-server-0.155.1.json', import.meta.url), 'utf8')) as CodexKinds;
+const kinds = JSON.parse(readFileSync(new URL('./fixtures/codex-app-server-0.163.0.json', import.meta.url), 'utf8')) as CodexKinds;
 
-/** One item of every kind, shaped as Codex 0.155.1 sends it once it ends. */
+/** One item of every kind, shaped as Codex 0.155.1–0.163.0 sends it once it ends. */
 const ITEMS: Record<string, Record<string, unknown>> = {
   agentMessage: { text: 'Done.' },
   plan: { text: '1. Read the code' },
@@ -76,8 +76,9 @@ const LEFT_ALONE: ReadonlyArray<readonly [RegExp, string]> = [
   [/^item\/autoApprovalReview\/|^autoApprovalReview\/|^guardianWarning$/, "Codex's own reviewer; the approvals it answers are Codex's"],
   [/^turn\/(diff\/updated|moderationMetadata)$/, 'each file change shows its own diff; moderation stays with Codex'],
   [/^thread\/realtime\//, 'voice sessions, which Moxxy does not start'],
-  [/^thread\/(started|status\/changed|name\/updated|archived|unarchived|closed|deleted|compacted|reverted|queue\/changed|attachment\/updated|project\/updated|environment\/(connected|disconnected))$/, "the thread's housekeeping; Moxxy keeps its own record"],
-  [/^(account\/(login\/completed|updated)|modelProvider\/authRecovery(Started|Completed))$/, 'sign-in, which Moxxy checks itself'],
+  [/^thread\/(started|status\/changed|name\/updated|archived|unarchived|closed|deleted|compacted|reverted|queue\/changed|readState\/changed|attachment\/updated|project\/updated|environment\/(connected|disconnected))$/, "the thread's housekeeping; Moxxy keeps its own record"],
+  [/^(account\/(login\/completed|updated|gatewayOAuth\/changed)|modelProvider\/authRecovery(Started|Completed))$/, 'sign-in, which Moxxy checks itself'],
+  [/^thread\/prediction\/updated$/, "Codex's guess at the person's next message, for Codex's own app"],
   [/^(model\/(rerouted|safetyBuffering\/updated|verification)|rawResponse\/completed|rawResponseItem\/completed)$/, "the model's raw stream; the items carry what it did"],
   [/^(warning|configWarning|deprecationNotice|windows\/worldWritableWarning|windowsSandbox\/setupCompleted)$/, "notes about the person's Codex setup, for their own Codex"],
   [/^(mcpServer\/|app\/list\/updated|skills\/changed|serverRequest\/resolved)/, 'servers, apps and skills Codex keeps; its requests are answered as they come'],
@@ -92,7 +93,7 @@ afterEach(async () => {
   await Promise.all(sessions.splice(0).map((session) => session.close()));
 });
 
-describe('every item Codex 0.155.1 can send', () => {
+describe('every item Codex 0.163.0 can send', () => {
   it('has a sample here, so a kind a newer Codex adds needs a decision', () => {
     expect(Object.keys(ITEMS).sort()).toEqual([...kinds.items]);
   });
@@ -106,7 +107,7 @@ describe('every item Codex 0.155.1 can send', () => {
   });
 });
 
-describe('every notification Codex 0.155.1 can send', () => {
+describe('every notification Codex 0.163.0 can send', () => {
   it.each(kinds.notifications)('%s is read, or left alone for a reason', (method) => {
     const reasons = [NOTIFICATIONS[method], ...LEFT_ALONE.filter(([pattern]) => pattern.test(method)).map(([, reason]) => reason)].filter(Boolean);
 
@@ -114,7 +115,7 @@ describe('every notification Codex 0.155.1 can send', () => {
   });
 });
 
-describe('every request Codex 0.155.1 can make', () => {
+describe('every request Codex 0.163.0 can make', () => {
   const allowAll: PermissionResolver = { name: 'allow-all', check: async () => ({ mode: 'allow' }) };
   const PARAMS: Record<string, Record<string, unknown>> = {
     'item/commandExecution/requestApproval': { itemId: 'c1', command: 'ls', cwd: '/work/app' },

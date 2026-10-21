@@ -27,6 +27,7 @@ import { MOXXY_MCP_SERVER } from './constants.js';
 import type {
   CodexApprovalPolicy,
   CodexApprovalsReviewer,
+  CodexBackgroundTerminals,
   CodexConfigRead,
   CodexGoal,
   CodexRateLimitSnapshot,
@@ -232,6 +233,8 @@ export class CodexAgentSession implements LiveSession {
   private restoredElsewhere = false;
   /** Codex turns that belong to the Moxxy turn running now. */
   private readonly myTurns = new Set<string>();
+  /** The Codex turn each command still running started in, by item id: what Stop ends. */
+  private readonly commandTurns = new Map<string, string>();
   /** Subagents Codex started; they work in threads of their own and may outlive a turn. */
   private readonly subagents = new CodexSubagents();
   /** Calls Codex left running when its turn ended, by item id; their end is shown when it comes. */
@@ -759,7 +762,39 @@ export class CodexAgentSession implements LiveSession {
   private async interrupt(): Promise<void> {
     const turnId = this.activeTurn;
     if (turnId === undefined) return;
+    const stopped = new Set(this.myTurns);
     await this.client.request('turn/interrupt', { threadId: this.threadId, turnId }).catch(() => undefined);
+    await this.endCommandsOf(stopped);
+  }
+
+  /**
+   * Codex leaves an interrupted turn's commands running, so Stop ends the ones
+   * these turns started. What an earlier turn left running (a dev server) is
+   * not this turn's to stop.
+   */
+  private async endCommandsOf(turns: ReadonlySet<string>): Promise<void> {
+    let cursor: string | null = null;
+    do {
+      const page: CodexBackgroundTerminals | undefined = await this.client
+        .request<CodexBackgroundTerminals>('thread/backgroundTerminals/list', { threadId: this.threadId, ...(cursor ? { cursor } : {}) })
+        .catch(() => undefined);
+      if (!page) return;
+      for (const terminal of page.data) {
+        const turn = this.commandTurns.get(terminal.itemId);
+        if (turn === undefined || !turns.has(turn)) continue;
+        await this.client.request('thread/backgroundTerminals/terminate', { threadId: this.threadId, processId: terminal.processId }).catch(() => undefined);
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+  }
+
+  /** Which Codex turn started each command, noted as Codex reports it, ahead of the turn reading it. */
+  private noteCommand(method: string, params: unknown): void {
+    if (method !== 'item/started' && method !== 'item/completed') return;
+    const note = params as { threadId?: unknown; turnId?: unknown; item?: { type?: unknown; id?: unknown } } | undefined;
+    if (note?.threadId !== this.threadId || note.item?.type !== 'commandExecution' || typeof note.item.id !== 'string') return;
+    if (method === 'item/completed') this.commandTurns.delete(note.item.id);
+    else if (typeof note.turnId === 'string') this.commandTurns.set(note.item.id, note.turnId);
   }
 
   private belongsHere(params: Record<string, unknown>): boolean {
@@ -768,6 +803,7 @@ export class CodexAgentSession implements LiveSession {
   }
 
   private onNotification(method: string, params: unknown): void {
+    this.noteCommand(method, params);
     // In a turn the goal's state is read in order with everything else Codex sent.
     if (this.inTurn) {
       this.inbox.push({ kind: 'note', method, params });
