@@ -194,6 +194,7 @@ export class CodexAgentProvider implements LLMProvider {
     const settings = {
       start: this.start,
       cwd: req.cwd,
+      ...(req.model ? { model: req.model } : {}),
       tools: req.allTools ?? req.tools,
       ...(req.skills ? { skills: req.skills } : {}),
       ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),

@@ -76,10 +76,11 @@ describe('a turn on the Codex agent connection', () => {
     expect(server.sent('initialize')[0]).toMatchObject({ clientInfo: { name: 'moxxy' }, capabilities: { experimentalApi: true } });
     expect(server.notifications).toContain('thread/started');
     const [start] = server.sent('thread/start');
-    // Codex runs as the person set it up: no instructions, policy, sandbox or model of Moxxy's.
-    // Its checklist tool, off by default since Codex 0.152, is on so the step list shows.
-    expect(Object.keys(start ?? {}).sort()).toEqual(['config', 'cwd']);
-    expect(start).toMatchObject({ cwd: '/work/app', config: { mcp_servers: { moxxy: { url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/) } }, 'tools.update_plan.enabled': true } });
+    // Codex runs as the person set it up: no instructions, policy or sandbox of Moxxy's, on the
+    // model the person picked in Moxxy. Its checklist tool, off by default since Codex 0.152, is on
+    // so the step list shows.
+    expect(Object.keys(start ?? {}).sort()).toEqual(['config', 'cwd', 'model']);
+    expect(start).toMatchObject({ cwd: '/work/app', model: codexAgentModels[0]?.id, config: { mcp_servers: { moxxy: { url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/) } }, 'tools.update_plan.enabled': true } });
     expect(server.sent('turn/start')[0]).toMatchObject({ threadId: 'thread-1', input: [{ type: 'text', text: 'Run echo spike-ok', text_elements: [] }] });
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool_call_requested', name: 'Bash', input: { command: 'echo spike-ok', cwd: '/work/app' }, executedBy: 'provider' }));
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool_result', ok: true, output: 'spike-ok\n' }));
@@ -149,13 +150,27 @@ describe('a turn on the Codex agent connection', () => {
     expect(said(events)).toEqual(['The subagent found a.txt.']);
   });
 
-  it('runs the model the person picked on the thread', async () => {
-    const { codex, session } = connect(async (turn) => turn.say(turn.thread.model));
+  it('opens the thread on the model the person picked, so Codex never switches models before the first turn', async () => {
+    // A thread opened on the config's model and switched before the turn carries Codex's
+    // model-switch instructions in every later request.
+    const { codex, session } = connect(async (turn) => turn.say(turn.thread.model), { model: 'gpt-6.1-sol' });
 
     const events = await collectTurn(session, 'which model?');
 
-    expect(codex.last.sent('thread/settings/update')[0]).toMatchObject({ threadId: 'thread-1', model: codexAgentModels[0]?.id });
+    expect(codex.last.sent('thread/start')[0]).toMatchObject({ model: codexAgentModels[0]?.id });
+    expect(codex.last.sent('thread/settings/update').some((update) => 'model' in update)).toBe(false);
     expect(said(events)).toEqual([codexAgentModels[0]?.id]);
+  });
+
+  it('switches the thread to another model the person picks later in the conversation', async () => {
+    const { codex, session } = connect(async (turn) => turn.say(turn.thread.model));
+    const other = codexAgentModels[1]?.id;
+
+    await collectTurn(session, 'first');
+    const events = await collectTurn(session, 'second', { model: other });
+
+    expect(codex.last.sent('thread/settings/update').filter((update) => 'model' in update)).toEqual([expect.objectContaining({ model: other })]);
+    expect(said(events)).toEqual([other]);
   });
 
   it('runs Codex on its fast tier while fast mode is on, and on its own tier again when it is off', async () => {
@@ -204,7 +219,7 @@ describe('a turn on the Codex agent connection', () => {
 
     expect(codex.servers).toHaveLength(2);
     expect(codex.servers[0]?.closed).toBe(true);
-    expect(codex.last.sent('thread/resume')[0]).toMatchObject({ threadId: 'thread-1', cwd: '/work/app' });
+    expect(codex.last.sent('thread/resume')[0]).toMatchObject({ threadId: 'thread-1', cwd: '/work/app', model: codexAgentModels[0]?.id });
     expect(codex.last.sent('thread/start')).toHaveLength(0);
   });
 

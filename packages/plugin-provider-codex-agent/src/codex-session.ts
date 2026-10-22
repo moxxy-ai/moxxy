@@ -69,6 +69,12 @@ export interface CodexSessionSettings {
   readonly cwd: string;
   /** The conversation's Codex thread from an earlier process, to resume. */
   readonly resume?: string;
+  /**
+   * The model the turn runs. The thread opens on it: one opened on the config's
+   * model and switched before the turn carries Codex's model-switch
+   * instructions in every request after.
+   */
+  readonly model?: string;
   /** Every Moxxy tool of the conversation: Codex reads the list once, as the thread opens or resumes. */
   readonly tools?: ReadonlyArray<ToolDef>;
   /** The conversation's Moxxy skills: Codex reads those meant for it through one more Moxxy tool, listed with the tools. */
@@ -429,7 +435,7 @@ export class CodexAgentSession implements LiveSession {
       capabilities: { experimentalApi: true },
     });
     this.client.notify('initialized');
-    const { cwd, resume } = this.settings;
+    const { cwd, resume, model } = this.settings;
     const read = await this.client.request<CodexConfigRead>('config/read', { cwd }).catch(() => undefined);
     // Codex hides MCP tools behind its tool search, where the model does not
     // look for Moxxy's, so the skill list and the lent tools sit in its first list.
@@ -453,7 +459,7 @@ export class CodexAgentSession implements LiveSession {
     if (resume) {
       const loaded = await resumeAgentSession({
         label: 'Codex',
-        load: () => this.client.request<CodexThreadResponse>('thread/resume', { threadId: resume, cwd, config }),
+        load: () => this.client.request<CodexThreadResponse>('thread/resume', { threadId: resume, cwd, config, ...(model ? { model } : {}) }),
         gone: threadGone,
       });
       if (loaded.kind === 'loaded') {
@@ -467,7 +473,7 @@ export class CodexAgentSession implements LiveSession {
     } else {
       this.newThread = 'new';
     }
-    thread ??= await this.client.request<CodexThreadResponse>('thread/start', { cwd, config });
+    thread ??= await this.client.request<CodexThreadResponse>('thread/start', { cwd, config, ...(model ? { model } : {}) });
     this.threadId = thread.thread.id;
     // A new thread runs as the person set Codex up. A resumed one keeps the approval
     // policy and reviewer Moxxy last set on it, so their own setup comes from their config.
