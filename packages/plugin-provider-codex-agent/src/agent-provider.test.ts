@@ -52,6 +52,8 @@ const autoApproveOf = (session: Session) => autoApproveFromEvents(session.log.of
 const denyAll: PermissionResolver = { name: 'deny-all', check: async () => ({ mode: 'deny', reason: 'the person said no' }) };
 const allowAll: PermissionResolver = { name: 'allow-all', check: async () => ({ mode: 'allow' }) };
 const ASKING = { approvalPolicy: 'on-request', sandbox: { type: 'readOnly', networkAccess: false } } as const;
+/** Moxxy's asking on a Codex set up never to ask: Codex holds each command for the person, whatever the model decides. */
+const MOXXY_ASKING = { approvalPolicy: 'untrusted', sandbox: { type: 'readOnly', networkAccess: false } } as const;
 
 describe('a turn on the Codex agent connection', () => {
   it("starts Codex in the conversation folder with only Moxxy's MCP server and Codex's checklist added, and shows what Codex did", async () => {
@@ -433,11 +435,23 @@ describe('approvals: one state with Codex own policy', () => {
 
     await session.setAutoApprove(false);
     await collectTurn(session, 'two');
-    expect(codex.last.thread).toMatchObject(ASKING);
+    expect(codex.last.thread).toMatchObject(MOXXY_ASKING);
 
     await session.setAutoApprove(true);
     await collectTurn(session, 'three');
     expect(codex.last.thread).toMatchObject({ approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } });
+  });
+
+  it('lets the model ask for each write on a Codex that no longer takes untrusted, rather than fail the turn', async () => {
+    const { codex, session } = connect(async (turn) => turn.say('ok'), { refusedApprovalPolicies: ['untrusted'] });
+    await collectTurn(session, 'one');
+    await session.setAutoApprove(false);
+
+    const events = await collectTurn(session, 'two');
+    await collectTurn(session, 'three');
+
+    expect(said(events)).toEqual(['ok']);
+    expect(codex.last.thread).toMatchObject(ASKING);
   });
 
   it('shows auto-approve off when the thread starts asking without Moxxy changing it, and leaves Codex so', async () => {
@@ -489,7 +503,7 @@ describe('approvals: one state with Codex own policy', () => {
     const events = await collectTurn(session, 'three');
 
     expect(autoApproveOf(session)).toBe(false);
-    expect(codex.last.thread).toMatchObject(ASKING);
+    expect(codex.last.thread).toMatchObject(MOXXY_ASKING);
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'auto_approve_restored' }));
   });
 
@@ -505,7 +519,7 @@ describe('approvals: one state with Codex own policy', () => {
     const events = await collectTurn(session, 'three');
 
     expect(autoApproveOf(session)).toBe(false);
-    expect(codex.last.thread).toMatchObject(ASKING);
+    expect(codex.last.thread).toMatchObject(MOXXY_ASKING);
     expect(events.filter((e) => e.type === 'plugin_event' && e.subtype === 'auto_approve_restored')).toHaveLength(1);
   });
 
@@ -518,7 +532,7 @@ describe('approvals: one state with Codex own policy', () => {
     codex.last.changeSettingsElsewhere({ approvalsReviewer: 'auto_review' });
     await collectTurn(session, 'three');
 
-    expect(codex.last.thread).toMatchObject({ ...ASKING, approvalsReviewer: 'user' });
+    expect(codex.last.thread).toMatchObject({ ...MOXXY_ASKING, approvalsReviewer: 'user' });
   });
 
   it('keeps plan mode read-only when something outside Moxxy gives Codex full access during it', async () => {
@@ -573,7 +587,7 @@ describe('approvals: one state with Codex own policy', () => {
 
     expect(codex.last.sent('thread/resume')).toHaveLength(1);
     expect(autoApproveOf(session)).toBe(false);
-    expect(codex.last.thread).toMatchObject(ASKING);
+    expect(codex.last.thread).toMatchObject(MOXXY_ASKING);
   });
 
   it("gives Codex its own reviewer back after a new Codex resumed a thread Moxxy had set to the person's answers", async () => {

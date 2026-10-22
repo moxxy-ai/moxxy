@@ -83,6 +83,8 @@ Auto-approve is **one state shared with the agent**, never a separate Moxxy flag
 | Codex | approval policy `never` with full access |
 | OpenCode | Moxxy answers OpenCode's questions with yes. What OpenCode's own rules still ask about (work outside the project) is still asked, unless you turned auto-approve on yourself. |
 
+With auto-approve off, a Codex set up never to ask runs read-only and holds every command but a known-safe read until you answer (approval policy `untrusted`). Codex itself holds the command, so you are asked whatever the model decides; under `on-request` it was the model's call, and at low effort it mostly tried the write, was blocked and gave up. A Codex that no longer takes `untrusted` gets `on-request` instead, and the live check (`pnpm test:agents:live`, "asks before a change") says so.
+
 ## Questions
 
 When the agent asks you something (Claude's `AskUserQuestion`, Codex's questions in plan mode), Moxxy shows it exactly as the agent sent it, with its suggestions and room for your own answer. It is the same question card as `ask_user` on an API connection, so the desktop, the terminal UI, Telegram, Discord and the phone show the same one, and the first answer closes it everywhere.

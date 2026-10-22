@@ -42,6 +42,7 @@ const opencode = await import(dist('plugin-provider-acp'));
 const TURN_LIMIT_MS = 5 * 60_000;
 const STOP_LIMIT_MS = 30_000;
 const NOT_SUPPORTED_BACKGROUND = "Moxxy has no shared view or stop for an agent's background work yet";
+const OWN_RULES_ALLOW_CHANGES = "OpenCode's own rules let it change files in the project without asking";
 
 const AGENTS = {
   claude: {
@@ -50,6 +51,7 @@ const AGENTS = {
     command: 'claude',
     model: process.env.MOXXY_LIVE_CLAUDE_MODEL?.trim() || 'claude-sonnet-5-5',
     signIn: async () => claude.checkClaudeCliAuth(),
+    asksBeforeChange: true,
   },
   codex: {
     provider: codex.CODEX_AGENT_PROVIDER_ID,
@@ -58,6 +60,7 @@ const AGENTS = {
     model: process.env.MOXXY_LIVE_CODEX_MODEL?.trim() || 'gpt-6-luna',
     context: { reasoning: { effort: 'medium' }, fast: true },
     signIn: async () => codex.checkCodexAuth(),
+    asksBeforeChange: true,
   },
   opencode: {
     provider: opencode.OPENCODE_PROVIDER_ID,
@@ -65,6 +68,7 @@ const AGENTS = {
     command: 'opencode',
     model: process.env.MOXXY_LIVE_OPENCODE_MODEL?.trim() || opencode.OPENCODE_DEFAULT_MODEL,
     signIn: async () => opencode.checkOpenCode(),
+    asksBeforeChange: false,
   },
 };
 
@@ -134,8 +138,19 @@ class Runner {
       if (Date.now() > deadline) throw new Error('moxxy serve did not open its socket within 60s');
     }
     this.session = await connectRemoteSession({ socketPath: this.socket, role: 'live-check' });
-    this.session.setPermissionResolver({ name: 'live-check', check: async () => ({ mode: 'allow', decidedNow: true }) });
+    this.allow();
     await this.session.setAutoApprove(true);
+  }
+
+  /** Answer every approval with yes; `asked` hears each call the person was asked about. */
+  allow(asked) {
+    this.session.setPermissionResolver({
+      name: 'live-check',
+      check: async (call) => {
+        asked?.push(call?.name ?? 'a call');
+        return { mode: 'allow', decidedNow: true };
+      },
+    });
   }
 
   /** One turn; its events, the assistant's text, and the errors it reported. */
@@ -245,6 +260,26 @@ async function checkAgent(agent) {
       if (contents !== marker) throw new Error(contents === undefined ? 'live-result.txt was not created' : `live-result.txt holds "${short(contents, 60)}"`);
       return 'live-result.txt written in the workspace';
     });
+
+    if (spec.asksBeforeChange) {
+      await step(agent, 'asks before a change', async () => {
+        const asked = [];
+        runner.allow(asked);
+        await runner.session.setAutoApprove(false);
+        try {
+          const turn = await runner.turn('Create the file asked.txt in the current directory containing exactly ASKED. Then reply with exactly ASK DONE.');
+          const file = path.join(workspace, 'asked.txt');
+          if (asked.length === 0) throw new Error(`with auto-approve off the agent asked nothing; it said: "${short(turn.text)}"`);
+          if (!existsSync(file)) throw new Error(`the person allowed ${asked.join(', ')}, but asked.txt was not created; the agent said: "${short(turn.text)}"`);
+          return `asked about ${asked.join(', ')}, then wrote asked.txt`;
+        } finally {
+          runner.allow();
+          await runner.session.setAutoApprove(true);
+        }
+      });
+    } else {
+      record(agent, 'asks before a change', 'na', OWN_RULES_ALLOW_CHANGES);
+    }
 
     await step(agent, 'Moxxy tool', async () => {
       const turn = await runner.turn('Call the tool named recall from the moxxy MCP server, with the query "code word". It is one of your tools. Then reply with exactly TOOL DONE.');

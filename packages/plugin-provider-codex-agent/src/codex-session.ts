@@ -95,8 +95,14 @@ interface ThreadSettings extends Policy {
 
 /** Moxxy's auto-approve, as Codex runs it: no approvals, full access. */
 const AUTO: Policy = { approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } };
-/** Without auto-approve on a Codex set up for it: Codex asks before anything that writes. */
-const ASKING: Policy = { approvalPolicy: 'on-request', sandbox: { type: 'readOnly', networkAccess: false } };
+/**
+ * Without auto-approve on a Codex set up for it: Codex holds every command but
+ * a known-safe read for the person. Under `on-request` it was the model's call
+ * to ask, and at low effort it mostly tried the write, was blocked and gave up.
+ */
+const ASKING: Policy = { approvalPolicy: 'untrusted', sandbox: { type: 'readOnly', networkAccess: false } };
+/** Asking on a Codex that no longer takes `untrusted`: the model asks for each write. */
+const MODEL_ASKS: Policy = { approvalPolicy: 'on-request', sandbox: ASKING.sandbox };
 /** Codex's fast mode (`/fast`), its `priority` service tier. */
 const FAST_TIER = 'priority';
 /** Codex's own name for its standard tier, which `null` restores. */
@@ -514,7 +520,13 @@ export class CodexAgentSession implements LiveSession {
       };
     }
     if (Object.keys(update).length === 0) return;
-    await this.client.request('thread/settings/update', { threadId: this.threadId, ...update });
+    try {
+      await this.client.request('thread/settings/update', { threadId: this.threadId, ...update });
+    } catch (err) {
+      if (update.approvalPolicy !== ASKING.approvalPolicy || this.asking !== ASKING) throw err;
+      this.asking = MODEL_ASKS;
+      return this.apply({ ...wanted, approvalPolicy: MODEL_ASKS.approvalPolicy });
+    }
     this.current = { ...wanted, ...(effort ? { effort } : {}) };
   }
 

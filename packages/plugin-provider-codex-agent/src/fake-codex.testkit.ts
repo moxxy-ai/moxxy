@@ -87,6 +87,8 @@ export interface FakeCodexDefaults {
   readonly resumeFailures?: number;
   /** Refuse `turn/steer`, as Codex does for a turn that cannot take more input. */
   readonly refuseSteer?: boolean;
+  /** Approval policies `thread/settings/update` refuses, as a later Codex that dropped one would. */
+  readonly refusedApprovalPolicies?: ReadonlyArray<string>;
   /** Names of the person's own Codex skills, as `skills/list` reports them. */
   readonly ownSkills?: ReadonlyArray<string>;
   /** The person's own MCP servers, as `config/read` reports them under `mcp_servers`. */
@@ -276,6 +278,7 @@ export class FakeCodexServer {
       }
       case 'thread/settings/update': {
         const thread = this.threadOf(params);
+        if (this.codex.defaults.refusedApprovalPolicies?.includes(String(params.approvalPolicy))) throw new Error(`unknown variant \`${String(params.approvalPolicy)}\``);
         if (params.approvalPolicy !== undefined) thread.approvalPolicy = params.approvalPolicy as CodexApprovalPolicy;
         if (params.sandboxPolicy !== undefined) thread.sandbox = params.sandboxPolicy as CodexSandboxPolicy;
         if (params.approvalsReviewer !== undefined) thread.approvalsReviewer = params.approvalsReviewer as CodexApprovalsReviewer;
