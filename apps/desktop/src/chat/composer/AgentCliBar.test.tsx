@@ -51,6 +51,17 @@ function Bar({ sessionInfo }: { readonly sessionInfo: SessionInfo }): JSX.Elemen
 }
 
 describe('the agent CLI line above the message box', () => {
+  it('names the copy it is about and offers no button for one inside an app', async () => {
+    const calls = host();
+    const inside = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex';
+    render(<Bar sessionInfo={info(report({ state: 'update-required', installed: '0.150.0', path: inside, origin: 'app' }))} />);
+
+    const bar = await screen.findByTestId('composer-agent-cli');
+    expect(bar).toHaveTextContent(`Codex 0.150.0 at ${inside} is older than Moxxy works with — it is part of ChatGPT.app, which updates it`);
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(calls.some(([cmd]) => cmd === 'agents.run')).toBe(false);
+  });
+
   it('offers the update the vendor published, in the words the terminal uses', async () => {
     const calls = host();
     render(<Bar sessionInfo={info(report({}))} />);

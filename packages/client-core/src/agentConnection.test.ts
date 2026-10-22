@@ -77,6 +77,17 @@ describe('an agent connection row', () => {
     });
   });
 
+  it('offers no update of a CLI inside an app, which the app updates', () => {
+    const inside = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex';
+
+    expect(view(entry(report({ state: 'update-required', installed: '0.150.0', path: inside, origin: 'app' })))).toMatchObject({
+      state: 'update-required',
+      detail: `Codex 0.150.0 at ${inside} is older than Moxxy works with — it is part of ChatGPT.app, which updates it`,
+      action: null,
+    });
+    expect(view(entry(report({ state: 'update-available', installed: '0.155.1', path: inside, origin: 'app' })))).toMatchObject({ state: 'connected', action: null });
+  });
+
   it('offers an update the vendor published', () => {
     expect(view(entry(report({ state: 'update-available', installed: '0.155.1' })))).toMatchObject({
       state: 'update-available',

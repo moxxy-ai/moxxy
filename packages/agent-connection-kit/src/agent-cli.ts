@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import type { AgentCliReport } from '@moxxy/sdk';
+import type { AgentCliOrigin, AgentCliReport } from '@moxxy/sdk';
 import {
   fetchNpmLatest,
   findExecutable,
@@ -24,6 +24,8 @@ export interface AgentCliDescriptor {
   /** The agent as the person knows it ("Codex"). */
   readonly name: string;
   readonly command: string;
+  /** The variable that points at another file to run (`CODEX_EXECUTABLE`); every lookup honours it. */
+  readonly executableEnv: string;
   /** The npm package whose `latest` tag is the vendor's newest release. */
   readonly npmPackage: string;
   /** The oldest version Moxxy was checked against; older ones must be updated first. */
@@ -51,6 +53,7 @@ export interface AgentCliDescriptor {
 export const CLAUDE_CLI: AgentCliDescriptor = {
   name: 'Claude Code',
   command: 'claude',
+  executableEnv: 'CLAUDE_CODE_EXECUTABLE',
   npmPackage: '@anthropic-ai/claude-code',
   minimumVersion: '2.1.296',
   updateArgs: ['update'],
@@ -62,6 +65,7 @@ export const CLAUDE_CLI: AgentCliDescriptor = {
 export const CODEX_CLI: AgentCliDescriptor = {
   name: 'Codex',
   command: 'codex',
+  executableEnv: 'CODEX_EXECUTABLE',
   npmPackage: '@openai/codex',
   minimumVersion: '0.155.1',
   updateArgs: ['update'],
@@ -78,6 +82,7 @@ export const CODEX_CLI: AgentCliDescriptor = {
 export const OPENCODE_CLI: AgentCliDescriptor = {
   name: 'OpenCode',
   command: 'opencode',
+  executableEnv: 'OPENCODE_EXECUTABLE',
   npmPackage: 'opencode-ai',
   minimumVersion: '1.19.0',
   updateArgs: ['upgrade'],
@@ -101,29 +106,104 @@ export interface AgentCliSearch {
   readonly home?: string;
   readonly platform?: NodeJS.Platform;
   readonly pathEnv?: string;
+  /** The PATH folders added only as a fallback; defaults to {@link PATH_FALLBACK_ENV}. */
+  readonly fallbackPathEnv?: string;
 }
+
+/**
+ * Names the folders the desktop put on a runner's PATH only because it could
+ * not read the terminal's PATH (`/opt/homebrew/bin`, `/usr/local/bin`, ...).
+ * The terminal never chose them, so an agent CLI there comes after the copy
+ * the vendor's installer put in place: an old Homebrew `claude` must not win
+ * over the current one in `~/.local/bin`.
+ */
+export const PATH_FALLBACK_ENV = 'MOXXY_PATH_FALLBACK';
 
 function searchOptions(desc: AgentCliDescriptor, opts: AgentCliSearch) {
   const platform = opts.platform ?? process.platform;
   const home = opts.home ?? homedir();
   const paths = platform === 'win32' ? path.win32 : path.posix;
+  const delimiter = platform === 'win32' ? ';' : ':';
+  const key = (dir: string) => {
+    let end = dir.trim();
+    while (end.length > 1 && (end.endsWith('/') || end.endsWith('\\'))) end = end.slice(0, -1);
+    return platform === 'win32' ? end.toLowerCase() : end;
+  };
+  const fallback = new Set(
+    (opts.fallbackPathEnv ?? process.env[PATH_FALLBACK_ENV] ?? '').split(delimiter).filter(Boolean).map(key),
+  );
+  const onPath = (opts.pathEnv ?? process.env.PATH ?? '').split(delimiter).filter(Boolean);
+  const chosen = onPath.filter((dir) => !fallback.has(key(dir)));
   return {
-    command: opts.command ?? desc.command,
+    command: opts.command ?? (process.env[desc.executableEnv]?.trim() || desc.command),
     platform,
-    extraPaths: desc.installDirs.map((dir) => paths.join(home, ...dir.split('/'))),
-    ...(opts.pathEnv !== undefined ? { pathEnv: opts.pathEnv } : {}),
+    dirs: [
+      ...chosen,
+      ...desc.installDirs.map((dir) => paths.join(home, ...dir.split('/'))),
+      ...onPath.filter((dir) => fallback.has(key(dir))),
+    ],
   };
 }
 
-/** The CLI's file: on PATH first, as a terminal would run it, then where the vendor's installer puts it. */
+/**
+ * The CLI's file: on PATH first, as a terminal would run it, then where the
+ * vendor's installer puts it, then in the folders added only as a fallback.
+ */
 export function findAgentCli(desc: AgentCliDescriptor, opts: AgentCliSearch = {}): string | null {
-  const { command, extraPaths, ...search } = searchOptions(desc, opts);
-  return findExecutable(command, extraPaths, search);
+  const { command, dirs, platform } = searchOptions(desc, opts);
+  return findExecutable(command, dirs, { platform, pathEnv: '' });
 }
 
-function agentCliTarget(desc: AgentCliDescriptor, opts: AgentCliSearch): ExecutableTarget | null {
-  const found = findAgentCli(desc, opts);
-  return found ? agentCliTargetAt(desc, found, { platform: opts.platform ?? process.platform }) : null;
+/** Where a CLI's file came from, and what an update needs to know of it. */
+export interface AgentCliSource {
+  readonly origin: AgentCliOrigin;
+  /** For `app`: the app it is part of ("ChatGPT.app"). */
+  readonly app?: string;
+  /** For `homebrew`: the Homebrew folder it belongs to, and the formula or cask. */
+  readonly homebrew?: { readonly prefix: string; readonly name: string; readonly cask: boolean };
+}
+
+export interface AgentCliOriginOptions {
+  readonly home?: string;
+  readonly platform?: NodeJS.Platform;
+  /** Follows links to the real file; defaults to the file system's. */
+  readonly realpath?: (file: string) => string;
+}
+
+/**
+ * Where the CLI at `file` came from, by where it really is: inside a macOS
+ * app (`*.app/Contents/`, which the app updates itself), in a Homebrew
+ * `Caskroom` or `Cellar`, in a global npm install of the vendor's package, or
+ * in a folder the vendor's installer uses. Anything else is unknown.
+ */
+export function agentCliOrigin(desc: AgentCliDescriptor, file: string, opts: AgentCliOriginOptions = {}): AgentCliSource {
+  const platform = opts.platform ?? process.platform;
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  let real = file;
+  try {
+    real = (opts.realpath ?? realpathSync)(file);
+  } catch {
+    // A file that cannot be followed is judged by where it was found.
+  }
+  const comparable = (p: string) => (platform === 'win32' ? p.replaceAll('\\', '/').toLowerCase() : p);
+  if (platform === 'darwin') {
+    for (const candidate of [file, real]) {
+      const at = candidate.indexOf('.app/Contents/');
+      if (at >= 0) return { origin: 'app', app: path.posix.basename(candidate.slice(0, at + '.app'.length)) };
+    }
+  }
+  const slashed = real.replaceAll('\\', '/');
+  for (const [folder, cask] of [['Caskroom', true], ['Cellar', false]] as const) {
+    const marker = `/${folder}/`;
+    const at = slashed.lastIndexOf(marker);
+    const name = at > 0 ? slashed.slice(at + marker.length).split('/')[0] : undefined;
+    if (name) return { origin: 'homebrew', homebrew: { prefix: real.slice(0, at), name, cask } };
+  }
+  if (comparable(slashed).includes(comparable(`/node_modules/${desc.npmPackage}/`))) return { origin: 'npm' };
+  const home = opts.home ?? homedir();
+  const folder = comparable(paths.dirname(file));
+  if (desc.installDirs.some((dir) => comparable(paths.join(home, ...dir.split('/'))) === folder)) return { origin: 'installer' };
+  return { origin: 'unknown' };
 }
 
 export interface AgentCliTargetOptions {
@@ -217,7 +297,14 @@ export async function checkAgentCli(
     installedVersion(desc, opts),
     (deps.latest ?? ((pkg, o) => latestAgentVersion(pkg, o)))(desc.npmPackage, { refresh }),
   ]);
-  const base = { command: desc.command, installed: found.version, latest, minimum: desc.minimumVersion, checkedAt: (deps.now ?? Date.now)() };
+  const base = {
+    command: desc.command,
+    installed: found.version,
+    ...(found.file ? { path: found.file, origin: agentCliOrigin(desc, found.file, originOptions(opts)).origin } : {}),
+    latest,
+    minimum: desc.minimumVersion,
+    checkedAt: (deps.now ?? Date.now)(),
+  };
   if (!found.present) return { state: 'missing', ...base };
   const signIn = deps.signIn ? await deps.signIn() : undefined;
   const known = { ...base, ...(signIn ? { signedIn: signIn.signedIn, account: signIn.account ?? null } : {}) };
@@ -227,18 +314,24 @@ export async function checkAgentCli(
   return { state: 'current', ...known };
 }
 
+function originOptions(opts: AgentCliSearch): AgentCliOriginOptions {
+  return { ...(opts.home !== undefined ? { home: opts.home } : {}), ...(opts.platform !== undefined ? { platform: opts.platform } : {}) };
+}
+
 async function installedVersion(
   desc: AgentCliDescriptor,
   opts: AgentCliSearch,
-): Promise<{ readonly present: boolean; readonly version: string | null }> {
-  let target: ExecutableTarget | null;
+): Promise<{ readonly present: boolean; readonly file?: string; readonly version: string | null }> {
+  const file = findAgentCli(desc, opts);
+  if (!file) return { present: false, version: null };
+  let target: ExecutableTarget;
   try {
-    target = agentCliTarget(desc, opts);
+    target = agentCliTargetAt(desc, file, { platform: opts.platform ?? process.platform });
   } catch {
     // Found, but in a form Moxxy will not run (e.g. an unknown Windows shim).
-    return { present: true, version: null };
+    return { present: true, file, version: null };
   }
-  return target ? { present: true, version: await readCliVersion(target) } : { present: false, version: null };
+  return { present: true, file, version: await readCliVersion(target) };
 }
 
 export type AgentCliAction = 'install' | 'update';
@@ -290,18 +383,30 @@ export async function runAgentCliAction(
       windowsHide: true,
     });
   } else {
-    let target: ExecutableTarget | null;
-    try {
-      target = agentCliTarget(desc, opts);
-    } catch (err) {
-      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    const found = findAgentCli(desc, opts);
+    if (!found) return { ok: false, message: `${desc.name} is not installed.` };
+    const source = agentCliOrigin(desc, found, originOptions(opts));
+    if (source.origin === 'app') return { ok: false, message: `The ${desc.name} at ${found} is part of ${source.app ?? 'an app'} and updates with it.` };
+    const brew = source.homebrew && platform !== 'win32' ? path.posix.join(source.homebrew.prefix, 'bin', 'brew') : null;
+    if (brew && source.homebrew && existsSync(brew)) {
+      // Homebrew owns this copy; the agent's own update would put a second one elsewhere.
+      child = spawn(brew, ['upgrade', ...(source.homebrew.cask ? ['--cask'] : []), source.homebrew.name], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+      });
+    } else {
+      let target: ExecutableTarget;
+      try {
+        target = agentCliTargetAt(desc, found, { platform });
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+      }
+      child = spawnExecutableTarget(target, desc.updateArgs, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: platform !== 'win32',
+        windowsHide: true,
+      });
     }
-    if (!target) return { ok: false, message: `${desc.name} is not installed.` };
-    child = spawnExecutableTarget(target, desc.updateArgs, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: platform !== 'win32',
-      windowsHide: true,
-    });
   }
   return watch(child, opts);
 }

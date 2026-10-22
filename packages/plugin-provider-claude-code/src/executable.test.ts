@@ -3,8 +3,13 @@
  * binary or a `cli.js`, but not a Windows npm `.cmd` shim, so that one is
  * swapped for the `cli.js` npm put beside it.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { CLAUDE_CLI, PATH_FALLBACK_ENV } from '@moxxy/agent-connection-kit';
+import { writeFakeCli } from '@moxxy/vitest-preset/fake-cli';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import { claudeExecutableForSdk, claudeForSdk } from './executable.js';
 
 describe('the Claude Code CLI the SDK runs', () => {
@@ -28,5 +33,28 @@ describe('the Claude Code CLI the SDK runs', () => {
 describe('claudeForSdk', () => {
   it('takes a configured path as it is', () => {
     expect(claudeForSdk('/opt/claude/bin/claude')).toBe('/opt/claude/bin/claude');
+  });
+});
+
+describe('the Claude Code a conversation runs, when the desktop could not read the terminal’s PATH', () => {
+  const saved = { PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, [PATH_FALLBACK_ENV]: process.env[PATH_FALLBACK_ENV] };
+  let home: string | undefined;
+  afterEach(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    if (home) removeDirSync(home);
+  });
+
+  it('is the copy the installer put in place, not an old one in a fallback folder', () => {
+    home = mkdtempSync(path.join(tmpdir(), 'moxxy-claude-sdk-'));
+    const options = { windowsEntry: CLAUDE_CLI.windowsShim.entry };
+    const current = writeFakeCli(path.join(home, '.local', 'bin', 'claude'), '', options);
+    const old = writeFakeCli(path.join(home, 'homebrew', 'bin', 'claude'), '', options);
+    process.env.HOME = process.env.USERPROFILE = home;
+    process.env.PATH = process.env[PATH_FALLBACK_ENV] = path.dirname(old);
+
+    expect(claudeForSdk('claude')).toBe(claudeExecutableForSdk(current));
   });
 });

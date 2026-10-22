@@ -3,7 +3,7 @@
  * installing or updating one. The CLIs are real executables in a temporary
  * home; only the npm registry is stood in for.
  */
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -77,6 +77,17 @@ describe('moxxy agents status', () => {
     expect(out).toMatch(/Claude Code\s+2\.1\.300\s+up to date/);
     expect(out).toMatch(/Codex\s+0\.150\.0\s+update required — Moxxy works with 0\.155\.1 or newer · moxxy agents update codex/);
     expect(out).toMatch(/OpenCode\s+—\s+not installed · moxxy agents install opencode/);
+  });
+
+  it.skipIf(process.platform === 'win32')('names the file of each one found and where it came from', async () => {
+    const cask = cli('claude', 'brew/Caskroom/claude-code/2.1.63/claude', '2.1.63 (Claude Code)');
+    const bin = path.join(home!, 'brew', 'bin');
+    mkdirSync(bin, { recursive: true });
+    symlinkSync(cask, path.join(bin, 'claude'));
+
+    const { out } = await run(['status'], { pathEnv: bin });
+
+    expect(out).toContain(`${path.join(bin, 'claude')} (Homebrew)`);
   });
 
   it('is what `moxxy agents` shows on its own', async () => {

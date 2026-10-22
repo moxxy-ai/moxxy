@@ -73,7 +73,8 @@ export function agentConnectionView(
     case 'unknown':
       return view('unavailable', `${agent} is installed, but Moxxy could not read its version`, 'check');
     case 'update-required':
-      return view('update-required', notice?.text ?? `${agent} needs an update`, 'update');
+      // A CLI inside an app is updated by that app, not from here.
+      return view('update-required', notice?.text ?? `${agent} needs an update`, notice?.action === null ? null : 'update');
     default:
       break;
   }

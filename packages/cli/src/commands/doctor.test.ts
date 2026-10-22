@@ -92,4 +92,16 @@ describe('buildAgentCliDoctorChecks', () => {
     ]);
     expect(buildAgentCliDoctorChecks([codex('update-required', '0.150.0')], new Set())[0]?.status).toBe('warn');
   });
+
+  it('names the file it checked and where it came from', () => {
+    const at = (path: string, origin: 'homebrew' | 'app') => ({ ...codex('update-required', '0.150.0'), report: { ...codex('update-required', '0.150.0').report, path, origin } });
+    const inside = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex';
+
+    expect(buildAgentCliDoctorChecks([at('/opt/homebrew/bin/codex', 'homebrew')], new Set())[0]?.message).toBe(
+      'Codex 0.150.0 at /opt/homebrew/bin/codex (Homebrew) is older than 0.155.1, the oldest Moxxy works with — moxxy agents update codex',
+    );
+    expect(buildAgentCliDoctorChecks([at(inside, 'app')], new Set())[0]?.message).toBe(
+      `Codex 0.150.0 at ${inside} is older than 0.155.1, the oldest Moxxy works with — it is part of ChatGPT.app, which updates it`,
+    );
+  });
 });

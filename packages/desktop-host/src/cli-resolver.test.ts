@@ -8,7 +8,9 @@ import {
   executableCandidates,
   augmentedPaths,
   electronNodeBinary,
+  fallbackPathDirs,
   findExecutable,
+  spawnCli,
   spawnPath,
 } from './cli-resolver';
 
@@ -21,6 +23,7 @@ beforeEach(() => {
   process.env.PATH = tmp;
   process.env.HOME = process.env.USERPROFILE = tmp;
   delete process.env.MOXXY_CLI_ENTRY;
+  delete process.env.NVM_DIR;
   process.chdir(tmp);
 });
 
@@ -206,6 +209,57 @@ describe('augmentedPaths', () => {
   });
 });
 
+describe('augmentedPaths with nvm', () => {
+  const nvm = (...parts: string[]) => path.join(tmp, '.nvm', ...parts);
+  const bin = (version: string) => nvm('versions', 'node', version, 'bin');
+  const install = (...versions: string[]) => {
+    for (const v of versions) mkdirSync(bin(v), { recursive: true });
+  };
+  const alias = (name: string, target: string) => {
+    mkdirSync(path.dirname(nvm('alias', name)), { recursive: true });
+    writeFileSync(nvm('alias', name), `${target}\n`);
+  };
+
+  it('puts the version nvm uses by default first, as a terminal would', () => {
+    install('v20.17.0', 'v22.18.0', 'v22.22.0', 'v24.4.1');
+    alias('default', '22');
+
+    expect(augmentedPaths('linux')).toEqual([bin('v22.22.0'), bin('v24.4.1'), bin('v22.18.0'), bin('v20.17.0')]);
+  });
+
+  it('orders the other versions newest first, by number rather than by name', () => {
+    install('v9.11.2', 'v10.24.1', 'v18.17.1');
+
+    expect(augmentedPaths('linux')).toEqual([bin('v18.17.1'), bin('v10.24.1'), bin('v9.11.2')]);
+  });
+
+  it('follows a default that names another alias, an LTS line or the newest node', () => {
+    install('v20.17.0', 'v22.22.0', 'v24.4.1');
+    alias('default', 'lts/*');
+    alias('lts/*', 'lts/jod');
+    alias('lts/jod', 'v22.22.0');
+    expect(augmentedPaths('linux')[0]).toBe(bin('v22.22.0'));
+
+    alias('default', 'node');
+    expect(augmentedPaths('linux')[0]).toBe(bin('v24.4.1'));
+  });
+
+  it('falls back to newest first when the default names a version that is not installed', () => {
+    install('v20.17.0', 'v22.22.0');
+    alias('default', '18');
+
+    expect(augmentedPaths('linux')).toEqual([bin('v22.22.0'), bin('v20.17.0')]);
+  });
+
+  it('uses NVM_DIR when nvm lives somewhere else', () => {
+    const elsewhere = path.join(tmp, 'tools', 'nvm');
+    mkdirSync(path.join(elsewhere, 'versions', 'node', 'v22.22.0', 'bin'), { recursive: true });
+    process.env.NVM_DIR = elsewhere;
+
+    expect(augmentedPaths('linux')).toEqual([path.join(elsewhere, 'versions', 'node', 'v22.22.0', 'bin')]);
+  });
+});
+
 describe('spawnPath', () => {
   it('keeps the inherited shell PATH ahead of GUI fallbacks', () => {
     const cliDir = path.join(tmp, 'cli-bin');
@@ -215,6 +269,39 @@ describe('spawnPath', () => {
     const paths = spawnPath([cliDir], 'darwin').split(path.delimiter);
 
     expect(paths.slice(0, 4)).toEqual([cliDir, shellNode, '/usr/bin', '/usr/local/bin']);
+  });
+});
+
+describe('fallbackPathDirs', () => {
+  it('names the folders added for a GUI launch that the PATH did not already have', () => {
+    process.env.PATH = ['/usr/bin', '/bin'].join(path.delimiter);
+
+    expect(fallbackPathDirs('darwin')).toEqual(['/usr/local/bin', '/opt/homebrew/bin']);
+  });
+
+  it("leaves out a folder the terminal's PATH has, keeping its place", () => {
+    process.env.PATH = [path.join(tmp, '.local', 'bin'), '/opt/homebrew/bin', '/usr/bin'].join(path.delimiter);
+
+    expect(fallbackPathDirs('darwin')).toEqual(['/usr/local/bin']);
+    expect(spawnPath([], 'darwin').split(path.delimiter).slice(0, 3)).toEqual([path.join(tmp, '.local', 'bin'), '/opt/homebrew/bin', '/usr/bin']);
+  });
+});
+
+describe('spawnCli', () => {
+  it.skipIf(process.platform === 'win32')('tells the child which PATH folders are only a fallback', async () => {
+    const bin = path.join(tmp, 'print-env');
+    writeFileSync(bin, '#!/bin/sh\nprintf "%s|%s" "$MOXXY_PATH_FALLBACK" "$PATH"\n');
+    chmodSync(bin, 0o755);
+    process.env.PATH = ['/usr/bin', '/bin'].join(path.delimiter);
+
+    const child = spawnCli({ kind: 'direct', bin }, []);
+    let out = '';
+    child.stdout?.on('data', (chunk: Buffer) => (out += chunk.toString('utf8')));
+    await new Promise((resolve) => child.once('close', resolve));
+
+    const [fallback, childPath] = out.split('|');
+    expect(fallback).toBe(fallbackPathDirs().join(path.delimiter));
+    expect(childPath).toBe(spawnPath([tmp]));
   });
 });
 

@@ -12,6 +12,8 @@ import {
   type AgentCliSearch,
 } from '@moxxy/agent-connection-kit';
 import type { AgentCliAction, AgentCliProgress, AgentCliRunResult } from '@moxxy/desktop-ipc-contract';
+import { delimiter } from 'node:path';
+import { fallbackPathDirs, spawnPath } from './cli-resolver';
 
 /** What this needs of a runner: whether a turn runs, and asking it to check again. */
 export interface AgentCliRunner {
@@ -23,7 +25,13 @@ export interface AgentCliRunDeps {
   readonly runners: () => ReadonlyArray<AgentCliRunner>;
   readonly emit: (progress: AgentCliProgress) => void;
   readonly agents?: Readonly<Record<string, AgentCliDescriptor>>;
+  /** Where to look; defaults to where a runner looks, so the update reaches the copy it checked. */
   readonly search?: AgentCliSearch;
+}
+
+/** The PATH a runner gets from {@link spawnPath}, with the same folders marked as a fallback. */
+function runnerSearch(): AgentCliSearch {
+  return { pathEnv: spawnPath([]), fallbackPathEnv: fallbackPathDirs().join(delimiter) };
 }
 
 const running = new Set<string>();
@@ -49,7 +57,7 @@ export async function runAgentCli(
   try {
     let fraction: number | undefined;
     const result = await runAgentCliAction(desc, action, {
-      ...deps.search,
+      ...(deps.search ?? runnerSearch()),
       onProgress: (next) => {
         fraction = next;
       },

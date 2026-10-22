@@ -33,7 +33,9 @@ export {
   OPENCODE_CLI,
   agentCliTargetAt,
   checkAgentCli,
+  agentCliOrigin,
   findAgentCli,
+  PATH_FALLBACK_ENV,
   installInvocation,
   latestAgentVersion,
   runAgentCliAction,
@@ -44,6 +46,8 @@ export {
   type AgentSignIn,
   type AgentCliDescriptor,
   type AgentCliSearch,
+  type AgentCliSource,
+  type AgentCliOriginOptions,
   type AgentCliTargetOptions,
   type LatestVersionOptions,
 } from './agent-cli.js';

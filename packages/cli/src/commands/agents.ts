@@ -9,6 +9,7 @@ import {
   runAgentCliAction,
   type AgentCliDescriptor,
 } from '@moxxy/agent-connection-kit';
+import { agentCliApp, agentCliFile } from '@moxxy/chat-model';
 import type { AgentCliReport } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { hasBoolFlag, helpRequested } from '../argv-helpers.js';
@@ -70,6 +71,8 @@ export async function runAgentsCommand(argv: ParsedArgv, deps: AgentsDeps = {}):
     const width = Math.max(...reports.map(([, desc]) => desc.name.length));
     for (const [, desc, report] of reports) {
       out(`${desc.name.padEnd(width)}  ${(report.installed ?? '—').padEnd(10)}  ${describe(desc, report)}\n`);
+      const file = agentCliFile(report);
+      if (file) out(`${' '.repeat(width + 2)}${colors.dim(file)}\n`);
     }
     return 0;
   }
@@ -106,13 +109,15 @@ function agentNames(agents: Readonly<Record<string, AgentCliDescriptor>>): strin
 }
 
 function describe(desc: AgentCliDescriptor, report: AgentCliReport): string {
+  const app = agentCliApp(report);
+  const fix = app ? `part of ${app}, which updates it` : `moxxy agents update ${desc.command}`;
   switch (report.state) {
     case 'missing':
       return `not installed · moxxy agents install ${desc.command}`;
     case 'update-required':
-      return colors.yellow(`update required — Moxxy works with ${report.minimum} or newer · moxxy agents update ${desc.command}`);
+      return colors.yellow(`update required — Moxxy works with ${report.minimum} or newer · ${fix}`);
     case 'update-available':
-      return `${report.latest ?? 'a newer version'} is out · moxxy agents update ${desc.command}`;
+      return `${report.latest ?? 'a newer version'} is out · ${fix}`;
     case 'unknown':
       return colors.yellow('installed, but its version could not be read');
     case 'current':

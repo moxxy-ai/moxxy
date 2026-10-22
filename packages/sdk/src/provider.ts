@@ -375,6 +375,13 @@ export interface ProviderOAuthStatus {
  */
 export type AgentCliState = 'missing' | 'update-required' | 'update-available' | 'current' | 'unknown';
 
+/**
+ * Where an agent CLI came from, by where its file really is: the vendor's
+ * installer, Homebrew, a global npm install, inside an app (which updates it
+ * itself), or none of these.
+ */
+export type AgentCliOrigin = 'installer' | 'homebrew' | 'npm' | 'app' | 'unknown';
+
 /** The last check of an agent connection's CLI, as every surface shows it. */
 export interface AgentCliReport {
   readonly state: AgentCliState;
@@ -382,6 +389,10 @@ export interface AgentCliReport {
   readonly command: string;
   /** The version found on this computer; null when missing or unreadable. */
   readonly installed: string | null;
+  /** The file that was checked, which a conversation also runs; absent when missing. */
+  readonly path?: string;
+  /** Where that file came from; absent when missing. */
+  readonly origin?: AgentCliOrigin;
   /** The vendor's latest published version; null when the registry could not be asked. */
   readonly latest: string | null;
   /** The oldest version Moxxy works with. */

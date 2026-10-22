@@ -66,6 +66,7 @@
   "devDependencies": {
     "@clack/prompts": "catalog:",
     "@moxxy/agent-connection-kit": "workspace:*",
+    "@moxxy/chat-model": "workspace:*",
     "@moxxy/cache-strategy-stable-prefix": "workspace:*",
     "@moxxy/compactor-segments": "workspace:*",
     "@moxxy/compactor-summarize": "workspace:*",

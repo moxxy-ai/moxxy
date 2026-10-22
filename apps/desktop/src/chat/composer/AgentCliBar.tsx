@@ -14,7 +14,7 @@ export function AgentCliBar({ notice }: { readonly notice: AgentCliNoticeView })
       <span className="agent-cli-bar__text">
         {notice.running ? (notice.line ?? `${doing} ${notice.agentName}…`) : (notice.error ?? notice.notice.text)}
       </span>
-      {!notice.running && (
+      {!notice.running && notice.fix && (
         <button type="button" className="agent-cli-bar__fix" aria-label={`${verb} ${notice.agentName}`} onClick={notice.fix}>
           {notice.error ? 'Try again' : verb}
         </button>

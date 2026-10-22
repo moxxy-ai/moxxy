@@ -193,7 +193,7 @@ export interface PrepareRuntimesOptions extends SeedRuntimesOptions {
 export function prepareBundledRuntimes(opts: PrepareRuntimesOptions): Promise<void> {
   const env = opts.env ?? process.env;
   const platform = opts.platform ?? process.platform;
-  const terminalPath = (opts.loginShellPath ?? (() => readLoginShellPath({ env, platform })))().catch(() => null);
+  const terminalPath = (opts.loginShellPath ?? (() => readLoginShellPath({ env, platform, ...(opts.log ? { log: opts.log } : {}) })))().catch(() => null);
   const seeded = seedRuntimesFromResources(opts).catch((error: unknown) => {
     const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : '';
     opts.log?.(`runtimes-seed: ${error instanceof Error ? error.message : String(error)}${cause}`);

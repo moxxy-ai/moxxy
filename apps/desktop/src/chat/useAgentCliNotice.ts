@@ -9,7 +9,8 @@ export interface AgentCliNoticeView {
   readonly running: boolean;
   readonly line: string | null;
   readonly error: string | null;
-  readonly fix: () => void;
+  /** Runs the install or update; absent when Moxxy cannot fix it (a CLI inside an app). */
+  readonly fix?: () => void;
   /** Closes it until the vendor publishes another version; absent when the agent cannot work without the fix. */
   readonly dismiss?: () => void;
 }
@@ -40,13 +41,14 @@ export function useAgentCliNotice(info: AgentCliNoticeInfo | null | undefined): 
   if (!notice || !entry || !prefs) return null;
   if (notice.severity === 'available' && latest !== null && dismissed?.[notice.provider] === latest) return null;
   const job = jobs[notice.provider];
+  const action = notice.action;
   return {
     notice,
     agentName: entry.agentName ?? entry.name,
     running: job?.running === true,
     line: job?.line ?? null,
     error: job?.error ?? null,
-    fix: () => void run(notice.provider, notice.action),
+    ...(action ? { fix: () => void run(notice.provider, action) } : {}),
     ...(notice.severity === 'available' ? { dismiss } : {}),
   };
 }

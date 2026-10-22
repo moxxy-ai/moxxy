@@ -4,7 +4,7 @@
  * CLIs here are real executables in a temporary home; only the npm registry
  * is stood in for.
  */
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,6 +15,7 @@ import {
   CLAUDE_CLI,
   CODEX_CLI,
   OPENCODE_CLI,
+  agentCliOrigin,
   agentCliTargetAt,
   checkAgentCli,
   findAgentCli,
@@ -54,10 +55,10 @@ describe('the agent CLIs Moxxy knows', () => {
     expect(AGENT_CLIS['claude-code']).toBe(CLAUDE_CLI);
     expect(AGENT_CLIS['codex-agent']).toBe(CODEX_CLI);
     expect(AGENT_CLIS.opencode).toBe(OPENCODE_CLI);
-    expect([CLAUDE_CLI, CODEX_CLI, OPENCODE_CLI].map((d) => [d.command, d.npmPackage, d.minimumVersion])).toEqual([
-      ['claude', '@anthropic-ai/claude-code', '2.1.296'],
-      ['codex', '@openai/codex', '0.155.1'],
-      ['opencode', 'opencode-ai', '1.19.0'],
+    expect([CLAUDE_CLI, CODEX_CLI, OPENCODE_CLI].map((d) => [d.command, d.npmPackage, d.minimumVersion, d.executableEnv])).toEqual([
+      ['claude', '@anthropic-ai/claude-code', '2.1.296', 'CLAUDE_CODE_EXECUTABLE'],
+      ['codex', '@openai/codex', '0.155.1', 'CODEX_EXECUTABLE'],
+      ['opencode', 'opencode-ai', '1.19.0', 'OPENCODE_EXECUTABLE'],
     ]);
   });
 
@@ -96,8 +97,58 @@ describe('finding a CLI', () => {
     expect(findAgentCli(CODEX_CLI, { home, pathEnv: path.dirname(onPath) })).toBe(onPath);
   });
 
+  describe('when the person points at another file', () => {
+    const saved = process.env.CODEX_EXECUTABLE;
+    afterEach(() => {
+      if (saved === undefined) delete process.env.CODEX_EXECUTABLE;
+      else process.env.CODEX_EXECUTABLE = saved;
+    });
+
+    it("takes the agent's own variable, so a check, a conversation and an update use that file", async () => {
+      const updated = path.join(newHome(), 'updated');
+      cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.163.0');
+      const chosen = cli(CODEX_CLI, 'elsewhere/codex', 'codex-cli 0.150.0', `if (args[0] === 'update') { console.log('Updated'); require('fs').writeFileSync(${JSON.stringify(updated)}, ''); }`);
+      process.env.CODEX_EXECUTABLE = chosen;
+
+      expect(findAgentCli(CODEX_CLI, { home, pathEnv: '' })).toBe(chosen);
+      expect(await runAgentCliAction(CODEX_CLI, 'update', { home, pathEnv: '' })).toEqual({ ok: true, message: 'Updated' });
+      expect(existsSync(updated)).toBe(true);
+    });
+  });
+
   it('finds nothing when there is nothing', () => {
     expect(findAgentCli(CLAUDE_CLI, { home: newHome(), pathEnv: '' })).toBeNull();
+  });
+
+  describe('when the desktop could not read the terminal’s PATH', () => {
+    it("prefers the vendor installer's copy to an old one in a folder added only as a fallback", () => {
+      const current = cli(CLAUDE_CLI, '.local/bin/claude', '2.1.307 (Claude Code)');
+      const old = cli(CLAUDE_CLI, 'homebrew/bin/claude', '2.1.63 (Claude Code)');
+      const fallback = path.dirname(old);
+
+      expect(findAgentCli(CLAUDE_CLI, { home, pathEnv: ['/usr/bin', fallback].join(path.delimiter), fallbackPathEnv: fallback })).toBe(current);
+    });
+
+    it('knows a fallback folder however its end is written', () => {
+      const current = cli(CLAUDE_CLI, '.local/bin/claude', '2.1.307 (Claude Code)');
+      const old = cli(CLAUDE_CLI, 'homebrew/bin/claude', '2.1.63 (Claude Code)');
+
+      expect(findAgentCli(CLAUDE_CLI, { home, pathEnv: path.dirname(old), fallbackPathEnv: `${path.dirname(old)}${path.sep}` })).toBe(current);
+    });
+
+    it('still finds a copy that only a fallback folder has', () => {
+      const only = cli(CODEX_CLI, 'homebrew/bin/codex', 'codex-cli 0.163.0');
+      const fallback = path.dirname(only);
+
+      expect(findAgentCli(CODEX_CLI, { home, pathEnv: fallback, fallbackPathEnv: fallback })).toBe(only);
+    });
+
+    it('keeps the order of the PATH it has when no folder is a fallback, as in a terminal', () => {
+      cli(CLAUDE_CLI, '.local/bin/claude', '2.1.307 (Claude Code)');
+      const chosen = cli(CLAUDE_CLI, 'homebrew/bin/claude', '2.1.63 (Claude Code)');
+
+      expect(findAgentCli(CLAUDE_CLI, { home, pathEnv: path.dirname(chosen), fallbackPathEnv: '' })).toBe(chosen);
+    });
   });
 });
 
@@ -193,6 +244,15 @@ describe('checking a CLI', () => {
     expect(report).not.toHaveProperty('signedIn');
   });
 
+  it.skipIf(process.platform === 'win32')('says which file it checked and where it came from', async () => {
+    const cask = cli(CLAUDE_CLI, 'brew/Caskroom/claude-code/2.1.63/claude', '2.1.63 (Claude Code)');
+    const file = linked('brew/bin/claude', cask);
+
+    const report = await checkAgentCli(CLAUDE_CLI, { home, pathEnv: path.dirname(file) }, { latest: noRegistry });
+
+    expect(report).toMatchObject({ state: 'update-required', installed: '2.1.63', path: file, origin: 'homebrew' });
+  });
+
   it('cannot tell when the CLI prints no version', async () => {
     cli(CODEX_CLI, '.local/bin/codex', 'hello');
     expect(await at('0.162.1')).toMatchObject({ state: 'unknown', installed: null });
@@ -231,6 +291,67 @@ describe("the vendor's latest version", () => {
 
     expect(await latestAgentVersion('opencode-ai', { cacheFile, refresh: true, now: () => 0, fetchLatest: noRegistry })).toBe('1.19.0');
     expect(await latestAgentVersion('opencode-ai', { cacheFile: path.join(home ?? '', 'none.json'), fetchLatest: noRegistry })).toBeNull();
+  });
+});
+
+/** `link` pointing at `target`, both under the home, as installers and Homebrew leave them. */
+function linked(link: string, target: string): string {
+  const at = path.join(home ?? newHome(), ...link.split('/'));
+  mkdirSync(path.dirname(at), { recursive: true });
+  symlinkSync(target, at);
+  return at;
+}
+
+const asIs = (file: string): string => file;
+
+describe('where a CLI came from', () => {
+  describe.skipIf(process.platform === 'win32')('on this computer', () => {
+    it("is the vendor's installer for the copy it put in its folder", () => {
+      const version = cli(CLAUDE_CLI, '.local/share/claude/versions/2.1.307', '2.1.307 (Claude Code)');
+      const file = linked('.local/bin/claude', version);
+
+      expect(agentCliOrigin(CLAUDE_CLI, file, { home })).toEqual({ origin: 'installer' });
+    });
+
+    it('is Homebrew for a cask or a formula, with its folder and name', () => {
+      const cask = cli(CLAUDE_CLI, 'brew/Caskroom/claude-code/2.1.63/claude', '2.1.63 (Claude Code)');
+      const formula = cli(OPENCODE_CLI, 'brew/Cellar/opencode/1.19.0/bin/opencode', '1.19.0');
+      const prefix = path.join(realpathSync(home!), 'brew');
+
+      expect(agentCliOrigin(CLAUDE_CLI, linked('brew/bin/claude', cask), { home })).toEqual({
+        origin: 'homebrew',
+        homebrew: { prefix, name: 'claude-code', cask: true },
+      });
+      expect(agentCliOrigin(OPENCODE_CLI, linked('brew/bin/opencode', formula), { home })).toEqual({
+        origin: 'homebrew',
+        homebrew: { prefix, name: 'opencode', cask: false },
+      });
+    });
+
+    it('is npm for a global npm install of the vendor’s package', () => {
+      const script = cli(CODEX_CLI, 'npm/lib/node_modules/@openai/codex/bin/codex.js', 'codex-cli 0.163.0');
+
+      expect(agentCliOrigin(CODEX_CLI, linked('npm/bin/codex', script), { home })).toEqual({ origin: 'npm' });
+    });
+
+    it('is unknown for anything else', () => {
+      expect(agentCliOrigin(CLAUDE_CLI, cli(CLAUDE_CLI, 'tools/claude', '2.1.307 (Claude Code)'), { home })).toEqual({ origin: 'unknown' });
+    });
+  });
+
+  it('is an app for a copy inside a macOS app, which updates with that app', () => {
+    const inside = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex';
+
+    expect(agentCliOrigin(CODEX_CLI, inside, { home: '/Users/me', platform: 'darwin', realpath: asIs })).toEqual({ origin: 'app', app: 'ChatGPT.app' });
+    expect(agentCliOrigin(CODEX_CLI, inside, { home: '/home/me', platform: 'linux', realpath: asIs })).toEqual({ origin: 'unknown' });
+  });
+
+  it('reads Windows paths the same way', () => {
+    const options = { home: 'C:\\Users\\me', platform: 'win32' as const, realpath: asIs };
+
+    expect(agentCliOrigin(CLAUDE_CLI, 'C:\\Users\\me\\.local\\bin\\claude.exe', options)).toEqual({ origin: 'installer' });
+    expect(agentCliOrigin(CLAUDE_CLI, 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js', options)).toEqual({ origin: 'npm' });
+    expect(agentCliOrigin(CLAUDE_CLI, 'c:\\users\\ME\\.LOCAL\\bin\\claude.exe', options)).toEqual({ origin: 'installer' });
   });
 });
 
@@ -282,6 +403,49 @@ describe('installing and updating a CLI', () => {
 
     expect(result).toEqual({ ok: true, message: 'Updated to 0.162.1' });
     expect(existsSync(updated)).toBe(true);
+  });
+
+  describe.skipIf(process.platform === 'win32')('a copy that did not come from the vendor’s installer', () => {
+    /** A Homebrew cask of Claude under the home, and the file its `brew` writes its arguments to. */
+    function brewClaude(withBrew: boolean): { readonly ran: string; readonly updated: string } {
+      const ran = path.join(newHome(), 'brew-ran');
+      const updated = path.join(home!, 'claude-updated');
+      const cask = cli(CLAUDE_CLI, 'brew/Caskroom/claude-code/2.1.63/claude', '2.1.63 (Claude Code)', `if (args[0] === 'update') { console.log('Updated'); require('fs').writeFileSync(${JSON.stringify(updated)}, ''); }`);
+      linked('brew/bin/claude', cask);
+      if (withBrew) {
+        writeFakeCli(path.join(home!, 'brew', 'bin', 'brew'), `require('fs').writeFileSync(${JSON.stringify(ran)}, args.join(' ')); console.log('Upgraded claude-code');`);
+      }
+      return { ran, updated };
+    }
+
+    it('updates a Homebrew copy with the Homebrew it belongs to', async () => {
+      const { ran, updated } = brewClaude(true);
+
+      const result = await runAgentCliAction(CLAUDE_CLI, 'update', { home, pathEnv: path.join(home!, 'brew', 'bin') });
+
+      expect(result).toEqual({ ok: true, message: 'Upgraded claude-code' });
+      expect(readFileSync(ran, 'utf8')).toBe('upgrade --cask claude-code');
+      expect(existsSync(updated)).toBe(false);
+    });
+
+    it("uses the agent's own update when that Homebrew is not there", async () => {
+      const { updated } = brewClaude(false);
+
+      const result = await runAgentCliAction(CLAUDE_CLI, 'update', { home, pathEnv: path.join(home!, 'brew', 'bin') });
+
+      expect(result).toEqual({ ok: true, message: 'Updated' });
+      expect(existsSync(updated)).toBe(true);
+    });
+
+    it('runs nothing for a copy inside an app, which updates with that app', async () => {
+      const updated = path.join(newHome(), 'updated');
+      const inside = cli(CODEX_CLI, 'Apps/ChatGPT.app/Contents/Resources/codex-cli/bin/codex', 'codex-cli 0.150.0', `require('fs').writeFileSync(${JSON.stringify(updated)}, '');`);
+
+      const result = await runAgentCliAction(CODEX_CLI, 'update', { home, platform: 'darwin', pathEnv: path.dirname(inside) });
+
+      expect(result).toEqual({ ok: false, message: `The Codex at ${inside} is part of ChatGPT.app and updates with it.` });
+      expect(existsSync(updated)).toBe(false);
+    });
   });
 
   it('cannot update what is not installed', async () => {

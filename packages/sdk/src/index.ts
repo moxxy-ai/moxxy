@@ -253,6 +253,7 @@ export type {
   ProviderOAuthStatus,
   ProviderAuthDescriptor,
   AgentCliState,
+  AgentCliOrigin,
   AgentCliReport,
   ProviderAgentCli,
 } from './provider.js';

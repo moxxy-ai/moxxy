@@ -8,6 +8,7 @@ import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
 import { formatPrincipal, type AgentCliReport } from '@moxxy/sdk';
 import { AGENT_CLIS } from '@moxxy/agent-connection-kit';
+import { agentCliApp, agentCliFile } from '@moxxy/chat-model';
 import { hasProxy, moxxyPath, redactProxyUrl } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
@@ -449,20 +450,24 @@ export function buildAgentCliDoctorChecks(entries: ReadonlyArray<AgentCliDoctorE
   return entries.map(({ provider, agentName, command, report }) => {
     const id = `agent:${provider}`;
     const used = configured.has(provider);
+    const file = agentCliFile(report);
+    const found = `${agentName} ${report.installed ?? ''}`.trim() + (file ? ` at ${file}` : '');
+    const app = agentCliApp(report);
+    const fix = app ? `it is part of ${app}, which updates it` : `moxxy agents update ${command}`;
     switch (report.state) {
       case 'current':
-        return { id, status: 'ok', message: `${agentName} ${report.installed ?? ''}, the latest` };
+        return { id, status: 'ok', message: `${found}, the latest` };
       case 'update-available':
         return {
           id,
           status: 'warn',
-          message: `${agentName} ${report.installed ?? ''}; ${report.latest ?? 'a newer one'} is out — moxxy agents update ${command}`,
+          message: `${found}; ${report.latest ?? 'a newer one'} is out — ${fix}`,
         };
       case 'update-required':
         return {
           id,
           status: used ? 'fail' : 'warn',
-          message: `${agentName} ${report.installed ?? ''} is older than ${report.minimum}, the oldest Moxxy works with — moxxy agents update ${command}`,
+          message: `${found} is older than ${report.minimum}, the oldest Moxxy works with — ${fix}`,
         };
       case 'missing':
         return used

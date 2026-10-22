@@ -5,7 +5,7 @@
  * are real scripts in a temporary home; the runners are stood in for at their
  * process boundary.
  */
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -151,6 +151,63 @@ describe('updating an agent CLI from the desktop', () => {
 
     expect(result).toEqual({ ok: true, message: 'Upgraded' });
     expect(existsSync(upgraded)).toBe(true);
+  });
+
+  describe('when it is told nothing of where to look', () => {
+    const saved = { PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, NVM_DIR: process.env.NVM_DIR };
+    afterEach(() => {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+
+    it('updates the copy a runner finds, also one only in a folder a runner gets as a fallback', async () => {
+      const upgraded = path.join(newHome(), 'upgraded');
+      process.env.HOME = process.env.USERPROFILE = home;
+      process.env.PATH = path.join(home!, 'empty');
+      writeFakeCli(
+        path.join(home!, '.nvm', 'versions', 'node', 'v24.0.0', 'bin', 'opencode'),
+        `if (args[0] === 'upgrade') { console.log('Upgraded'); require('fs').writeFileSync(${JSON.stringify(upgraded)}, ''); }`,
+        { windowsEntry: OPENCODE.windowsShim.entry },
+      );
+
+      const result = await runAgentCli('opencode', 'update', {
+        runners: () => [runner()],
+        emit: () => undefined,
+        agents: { opencode: OPENCODE },
+      });
+
+      expect(result).toEqual({ ok: true, message: 'Upgraded' });
+      expect(existsSync(upgraded)).toBe(true);
+    });
+
+    it("updates the copy of the node version nvm uses by default, not an older one's", async () => {
+      const upgraded = path.join(newHome(), 'upgraded');
+      process.env.HOME = process.env.USERPROFILE = home;
+      process.env.PATH = path.join(home!, 'empty');
+      delete process.env.NVM_DIR;
+      const opencode = (version: string, body: string) =>
+        writeFakeCli(path.join(home!, '.nvm', 'versions', 'node', version, 'bin', 'opencode'), body, {
+          windowsEntry: OPENCODE.windowsShim.entry,
+        });
+      opencode('v20.0.0', `if (args[0] === 'upgrade') console.log('Upgraded the old one');`);
+      opencode(
+        'v22.0.0',
+        `if (args[0] === 'upgrade') { console.log('Upgraded'); require('fs').writeFileSync(${JSON.stringify(upgraded)}, ''); }`,
+      );
+      mkdirSync(path.join(home!, '.nvm', 'alias'), { recursive: true });
+      writeFileSync(path.join(home!, '.nvm', 'alias', 'default'), '22\n');
+
+      const result = await runAgentCli('opencode', 'update', {
+        runners: () => [runner()],
+        emit: () => undefined,
+        agents: { opencode: OPENCODE },
+      });
+
+      expect(result).toEqual({ ok: true, message: 'Upgraded' });
+      expect(existsSync(upgraded)).toBe(true);
+    });
   });
 });
 

@@ -35,7 +35,9 @@ moxxy login claude-code          # the vendor's own sign-in (also codex-agent, o
 moxxy doctor                     # includes the agent CLIs
 ```
 
-Moxxy looks for each CLI on `PATH` first, then where the vendor's installer puts it (`~/.local/bin` for Claude and Codex, `~/.opencode/bin` for OpenCode). On macOS and Linux the desktop app asks your login shell once at start for the `PATH` your terminal has and puts it first, so it finds the same CLI the terminal runs, also when two are installed (an old Homebrew `claude` and a current one in `~/.local/bin`). A shell that does not answer within 5 seconds leaves the `PATH` the app started with. To point at another file, set `CLAUDE_CODE_EXECUTABLE`, `CODEX_EXECUTABLE` or `OPENCODE_EXECUTABLE`.
+Moxxy looks for each CLI on `PATH` first, then where the vendor's installer puts it (`~/.local/bin` for Claude and Codex, `~/.opencode/bin` for OpenCode). On macOS and Linux the desktop app asks your login shell once at start for the `PATH` your terminal has and puts it first, so it finds the same CLI the terminal runs, also when two are installed (an old Homebrew `claude` and a current one in `~/.local/bin`). A shell that fails makes way for your account's own shell and then `/bin/zsh` (macOS) or `/bin/bash` (Linux); one that does not answer within 5 seconds ends the search, and on macOS the `PATH` launchd gives apps is used. Run from a terminal, the app logs which shell answered and how long it took (`terminal PATH: ...`).
+
+When no shell answers, the app adds the usual GUI folders (`/usr/local/bin`, `/opt/homebrew/bin`, nvm's) behind the `PATH` it started with and names them in `MOXXY_PATH_FALLBACK`. An agent CLI in one of those comes after the vendor installer's copy, so an old Homebrew `claude` never wins over a current `~/.local/bin/claude` just because the shell was slow. Of nvm's node versions, the one a new terminal gets (nvm's `default` alias, also through `lts/*` or `node`) comes first and the rest newest first, so an OpenCode installed under an old node no longer wins over the one under your default node; nvm in another folder is found through `NVM_DIR`. A folder your terminal's `PATH` has is never a fallback and keeps its place. The version check, a conversation and **Update** all use the same copy. To point at another file, set `CLAUDE_CODE_EXECUTABLE`, `CODEX_EXECUTABLE` or `OPENCODE_EXECUTABLE`; the check, a conversation, **Update** and `moxxy agents` all use that file.
 
 | Agent | Installer | Update command | Oldest version Moxxy accepts |
 |---|---|---|---|
@@ -51,7 +53,17 @@ Moxxy checks every agent CLI when it starts and every hour after that: installed
 - the terminal UI shows the same line above the prompt;
 - `moxxy doctor` and `moxxy agents status` list it.
 
-A CLI older than the version Moxxy was checked against must be updated before the connection runs. Updating always uses the agent's own command, which knows how the CLI was installed, and the desktop never updates an agent during a turn.
+Every notice names the file it is about and, when it can tell, where it came from: `Claude Code 2.1.63 at /opt/homebrew/bin/claude (Homebrew) is older than Moxxy works with`.
+
+A CLI older than the version Moxxy was checked against must be updated before the connection runs. How it is updated depends on where the file really is (links followed):
+
+| The copy | Update |
+|---|---|
+| The vendor's installer (`~/.local/bin`, `~/.opencode/bin`), a global npm install, or anything else | the agent's own command (`claude update`, `codex update`, `opencode upgrade`) |
+| Homebrew (`Caskroom` or `Cellar`) | `brew upgrade [--cask] <name>` with the Homebrew it belongs to; the agent's own command when that `brew` is not there |
+| Inside a macOS app (`*.app/Contents/`, e.g. the Codex in ChatGPT.app) | none: the app updates it, so Moxxy offers no **Update** and runs nothing |
+
+Moxxy never removes a copy, and the desktop never updates an agent during a turn.
 
 ## Who does what
 

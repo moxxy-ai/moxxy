@@ -183,8 +183,9 @@ import type {
 /** v27: `setResolver` takes `question` (this client shows Questions) and `question.answer` answers one (additive). */
 /**
  * v28: `ProviderInfo.agentCli` reports each agent connection's CLI (missing,
- * update required/available, current), pushed by `info.changed` whenever it
- * changes; `provider.checkAgents` checks every one again now (additive).
+ * update required/available, current), with the file checked and where it
+ * came from (`path`, `origin`), pushed by `info.changed` whenever it changes;
+ * `provider.checkAgents` checks every one again now (additive).
  */
 export const RUNNER_PROTOCOL_VERSION = 28;
 

@@ -43,6 +43,33 @@ describe('activeAgentCliNotice', () => {
     expect(activeAgentCliNotice(providers, 'codex-agent')).toMatchObject({ severity: 'required', action: 'install', text: 'Codex is not installed' });
   });
 
+  it('names the file it checked and where it came from', () => {
+    const providers = [
+      provider('codex-agent', report({ state: 'update-required', installed: '0.150.0', path: '/opt/homebrew/bin/codex', origin: 'homebrew' })),
+    ];
+
+    expect(activeAgentCliNotice(providers, 'codex-agent')).toMatchObject({
+      action: 'update',
+      text: 'Codex 0.150.0 at /opt/homebrew/bin/codex (Homebrew) is older than Moxxy works with — update it to 0.155.1 or newer',
+    });
+    expect(
+      activeAgentCliNotice([provider('codex-agent', report({ state: 'update-available', installed: '0.155.1', path: '/Users/me/.local/bin/codex', origin: 'installer' }))], 'codex-agent'),
+    ).toMatchObject({ text: 'Codex 0.162.1 is out — you have 0.155.1 at /Users/me/.local/bin/codex' });
+  });
+
+  it('offers no update of a copy inside an app, which the app updates', () => {
+    const inside = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex';
+
+    expect(activeAgentCliNotice([provider('codex-agent', report({ state: 'update-required', installed: '0.150.0', path: inside, origin: 'app' }))], 'codex-agent')).toEqual({
+      provider: 'codex-agent',
+      command: 'codex',
+      severity: 'required',
+      action: null,
+      text: `Codex 0.150.0 at ${inside} is older than Moxxy works with — it is part of ChatGPT.app, which updates it`,
+    });
+    expect(activeAgentCliNotice([provider('codex-agent', report({ state: 'update-available', installed: '0.155.1', path: inside, origin: 'app' }))], 'codex-agent')).toBeNull();
+  });
+
   it('is quiet when current, unreadable, or about a connection that is not active', () => {
     expect(activeAgentCliNotice([provider('codex-agent', report({}))], 'codex-agent')).toBeNull();
     expect(activeAgentCliNotice([provider('codex-agent', report({ state: 'unknown', installed: null }))], 'codex-agent')).toBeNull();
