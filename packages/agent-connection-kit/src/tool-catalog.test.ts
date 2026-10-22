@@ -111,6 +111,17 @@ describe("Moxxy's tools as a catalog", () => {
     expect(list([recall, sendMail, click, navigate])).toEqual(list(lent));
   });
 
+  it("groups an MCP server's tools at once, however long and odd a name the server gives a tool", () => {
+    // A server names its own tools; reading the name must not slow down as it grows.
+    const odd = tool(`mcp__vault__${'a__a'.repeat(20_000)}\n`, 'An odd one.');
+    const started = performance.now();
+
+    const [find] = idleToolsHandler([sendMail, odd], [], { catalog: true }).list();
+
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(find?.description).toMatch(/vault \(1\)/);
+  });
+
   it('offers no catalog when no tool is lent', () => {
     expect(idleToolsHandler([], [], { catalog: true }).list()).toEqual([]);
   });

@@ -21,7 +21,7 @@ const FOUND_LIMIT = 8;
 const SUMMARY_LIMIT = 160;
 /** Names shown per group, fewer while the catalog would not fit. */
 const NAMES_PER_GROUP = [Infinity, 12, 6, 3, 0];
-const MCP_TOOL = /^mcp__(.+?)__(.+)$/;
+const MCP_PREFIX = 'mcp__';
 
 const FIND_INTRO =
   "Find one of the person's Moxxy tools. Moxxy is the app the person talks to you through; its tools run in their " +
@@ -128,11 +128,23 @@ function lineOf(group: Group, limit: number): string {
   return `- ${group.label} (${count}): ${shown}${count > limit ? ', …' : ''}`;
 }
 
+/**
+ * The server and tool of an MCP tool's name, `mcp__<server>__<tool>`. Read by
+ * position, not with a pattern: the server picks the name, and a pattern can
+ * take far longer on a long, odd one.
+ */
+function mcpToolOf(name: string): { server: string; tool: string } | undefined {
+  if (!name.startsWith(MCP_PREFIX)) return undefined;
+  const split = name.indexOf('__', MCP_PREFIX.length + 1);
+  if (split < 0 || split + 2 >= name.length) return undefined;
+  return { server: name.slice(MCP_PREFIX.length, split), tool: name.slice(split + 2) };
+}
+
 /** Tools by MCP server, or by the word before the first `_` when two or more share it; the rest in one line. */
 function groupsOf(tools: ReadonlyArray<ToolDef>): Group[] {
   const prefixCount = new Map<string, number>();
   for (const tool of tools) {
-    if (MCP_TOOL.test(tool.name)) continue;
+    if (mcpToolOf(tool.name)) continue;
     const prefix = tool.name.split('_')[0] ?? tool.name;
     if (prefix !== tool.name) prefixCount.set(prefix, (prefixCount.get(prefix) ?? 0) + 1);
   }
@@ -143,9 +155,9 @@ function groupsOf(tools: ReadonlyArray<ToolDef>): Group[] {
     groups.set(label, group);
   };
   for (const tool of tools) {
-    const mcp = MCP_TOOL.exec(tool.name);
+    const mcp = mcpToolOf(tool.name);
     if (mcp) {
-      add(mcp[1] ?? '', mcp[2] ?? tool.name);
+      add(mcp.server, mcp.tool);
       continue;
     }
     const prefix = tool.name.split('_')[0] ?? tool.name;
