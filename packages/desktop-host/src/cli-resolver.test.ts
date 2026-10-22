@@ -233,14 +233,28 @@ describe('augmentedPaths with nvm', () => {
     expect(augmentedPaths('linux')).toEqual([bin('v18.17.1'), bin('v10.24.1'), bin('v9.11.2')]);
   });
 
-  it('follows a default that names another alias, an LTS line or the newest node', () => {
+  it('follows a default that names another alias or an LTS line', () => {
+    install('v20.17.0', 'v22.22.0', 'v24.4.1');
+    alias('default', 'lts/jod');
+    alias('lts/jod', 'v22.22.0');
+
+    expect(augmentedPaths('linux')[0]).toBe(bin('v22.22.0'));
+  });
+
+  // nvm names the newest LTS line `lts/*`, a file name Windows does not allow.
+  it.skipIf(process.platform === 'win32')('follows `lts/*` to the newest LTS line', () => {
     install('v20.17.0', 'v22.22.0', 'v24.4.1');
     alias('default', 'lts/*');
     alias('lts/*', 'lts/jod');
     alias('lts/jod', 'v22.22.0');
-    expect(augmentedPaths('linux')[0]).toBe(bin('v22.22.0'));
 
+    expect(augmentedPaths('linux')[0]).toBe(bin('v22.22.0'));
+  });
+
+  it('reads a default of `node` as the newest version', () => {
+    install('v20.17.0', 'v22.22.0', 'v24.4.1');
     alias('default', 'node');
+
     expect(augmentedPaths('linux')[0]).toBe(bin('v24.4.1'));
   });
 
