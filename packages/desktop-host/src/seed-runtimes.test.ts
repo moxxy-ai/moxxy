@@ -249,7 +249,7 @@ describe('prepareBundledRuntimes', () => {
     await writeManifest('darwin-arm64', [{ name: 'python', id: '3.12-bbb', archive: 'python.tar.gz' }]);
     const logged: string[] = [];
 
-    await prepareBundledRuntimes({ resourcesPath: resources, moxxyHome: home, platform: 'darwin', arch: 'arm64', env: {}, log: (msg) => logged.push(msg) });
+    await prepareBundledRuntimes({ resourcesPath: resources, moxxyHome: home, platform: 'darwin', arch: 'arm64', env: {}, loginShellPath: async () => null, log: (msg) => logged.push(msg) });
 
     expect(logged.join('\n')).toMatch(/bundled python runtime/);
   });

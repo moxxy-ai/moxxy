@@ -95,18 +95,28 @@ function askShell(shell: string, env: NodeJS.ProcessEnv, timeoutMs: number): Pro
       resolve(answer);
     };
     // -i and -l: the same profile files a terminal window reads, where PATH is set.
+    // In a process group of its own, so what the profile starts goes with it, and
+    // nothing the profile signals reaches the app.
     const child = spawn(shell, ['-ilc', `printf '%s%s%s' '${MARK}' "$PATH" '${MARK}'`], {
       env,
       stdio: ['ignore', 'pipe', 'ignore'],
+      detached: true,
     });
+    const stop = () => {
+      try {
+        if (child.pid) process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
+    };
     const deadline = setTimeout(() => {
-      child.kill('SIGKILL');
+      stop();
       finish({ kind: 'timeout' });
     }, timeoutMs);
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       out += chunk;
-      if (out.length > MAX_OUTPUT_BYTES) child.kill('SIGKILL');
+      if (out.length > MAX_OUTPUT_BYTES) stop();
     });
     child.on('error', () => finish({ kind: 'failed' }));
     child.on('close', (code) => {

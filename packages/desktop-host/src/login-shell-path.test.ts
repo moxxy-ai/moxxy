@@ -23,6 +23,16 @@ afterEach(async () => {
   await removeDir(home);
 });
 
+/** Whether a process still runs. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** A home whose bash profile runs `profile`, as a terminal's login shell would. */
 async function bashHome(profile: string): Promise<NodeJS.ProcessEnv> {
   await fs.writeFile(path.join(home, '.bash_profile'), `${profile}\n`);
@@ -55,6 +65,16 @@ describe.skipIf(!posixShell)("reading the terminal's PATH", () => {
     expect(await readLoginShellPath({ env, timeoutMs: 300, userShell: '/bin/bash', launchctl: noLaunchctl, log: (line) => logged.push(line) })).toBeNull();
     expect(Date.now() - started).toBeLessThan(5_000);
     expect(logged).toEqual([expect.stringMatching(/^terminal PATH: \/bin\/bash did not answer in 300 ms$/)]);
+  });
+
+  it('leaves nothing its profile started running when the shell does not answer in time', async () => {
+    const pidFile = path.join(home, 'sleeper.pid');
+    const env = await bashHome(`sleep 30 & echo $! > ${pidFile}; wait`);
+
+    await readLoginShellPath({ env, timeoutMs: 300, userShell: undefined, fallbackShell: undefined, launchctl: noLaunchctl });
+
+    const pid = Number(await fs.readFile(pidFile, 'utf8'));
+    await expect.poll(() => alive(pid), { timeout: 2_000 }).toBe(false);
   });
 
   it('gives up on a shell that fails', async () => {
