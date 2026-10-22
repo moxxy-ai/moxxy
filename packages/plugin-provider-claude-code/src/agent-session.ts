@@ -78,6 +78,14 @@ const CLAUDE_HAS_ITS_OWN = new Set([
 
 const toolNames = (tools: ReadonlyArray<ToolDef>) => tools.map((tool) => tool.name);
 
+/**
+ * Moxxy's tools reach Claude as a catalog of three small tools. Claude lists
+ * every deferred tool by name in each request (hundreds once the person's MCP
+ * servers are set up); behind the catalog it reads the groups and looks a tool
+ * up when it wants one.
+ */
+const LENT_AS = { catalog: true } as const;
+
 export function toolsLentToClaude(tools: ReadonlyArray<ToolDef>): ToolDef[] {
   return tools.filter((tool) => !CLAUDE_HAS_ITS_OWN.has(tool.name) && !tool.name.startsWith('memory_'));
 }
@@ -206,7 +214,7 @@ export class ClaudeAgentSession implements LiveSession {
     // Claude reads Moxxy's tools as it starts: they are listed before it does.
     this.listed = toolsLentToClaude(settings.tools ?? []);
     this.offered = skillsForAgent(settings.skills ?? [], toolNames(this.listed), []);
-    mcp.setHandler(idleToolsHandler(this.listed, this.offered));
+    mcp.setHandler(idleToolsHandler(this.listed, this.offered, LENT_AS));
     this.query = settings.sdk.query({
       prompt: this.userMessages(),
       options: {
@@ -264,6 +272,7 @@ export class ClaudeAgentSession implements LiveSession {
           this.listed,
           { runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })) },
           this.offered,
+          LENT_AS,
         ),
       );
       // The conversation gained or lost a tool or a skill since Claude read the list: it reads it again on this notice.
@@ -343,7 +352,7 @@ export class ClaudeAgentSession implements LiveSession {
       }
     } finally {
       req.signal.removeEventListener('abort', interrupt);
-      this.mcp.setHandler(idleToolsHandler(this.listed, this.offered));
+      this.mcp.setHandler(idleToolsHandler(this.listed, this.offered, LENT_AS));
       this.inTurn = false;
       this.dismissQueued();
     }

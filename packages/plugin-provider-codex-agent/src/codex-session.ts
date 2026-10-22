@@ -121,6 +121,12 @@ const ASKING: Policy = {
  * write. Read-only, as `on-request` would let a write in the workspace run unasked.
  */
 const MODEL_ASKS: Policy = { approvalPolicy: 'on-request', sandbox: READ_ONLY };
+/**
+ * Moxxy's tools reach Codex as a catalog of three small tools, kept out of
+ * Codex's tool search: lent one by one, their full descriptions went with
+ * every request (tens of thousands of tokens with the person's MCP servers).
+ */
+const LENT_AS = { catalog: true } as const;
 /** Codex's fast mode (`/fast`), its `priority` service tier. */
 const FAST_TIER = 'priority';
 /** Codex's own name for its standard tier, which `null` restores. */
@@ -368,6 +374,7 @@ export class CodexAgentSession implements LiveSession {
         this.listed,
         { runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })) },
         this.offered,
+        LENT_AS,
       ),
     );
     try {
@@ -407,7 +414,7 @@ export class CodexAgentSession implements LiveSession {
       if (!req.signal.aborted) yield { type: 'error', message: this.alive ? messageOf(err) : this.endedMessage(), retryable: false };
     } finally {
       req.signal.removeEventListener('abort', onAbort);
-      this.mcp.setHandler(idleToolsHandler(this.listed, this.offered));
+      this.mcp.setHandler(idleToolsHandler(this.listed, this.offered, LENT_AS));
       this.inTurn = false;
       this.dismissQueued();
     }
@@ -438,7 +445,8 @@ export class CodexAgentSession implements LiveSession {
     const { cwd, resume, model } = this.settings;
     const read = await this.client.request<CodexConfigRead>('config/read', { cwd }).catch(() => undefined);
     // Codex hides MCP tools behind its tool search, where the model does not
-    // look for Moxxy's, so the skill list and the lent tools sit in its first list.
+    // look for Moxxy's, so the skill list and the three catalog tools sit in its
+    // first list; the tools behind the catalog stay out of every request.
     const config = {
       mcp_servers: {
         [MOXXY_MCP_SERVER]: { url: this.mcp.url, http_headers: { Authorization: this.mcp.authorization }, omit_tools_from: ['deferred'] },
@@ -453,7 +461,7 @@ export class CodexAgentSession implements LiveSession {
     // Codex lists Moxxy's tools when the thread opens and keeps that list for the thread.
     this.ownSkills = await this.ownSkillNames(cwd);
     this.offered = this.skillsFor(this.settings.skills);
-    this.mcp.setHandler(idleToolsHandler(this.listed, this.offered));
+    this.mcp.setHandler(idleToolsHandler(this.listed, this.offered, LENT_AS));
     let thread: CodexThreadResponse | undefined;
     let resumed = false;
     if (resume) {

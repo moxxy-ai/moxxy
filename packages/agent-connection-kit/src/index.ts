@@ -9,7 +9,7 @@ export {
   type MoxxyMcpServerOptions,
 } from './mcp-server.js';
 export { LOAD_SKILL, readSkill, sameSkills, skillsForAgent, skillTool } from './agent-skills.js';
-export { idleToolsHandler, mcpToolsFrom, moxxyToolsHandler, sameToolNames, toMcpResult, withoutOwnMcpServers } from './moxxy-tools.js';
+export { idleToolsHandler, mcpToolsFrom, moxxyToolsHandler, sameToolNames, toMcpResult, withoutOwnMcpServers, type MoxxyToolsOptions } from './moxxy-tools.js';
 export {
   JsonRpcError,
   JsonRpcLineClient,

@@ -488,9 +488,11 @@ export class FakeCodexServer {
       },
       request: (method, params) => this.request(method, { ...base, ...params }),
       callMoxxyTool: async (name, args) => {
-        if (!thread.moxxyTools.includes(name)) throw new Error(`Codex has no tool mcp__moxxy__${name}; it read ${JSON.stringify(thread.moxxyTools)}`);
+        // A tool Moxxy lends behind its catalog is run the way the model runs it: through call_tool.
+        const direct = thread.moxxyTools.includes(name);
+        if (!direct && !thread.moxxyTools.includes('call_tool')) throw new Error(`Codex has no tool mcp__moxxy__${name}; it read ${JSON.stringify(thread.moxxyTools)}`);
         const client = await this.moxxyClient(thread);
-        const result = await client.callTool({ name, arguments: args });
+        const result = await client.callTool(direct ? { name, arguments: args } : { name: 'call_tool', arguments: { name, arguments: args } });
         return { content: result.content, ...(result.isError ? { isError: true } : {}) };
       },
       usage: (inputTokens, outputTokens, cached = 0, contextWindow = 258_400) => {

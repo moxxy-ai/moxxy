@@ -13,7 +13,7 @@ const DESCRIPTION_LIMIT = 2000;
  * keeps the description it read at start for the whole conversation, hence the
  * pointer at the current list in the intro.
  */
-const LOAD_UPFRONT = { 'anthropic/alwaysLoad': true } as const;
+export const LOAD_UPFRONT = { 'anthropic/alwaysLoad': true } as const;
 const ENTRY_LIMIT = 160;
 
 const INTRO =

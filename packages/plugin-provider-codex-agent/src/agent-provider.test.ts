@@ -702,6 +702,25 @@ describe('the Moxxy tools Codex can see', () => {
     expect(codex.last.sent('thread/start')[0]).toMatchObject({ config: { mcp_servers: { moxxy: { omit_tools_from: ['deferred'] } } } });
   });
 
+  it('lends them as a catalog of three small tools, so their full descriptions are not in every request, and the chat shows the tool that ran', async () => {
+    const noted = defineTool({ name: 'note_lookup', description: 'Look a note up.', inputSchema: z.object({}), handler: async () => 'the note' });
+    let read: ReadonlyArray<string> = [];
+    const results: unknown[] = [];
+    const { session } = connect(async (turn) => {
+      read = turn.thread.moxxyTools;
+      results.push(await turn.callMoxxyTool('note_lookup', {}));
+      turn.say('ok');
+    });
+    session.pluginHost.registerStatic(definePlugin({ name: 'test-notes', tools: [noted] }));
+
+    const events = await collectTurn(session, 'look it up');
+
+    expect(read.filter((name) => name !== 'load_skill')).toEqual(['find_tools', 'describe_tools', 'call_tool']);
+    expect(results).toEqual([{ content: [{ type: 'text', text: 'the note' }] }]);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'tool_call_requested', name: 'note_lookup' }));
+    expect(events.some((e) => e.type === 'tool_call_requested' && e.name === 'call_tool')).toBe(false);
+  });
+
   it('resumes the thread in a new Codex when the conversation gains a tool, so Codex reads the new list', async () => {
     const noted = defineTool({ name: 'note_lookup', description: 'Look a note up.', inputSchema: z.object({}), handler: async () => 'the note' });
     const found: unknown[] = [];
@@ -1217,14 +1236,22 @@ describe('one-off text calls', () => {
 describe('an MCP server set up both in Moxxy and in Codex', () => {
   it("reaches Codex once, through Codex's own setup; one switched off there is still lent", async () => {
     const mcpTool = (name: string) => defineTool({ name, description: name, inputSchema: z.object({}), handler: async () => 'ok' });
-    const { codex, session } = connect(async (turn) => turn.say('ok'), { mcpServers: { vault: { enabled: true }, notes: { enabled: false } } });
+    const results: Record<string, { isError?: boolean }> = {};
+    const { codex, session } = connect(
+      async (turn) => {
+        for (const name of ['mcp__notes__read', 'mcp__vault__secret_word']) results[name] = await turn.callMoxxyTool(name, {});
+        turn.say('ok');
+      },
+      { mcpServers: { vault: { enabled: true }, notes: { enabled: false } } },
+    );
     session.pluginHost.registerStatic(definePlugin({ name: 'mcp-servers', tools: [mcpTool('mcp__vault__secret_word'), mcpTool('mcp__notes__read')] }));
+    session.setPermissionResolver(allowAll);
 
     await collectTurn(session, 'which tools?');
     await collectTurn(session, 'and now?');
 
-    expect(codex.last.thread.moxxyTools).toContain('mcp__notes__read');
-    expect(codex.last.thread.moxxyTools).not.toContain('mcp__vault__secret_word');
+    expect(results['mcp__notes__read']?.isError).toBeFalsy();
+    expect(results['mcp__vault__secret_word']?.isError).toBe(true);
     expect(codex.last.sent('thread/start')).toHaveLength(1);
   });
 });

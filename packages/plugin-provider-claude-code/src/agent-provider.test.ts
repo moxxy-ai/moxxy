@@ -375,12 +375,14 @@ describe('approvals', () => {
 describe('Moxxy tools for Claude', () => {
   it('lends Claude only the Moxxy tools it lacks, and runs them through Moxxy', async () => {
     let fromMoxxy: unknown;
+    let lentRead: unknown;
     let listed: string[] = [];
     const { session } = connect(async function* (turn) {
       const client = await turn.query.moxxyClient();
       listed = (await client.listTools()).tools.map((t) => t.name);
       yield assistantToolUse('toolu_5', 'mcp__moxxy__browser_title', { url: 'https://example.com' });
       fromMoxxy = await turn.callMoxxyTool('browser_title', { url: 'https://example.com' });
+      lentRead = await turn.callMoxxyTool('Read', {});
       yield toolResult('toolu_5', 'Example Domain');
       yield assistantText('The title is Example Domain.');
     });
@@ -392,8 +394,8 @@ describe('Moxxy tools for Claude', () => {
 
     const events = await collectTurn(session, 'title of example.com?');
 
-    expect(listed).toContain('browser_title');
-    expect(listed).not.toContain('Read');
+    expect(listed).toEqual(['find_tools', 'describe_tools', 'call_tool']);
+    expect(lentRead).toMatchObject({ isError: true });
     expect(fromMoxxy).toEqual({ content: [{ type: 'text', text: 'Example Domain' }] });
     const requests = events.filter((e) => e.type === 'tool_call_requested');
     expect(requests).toHaveLength(1);
@@ -818,7 +820,29 @@ describe('the Moxxy tools Claude can see', () => {
     const { tools } = await (await claude.last.moxxyClient()).listTools();
     await session.close();
 
-    expect(tools.map((tool) => tool.name)).toEqual(['ask_like']);
+    expect(tools.map((tool) => tool.name)).toEqual(['find_tools', 'describe_tools', 'call_tool']);
+    expect(tools[0]?.description).toMatch(/ask_like/);
+  });
+
+  it('are lent as a catalog of three small tools, so their full descriptions are not in every request, and the chat shows the tool that ran', async () => {
+    const noted = defineTool({ name: 'note_lookup', description: 'Look a note up.', inputSchema: z.object({}), handler: async () => 'the note' });
+    let listed: string[] = [];
+    const results: unknown[] = [];
+    const { session } = connect(async function* (turn) {
+      listed = (await (await turn.query.moxxyClient()).listTools()).tools.map((tool) => tool.name);
+      yield assistantToolUse('toolu_9', 'mcp__moxxy__call_tool', { name: 'note_lookup', arguments: {} });
+      results.push(await turn.callMoxxyTool('note_lookup', {}));
+      yield toolResult('toolu_9', 'the note');
+      yield assistantText('ok');
+    });
+    session.setPermissionResolver(allowAll);
+    session.tools.register(noted);
+
+    const events = await collectTurn(session, 'look it up');
+
+    expect(listed.filter((name) => name !== 'load_skill')).toEqual(['find_tools', 'describe_tools', 'call_tool']);
+    expect(results).toEqual([{ content: [{ type: 'text', text: 'the note' }] }]);
+    expect(events.filter((e) => e.type === 'tool_call_requested').map((e) => e.type === 'tool_call_requested' && e.name)).toEqual(['note_lookup']);
   });
 
   it('stay the same between modes, and Claude hears why one is not available in this mode', async () => {
@@ -942,19 +966,20 @@ describe("the person's Moxxy skills on Claude", () => {
 describe('an MCP server set up both in Moxxy and in Claude', () => {
   it("reaches Claude once, through Claude's own setup", async () => {
     const mcpTool = (name: string) => defineTool({ name, description: name, inputSchema: z.object({}), handler: async () => 'ok' });
-    let listed: string[] = [];
+    const results: Record<string, { isError?: boolean }> = {};
     const claude = new FakeClaude(async function* (turn) {
-      listed = (await (await turn.query.moxxyClient()).listTools()).tools.map((tool) => tool.name);
+      for (const name of ['mcp__notes__read', 'mcp__vault__secret_word']) results[name] = await turn.callMoxxyTool(name, {});
       yield assistantText('ok');
     });
     claude.ownMcpServers = ['vault'];
     const { session } = connect(async function* () {}, { claude });
+    session.setPermissionResolver(allowAll);
     session.pluginHost.registerStatic(definePlugin({ name: 'mcp-servers', tools: [mcpTool('mcp__vault__secret_word'), mcpTool('mcp__notes__read')] }));
 
     await collectTurn(session, 'which tools?');
 
-    expect(listed).toContain('mcp__notes__read');
-    expect(listed).not.toContain('mcp__vault__secret_word');
+    expect(results['mcp__notes__read']?.isError).toBeFalsy();
+    expect(results['mcp__vault__secret_word']?.isError).toBe(true);
   });
 });
 

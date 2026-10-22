@@ -306,9 +306,11 @@ export class FakeQuery implements ClaudeQuery {
       },
       callMoxxyTool: async (name, args) => {
         await this.reading;
-        if (!this.moxxyTools.includes(name)) throw new Error(`Claude has no tool mcp__moxxy__${name}; it read ${JSON.stringify(this.moxxyTools)}`);
+        // A tool Moxxy lends behind its catalog is run the way the model runs it: through call_tool.
+        const direct = this.moxxyTools.includes(name);
+        if (!direct && !this.moxxyTools.includes('call_tool')) throw new Error(`Claude has no tool mcp__moxxy__${name}; it read ${JSON.stringify(this.moxxyTools)}`);
         const client = await this.moxxyClient();
-        const result = await client.callTool({ name, arguments: args });
+        const result = await client.callTool(direct ? { name, arguments: args } : { name: 'call_tool', arguments: { name, arguments: args } });
         return { content: result.content, ...(result.isError ? { isError: true } : {}) };
       },
     };

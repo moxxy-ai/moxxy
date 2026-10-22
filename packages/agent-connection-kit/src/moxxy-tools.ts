@@ -9,6 +9,7 @@ import {
 } from '@moxxy/sdk';
 import { LOAD_SKILL, readSkill, skillTool } from './agent-skills.js';
 import type { McpCallResult, McpContent, McpTool, McpToolHandler } from './mcp-server.js';
+import { CALL_TOOL, DESCRIBE_TOOLS, FIND_TOOLS, callCatalogTool, catalogTools, isCatalogTool } from './tool-catalog.js';
 
 /** A Moxxy tool result as an MCP tool result: what the model would see, pixels included. */
 export function toMcpResult(outcome: AgentToolOutcome): McpCallResult {
@@ -41,10 +42,22 @@ const ABOUT_BROWSER =
   'a real page helps, such as checking a site or filling in a form for the person. Whether to use it or your own ' +
   'tools is your choice.';
 
+const ABOUT_CATALOG =
+  `Moxxy's tools are reached through three of them: ${FIND_TOOLS} lists them by group and finds one by what it does, ` +
+  `${DESCRIBE_TOOLS} shows a tool's input, and ${CALL_TOOL} runs it.`;
+
 /** What the agent is told about Moxxy's tools as it connects; the browser only when its tools are lent. */
-export function moxxyInstructions(toolNames: ReadonlyArray<string>): string {
+export function moxxyInstructions(toolNames: ReadonlyArray<string>, catalog = false): string {
   const browser = toolNames.some((name) => name.startsWith('browser_'));
-  return browser ? `${ABOUT_MOXXY}\n\n${ABOUT_BROWSER}` : ABOUT_MOXXY;
+  return [ABOUT_MOXXY, ...(catalog ? [ABOUT_CATALOG] : []), ...(browser ? [ABOUT_BROWSER] : [])].join('\n\n');
+}
+
+export interface MoxxyToolsOptions {
+  /**
+   * Lend the tools behind `find_tools` / `describe_tools` / `call_tool`, so
+   * their full descriptions are not sent with every request (see tool-catalog.ts).
+   */
+  readonly catalog?: boolean;
 }
 
 /**
@@ -58,21 +71,26 @@ export function moxxyToolsHandler(
   tools: ReadonlyArray<ToolDef>,
   host: Pick<AgentStepHost, 'runTool'>,
   skills: ReadonlyArray<Skill> = [],
+  options: MoxxyToolsOptions = {},
 ): McpToolHandler {
   const skill = skillTool(skills);
-  const listed = skill ? [...mcpToolsFrom(tools), skill] : mcpToolsFrom(tools);
+  const lent = options.catalog ? catalogTools(tools) : mcpToolsFrom(tools);
+  const listed = skill ? [...lent, skill] : lent;
   const run = (name: string, input: unknown) => host.runTool({ callId: `mcp_${randomUUID()}`, name, input });
   return {
-    instructions: moxxyInstructions(listed.map((tool) => tool.name)),
+    instructions: moxxyInstructions([...tools.map((tool) => tool.name), ...(skill ? [skill.name] : [])], options.catalog && lent.length > 0),
     list: () => listed,
-    call: async (name, input) =>
-      skill && name === LOAD_SKILL ? readSkill(skills, input, (skillName) => run(LOAD_SKILL, { name: skillName })) : toMcpResult(await run(name, input)),
+    call: async (name, input) => {
+      if (skill && name === LOAD_SKILL) return readSkill(skills, input, (skillName) => run(LOAD_SKILL, { name: skillName }));
+      if (options.catalog && isCatalogTool(name)) return callCatalogTool(tools, name, input, run, toMcpResult);
+      return toMcpResult(await run(name, input));
+    },
   };
 }
 
 /** Between turns: the same list, so an agent that reads it then sees no change, and every call refused. */
-export function idleToolsHandler(tools: ReadonlyArray<ToolDef>, skills: ReadonlyArray<Skill> = []): McpToolHandler {
-  return moxxyToolsHandler(tools, { runTool: async () => ({ ok: false, message: NO_TURN }) }, skills);
+export function idleToolsHandler(tools: ReadonlyArray<ToolDef>, skills: ReadonlyArray<Skill> = [], options: MoxxyToolsOptions = {}): McpToolHandler {
+  return moxxyToolsHandler(tools, { runTool: async () => ({ ok: false, message: NO_TURN }) }, skills, options);
 }
 
 /** A server name as agents compare it: case aside, and characters other than letters, digits, `_` and `-` as `_` (OpenCode's tool names). */
