@@ -95,14 +95,26 @@ interface ThreadSettings extends Policy {
 
 /** Moxxy's auto-approve, as Codex runs it: no approvals, full access. */
 const AUTO: Policy = { approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } };
+/** Only reading: what plan mode and the model's own asking run in. */
+const READ_ONLY: CodexSandboxPolicy = { type: 'readOnly', networkAccess: false };
 /**
- * Without auto-approve on a Codex set up for it: Codex holds every command but
- * a known-safe read for the person. Under `on-request` it was the model's call
- * to ask, and at low effort it mostly tried the write, was blocked and gave up.
+ * Without auto-approve on a Codex set up for it: under `untrusted` Codex holds
+ * every command but a known-safe read, and every edit, for the person, whatever
+ * the sandbox. Under `on-request` it was the model's call to ask, and it mostly
+ * tried the write, was blocked and gave up. The sandbox is the workspace, not
+ * read-only: told it may only read, the model at times declined a change
+ * without trying, so Codex never got to ask. Codex reports this sandbox back
+ * with every field, so it is set the same way.
  */
-const ASKING: Policy = { approvalPolicy: 'untrusted', sandbox: { type: 'readOnly', networkAccess: false } };
-/** Asking on a Codex that no longer takes `untrusted`: the model asks for each write. */
-const MODEL_ASKS: Policy = { approvalPolicy: 'on-request', sandbox: ASKING.sandbox };
+const ASKING: Policy = {
+  approvalPolicy: 'untrusted',
+  sandbox: { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+};
+/**
+ * Asking on a Codex that no longer takes `untrusted`: the model asks for each
+ * write. Read-only, as `on-request` would let a write in the workspace run unasked.
+ */
+const MODEL_ASKS: Policy = { approvalPolicy: 'on-request', sandbox: READ_ONLY };
 /** Codex's fast mode (`/fast`), its `priority` service tier. */
 const FAST_TIER = 'priority';
 /** Codex's own name for its standard tier, which `null` restores. */
@@ -110,7 +122,7 @@ const STANDARD_TIER = 'default';
 /** Asked of the model when the person's config leaves reasoning summaries to it. */
 const REASONING_SUMMARY = 'auto';
 /** Plan mode only reads: nothing is written and nobody is asked. */
-const PLANNING: Policy = { approvalPolicy: 'never', sandbox: ASKING.sandbox };
+const PLANNING: Policy = { approvalPolicy: 'never', sandbox: READ_ONLY };
 
 export function isAuto(policy: Policy): boolean {
   return policy.approvalPolicy === 'never' && policy.sandbox.type === 'dangerFullAccess';
@@ -525,7 +537,7 @@ export class CodexAgentSession implements LiveSession {
     } catch (err) {
       if (update.approvalPolicy !== ASKING.approvalPolicy || this.asking !== ASKING) throw err;
       this.asking = MODEL_ASKS;
-      return this.apply({ ...wanted, approvalPolicy: MODEL_ASKS.approvalPolicy });
+      return this.apply({ ...wanted, ...MODEL_ASKS });
     }
     this.current = { ...wanted, ...(effort ? { effort } : {}) };
   }

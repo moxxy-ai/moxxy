@@ -52,8 +52,15 @@ const autoApproveOf = (session: Session) => autoApproveFromEvents(session.log.of
 const denyAll: PermissionResolver = { name: 'deny-all', check: async () => ({ mode: 'deny', reason: 'the person said no' }) };
 const allowAll: PermissionResolver = { name: 'allow-all', check: async () => ({ mode: 'allow' }) };
 const ASKING = { approvalPolicy: 'on-request', sandbox: { type: 'readOnly', networkAccess: false } } as const;
-/** Moxxy's asking on a Codex set up never to ask: Codex holds each command for the person, whatever the model decides. */
-const MOXXY_ASKING = { approvalPolicy: 'untrusted', sandbox: { type: 'readOnly', networkAccess: false } } as const;
+/**
+ * Moxxy's asking on a Codex set up never to ask: Codex holds each command and edit for the person,
+ * whatever the model decides. The sandbox lets the workspace be edited, so the model, told only
+ * what it may read, does not decline a change before Codex can ask.
+ */
+const MOXXY_ASKING = {
+  approvalPolicy: 'untrusted',
+  sandbox: { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+} as const;
 
 describe('a turn on the Codex agent connection', () => {
   it("starts Codex in the conversation folder with only Moxxy's MCP server and Codex's checklist added, and shows what Codex did", async () => {
