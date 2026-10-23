@@ -73,3 +73,10 @@ test('SECURITY.md names every accepted advisory, so the open risk is visible', (
     assert.ok(securityDoc.includes(entry.module), `SECURITY.md must name ${entry.module}`);
   }
 });
+
+test('SECURITY.md lists no advisory the policy no longer accepts, so a cleared risk does not read as open', () => {
+  const securityDoc = readFileSync(new URL('../SECURITY.md', import.meta.url), 'utf8');
+  const section = securityDoc.split('## Known dependency advisories awaiting an upstream fix')[1]?.split('\n## ')[0] ?? '';
+  const listed = [...section.matchAll(/^\| \[(GHSA(?:-[a-z0-9]{4}){3})\]/gm)].map((match) => match[1]);
+  assert.deepEqual(listed.sort(), ACCEPTED_ADVISORIES.map((entry) => entry.id).sort());
+});
