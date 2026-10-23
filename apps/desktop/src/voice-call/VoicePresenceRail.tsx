@@ -193,8 +193,28 @@ export function VoicePresenceRail({
           </span>
           <VoiceRadioWaves side="right" active={voiceCarrying} variant="compact" />
           <span className="voice-rail-copy">
-            <strong role="status" aria-live="polite">{status.title}</strong>
+            <strong role="status" aria-live="polite">
+              {status.title}
+              {/* At rest the title already says it. */}
+              {microphoneMuted && phase !== 'paused' && <span className="sr-only">, microphone off</span>}
+            </strong>
           </span>
+          {/* The microphone lives here, beside the state, on or off: the
+              capsule is all a person sees at rest, and the card opens under
+              the pointer that is already on it. Flipping it changes this one
+              button in place, so nothing moves. */}
+          <button
+            type="button"
+            className={`voice-rail-mic tip${microphoneMuted ? ' voice-rail-mic--off' : ''}`}
+            aria-pressed={!microphoneMuted}
+            aria-label={microphoneMuted ? 'Turn the microphone on' : 'Turn the microphone off'}
+            // The control is an icon, so its tooltip says the state it is in.
+            data-tip={microphoneMuted ? 'Microphone off' : 'Microphone on'}
+            data-tip-side="top"
+            onClick={microphoneMuted ? onUnmuteMicrophone : onMuteMicrophone}
+          >
+            <Icon name={microphoneMuted ? 'mic-off' : 'mic'} size={13} />
+          </button>
           {busy && (
             <span className="voice-rail-busy voice-rail-operation-dots" aria-hidden="true">
               <i /><i /><i /><i />
@@ -203,18 +223,6 @@ export function VoicePresenceRail({
         </div>
 
         <div className="voice-rail-side voice-rail-controls">
-          <button
-            type="button"
-            className={`voice-rail-control tip${microphoneMuted ? ' is-off' : ''}`}
-            aria-pressed={!microphoneMuted}
-            aria-label={microphoneMuted ? 'Turn the microphone on' : 'Turn the microphone off'}
-            // The control is an icon, so its tooltip says the state it is in.
-            data-tip={microphoneMuted ? 'Microphone off' : 'Microphone on'}
-            data-tip-side="top"
-            onClick={microphoneMuted ? onUnmuteMicrophone : onMuteMicrophone}
-          >
-            <Icon name="mic" size={16} />
-          </button>
           <button
             type="button"
             className="voice-rail-end"

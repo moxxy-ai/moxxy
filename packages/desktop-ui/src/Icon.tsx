@@ -31,6 +31,7 @@ export type IconName =
   | 'edit'
   | 'rotate'
   | 'mic'
+  | 'mic-off'
   | 'check'
   | 'x'
   | 'sliders'
@@ -220,6 +221,17 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <rect x="9" y="2" width="6" height="12" rx="3" />
       <path d="M5 11a7 7 0 0 0 14 0" />
+      <path d="M12 18v3" />
+    </>
+  ),
+  // The mic, cut through: the strokes stop short of the slash.
+  'mic-off': (
+    <>
+      <path d="M3 3l18 18" />
+      <path d="M15 10V5a3 3 0 0 0-5.7-1.3" />
+      <path d="M9 9v2a3 3 0 0 0 5.1 2.1" />
+      <path d="M18.9 13.2A7 7 0 0 0 19 11" />
+      <path d="M5 11a7 7 0 0 0 11.9 5" />
       <path d="M12 18v3" />
     </>
   ),

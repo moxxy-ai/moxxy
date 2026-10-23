@@ -319,10 +319,9 @@ an ordinary tool row.
 Voice mode does not change the screen. While it is on, one card sits between
 the conversation and the composer, on the composer's measure and of its make
 (`voice-call/VoicePresenceRail.tsx`). At rest it is a capsule in the middle of
-that measure: the mark, what Moxxy is doing, and dots while a tool runs. Under
-the pointer or the keyboard's focus it opens to the full card: the tool at
-work on the left, and on the right the microphone as a round icon whose
-tooltip says the state it is in, and a pill that ends the call. A call makes no
+that measure: the mark, what Moxxy is doing, the microphone, and dots while a
+tool runs. Under the pointer or the keyboard's focus it opens to the full card:
+the tool at work on the left, and on the right a pill that ends the call. A call makes no
 sound of its own while Moxxy works: the card shows the work, and the only thing
 heard is the answer (`voice-call/voice-silence.test.ts`).
 
@@ -333,7 +332,8 @@ heard is the answer (`voice-call/voice-silence.test.ts`).
 | It closes a moment after the pointer leaves, and opens at once | A pointer that slips off on its way to End does not lose it. |
 | Why a call stopped is said once, beside the state, on up to two lines at every width; a reason longer than that, like any line of the card that is cut, gives all of itself in the tooltip (`components/tip/ClippedText.tsx`) | The reason is the one line here that has to be read, and text that is all there needs no tooltip. |
 | The phone starts a call and the phone laid down ends one, in the header, the Mini Chat, the focus pill and here | One pair of signs for one pair of actions. |
-| ⌘D / Ctrl+D turns the microphone off and on during a call, in the main window and in Focus Mode, also while typing; it is listed under Voice in the shortcuts sheet (`voice-call/useVoiceMicrophoneShortcut.ts`). Not ⌘M, which macOS keeps for minimizing the window, nor ⌘⇧M, which is Focus Mode | The microphone is the control a call reaches for most, and the button for it shows only when the card is open. |
+| The microphone is a small round button beside the state, in the capsule, on or off: in the accent while it listens, cut and red while it is off, in every phase ("Speaking", "Thinking", "Working"…). Its tooltip says the state it is in, and while it is off a screen reader hears "…, microphone off" after the state (at rest the state itself reads "Microphone off"). Flipping it, by click or ⌘D, changes the same button in place, with no motion; it stays where it is as the card opens, and there is no microphone on the right. The capsule still hugs its state, so "Listening" becoming "Microphone off" moves it about 19px; its target reaches 24px to each side of its middle, so a second click in the same place still turns it back on | At rest only the capsule shows, so a microphone among the hidden controls could not say it was off while Moxxy thought or spoke. The card opens under the pointer that is already on the microphone, so it must not move away from it, and one place for it, on or off, is one thing to learn. |
+| ⌘D / Ctrl+D turns the microphone off and on during a call, in the main window and in Focus Mode, also while typing; it is listed under Voice in the shortcuts sheet (`voice-call/useVoiceMicrophoneShortcut.ts`). Not ⌘M, which macOS keeps for minimizing the window, nor ⌘⇧M, which is Focus Mode | The microphone is the control a call reaches for most; a key reaches it without finding the pointer. |
 
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
 be checked in the stylesheet.
