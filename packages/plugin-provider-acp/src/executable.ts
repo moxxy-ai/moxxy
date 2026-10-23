@@ -1,9 +1,20 @@
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { createServer } from 'node:net';
 import path from 'node:path';
 import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
 import { OPENCODE_CLI, findAgentCli, stopAgentProcess } from '@moxxy/agent-connection-kit';
-import { OPENCODE_ACP_ARGS, OPENCODE_EXECUTABLE_ENV } from './constants.js';
+import {
+  OPENCODE_ACP_ARGS,
+  OPENCODE_API_HOST,
+  OPENCODE_API_USERNAME,
+  OPENCODE_BACKGROUND_SUBAGENTS_ENV,
+  OPENCODE_EXECUTABLE_ENV,
+  OPENCODE_SERVER_PASSWORD_ENV,
+  OPENCODE_SERVER_USERNAME_ENV,
+} from './constants.js';
 import type { AcpConnection, StartAcpAgent } from './acp-session.js';
+import type { OpenCodeApi } from './opencode-api.js';
 
 export interface OpenCodeTargetOptions {
   readonly platform?: NodeJS.Platform;
@@ -34,13 +45,60 @@ export function opencodeTarget(command: string, opts: OpenCodeTargetOptions = {}
   return { kind: 'direct', command: exe };
 }
 
+export interface OpenCodeAcpLaunch {
+  readonly args: ReadonlyArray<string>;
+  readonly env: Readonly<Record<string, string>>;
+  readonly api: OpenCodeApi;
+}
+
+/**
+ * How `opencode acp` is started. It always serves OpenCode's HTTP API beside
+ * ACP (on a random port by default); Moxxy picks the port and a password so it
+ * can read the subagents OpenCode runs in the background, which ACP does not
+ * report, and nothing else on the computer can use the API. Background
+ * subagents are switched on unless the person switched them off.
+ */
+export function opencodeAcpLaunch(opts: {
+  readonly port: number;
+  readonly password: string;
+  /** The environment OpenCode inherits (`process.env`). */
+  readonly inherited: Readonly<Record<string, string | undefined>>;
+  /** Settings of this start (the restart that asks before changes). */
+  readonly env?: Readonly<Record<string, string>>;
+}): OpenCodeAcpLaunch {
+  const url = `http://${OPENCODE_API_HOST}:${opts.port}`;
+  return {
+    args: [...OPENCODE_ACP_ARGS, '--port', String(opts.port), '--hostname', OPENCODE_API_HOST],
+    env: {
+      ...opts.env,
+      [OPENCODE_SERVER_USERNAME_ENV]: OPENCODE_API_USERNAME,
+      [OPENCODE_SERVER_PASSWORD_ENV]: opts.password,
+      [OPENCODE_BACKGROUND_SUBAGENTS_ENV]: opts.inherited[OPENCODE_BACKGROUND_SUBAGENTS_ENV] ?? 'true',
+    },
+    api: { url, authorization: `Basic ${Buffer.from(`${OPENCODE_API_USERNAME}:${opts.password}`).toString('base64')}` },
+  };
+}
+
+/** A port free on the loopback right now, for OpenCode to serve its API on. */
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, OPENCODE_API_HOST, () => {
+      const address = server.address();
+      server.close(() => (typeof address === 'object' && address ? resolve(address.port) : reject(new Error('No free port for OpenCode.'))));
+    });
+  });
+}
+
 /** Starts `opencode acp` in the conversation folder, speaking ACP on stdio. */
 export function spawnOpenCodeAcp(command: string): StartAcpAgent {
-  return ({ cwd, env }) =>
-    new Promise<AcpConnection>((resolve, reject) => {
-      const child = spawnExecutableTarget(opencodeTarget(command), OPENCODE_ACP_ARGS, {
+  return async ({ cwd, env }) => {
+    const launch = opencodeAcpLaunch({ port: await freePort(), password: randomBytes(24).toString('base64url'), inherited: process.env, ...(env ? { env } : {}) });
+    return new Promise<AcpConnection>((resolve, reject) => {
+      const child = spawnExecutableTarget(opencodeTarget(command), launch.args, {
         cwd,
-        ...(env ? { env } : {}),
+        env: launch.env,
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       });
@@ -59,6 +117,7 @@ export function spawnOpenCodeAcp(command: string): StartAcpAgent {
           readable: stdout,
           writable: stdin,
           stderr,
+          api: launch.api,
           close: () => {
             stdin.end();
             stopAgentProcess(child);
@@ -66,4 +125,5 @@ export function spawnOpenCodeAcp(command: string): StartAcpAgent {
         });
       });
     });
+  };
 }

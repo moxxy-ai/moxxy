@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { opencodeTarget } from './executable.js';
+import { opencodeAcpLaunch, opencodeTarget } from './executable.js';
 
 describe('starting the person OpenCode without a shell', () => {
   it('runs what PATH finds as it is on macOS and Linux', () => {
@@ -31,5 +31,31 @@ describe('starting the person OpenCode without a shell', () => {
 
   it('says how to install OpenCode when it is not found', () => {
     expect(() => opencodeTarget('opencode', { find: () => null })).toThrow(/OPENCODE_EXECUTABLE/);
+  });
+});
+
+describe('the OpenCode Moxxy starts for a conversation', () => {
+  it('serves its HTTP API on a port Moxxy picked, behind a password only Moxxy knows, with background subagents on', () => {
+    const launch = opencodeAcpLaunch({ port: 4321, password: 'secret', inherited: {} });
+
+    expect(launch.args).toEqual(['acp', '--port', '4321', '--hostname', '127.0.0.1']);
+    expect(launch.env).toEqual({
+      OPENCODE_SERVER_USERNAME: 'opencode',
+      OPENCODE_SERVER_PASSWORD: 'secret',
+      OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: 'true',
+    });
+    expect(launch.api).toEqual({ url: 'http://127.0.0.1:4321', authorization: `Basic ${Buffer.from('opencode:secret').toString('base64')}` });
+  });
+
+  it('keeps background subagents off when the person turned them off', () => {
+    const launch = opencodeAcpLaunch({ port: 4321, password: 'secret', inherited: { OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: 'false' } });
+
+    expect(launch.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS).toBe('false');
+  });
+
+  it('adds its own settings to those of the restart that asks before changes', () => {
+    const launch = opencodeAcpLaunch({ port: 1, password: 'p', inherited: {}, env: { OPENCODE_CONFIG_CONTENT: '{}' } });
+
+    expect(launch.env).toMatchObject({ OPENCODE_CONFIG_CONTENT: '{}', OPENCODE_SERVER_PASSWORD: 'p' });
   });
 });

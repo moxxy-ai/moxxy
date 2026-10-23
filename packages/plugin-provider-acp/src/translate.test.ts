@@ -199,5 +199,21 @@ describe("OpenCode's subagents", () => {
       t.update({ sessionUpdate: 'tool_call_update', toolCallId: 'task1', status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'model refused' } }] }),
     ).toEqual([{ type: 'subagent_completed', id: 'task1', text: '', error: 'model refused' }]);
   });
+
+  it('keep a subagent OpenCode started in the background running: its end comes later', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    launched(t);
+    const output = '<task id="ses_2" state="running">\n<summary>Background task started</summary>\n<task_result>\nThe task is working in the background.\n</task_result>\n</task>';
+
+    expect(
+      t.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'task1',
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: output } }],
+        rawOutput: { output },
+      }),
+    ).toEqual([]);
+  });
 });
 

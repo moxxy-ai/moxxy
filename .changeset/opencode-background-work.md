@@ -1,0 +1,6 @@
+---
+"@moxxy/plugin-provider-acp": minor
+"@moxxy/cli": patch
+---
+
+OpenCode's background helpers now show in Moxxy as Claude's and Codex's do. A subagent OpenCode starts with `background: true` is listed in the Agents pane and above the message box while it works, its steps show as they happen, Stop ends it, and when it finishes the turn OpenCode starts by itself to answer its result shows in the chat as "Agent continued". A helper the person stopped opens no such turn. A helper the turn waits for now shows its steps too. ACP reports none of this, so Moxxy starts `opencode acp` with background subagents on (unless the person set `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS` themselves) and with its HTTP API on a port Moxxy picked, behind a password only Moxxy knows, and reads OpenCode's event stream there. When OpenCode stops to wait for a used-up account limit (its free tier, its Go plan), the turn now ends with the "Limit" note instead of waiting, possibly for hours; OpenCode does not say how much of a limit is used, so nothing shows before that. The daily agent check now also starts OpenCode as Moxxy does and fails when its HTTP API stops asking for Moxxy's password or `task` stops offering to run in the background.

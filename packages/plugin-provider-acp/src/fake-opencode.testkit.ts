@@ -8,6 +8,8 @@
  * Moxxy's tools are called over Moxxy's MCP server with the real MCP client.
  * What OpenCode does in a turn is a scene the test writes.
  */
+import { randomBytes } from 'node:crypto';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { PassThrough } from 'node:stream';
 import { createInterface } from 'node:readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -36,10 +38,17 @@ export interface FakeOpenCodeDefaults {
   readonly ownSkills?: ReadonlyArray<string>;
   /** The person's own MCP servers that are on, as `opencode debug config` reports them. */
   readonly mcpServers?: ReadonlyArray<string>;
+  /**
+   * Serve OpenCode's HTTP API beside ACP, as `opencode acp --port` does with
+   * background subagents on: its event stream and session abort, behind a password.
+   */
+  readonly api?: boolean;
 }
 
 /** OpenCode 1.18's answer to `session/load` that fails, whether or not the session exists. */
 const SERVICE_FAILURE = { code: -32603, message: 'Internal error: OpenCode service failure', data: { service: 'session' } };
+/** A stand-in for the model's time to answer, between OpenCode's HTTP events and what it says next over ACP. */
+const MODEL_LATENCY_MS = 30;
 /** How many sessions one `session/list` page holds here, so Moxxy has to page. */
 const LIST_PAGE = 2;
 
@@ -105,6 +114,43 @@ export interface FakeTurn {
   tool(name: string, kind: AcpToolKind, input: Record<string, unknown>, output: string, opts?: ToolOptions): Promise<{ readonly allowed: boolean; readonly answer?: AcpPermissionOutcome }>;
   callMoxxyTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown; isError?: boolean }>;
   usage(usage: AcpUsage): void;
+  /**
+   * OpenCode's `task` tool with `background: true` (1.19): the subagent works
+   * on in a session of its own after the turn moves on, reported only on the
+   * HTTP API; once it ends OpenCode prompts the conversation's session itself
+   * with its result. Resolves with the subagent's session id once started.
+   */
+  background(task: FakeBackgroundTask): Promise<string>;
+  /** OpenCode's `task` tool as it runs by default: the turn waits for the subagent, whose steps only the HTTP API reports. */
+  subagent(task: FakeSubagentTask): Promise<void>;
+}
+
+export interface FakeSubagentTask {
+  readonly description: string;
+  readonly prompt: string;
+  readonly agent?: string;
+  /** What the subagent does; returns its answer. */
+  readonly work: (child: FakeChild) => Promise<string>;
+}
+
+export interface FakeBackgroundTask extends FakeSubagentTask {
+  /** What OpenCode says in the turn it starts itself once the subagent finished. */
+  readonly then?: (turn: FakeOwnTurn) => Promise<void> | void;
+}
+
+/** A subagent's session, as the HTTP API reports it. */
+export interface FakeChild {
+  readonly id: string;
+  /** Aborted when its session is aborted (`POST /session/{id}/abort`, or the conversation's session cancelled). */
+  readonly signal: AbortSignal;
+  tool(name: string, input: Record<string, unknown>, output: string): void;
+  say(text: string): void;
+}
+
+/** A turn OpenCode starts by itself: its ACP updates arrive outside any `session/prompt`. */
+export interface FakeOwnTurn {
+  say(text: string): void;
+  think(text: string): void;
 }
 
 export type OpenCodeScene = (turn: FakeTurn) => Promise<void | { readonly error: { readonly code: number; readonly message: string } }>;
@@ -137,7 +183,7 @@ export class FakeOpenCode {
   readonly start = async (opts: { readonly cwd: string; readonly env?: Readonly<Record<string, string>> }): Promise<AcpConnection> => {
     const server = new FakeOpenCodeServer(this, opts.cwd, opts.env ?? {});
     this.servers.push(server);
-    return server.connection;
+    return this.defaults.api ? server.serve() : server.connection;
   };
 
   /** What Moxxy reads to learn how OpenCode runs. */
@@ -173,6 +219,18 @@ export class FakeOpenCodeServer {
   private active: { readonly sessionId: string; readonly stop: AbortController } | undefined;
   private readonly mcpClients: Client[] = [];
   private readonly moxxyClients = new Map<string, Client>();
+  /** OpenCode's HTTP API, when it serves one. */
+  private http: Server | undefined;
+  private readonly password = randomBytes(8).toString('hex');
+  private readonly streams = new Set<ServerResponse>();
+  /** Subagent sessions still working, by id: aborting one stops it. */
+  private readonly children = new Map<string, { readonly parent: string; readonly stop: AbortController }>();
+  private childCount = 0;
+  /** Every HTTP request Moxxy made, as `METHOD /path`, and how many were refused for a wrong password. */
+  readonly httpRequests: string[] = [];
+  refusedHttp = 0;
+  /** What the subagents' work settled on: how each one ended. */
+  readonly childEnds = new Map<string, 'completed' | 'aborted'>();
 
   constructor(
     private readonly opencode: FakeOpenCode,
@@ -187,10 +245,65 @@ export class FakeOpenCodeServer {
         if (this.closed) return;
         this.closed = true;
         this.active?.stop.abort();
+        for (const child of this.children.values()) child.stop.abort();
         this.toMoxxy.end();
         for (const client of this.mcpClients) void client.close();
+        for (const stream of this.streams) stream.end();
+        this.streams.clear();
+        this.http?.close();
       },
     };
+  }
+
+  /** Serve the HTTP API on a free port; the connection carries where and how to reach it. */
+  async serve(): Promise<AcpConnection> {
+    const server = createServer((req, res) => this.serveHttp(req, res));
+    this.http = server;
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const authorization = `Basic ${Buffer.from(`opencode:${this.password}`).toString('base64')}`;
+    return { ...this.connection, api: { url: `http://127.0.0.1:${port}`, authorization } };
+  }
+
+  /** How many event streams are open now. */
+  get eventStreams(): number {
+    return this.streams.size;
+  }
+
+  /** One event on every open stream, shaped as OpenCode 1.19 sends it. */
+  emit(type: string, properties: Record<string, unknown>): void {
+    for (const stream of this.streams) if (!stream.writableEnded) stream.write(`data: ${JSON.stringify({ type, properties })}\n\n`);
+  }
+
+  private serveHttp(req: IncomingMessage, res: ServerResponse): void {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (req.headers.authorization !== `Basic ${Buffer.from(`opencode:${this.password}`).toString('base64')}`) {
+      this.refusedHttp += 1;
+      res.writeHead(401).end();
+      return;
+    }
+    this.httpRequests.push(`${req.method} ${url.pathname}`);
+    if (req.method === 'GET' && url.pathname === '/event') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(`data: ${JSON.stringify({ type: 'server.connected', properties: {} })}\n\n`);
+      this.streams.add(res);
+      res.on('close', () => this.streams.delete(res));
+      return;
+    }
+    const abort = /^\/session\/([^/]+)\/abort$/.exec(url.pathname);
+    if (req.method === 'POST' && abort) {
+      const child = this.children.get(decodeURIComponent(abort[1] ?? ''));
+      child?.stop.abort();
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end('true');
+      return;
+    }
+    res.writeHead(404).end();
+  }
+
+  /** OpenCode 1.19 cancels the background subagents of a session it is told to cancel. */
+  private cancelChildren(sessionId: string): void {
+    for (const child of this.children.values()) if (child.parent === sessionId) child.stop.abort();
   }
 
   /** Every request or notification Moxxy sent with this method, in order. */
@@ -255,7 +368,10 @@ export class FakeOpenCodeServer {
     const params = message.params ?? {};
     this.requests.push({ method: message.method, params });
     if (message.id === undefined) {
-      if (message.method === 'session/cancel' && this.active && this.active.sessionId === params.sessionId) this.active.stop.abort();
+      if (message.method === 'session/cancel') {
+        if (this.active && this.active.sessionId === params.sessionId) this.active.stop.abort();
+        this.cancelChildren(String(params.sessionId));
+      }
       return;
     }
     try {
@@ -460,7 +576,108 @@ export class FakeOpenCodeServer {
         return { content: result.content, ...(result.isError ? { isError: true } : {}) };
       },
       usage: (usage) => setUsage(usage),
+      background: async (task) => {
+        const toolCallId = `call_${session.id}_${++calls}`;
+        const child = this.startTask(session, toolCallId, task, true);
+        const output = `<task id="${child.id}" state="running">\n<summary>Background task started</summary>\n<task_result>\nThe task is working in the background. You will be notified automatically when it finishes.\n</task_result>\n</task>`;
+        this.update(session, { sessionUpdate: 'tool_call_update', toolCallId, status: 'completed', title: task.description, content: [{ type: 'content', content: { type: 'text', text: output } }], rawOutput: { output, metadata: { sessionId: child.id, background: true } } });
+        void child.run().then((answer) => this.finishBackground(session, child.id, task, answer));
+        return child.id;
+      },
+      subagent: async (task) => {
+        const toolCallId = `call_${session.id}_${++calls}`;
+        const child = this.startTask(session, toolCallId, task, false);
+        const answer = await child.run();
+        // OpenCode ends the call after the subagent's last events went out.
+        await new Promise((resolve) => setTimeout(resolve, MODEL_LATENCY_MS));
+        const output = `<task id="${child.id}" state="completed">\n<task_result>\n${answer ?? ''}\n</task_result>\n</task>`;
+        this.update(session, { sessionUpdate: 'tool_call_update', toolCallId, status: 'completed', title: task.description, content: [{ type: 'content', content: { type: 'text', text: output } }], rawOutput: { output, metadata: { sessionId: child.id } } });
+      },
     };
+  }
+
+  /**
+   * A `task` call as OpenCode 1.19 makes it: ACP announces the call, the HTTP
+   * API reports the subagent's session and, on the conversation's tool part,
+   * which session that is. `run` does the subagent's work, its steps on the
+   * HTTP API only; it resolves with its answer, or `undefined` when aborted.
+   */
+  private startTask(session: FakeSession, toolCallId: string, task: FakeSubagentTask, background: boolean): { readonly id: string; run(): Promise<string | undefined> } {
+    const id = `ses_child_${++this.childCount}`;
+    const input = { ...(background ? { background: true } : {}), description: task.description, prompt: task.prompt, subagent_type: task.agent ?? 'general' };
+    this.update(session, { sessionUpdate: 'tool_call', toolCallId, title: 'task', kind: 'think', status: 'pending', locations: [], rawInput: {} });
+    this.emit('session.created', { sessionID: id, info: { id, parentID: session.id, title: `${task.description} (@${input.subagent_type} subagent)` } });
+    this.emit('message.part.updated', {
+      sessionID: session.id,
+      part: { type: 'tool', tool: 'task', callID: toolCallId, sessionID: session.id, id: `prt_${toolCallId}`, state: { status: 'running', title: task.description, input, metadata: { parentSessionId: session.id, sessionId: id, ...(background ? { background: true } : {}) } } },
+    });
+    this.update(session, { sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress', kind: 'think', title: task.description, locations: [], rawInput: input });
+    const stop = new AbortController();
+    this.children.set(id, { parent: session.id, stop });
+    let parts = 0;
+    const part = (body: Record<string, unknown>) => this.emit('message.part.updated', { sessionID: id, part: { sessionID: id, id: `prt_${id}_${++parts}`, ...body } });
+    const child: FakeChild = {
+      id,
+      signal: stop.signal,
+      tool: (name, toolInput, output) => {
+        const callID = `call_${id}_${parts + 1}`;
+        const partId = `prt_${id}_${++parts}`;
+        const emit = (state: Record<string, unknown>) => this.emit('message.part.updated', { sessionID: id, part: { type: 'tool', tool: name, callID, sessionID: id, id: partId, state } });
+        emit({ status: 'pending', input: {}, raw: '' });
+        emit({ status: 'running', input: toolInput, time: { start: 1 } });
+        emit({ status: 'completed', input: toolInput, output, metadata: {}, title: name, time: { start: 1, end: 2 } });
+      },
+      say: (text) => part({ type: 'text', text, time: { start: 1, end: 2 } }),
+    };
+    const run = async (): Promise<string | undefined> => {
+      // The subagent's own session opens with the task as its first message.
+      part({ type: 'text', text: task.prompt });
+      this.emit('session.status', { sessionID: id, status: { type: 'busy' } });
+      const aborted = new Promise<undefined>((resolve) => stop.signal.addEventListener('abort', () => resolve(undefined), { once: true }));
+      const answer = await Promise.race([task.work(child), aborted]);
+      this.children.delete(id);
+      if (stop.signal.aborted || answer === undefined) {
+        this.childEnds.set(id, 'aborted');
+        this.emit('session.error', { sessionID: id, error: { name: 'MessageAbortedError', data: { message: 'Aborted' } } });
+      } else {
+        this.childEnds.set(id, 'completed');
+        child.say(answer);
+      }
+      this.emit('session.status', { sessionID: id, status: { type: 'idle' } });
+      this.emit('session.idle', { sessionID: id });
+      return stop.signal.aborted ? undefined : answer;
+    };
+    return { id, run };
+  }
+
+  /**
+   * A background subagent ended. Aborted, OpenCode says nothing more; finished,
+   * it prompts the conversation's session itself with the result (a synthetic
+   * message) and answers it, outside any prompt of Moxxy's.
+   */
+  private async finishBackground(session: FakeSession, childId: string, task: FakeBackgroundTask, answer: string | undefined): Promise<void> {
+    if (answer === undefined || this.closed) return;
+    this.emit('message.part.updated', {
+      sessionID: session.id,
+      part: { type: 'text', synthetic: true, sessionID: session.id, id: `prt_${childId}_done`, text: `<task id="${childId}" state="completed">\n<summary>Background task completed: ${task.description}</summary>\n<task_result>\n${answer}\n</task_result>\n</task>` },
+    });
+    this.emit('session.status', { sessionID: session.id, status: { type: 'busy' } });
+    // The model takes a while to answer; its first words reach ACP well after these events.
+    await new Promise((resolve) => setTimeout(resolve, MODEL_LATENCY_MS));
+    let messages = 0;
+    const own: FakeOwnTurn = {
+      say: (said) => {
+        const messageId = `own_msg_${childId}_${++messages}`;
+        for (const chunk of said.match(/.{1,8}/gs) ?? []) this.update(session, { sessionUpdate: 'agent_message_chunk', messageId, content: { type: 'text', text: chunk } });
+      },
+      think: (thought) => {
+        const messageId = `own_thought_${childId}_${++messages}`;
+        for (const chunk of thought.match(/.{1,8}/gs) ?? []) this.update(session, { sessionUpdate: 'agent_thought_chunk', messageId, content: { type: 'text', text: chunk } });
+      },
+    };
+    await (task.then ?? ((turn: FakeOwnTurn) => turn.say(`Background task finished: ${answer}`)))(own);
+    this.emit('session.status', { sessionID: session.id, status: { type: 'idle' } });
+    this.emit('session.idle', { sessionID: session.id });
   }
 
   /**
