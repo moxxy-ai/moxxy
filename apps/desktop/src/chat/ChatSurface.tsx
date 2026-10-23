@@ -28,6 +28,7 @@ import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
 import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
+import { useVoiceMicrophonePulse } from '../voice-call/useVoiceMicrophoneShortcut';
 import { useComputerControl } from '../computer-control/useComputerControl';
 import { ComputerControlStrip } from '../computer-control/ComputerControlStrip';
 import { useAgentComputer } from '../computer-control/useAgentComputer';
@@ -141,6 +142,7 @@ export function ChatSurface({
   abortTurnPulse.use(() => {
     if (chat.activeTurnId !== null || chat.sending) void chat.abort();
   });
+  useVoiceMicrophonePulse(voiceCall);
   const imagePreview = useImagePreview();
   // A finished plan offers to be carried out; never while a turn runs or one waits on the person.
   const sendPrompt = useCallback((prompt: string): void => void chat.send(prompt), [chat.send]);

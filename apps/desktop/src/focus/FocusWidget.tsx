@@ -57,6 +57,7 @@ import {
   useFocusMiniTextSize,
 } from './useFocusMiniTextSize';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
+import { useFocusVoiceMicrophoneHotkey } from '../voice-call/useVoiceMicrophoneShortcut';
 import { deriveFocusAudioVisualization } from './focus-audio-visualization';
 import { resolveFocusPetPhase } from './focus-pet-state';
 import { useFocusTaskStatus } from './focus-task-status';
@@ -153,6 +154,7 @@ function Surface({
     chat,
     inputRequired: askVisible,
   });
+  useFocusVoiceMicrophoneHotkey(voiceCall);
   const taskStatus = useFocusTaskStatus({
     events: chat.events,
     activeTurnId: chat.activeTurnId,

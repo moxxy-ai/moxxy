@@ -4,7 +4,9 @@ import {
   abortTurnPulse,
   focusComposerPulse,
   transcriptSearchPulse,
+  voiceMicrophonePulse,
 } from '@/lib/chatPulses';
+import { VOICE_MICROPHONE_HOTKEY } from '../voice-call/useVoiceMicrophoneShortcut';
 import type { View } from '../shell/views';
 import { useHotkeyList } from './useHotkeys';
 import type { HotkeyBinding } from './registry';
@@ -83,6 +85,10 @@ export function useAppHotkeys(opts: AppHotkeysOptions): void {
       label: 'Interrupt the running turn',
       group: 'Chat',
       run: () => abortTurnPulse.request(),
+    },
+    {
+      ...VOICE_MICROPHONE_HOTKEY,
+      run: () => voiceMicrophonePulse.request(),
     },
     {
       id: 'session.new',

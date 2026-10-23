@@ -333,6 +333,7 @@ heard is the answer (`voice-call/voice-silence.test.ts`).
 | It closes a moment after the pointer leaves, and opens at once | A pointer that slips off on its way to End does not lose it. |
 | Why a call stopped is said once, beside the state, on up to two lines at every width; a reason longer than that, like any line of the card that is cut, gives all of itself in the tooltip (`components/tip/ClippedText.tsx`) | The reason is the one line here that has to be read, and text that is all there needs no tooltip. |
 | The phone starts a call and the phone laid down ends one, in the header, the Mini Chat, the focus pill and here | One pair of signs for one pair of actions. |
+| ⌘D / Ctrl+D turns the microphone off and on during a call, in the main window and in Focus Mode, also while typing; it is listed under Voice in the shortcuts sheet (`voice-call/useVoiceMicrophoneShortcut.ts`). Not ⌘M, which macOS keeps for minimizing the window, nor ⌘⇧M, which is Focus Mode | The microphone is the control a call reaches for most, and the button for it shows only when the card is open. |
 
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
 be checked in the stylesheet.
