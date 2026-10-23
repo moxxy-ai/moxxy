@@ -196,6 +196,27 @@ describe('session.answerQuestion handler', () => {
   });
 });
 
+describe('session.stopBackgroundWork handler', () => {
+  it('stops the work through the driver of the named workspace', async () => {
+    const stopBackgroundWork = vi.fn(async () => true);
+    drivers.set('ws-w', { stopBackgroundWork } as unknown as SessionDriver);
+    const pool = { activeWorkspaceId: () => 'ws-other', get: () => null } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    try {
+      const handler = handlers.get('session.stopBackgroundWork');
+      assertDefined(handler, 'session.stopBackgroundWork handler');
+      await expect(handler({ workspaceId: 'ws-w', workId: 'b1' })).resolves.toBe(true);
+
+      expect(stopBackgroundWork).toHaveBeenCalledWith('b1');
+    } finally {
+      drivers.delete('ws-w');
+    }
+  });
+});
+
 describe('session.setAutoApprove handler', () => {
   it('updates the driver and broadcasts the shared auto-approve state to every surface', async () => {
     const events: Array<{ channel: keyof IpcEvents; payload: unknown }> = [];

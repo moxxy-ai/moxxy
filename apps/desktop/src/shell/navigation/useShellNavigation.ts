@@ -21,7 +21,7 @@ export function useShellNavigation({
   readonly onOpenPalette: () => void;
   /** Shows a section in the view that owns it; the views keep that state. */
   readonly onSection: (target: SectionTarget) => void;
-  readonly onPane?: (pane: 'media') => void;
+  readonly onPane?: (pane: 'media' | 'agents') => void;
 }): ShellNav {
   const [view, setView] = useState<View>('chat');
 

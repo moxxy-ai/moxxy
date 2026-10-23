@@ -9,6 +9,8 @@ interface Running {
   /** Claude went on without waiting for it; only its task note ends it. */
   background: boolean;
   done: boolean;
+  /** What it said, each shown once: a message read between turns comes again in the next turn. */
+  readonly said: Set<string>;
 }
 
 /**
@@ -37,7 +39,7 @@ export class ClaudeSubagents {
 
   started(callId: string, input: unknown): AgentStepEvent[] {
     if (this.agents.has(callId)) return [];
-    this.agents.set(callId, { text: '', tokens: undefined, background: false, done: false });
+    this.agents.set(callId, { text: '', tokens: undefined, background: false, done: false, said: new Set() });
     const fields = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
     const label = typeof fields.description === 'string' && fields.description ? fields.description : 'subagent';
     const agentType = typeof fields.subagent_type === 'string' && fields.subagent_type ? fields.subagent_type : 'general-purpose';
@@ -45,16 +47,22 @@ export class ClaudeSubagents {
     return [{ type: 'subagent_started', id: callId, label, agentType, ...(prompt ? { prompt } : {}) }];
   }
 
-  /** What a subagent said and called, from one of its messages. */
+  /** What a subagent said and called, from one of its messages; each once, however often the message is read. */
   fromMessage(parent: string, text: string, calls: ReadonlyArray<{ readonly id: string; readonly name: string; readonly input: unknown }>): AgentStepEvent[] {
     const agent = this.agents.get(parent);
     if (!agent || agent.done) return [];
-    if (text) agent.text = text;
-    return calls.flatMap((call) => {
-      if (this.calls.has(call.id)) return [];
+    const events: AgentStepEvent[] = [];
+    if (text) {
+      agent.text = text;
+      if (!agent.said.has(text)) events.push({ type: 'subagent_message', id: parent, text });
+      agent.said.add(text);
+    }
+    for (const call of calls) {
+      if (this.calls.has(call.id)) continue;
       this.calls.set(call.id, parent);
-      return [{ type: 'subagent_tool_call', id: parent, name: call.name, input: call.input } satisfies AgentStepEvent];
-    });
+      events.push({ type: 'subagent_tool_call', id: parent, name: call.name, input: call.input });
+    }
+    return events;
   }
 
   /**
@@ -87,7 +95,7 @@ export class ClaudeSubagents {
     if (note.subtype !== 'task_notification' || !agent.background) return [];
     if (note.status === 'completed') return this.end(note.tool_use_id, { text: agent.text || (typeof note.summary === 'string' ? note.summary : '') });
     const reason = typeof note.summary === 'string' && note.summary ? note.summary : `The subagent ${typeof note.status === 'string' ? note.status : 'stopped'}.`;
-    return this.end(note.tool_use_id, { text: '', error: reason });
+    return this.end(note.tool_use_id, { text: '', error: reason, stopped: note.status === 'stopped' });
   }
 
   private textOf(callId: string): string {
@@ -95,12 +103,12 @@ export class ClaudeSubagents {
     return agent ? agent.text : '';
   }
 
-  private end(callId: string, outcome: { readonly text: string; readonly tokens?: number; readonly error?: string }): AgentStepEvent[] {
+  private end(callId: string, outcome: { readonly text: string; readonly tokens?: number; readonly error?: string; readonly stopped?: boolean }): AgentStepEvent[] {
     const agent = this.agents.get(callId);
     if (!agent || agent.done) return [];
     agent.done = true;
     const tokens = outcome.tokens ?? agent.tokens;
-    return [{ type: 'subagent_completed', id: callId, text: outcome.text, ...(tokens !== undefined ? { tokensUsed: tokens } : {}), ...(outcome.error ? { error: outcome.error } : {}) }];
+    return [{ type: 'subagent_completed', id: callId, text: outcome.text, ...(tokens !== undefined ? { tokensUsed: tokens } : {}), ...(outcome.error ? { error: outcome.error } : {}), ...(outcome.stopped ? { stopped: true as const } : {}) }];
   }
 }
 

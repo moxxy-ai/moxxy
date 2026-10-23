@@ -47,6 +47,8 @@ export type ClaudeScene = (turn: FakeTurn) => AsyncIterable<ClaudeMessage>;
 export interface OwnTurn {
   readonly background?: ReadonlyArray<ClaudeMessage>;
   readonly messages: ReadonlyArray<ClaudeMessage>;
+  /** Only the background work's messages: Claude takes up no turn after them. */
+  readonly noTurn?: true;
 }
 
 export const assistantText = (text: string, model = 'claude-opus-5-5'): ClaudeMessage =>
@@ -117,6 +119,8 @@ export class FakeQuery implements ClaudeQuery {
   readonly modelChanges: string[] = [];
   interrupts = 0;
   closed = false;
+  /** The tasks `stopTask` was asked to stop, in order. */
+  readonly stoppedTasks: string[] = [];
   permissionMode: ClaudePermissionMode;
   /** Moxxy's tools as Claude read them: once as it starts, and again on a list-changed notice. */
   moxxyTools: ReadonlyArray<string> = [];
@@ -211,10 +215,16 @@ export class FakeQuery implements ClaudeQuery {
     return new Promise((resolve) => (this.wakeOwnTurn = () => resolve('own')));
   }
 
+  /** Claude's background work sends messages while no turn runs, and Claude takes up no turn after them. */
+  sendBetweenTurns(messages: ReadonlyArray<ClaudeMessage>): void {
+    this.startOwnTurn({ background: messages, messages: [], noTurn: true });
+  }
+
   private *ownTurn(): Generator<ClaudeMessage> {
     const turn = this.ownTurns.shift();
     if (!turn) return;
     yield* turn.background ?? [];
+    if (turn.noTurn) return;
     yield { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.options.model } as ClaudeMessage;
     yield* turn.messages;
     yield this.result('success', false, { origin: { kind: 'task-notification', producer: 'session-task' } });
@@ -224,6 +234,10 @@ export class FakeQuery implements ClaudeQuery {
     this.interrupts += 1;
     this.stop.abort();
     return undefined;
+  }
+
+  async stopTask(taskId: string): Promise<void> {
+    this.stoppedTasks.push(taskId);
   }
 
   async setPermissionMode(mode: ClaudePermissionMode): Promise<void> {

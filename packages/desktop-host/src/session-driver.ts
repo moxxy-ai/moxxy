@@ -322,6 +322,11 @@ export class SessionDriver {
     return this.session.questions.answer(questionId, answers);
   }
 
+  /** Stop one work the conversation's agent runs in the background; `false` when it runs no such work. */
+  async stopBackgroundWork(workId: string): Promise<boolean> {
+    return this.session.stopBackgroundWork(workId);
+  }
+
   async setAutoApprove(on: boolean): Promise<void> {
     this.autoApprove = on;
     if (this.session.getInfo().autoApprove !== undefined) await this.session.setAutoApprove(on);

@@ -41,7 +41,7 @@ const opencode = await import(dist('plugin-provider-acp'));
 
 const TURN_LIMIT_MS = 5 * 60_000;
 const STOP_LIMIT_MS = 30_000;
-const NOT_SUPPORTED_BACKGROUND = "Moxxy has no shared view or stop for an agent's background work yet";
+const NOT_SUPPORTED_BACKGROUND = 'OpenCode reports no background work to Moxxy yet';
 const OWN_RULES_ALLOW_CHANGES = "OpenCode's own rules let it change files in the project without asking";
 
 const AGENTS = {
@@ -52,6 +52,7 @@ const AGENTS = {
     model: process.env.MOXXY_LIVE_CLAUDE_MODEL?.trim() || 'claude-sonnet-5-5',
     signIn: async () => claude.checkClaudeCliAuth(),
     asksBeforeChange: true,
+    background: (command) => `Run this exact shell command with your shell tool's run_in_background option, so it keeps running, and do not wait for it: ${command}. Then reply with exactly BG STARTED.`,
   },
   codex: {
     provider: codex.CODEX_AGENT_PROVIDER_ID,
@@ -61,6 +62,7 @@ const AGENTS = {
     context: { reasoning: { effort: 'medium' }, fast: true },
     signIn: async () => codex.checkCodexAuth(),
     asksBeforeChange: true,
+    background: (command) => `Run this exact shell command with your exec tool and leave its session running in the background (no nohup, no &; just do not wait for it to finish): ${command}. Then reply with exactly BG STARTED.`,
   },
   opencode: {
     provider: opencode.OPENCODE_PROVIDER_ID,
@@ -321,7 +323,31 @@ async function checkAgent(agent) {
       return `recalled ${word} after moxxy serve restarted`;
     });
 
-    record(agent, 'background work', 'na', NOT_SUPPORTED_BACKGROUND);
+    if (spec.background) {
+      await step(agent, 'background work', async () => {
+        const marker = `moxxy-live-bg-${process.pid}-${agent}`;
+        const command = `node -e "setTimeout(()=>{},300000)" ${marker}`;
+        const listed = () => runner.session.getInfo().backgroundWork ?? [];
+        const before = new Set(listed().map((work) => work.id));
+        const turn = await runner.turn(spec.background(command));
+        expectTurn(turn, /BG STARTED/i, 'no BG STARTED in the reply');
+        // The label is the agent's own: Codex shows the command, Claude its description of it.
+        let id;
+        const running = () => listed().find((work) => (id === undefined ? work.kind === 'command' && !before.has(work.id) : work.id === id));
+        if (!(await until(async () => running() !== undefined, 60_000))) {
+          throw new Error(`the command is not in what runs in the background; listed: ${JSON.stringify(listed())}`);
+        }
+        id = running().id;
+        if (!(await commandLines()).includes(marker)) throw new Error('the command is listed, but it is not running on this machine');
+        const pressed = Date.now();
+        if (!(await runner.session.stopBackgroundWork(id))) throw new Error('Stop said the agent runs no such work');
+        const gone = await until(async () => running() === undefined && !(await commandLines()).includes(marker), STOP_LIMIT_MS);
+        if (!gone) throw new Error(running() ? `the command is still listed ${STOP_LIMIT_MS / 1000}s after Stop` : 'the command left the list, but it is still running');
+        return `listed while it ran, stopped ${Math.round((Date.now() - pressed) / 1000)}s after Stop`;
+      });
+    } else {
+      record(agent, 'background work', 'na', NOT_SUPPORTED_BACKGROUND);
+    }
   } catch (error) {
     record(agent, 'runner', 'fail', message(error));
   } finally {

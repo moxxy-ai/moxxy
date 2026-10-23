@@ -85,6 +85,8 @@ export interface TriggerOrigin {
   readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint' | 'voice' | 'agent';
   /** The trigger's name (webhook/schedule/workflow/checkpoint), for the marker label. */
   readonly name: string;
+  /** `agent`: the background work whose end the agent took up (`AgentBackgroundWork.id`), when it says. */
+  readonly workId?: string;
 }
 
 export interface UserPromptEvent extends EventBase {

@@ -381,6 +381,13 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('session.answerQuestion', { questionId: '', answers: {} })).toThrow();
   });
 
+  it('takes the id of one background work to stop, and lets a paired phone stop it too', () => {
+    expect(() => validateIpcInput('session.stopBackgroundWork', { workspaceId: 'ws', workId: 'b1' })).not.toThrow();
+    expect(() => validateIpcInput('session.stopBackgroundWork', { workId: '' })).toThrow();
+    expect(() => validateIpcInput('session.stopBackgroundWork', { workId: 'x'.repeat(257) })).toThrow();
+    expect(REMOTE_ALLOWED_COMMANDS.has('session.stopBackgroundWork')).toBe(true);
+  });
+
   it('lets a paired phone answer the conversation questions', () => {
     expect(REMOTE_ALLOWED_COMMANDS.has('session.answerQuestion')).toBe(true);
   });

@@ -38,7 +38,7 @@ import type {
   SurfaceDataMessage,
   SurfaceInstance,
 } from '@moxxy/sdk';
-import { FakeProvider, streamingTextReply, textReply, toolUseReply } from '@moxxy/testing';
+import { FakeAgentProvider, FakeProvider, streamingTextReply, textReply, toolUseReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { startRunnerServer, type RunnerServer } from './server.js';
 import { connectRemoteSession, RemoteSession } from './remote-session.js';
@@ -2034,6 +2034,39 @@ describe('conversation auto-approve (protocol v21)', () => {
 
     expect(asked).toEqual([]);
     expect(remote.log.ofType('tool_result').length).toBeGreaterThan(0);
+  });
+});
+
+describe("the agent's background work (protocol v29)", () => {
+  function agent(): FakeAgentProvider {
+    return new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+  }
+
+  it('every client sees what runs in the background and when it ends', async () => {
+    const provider = agent();
+    const { session, socketPath } = await serve(provider);
+    const desktop = await attach(socketPath, 'desktop');
+    const server = { id: 'b1', kind: 'command' as const, label: 'npm run dev' };
+
+    provider.reportActivity(String(session.id), [{ type: 'background_work', work: [server] }]);
+    await waitFor(() => desktop.getInfo().backgroundWork?.[0]?.id === 'b1');
+    provider.reportActivity(String(session.id), [{ type: 'background_work', work: [] }]);
+
+    await waitFor(() => desktop.getInfo().backgroundWork?.length === 0);
+  });
+
+  it('a client stops one work the agent runs in the background', async () => {
+    const provider = agent();
+    provider.running.add('b1');
+    const { socketPath } = await serve(provider);
+    const desktop = await attach(socketPath, 'desktop');
+
+    expect(await desktop.stopBackgroundWork('b1')).toBe(true);
+    expect(await desktop.stopBackgroundWork('gone')).toBe(false);
+    expect(provider.stopped.map((stop) => stop.workId)).toEqual(['b1', 'gone']);
+    expect(provider.running.has('b1')).toBe(false);
   });
 });
 

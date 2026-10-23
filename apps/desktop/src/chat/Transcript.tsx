@@ -7,7 +7,8 @@ import {
   type Block as FoldedBlock,
   type CompactToolMap,
 } from '@moxxy/chat-model';
-import { buildRenderNodes, keyOfNode, type Extension, type RenderNode } from '@moxxy/client-core';
+import { buildRenderNodes, keyOfNode, onShowInChat, type Extension, type RenderNode } from '@moxxy/client-core';
+import { AgentWorkLinkProvider } from './agent-work-link';
 import { BlockView, StreamingAssistant } from './BlockView';
 import { AttachmentReaderProvider } from './attachments/AttachmentReaderContext';
 import { ToolIconProvider } from './ToolIconContext';
@@ -229,6 +230,24 @@ export function Transcript({
     virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
   }, []);
 
+  // The Agents pane points back at the turn a work opened: scroll there and
+  // mark it a moment, so the eye finds it.
+  useEffect(() => {
+    if (!workspaceId) return undefined;
+    return onShowInChat((asked, eventId) => {
+      if (asked !== workspaceId) return;
+      const index = nodes.findIndex((node) => containsToolAnchor(node, eventId));
+      if (index < 0) return;
+      virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'auto' });
+      window.setTimeout(() => {
+        const row = document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(eventId)}"]`);
+        if (!row) return;
+        row.dataset.flash = 'true';
+        window.setTimeout(() => delete row.dataset.flash, 1600);
+      }, 120);
+    });
+  }, [workspaceId, nodes]);
+
   // Virtuoso fires `startReached` on a top-edge transition. On cold start the
   // scroller can already be at the top before `hasOlder` flips on, so replay
   // the request when older history becomes available while the user is there.
@@ -269,6 +288,7 @@ export function Transcript({
     <ToolIconProvider workspaceId={workspaceId}>
     <ImagePreviewProvider value={onPreviewImage ?? null}>
     <AttachmentReaderProvider workspaceId={workspaceId}>
+    <AgentWorkLinkProvider workspaceId={workspaceId ?? null}>
     {/* Relative wrapper so the jump-to-latest button can float over the
         scroller without joining the virtualised content. */}
     <div className="transcript">
@@ -322,6 +342,7 @@ export function Transcript({
       />
       <JumpToLatest visible={!atBottom} unread={newBelow} onJump={jumpToLatest} />
     </div>
+    </AgentWorkLinkProvider>
     </AttachmentReaderProvider>
     </ImagePreviewProvider>
     </ToolIconProvider>

@@ -182,6 +182,11 @@ export function registerSessionHandlers(
     await mustDriver(id).setAutoApprove(enabled);
     broadcastHostEvent('session.autoApprove.changed', { workspaceId: id, enabled });
   });
+  handle('session.stopBackgroundWork', async ({ workspaceId, workId }) => {
+    const id = workspaceId ?? pool.activeWorkspaceId();
+    if (!id) return false;
+    return mustDriver(id).stopBackgroundWork(workId);
+  });
   handle('session.answerQuestion', async ({ workspaceId, questionId, answers }) => {
     const id = workspaceId ?? pool.activeWorkspaceId();
     if (!id) throw new IpcError('not-connected', 'no active session to answer the question in');

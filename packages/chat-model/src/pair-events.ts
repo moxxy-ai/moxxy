@@ -23,6 +23,7 @@ import type {
   ToolCallBlockData,
 } from './types.js';
 import { oneLine, subagentState } from './format.js';
+import { isAgentWorkEvent } from './agent-work.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
 const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
@@ -466,6 +467,8 @@ export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MA
  * stay byte-identical). `continue` became `return`.
  */
 export function stepFold(s: FoldState, e: MoxxyEvent): void {
+  // The agent's background work shows in the Agents panel, not as rows of the chat.
+  if (isAgentWorkEvent(e)) return;
   const pushBlock = (block: Block): void => {
     // Any non-subagent block breaks a run of sibling subagents.
     s.subagentGroup.current = null;

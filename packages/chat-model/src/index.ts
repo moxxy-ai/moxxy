@@ -1,5 +1,6 @@
 export * from './types.js';
 export * from './pair-events.js';
+export * from './agent-work.js';
 export { turnComputerUse } from './agent-computer.js';
 export * from './format.js';
 export * from './log.js';

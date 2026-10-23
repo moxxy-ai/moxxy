@@ -42,6 +42,7 @@ export {
   handleSessionReadAttachment,
   handleSessionRecordExchange,
   handleSessionSetAutoApprove,
+  handleSessionStopBackgroundWork,
   handlePermissionAddAllow,
   handleCommandRun,
 } from './session-handlers.js';

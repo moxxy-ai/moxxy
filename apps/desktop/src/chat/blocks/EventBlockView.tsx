@@ -31,7 +31,7 @@ export function EventBlockView({
       // compact, expandable trigger marker instead of the raw synthesized prompt.
       return event.origin ? (
         <TraceEntry kind="trigger">
-          <TriggerBlock origin={event.origin} text={event.text} />
+          <TriggerBlock origin={event.origin} text={event.text} eventId={String(event.id)} />
         </TraceEntry>
       ) : (
         <TraceEntry kind="commanded" meta={stamp(event.ts)}>

@@ -229,6 +229,8 @@ export interface ClaudeQuery extends AsyncIterable<ClaudeMessage> {
   mcpServerStatus(): Promise<ClaudeMcpServerStatus[]>;
   setPermissionMode(mode: ClaudePermissionMode): Promise<void>;
   setModel(model?: string): Promise<void>;
+  /** Stop one of Claude's tasks (a background command or helper); Claude then reports it stopped. */
+  stopTask(taskId: string): Promise<void>;
   close(): void;
 }
 

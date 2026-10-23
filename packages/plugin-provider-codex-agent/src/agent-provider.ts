@@ -1,5 +1,6 @@
 import {
   estimateTextTokens,
+  type AgentActivity,
   type AgentStepEvent,
   type AgentStepRequest,
   type AgentTurnStart,
@@ -109,6 +110,17 @@ export class CodexAgentProvider implements LLMProvider {
     return this.sessions().onAgentTurn(listener);
   }
 
+  /** What Codex's background work does between turns, recorded at once. */
+  onAgentActivity(listener: (activity: AgentActivity) => void): () => void {
+    return this.sessions().onActivity(listener);
+  }
+
+  /** Stop one work Codex runs in the background in the conversation. */
+  async stopBackgroundWork(sessionId: string, workId: string): Promise<boolean> {
+    const live = this.sessions().running(sessionId);
+    return live ? live.stopWork(workId) : false;
+  }
+
   private sessions(): AgentSessionPool<CodexAgentSession> {
     return this.config.sessions ?? codexSessions();
   }
@@ -198,7 +210,8 @@ export class CodexAgentProvider implements LLMProvider {
       tools: req.allTools ?? req.tools,
       ...(req.skills ? { skills: req.skills } : {}),
       ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
-      onAgentTurn: (name: string) => this.sessions().agentTurn({ sessionId: req.sessionId, name }),
+      onAgentTurn: (name: string, workId?: string) => this.sessions().agentTurn({ sessionId: req.sessionId, name, ...(workId ? { workId } : {}) }),
+      onActivity: (events: ReadonlyArray<AgentStepEvent>) => this.sessions().activity({ sessionId: req.sessionId, events }),
     };
     const sessions = this.sessions();
     const create = () => CodexAgentSession.start(settings);

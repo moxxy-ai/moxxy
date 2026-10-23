@@ -220,6 +220,7 @@ export class MobileSessionHost {
     this.bus.handle('session.setAutoApprove', async ({ enabled }) => {
       this.autoApprove = enabled;
     });
+    this.bus.handle('session.stopBackgroundWork', async ({ workId }) => (await this.session.stopBackgroundWork?.(workId)) ?? false);
     this.bus.handle('session.setMode', async ({ mode }) => {
       this.session.modes.setActive(mode);
       // Re-broadcast the phase so connected clients see the new activeMode

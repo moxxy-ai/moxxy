@@ -43,6 +43,8 @@ import { DEFAULT_MODE, modeMeta } from './modes/mode-meta';
 import { useActiveMode } from './modes/useActiveMode';
 import { TurnStepsBar } from './composer/TurnStepsBar';
 import { AgentCliBar } from './composer/AgentCliBar';
+import { BackgroundWorkBar } from './composer/BackgroundWorkBar';
+import { useBackgroundWorkBar } from './composer/useBackgroundWorkBar';
 import type { AgentCliNoticeView } from './useAgentCliNotice';
 import type { StepListDisplay } from '@moxxy/sdk/tool-display';
 
@@ -162,6 +164,7 @@ export function Composer({
   const canSubmit =
     ready && !compacting && (draft.trim().length > 0 || attachments.length > 0);
   const queued = useQueuedTurns(workspaceId);
+  const backgroundWork = useBackgroundWorkBar(workspaceId);
   // Auto-approve ("yolo") for this workspace — mirrored to the runner-side
   // driver so tool calls skip the approval sheet. Goal mode turns it on.
   const autoApprove = useSyncExternalStore(chatStore.subscribe, () =>
@@ -341,6 +344,7 @@ export function Composer({
     >
       {agentCli ? <AgentCliBar notice={agentCli} /> : null}
       {turnSteps ? <TurnStepsBar steps={turnSteps} /> : null}
+      {backgroundWork ? <BackgroundWorkBar bar={backgroundWork} /> : null}
       <div className="cmdbar__card">
         <ComposerStatus
           mode={mode}

@@ -351,6 +351,53 @@ describe('an agent connection turn', () => {
     ]);
   });
 
+  it('records a subagent the person stopped as stopped, not as failed', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'subagent_started', id: 'sub-1', label: 'List files', agentType: 'Explore' };
+      yield { type: 'subagent_completed', id: 'sub-1', text: '', error: 'The subagent was stopped.', stopped: true };
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'ask a helper');
+
+    const ended = session.log.ofType('plugin_event').find((e) => e.subtype === 'subagent_completed');
+    expect(ended?.payload).toMatchObject({ stopReason: 'stopped', error: 'The subagent was stopped.' });
+  });
+
+  it("records what a subagent says as it works, so its mini chat shows more than its tools", async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'subagent_started', id: 'sub-1', label: 'List files', agentType: 'Explore' };
+      yield { type: 'subagent_message', id: 'sub-1', text: 'Looking at the folder first.' };
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'ask a helper');
+
+    const said = session.log.ofType('plugin_event').filter((e) => e.subtype === 'subagent_message');
+    expect(said.map((e) => [e.pluginId, e.payload])).toEqual([['@moxxy/subagents', { childSessionId: 'sub-1', label: 'List files', text: 'Looking at the folder first.' }]]);
+  });
+
+  it('records what the agent runs in the background as one list, and how each work ended', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'background_work', work: [{ id: 'b1', kind: 'command', label: 'npm run dev' }] };
+      yield { type: 'background_work_ended', id: 'b1', kind: 'command', label: 'npm run dev', status: 'stopped', output: 'ready on :5173' };
+      yield { type: 'background_work', work: [] };
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    await collectTurn(session, 'start the server');
+
+    const work = session.log.ofType('plugin_event').filter((e) => e.pluginId === AGENT_CONNECTION_PLUGIN_ID && e.subtype.startsWith('background_work'));
+    expect(work.map((e) => [e.subtype, e.payload])).toEqual([
+      ['background_work', { provider: provider.name, work: [{ id: 'b1', kind: 'command', label: 'npm run dev' }] }],
+      ['background_work_ended', { provider: provider.name, id: 'b1', kind: 'command', label: 'npm run dev', status: 'stopped', output: 'ready on :5173' }],
+      ['background_work', { provider: provider.name, work: [] }],
+    ]);
+  });
+
   it('adds no end-of-turn reminder after a turn that ended on a failed step: the agent decides when it is done', async () => {
     const provider = new FakeAgentProvider(async function* () {
       yield { type: 'tool_call', callId: 'toolu_3', name: 'Bash', input: { command: 'pnpm test' } };
@@ -702,6 +749,18 @@ describe('a turn the agent starts by itself', () => {
     expect(noReplies(events)).toEqual([]);
   });
 
+  it('marks the turn with the background work whose end the agent took up, so the chat can open that work', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'It finished.' };
+    });
+    const session = sessionWith(provider);
+
+    provider.startAgentTurn(String(session.id), 'npm test finished in the background', 'task-7');
+    await vi.waitFor(() => expect(session.log.ofType('assistant_message')).toHaveLength(1));
+
+    expect(session.log.ofType('user_prompt').at(-1)?.origin).toEqual({ kind: 'agent', name: 'npm test finished in the background', workId: 'task-7' });
+  });
+
   it('ignores a turn the agent started in another conversation', async () => {
     const provider = new FakeAgentProvider(async function* () {
       yield { type: 'message', text: 'ok' };
@@ -713,6 +772,73 @@ describe('a turn the agent starts by itself', () => {
 
     expect(session.log.ofType('user_prompt')).toHaveLength(0);
     expect(provider.steps).toHaveLength(0);
+  });
+});
+
+describe("the agent's work in the background", () => {
+  it('is recorded the moment it happens, with no turn running, so every surface shows it live', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'subagent_started', id: 'sub-1', label: 'Inspect folder', agentType: 'Explore' };
+      yield { type: 'message', text: 'A helper is on it.' };
+    });
+    const session = sessionWith(provider);
+    await collectTurn(session, 'look around');
+
+    provider.reportActivity(String(session.id), [
+      { type: 'subagent_tool_call', id: 'sub-1', name: 'Read', input: { file_path: 'a.ts' } },
+      { type: 'subagent_message', id: 'sub-1', text: 'a.ts exports one function.' },
+      { type: 'background_work', work: [{ id: 'sub-1', kind: 'agent', label: 'Inspect folder' }] },
+    ]);
+    await vi.waitFor(() => expect(session.log.ofType('plugin_event').filter((e) => e.subtype === 'background_work')).toHaveLength(1));
+
+    const later = session.log.ofType('plugin_event').filter((e) => ['subagent_tool_call', 'subagent_message', 'background_work'].includes(e.subtype));
+    expect(later.map((e) => [e.subtype, e.payload])).toEqual([
+      ['subagent_tool_call', { childSessionId: 'sub-1', name: 'Read', input: { file_path: 'a.ts' } }],
+      ['subagent_message', { childSessionId: 'sub-1', text: 'a.ts exports one function.' }],
+      ['background_work', { provider: provider.name, work: [{ id: 'sub-1', kind: 'agent', label: 'Inspect folder' }] }],
+    ]);
+    expect(session.log.ofType('user_prompt')).toHaveLength(1);
+  });
+
+  it('is listed in the session info while it runs, and every client hears when that changes', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+    const heard: Array<ReadonlyArray<unknown> | undefined> = [];
+    session.onInfoChanged((info) => heard.push(info.backgroundWork));
+    const server = { id: 'b1', kind: 'command' as const, label: 'npm run dev' };
+
+    provider.reportActivity(String(session.id), [{ type: 'background_work', work: [server] }]);
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([server]));
+    provider.reportActivity(String(session.id), [{ type: 'background_work', work: [] }]);
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+
+    expect(heard).toEqual([[server], []]);
+  });
+
+  it("leaves another conversation's background work out", async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+    const session = sessionWith(provider);
+
+    provider.reportActivity('another-conversation', [{ type: 'background_work', work: [{ id: 'b1', kind: 'command', label: 'sleep 60' }] }]);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(session.log.ofType('plugin_event')).toEqual([]);
+  });
+
+  it('is stopped one work at a time by the agent that runs it', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+    provider.running.add('b1');
+    const session = sessionWith(provider);
+
+    expect(await session.stopBackgroundWork('b1')).toBe(true);
+    expect(await session.stopBackgroundWork('b1')).toBe(false);
+    expect(provider.stopped).toEqual([{ sessionId: String(session.id), workId: 'b1' }, { sessionId: String(session.id), workId: 'b1' }]);
   });
 });
 

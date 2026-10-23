@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
+  AGENT_CONNECTION_PLUGIN_ID,
   AGENT_GOAL_SUBTYPE,
   QUESTION_ASKED,
   autoApproveFromEvents,
@@ -1321,7 +1322,7 @@ describe('work Codex leaves running when its turn ends', () => {
     await vi.waitFor(() => expect(opened(session)).toHaveLength(1));
   });
 
-  it("shows a subagent's work and answer after the turn in a turn Moxxy opens for it", async () => {
+  it("shows a subagent's work as it happens after the turn, and its answer in a turn Moxxy opens for it", async () => {
     const activity = (kind: string) => ({ type: 'subAgentActivity', id: `act-${kind}`, kind, agentThreadId: 'thread-child', agentPath: '/root/check_later' });
     const child = { threadId: 'thread-child', turnId: 'turn-child' };
     const { codex, session, ids, later } = await leaveRunning((turn) => turn.server.notify('item/started', { threadId: turn.threadId, turnId: turn.id, item: activity('started') }));
@@ -1333,15 +1334,103 @@ describe('work Codex leaves running when its turn ends', () => {
     const turn = opened(session)[0];
     await vi.waitFor(() => expect(session.log.slice().some((e) => e.type === 'provider_response' && turn && e.turnId === turn.turnId)).toBe(true));
 
-    expect(turn).toMatchObject({ origin: { kind: 'agent', name: 'check later finished in the background' } });
+    expect(turn).toMatchObject({ origin: { kind: 'agent', name: 'check later finished in the background', workId: 'thread-child' } });
+    const before = session.log.slice().filter((e) => turn && e.seq < turn.seq);
+    expect(before.some((e) => e.type === 'plugin_event' && e.subtype === 'subagent_tool_call')).toBe(true);
     const inIt = session.log.slice().filter((e) => turn && e.turnId === turn.turnId);
     expect(inIt.flatMap((e) => (e.type === 'plugin_event' ? [[e.subtype, e.payload]] : []))).toEqual(
-      expect.arrayContaining([
-        ['subagent_tool_call', expect.objectContaining({ childSessionId: 'thread-child', name: 'Bash' })],
-        ['subagent_completed', expect.objectContaining({ childSessionId: 'thread-child', text: 'DONE-7' })],
-      ]),
+      expect.arrayContaining([['subagent_completed', expect.objectContaining({ childSessionId: 'thread-child', text: 'DONE-7' })]]),
     );
     expect(codex.last.sent('turn/start')).toHaveLength(1);
+  });
+
+  const workOf = (session: Session, subtype: string) =>
+    session.log.ofType('plugin_event').filter((e) => e.pluginId === AGENT_CONNECTION_PLUGIN_ID && e.subtype === subtype).map((e) => e.payload);
+
+  it('lists a command Codex left running while it runs, records how it ended, and names it in the turn opened for its end', async () => {
+    const command = { type: 'commandExecution', id: 'bg-1', command: "/bin/zsh -lc 'sleep 25 && echo BG-OK'", cwd: '/work/app', status: 'inProgress', aggregatedOutput: null, exitCode: null };
+    const { session, ids, later } = await leaveRunning((turn) => turn.started(command));
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([{ id: 'bg-1', kind: 'command', label: 'sleep 25 && echo BG-OK' }]));
+
+    later('item/completed', { ...ids, item: { ...command, status: 'completed', aggregatedOutput: 'BG-OK\n', exitCode: 0 } });
+    await vi.waitFor(() => expect(opened(session)).toHaveLength(1));
+
+    expect(workOf(session, 'background_work_ended')).toEqual([
+      { provider: 'codex-agent', id: 'bg-1', kind: 'command', label: 'sleep 25 && echo BG-OK', status: 'completed', output: 'BG-OK\n' },
+    ]);
+    expect(session.getInfo().backgroundWork).toEqual([]);
+    expect(opened(session)[0]?.origin).toMatchObject({ workId: 'bg-1' });
+  });
+
+  it("lists a subagent going on after the turn, with what it says as it works, until it ends", async () => {
+    const activity = (kind: string) => ({ type: 'subAgentActivity', id: `act-${kind}`, kind, agentThreadId: 'thread-child', agentPath: '/root/check_later' });
+    const child = { threadId: 'thread-child', turnId: 'turn-child' };
+    const { session, ids, later } = await leaveRunning((turn) => turn.server.notify('item/started', { threadId: turn.threadId, turnId: turn.id, item: activity('started') }));
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([{ id: 'thread-child', kind: 'agent', label: 'check later' }]));
+
+    later('item/completed', { ...child, item: { type: 'agentMessage', id: 'msg-1', text: 'Checking the folder.', phase: 'commentary' } });
+    await vi.waitFor(() => expect(session.log.ofType('plugin_event').some((e) => e.subtype === 'subagent_message')).toBe(true));
+    expect(opened(session)).toHaveLength(0);
+
+    later('item/started', { ...ids, turnId: 'turn-x', item: activity('completed') });
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+  });
+
+  it('stops a command Codex left running, and says when it runs no such command', async () => {
+    const command = { type: 'commandExecution', id: 'bg-1', command: "/bin/zsh -lc 'npm run dev'", cwd: '/work/app', status: 'inProgress', aggregatedOutput: null, exitCode: null };
+    const { codex, session, ids, later } = await leaveRunning((turn) => turn.started(command));
+
+    expect(await session.stopBackgroundWork('bg-1')).toBe(true);
+    expect(await session.stopBackgroundWork('bg-9')).toBe(false);
+    expect(codex.last.sent('thread/backgroundTerminals/terminate')).toEqual([expect.objectContaining({ threadId: 'thread-1' })]);
+    expect([...codex.last.thread.terminals.keys()]).toEqual([]);
+
+    // A stopped command ends as stopped, and no turn of Codex follows it: the person ended it.
+    later('item/completed', { ...ids, item: { ...command, status: 'failed', aggregatedOutput: 'ready', exitCode: null } });
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+    const ended = session.log.ofType('plugin_event').find((e) => e.subtype === 'background_work_ended');
+    expect(ended?.payload).toMatchObject({ id: 'bg-1', status: 'stopped', output: 'ready' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(session.log.ofType('user_prompt')).toHaveLength(1);
+  });
+
+  it("stops a subagent going on after the turn by interrupting the subagent's own turn", async () => {
+    const activity = (kind: string) => ({ type: 'subAgentActivity', id: `act-${kind}`, kind, agentThreadId: 'thread-child', agentPath: '/root/check_later' });
+    const { codex, session, ids, later } = await leaveRunning((turn) => turn.server.notify('item/started', { threadId: turn.threadId, turnId: turn.id, item: activity('started') }));
+    later('turn/started', { threadId: 'thread-child', turn: { id: 'turn-child', status: 'inProgress' } });
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
+
+    expect(await session.stopBackgroundWork('thread-child')).toBe(true);
+    expect(codex.last.sent('turn/interrupt')).toContainEqual({ threadId: 'thread-child', turnId: 'turn-child' });
+    later('item/completed', { ...ids, item: activity('interrupted') });
+
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+    const ended = session.log.ofType('plugin_event').find((e) => e.subtype === 'subagent_completed');
+    expect(ended?.payload).toMatchObject({ childSessionId: 'thread-child', stopReason: 'stopped' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(session.log.ofType('user_prompt')).toHaveLength(1);
+  });
+
+  it("stops a subagent whose own turn started while the conversation's turn still ran, as Codex sends it", async () => {
+    const activity = (kind: string) => ({ type: 'subAgentActivity', id: `act-${kind}`, kind, agentThreadId: 'thread-child', agentPath: '/root/sleep_then_done' });
+    const { codex, session, ids, later } = await leaveRunning((turn) => {
+      turn.server.notify('item/started', { threadId: turn.threadId, turnId: turn.id, item: activity('started') });
+      turn.server.notify('turn/started', { threadId: 'thread-child', turn: { id: 'turn-child', status: 'inProgress' } });
+    });
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
+
+    expect(await session.stopBackgroundWork('thread-child')).toBe(true);
+    expect(codex.last.sent('turn/interrupt')).toContainEqual({ threadId: 'thread-child', turnId: 'turn-child' });
+    // Codex 0.163 ends only the subagent's own turn; the conversation's thread hears nothing.
+    later('turn/completed', { threadId: 'thread-child', turn: { id: 'turn-child', status: 'interrupted' } });
+
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+    const ended = session.log.ofType('plugin_event').find((e) => e.subtype === 'subagent_completed');
+    expect(ended?.payload).toMatchObject({ childSessionId: 'thread-child', stopReason: 'stopped' });
+    later('item/completed', { ...ids, item: activity('interrupted') });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(session.log.ofType('user_prompt')).toHaveLength(1);
+    expect(session.log.ofType('plugin_event').filter((e) => e.subtype === 'subagent_completed')).toHaveLength(1);
   });
 
   it('shows what finished while the person was already writing in their next turn instead', async () => {

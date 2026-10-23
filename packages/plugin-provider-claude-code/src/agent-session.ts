@@ -41,6 +41,7 @@ import {
   toClaudeContent,
   toTokenUsage,
 } from './translate.js';
+import { ClaudeBackgroundWork } from './background-work.js';
 import { ClaudeSubagents } from './subagents.js';
 import { ClaudeTaskList } from './task-list.js';
 
@@ -57,8 +58,10 @@ export interface ClaudeSessionSettings {
   readonly tools?: ReadonlyArray<ToolDef>;
   /** The conversation's Moxxy skills: Claude reads those meant for it through one more Moxxy tool. */
   readonly skills?: ReadonlyArray<Skill>;
-  /** Claude took up a turn by itself while no Moxxy turn runs; `name` says what for. */
-  readonly onAgentTurn?: (name: string) => void;
+  /** Claude took up a turn by itself while no Moxxy turn runs; `name` says what for, `workId` which background work ended. */
+  readonly onAgentTurn?: (name: string, workId?: string) => void;
+  /** What Claude's background work did, for the conversation to record at once: its list, a command's end, a helper's steps between turns. */
+  readonly onActivity?: (events: ReadonlyArray<AgentStepEvent>) => void;
 }
 
 /**
@@ -175,6 +178,10 @@ export class ClaudeAgentSession implements LiveSession {
   private readonly taskNames = new Map<string, string>();
   /** The task whose end Claude takes up next, once it finished in the background. */
   private finishedTask: string | undefined;
+  /** That task as Moxxy's background work (`AgentBackgroundWork.id`). */
+  private finishedWork: string | undefined;
+  /** What Claude runs in the background, as its list says. */
+  private readonly background = new ClaudeBackgroundWork();
   /** The last turn's host: Moxxy's rules for a call made while no turn runs (a helper in the background). */
   private lastHost: AgentStepHost | undefined;
   private permissionMode: ClaudePermissionMode | undefined;
@@ -182,6 +189,8 @@ export class ClaudeAgentSession implements LiveSession {
   private readonly tasks = new ClaudeTaskList();
   /** Claude's subagents; one in the background ends after the turn that started it. */
   private readonly subagents = new ClaudeSubagents();
+  /** Reads a background helper's messages while no turn runs; the next turn reads them again and shows nothing twice. */
+  private readonly between: TurnTranslator;
   /** The conversation's auto-approve as this turn knows it: as it began, then as Claude's mode changed it. */
   private switchedOn = false;
   private model: string;
@@ -211,6 +220,7 @@ export class ClaudeAgentSession implements LiveSession {
   ) {
     this.model = settings.model;
     this.permissionMode = settings.permissionMode;
+    this.between = new TurnTranslator(settings.cwd, this.tasks, this.subagents);
     // Claude reads Moxxy's tools as it starts: they are listed before it does.
     this.listed = toolsLentToClaude(settings.tools ?? []);
     this.offered = skillsForAgent(settings.skills ?? [], toolNames(this.listed), []);
@@ -304,6 +314,7 @@ export class ClaudeAgentSession implements LiveSession {
           if (isOwnResult(item.message)) {
             this.agentTurnPending = false;
             this.finishedTask = undefined;
+            this.finishedWork = undefined;
             if (ownTurn) {
               yield* resultEvents(item.message, req.signal.aborted, this.model);
               break;
@@ -358,10 +369,20 @@ export class ClaudeAgentSession implements LiveSession {
     }
   }
 
+  /** Stop one work Claude runs in the background (`AgentBackgroundWork.id`); `false` when Claude runs no such work. */
+  async stopWork(workId: string): Promise<boolean> {
+    const task = this.background.taskOf(workId);
+    if (task === undefined || !this.alive) return false;
+    await this.query.stopTask(task);
+    return true;
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.alive = false;
+    // Claude's background work ends with it.
+    this.report(this.background.stopped());
     this.input.push(null);
     this.query.close();
     this.dismissQueued();
@@ -542,6 +563,7 @@ export class ClaudeAgentSession implements LiveSession {
       this.inbox.push({ kind: 'ended', error: err instanceof Error ? err.message : String(err) });
     } finally {
       this.alive = false;
+      this.report(this.background.stopped());
     }
   }
 
@@ -591,18 +613,26 @@ export class ClaudeAgentSession implements LiveSession {
    */
   private notice(message: ClaudeMessage): void {
     if (message.type === 'system') {
-      const note = message as { subtype?: unknown; task_id?: unknown; description?: unknown };
+      const note = message as { subtype?: unknown; task_id?: unknown; tool_use_id?: unknown; description?: unknown };
       if (note.subtype === 'task_started' && typeof note.task_id === 'string' && typeof note.description === 'string') {
         this.taskNames.set(note.task_id, note.description);
       }
       if (note.subtype === 'task_notification' && typeof note.task_id === 'string') {
         this.finishedTask = this.taskNames.get(note.task_id) ?? this.finishedTask;
+        this.finishedWork = this.background.workIdOf(note.task_id, typeof note.tool_use_id === 'string' ? note.tool_use_id : undefined);
+        void this.background.end(note).then((events) => this.report(events));
       }
+      this.report(this.background.fromNote(note));
     }
+    if (!this.inTurn && isBackgroundHelperNote(message)) this.report(this.between.translate(message));
     if (this.closed || this.inTurn || this.owesResult || this.agentTurnPending || !isInit(message)) return;
     this.agentTurnPending = true;
     const name = this.finishedTask ? `${this.finishedTask} finished in the background` : 'A background task finished';
-    this.settings.onAgentTurn?.(name);
+    this.settings.onAgentTurn?.(name, this.finishedWork);
+  }
+
+  private report(events: ReadonlyArray<AgentStepEvent>): void {
+    if (events.length > 0) this.settings.onActivity?.(events);
   }
 
   /**
@@ -707,6 +737,12 @@ function isPersonResult(message: ClaudeMessage): message is Extract<ClaudeMessag
   // A turn Claude started itself after a background task is not the person's.
   const origin = (message as { origin?: { kind?: string } }).origin;
   return origin === undefined || origin.kind === 'human';
+}
+
+/** A background helper's own message, or Claude's report on one of its tasks. */
+function isBackgroundHelperNote(message: ClaudeMessage): boolean {
+  if (message.type === 'assistant') return message.parent_tool_use_id !== null && message.parent_tool_use_id !== undefined;
+  return message.type === 'system' && 'subtype' in message && (message.subtype === 'task_progress' || message.subtype === 'task_notification');
 }
 
 function isInit(message: ClaudeMessage): message is Extract<ClaudeMessage, { subtype: 'init' }> {

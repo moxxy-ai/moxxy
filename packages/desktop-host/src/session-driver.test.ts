@@ -34,7 +34,7 @@ import {
   type MoxxyEvent,
   type UserPromptAttachment,
 } from '@moxxy/sdk';
-import { FakeProvider, textReply } from '@moxxy/testing';
+import { FakeAgentProvider, FakeProvider, textReply } from '@moxxy/testing';
 import {
   startRunnerServer,
   connectRemoteSession,
@@ -688,6 +688,25 @@ describe('SessionDriver foreground turn status', () => {
       channel: 'runner.turn.started',
       payload: { workspaceId: 'ws-background-status', turnId, visibility: 'background' },
     });
+    driver.dispose();
+  });
+});
+
+describe('SessionDriver background work', () => {
+  it("stops one work the conversation's agent runs in the background, through the runner", async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+    provider.running.add('b1');
+    const socketPath = tmpSocket();
+    servers.push(await startRunnerServer(buildSession(provider), { socketPath }));
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-w');
+
+    await expect(driver.stopBackgroundWork('b1')).resolves.toBe(true);
+    await expect(driver.stopBackgroundWork('b1')).resolves.toBe(false);
     driver.dispose();
   });
 });

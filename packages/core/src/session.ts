@@ -1,7 +1,10 @@
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
+  AgentActivity,
+  AgentBackgroundWork,
   AgentTurnStart,
+  SubagentNames,
   AppContext,
   ComputerControlService,
   ClientSession,
@@ -57,6 +60,7 @@ import { PermissionEngine } from './permissions/engine.js';
 import { autoAllowResolver } from './permissions/resolvers.js';
 import { currentPermissionScope } from './permissions/scope.js';
 import {
+  agentActivityRecord,
   AUTO_APPROVE_PLUGIN_ID,
   AUTO_APPROVE_SUBTYPE,
   recordedContextWindows,
@@ -273,7 +277,17 @@ export class Session implements ClientSession, SessionRuntime {
     if (opts.secretResolver) this.resolveSecret = opts.secretResolver;
     this.providers = new ProviderRegistry();
     this.agentClis = new AgentCliWatch(() => this.providers.list(), this.logger);
-    this.stopWatchingAgentTurns = this.providers.onAgentTurn((start) => this.takeUpAgentTurn(start));
+    const stopTakingUp = this.providers.onAgentTurn((start) => this.takeUpAgentTurn(start));
+    // One after another, so the log keeps the order the agent reported them in.
+    const stopRecording = this.providers.onAgentActivity((activity) => {
+      this.recordingActivity = this.recordingActivity.then(() => this.recordAgentActivity(activity)).catch((err: unknown) => {
+        this.logger.warn('recording the agent background work failed', { error: err instanceof Error ? err.message : String(err) });
+      });
+    });
+    this.stopWatchingAgentTurns = () => {
+      stopTakingUp();
+      stopRecording();
+    };
     // A conversation on an agent connection shows how the agent really runs from the first moment.
     const stopAdopting = this.providers.onActiveChange(() => void this.adoptOwnAutoApprove());
     const stopAdoptingOnClear = this.log.onClear(() => void this.adoptOwnAutoApprove());
@@ -688,7 +702,13 @@ export class Session implements ClientSession, SessionRuntime {
    */
   private takeUpAgentTurn(start: AgentTurnStart): void {
     if (this.closed || start.sessionId !== String(this.id)) return;
-    const turn = this.runTurn(start.name, { origin: { kind: 'agent', name: start.name } });
+    // What the agent reported of its background work before taking the turn up goes in the log first.
+    void this.recordingActivity.then(() => this.runAgentTurn(start));
+  }
+
+  private runAgentTurn(start: AgentTurnStart): void {
+    if (this.closed) return;
+    const turn = this.runTurn(start.name, { origin: { kind: 'agent', name: start.name, ...(start.workId ? { workId: start.workId } : {}) } });
     void (async () => {
       try {
         for await (const _event of turn) {
@@ -700,18 +720,64 @@ export class Session implements ClientSession, SessionRuntime {
     })();
   }
 
+  /** What the agent reported of its background work, recorded one report after another. */
+  private recordingActivity: Promise<void> = Promise.resolve();
+  /**
+   * What the agent runs in the background now, as it last said. Held here, not
+   * read from the log: an agent does not outlive the process that ran it, so a
+   * restarted runner starts with nothing running whatever the log says.
+   */
+  private runningWork: ReadonlyArray<AgentBackgroundWork> = [];
+  private readonly workListeners = new Set<() => void>();
+  /** The agent's helpers between turns, by id, to name them in what they do later. */
+  private readonly agentHelpers: SubagentNames = new Map();
+
+  /**
+   * What the agent's background work did while no turn ran, recorded at once
+   * the way a turn records it, so every surface shows it as it happens.
+   */
+  private async recordAgentActivity(activity: AgentActivity): Promise<void> {
+    if (this.closed || activity.sessionId !== String(this.id)) return;
+    const provider = this.providers.getActiveName() ?? '';
+    for (const event of activity.events) {
+      const record = agentActivityRecord(event, provider, this.agentHelpers);
+      if (!record) continue;
+      await this.log.append({ type: 'plugin_event', sessionId: this.id, turnId: newTurnId(), ...record });
+      if (event.type !== 'background_work') continue;
+      this.runningWork = event.work;
+      for (const listener of [...this.workListeners]) listener();
+    }
+  }
+
+  /**
+   * Stop one work the conversation's agent runs in the background
+   * (`AgentBackgroundWork.id`). `false` when the agent runs no such work, or
+   * its connection cannot stop it.
+   */
+  async stopBackgroundWork(workId: string): Promise<boolean> {
+    const provider = this.providers.getActiveName() ? this.providers.getActive() : undefined;
+    if (!provider?.stopBackgroundWork) return false;
+    return provider.stopBackgroundWork(String(this.id), workId);
+  }
+
   /**
    * Wire-friendly snapshot of the registries for channels to render. Mirrors
    * what a `RemoteSession` fetches from the runner over RPC - keep the two in
    * sync.
    */
   /**
-   * Called with the new info when it changes outside the log — today, when an
-   * agent connection's CLI was found missing, outdated or updated. Returns the
-   * unsubscribe.
+   * Called with the new info when it changes outside the log: an agent
+   * connection's CLI was found missing, outdated or updated, or what its agent
+   * runs in the background changed. Returns the unsubscribe.
    */
   onInfoChanged(listener: (info: SessionInfo) => void): () => void {
-    return this.agentClis.onChange(() => listener(this.getInfo()));
+    const tell = () => listener(this.getInfo());
+    const stopCli = this.agentClis.onChange(tell);
+    this.workListeners.add(tell);
+    return () => {
+      stopCli();
+      this.workListeners.delete(tell);
+    };
   }
 
   /**
@@ -822,6 +888,7 @@ export class Session implements ClientSession, SessionRuntime {
       reasoningEffort: reasoningEffortOf(this.turnReasoning()),
       fast: this.fast,
       ...(defaultModel !== undefined ? { defaultModel } : {}),
+      backgroundWork: this.runningWork,
     };
   }
 }

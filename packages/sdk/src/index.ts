@@ -261,6 +261,9 @@ export type {
   AgentStepRequest,
   AgentStepHost,
   AgentTurnStart,
+  AgentActivity,
+  AgentBackgroundWork,
+  AgentWorkEnd,
   AgentStepEvent,
   AgentGoalStatus,
   AgentOwnModes,
@@ -289,6 +292,17 @@ export {
   type RecordedContextWindow,
 } from './agent-context-window.js';
 export { AGENT_NO_REPLY_SUBTYPE, AGENT_NO_REPLY_TEXT, isAgentNoReplyEvent } from './agent-no-reply.js';
+export {
+  AGENT_BACKGROUND_WORK_ENDED_SUBTYPE,
+  AGENT_BACKGROUND_WORK_SUBTYPE,
+  AGENT_WORK_OUTPUT_LIMIT,
+  SUBAGENT_MESSAGE_SUBTYPE,
+  agentActivityRecord,
+  isAgentWorkEvent,
+  isSubagentEvent,
+  type AgentActivityRecord,
+  type SubagentNames,
+} from './agent-work.js';
 export { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from './agent-step.js';
 export {
   conversationTurns,

@@ -1,6 +1,7 @@
 import { AGENT_ACCOUNT_LIMIT_SUBTYPE, recordedAccountLimit, sameAccountLimit, withKnownReset } from '../agent-account-limit.js';
 import { AGENT_CONTEXT_WINDOW_SUBTYPE, isContextWindowSize, recordedContextWindows } from '../agent-context-window.js';
 import { AGENT_NO_REPLY_SUBTYPE } from '../agent-no-reply.js';
+import { agentActivityRecord, type SubagentNames } from '../agent-work.js';
 import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from '../agent-step.js';
 import {
   AUTO_APPROVE_PLUGIN_ID,
@@ -295,7 +296,7 @@ async function runRound(
   let limitReached = false;
   const windows = new Map(recordedContextWindows(ctx.log.ofType('plugin_event'), ctx.provider.name));
   /** The agent's own subagents started in this step, to name them in their later events (one started in an earlier turn goes unnamed). */
-  const subagents = new Map<string, { readonly label: string; readonly agentType: string }>();
+  const subagents: SubagentNames = new Map();
   let ranTools = false;
 
   try {
@@ -438,51 +439,13 @@ async function runRound(
           });
           break;
         case 'subagent_started':
-          subagents.set(event.id, { label: event.label, agentType: event.agentType });
-          await emit({
-            ...base,
-            type: 'plugin_event',
-            source: 'plugin',
-            pluginId: SUBAGENTS_PLUGIN_ID,
-            subtype: 'subagent_started',
-            payload: {
-              childSessionId: event.id,
-              label: event.label,
-              agentType: event.agentType,
-              ...(event.prompt ? { prompt: event.prompt } : {}),
-              ...(event.toolsUnseen ? { toolsUnseen: true } : {}),
-            },
-          });
-          break;
-        case 'subagent_tool_call': {
-          const sub = subagents.get(event.id);
-          await emit({
-            ...base,
-            type: 'plugin_event',
-            source: 'plugin',
-            pluginId: SUBAGENTS_PLUGIN_ID,
-            subtype: 'subagent_tool_call',
-            payload: { childSessionId: event.id, ...(sub ? { label: sub.label } : {}), name: event.name, input: event.input },
-          });
-          break;
-        }
-        case 'subagent_completed': {
-          const sub = subagents.get(event.id);
-          await emit({
-            ...base,
-            type: 'plugin_event',
-            source: 'plugin',
-            pluginId: SUBAGENTS_PLUGIN_ID,
-            subtype: 'subagent_completed',
-            payload: {
-              childSessionId: event.id,
-              ...(sub ? { label: sub.label, agentType: sub.agentType } : {}),
-              text: event.text,
-              stopReason: event.error ? 'error' : 'end_turn',
-              ...(event.tokensUsed !== undefined ? { tokensUsed: event.tokensUsed } : {}),
-              ...(event.error ? { error: event.error } : {}),
-            },
-          });
+        case 'subagent_tool_call':
+        case 'subagent_message':
+        case 'subagent_completed':
+        case 'background_work':
+        case 'background_work_ended': {
+          const record = agentActivityRecord(event, ctx.provider.name, subagents);
+          if (record) await emit({ ...base, type: 'plugin_event', ...record });
           break;
         }
         case 'usage':

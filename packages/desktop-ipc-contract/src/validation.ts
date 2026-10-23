@@ -418,6 +418,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
+  'session.stopBackgroundWork': z.object({ workspaceId: optionalWorkspace, workId: z.string().min(1).max(256) }),
   // An answer is the person's choice plus their own words: bounded like ask.respond's text.
   'session.answerQuestion': z
     .object({
