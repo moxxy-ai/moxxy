@@ -14,7 +14,7 @@
  * socket the way the desktop drives it. The real ~/.moxxy is never touched; the
  * agent CLIs use their real homes, because that is where the sign-ins live.
  *
- * Models: MOXXY_LIVE_CLAUDE_MODEL (claude-sonnet-5-5), MOXXY_LIVE_CODEX_MODEL
+ * Models: MOXXY_LIVE_CLAUDE_MODEL (claude-haiku-5-5), MOXXY_LIVE_CODEX_MODEL
  * (gpt-6-luna, medium effort, fast), MOXXY_LIVE_OPENCODE_MODEL (OpenCode's free
  * default). The report is printed and saved under .live-reports/.
  *
@@ -48,7 +48,7 @@ const AGENTS = {
     provider: claude.CLAUDE_CODE_PROVIDER_ID,
     plugin: 'plugin-provider-claude-code',
     command: 'claude',
-    model: process.env.MOXXY_LIVE_CLAUDE_MODEL?.trim() || 'claude-sonnet-5-5',
+    model: process.env.MOXXY_LIVE_CLAUDE_MODEL?.trim() || 'claude-haiku-5-5',
     signIn: async () => claude.checkClaudeCliAuth(),
     asksBeforeChange: true,
     background: (command) => `Run this exact shell command with your shell tool's run_in_background option, so it keeps running, and do not wait for it: ${command}. Then reply with exactly BG STARTED.`,
