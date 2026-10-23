@@ -27,6 +27,18 @@ describe("Codex's subagents", () => {
     expect(subagents.activity(activity('completed'))).toEqual([]);
   });
 
+  it("end as stopped when their own turn is interrupted, since Codex reports no interruption on the conversation's thread between turns", () => {
+    const subagents = new CodexSubagents();
+    subagents.activity(activity('started'));
+    subagents.fromThread('turn/started', { threadId: CHILD, turn: { id: 'turn-child', status: 'inProgress' } });
+
+    expect(subagents.fromThread('turn/completed', { threadId: CHILD, turn: { id: 'turn-child', status: 'interrupted' } })).toEqual([
+      { type: 'subagent_completed', id: CHILD, text: '', error: 'The subagent was stopped.', stopped: true },
+    ]);
+    expect(subagents.running()).toEqual([]);
+    expect(subagents.activity({ ...activity('completed'), kind: 'interrupted' })).toEqual([]);
+  });
+
   it('leave out threads that are not a subagent Codex announced', () => {
     const subagents = new CodexSubagents();
 

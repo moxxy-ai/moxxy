@@ -55,6 +55,9 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // Answering the conversation's question changes nothing on the host; any
   // client of the conversation may give the one answer.
   'session.answerQuestion',
+  // Stopping the agent's background work only ends what the conversation's
+  // own agent started; any client of the conversation may stop it.
+  'session.stopBackgroundWork',
   'session.newSession',
   // ASSUMPTION (breadth-of-surface): this single entry fans out to the ENTIRE
   // registered slash-command set — a paired phone can invoke any command by

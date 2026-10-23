@@ -1,4 +1,4 @@
-import type { AgentTurnStart, LLMProvider, ProviderDef } from '@moxxy/sdk';
+import type { AgentActivity, AgentTurnStart, LLMProvider, ProviderDef } from '@moxxy/sdk';
 
 export class ProviderRegistry {
   private readonly defs = new Map<string, ProviderDef>();
@@ -12,8 +12,9 @@ export class ProviderRegistry {
    */
   private readonly disabled = new Set<string>();
   private readonly agentTurnListeners = new Set<(start: AgentTurnStart) => void>();
+  private readonly activityListeners = new Set<(activity: AgentActivity) => void>();
   private readonly activeListeners = new Set<(name: string) => void>();
-  /** Per provider name: the unsubscribe from its instance's `onAgentTurn`. */
+  /** Per provider name: the unsubscribe from its instance's `onAgentTurn` and `onAgentActivity`. */
   private readonly agentTurnWatches = new Map<string, () => void>();
 
   /**
@@ -121,16 +122,26 @@ export class ProviderRegistry {
     return () => this.agentTurnListeners.delete(listener);
   }
 
+  /** What the active provider's agent did in the background between turns (see `LLMProvider.onAgentActivity`). Returns the unsubscribe. */
+  onAgentActivity(listener: (activity: AgentActivity) => void): () => void {
+    this.activityListeners.add(listener);
+    return () => this.activityListeners.delete(listener);
+  }
+
   private keep(name: string, instance: LLMProvider): void {
     this.drop(name);
     this.instances.set(name, instance);
-    if (!instance.onAgentTurn) return;
     // Only the active agent speaks for the conversation: one switched away from stays quiet.
-    const unsubscribe = instance.onAgentTurn((start) => {
-      if (this.active !== name || this.instances.get(name) !== instance) return;
-      for (const listener of [...this.agentTurnListeners]) listener(start);
-    });
-    this.agentTurnWatches.set(name, unsubscribe);
+    const speaks = () => this.active === name && this.instances.get(name) === instance;
+    const unsubscribes = [
+      instance.onAgentTurn?.((start) => {
+        if (speaks()) for (const listener of [...this.agentTurnListeners]) listener(start);
+      }),
+      instance.onAgentActivity?.((activity) => {
+        if (speaks()) for (const listener of [...this.activityListeners]) listener(activity);
+      }),
+    ].filter((unsubscribe) => unsubscribe !== undefined);
+    if (unsubscribes.length > 0) this.agentTurnWatches.set(name, () => unsubscribes.forEach((unsubscribe) => unsubscribe()));
   }
 
   private drop(name: string): void {

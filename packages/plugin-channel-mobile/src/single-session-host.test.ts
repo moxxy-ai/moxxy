@@ -826,6 +826,17 @@ describe('MobileSessionHost — Questions', () => {
     host.dispose();
   });
 
+  it("lets the phone stop the agent's background work through the same command the desktop uses", async () => {
+    const bus = new FakeBus();
+    const session = askingSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+
+    // This conversation's model runs nothing in the background.
+    await expect(bus.invoke('session.stopBackgroundWork', { workspaceId: session.id, workId: 'b1' })).resolves.toBe(false);
+    host.dispose();
+  });
+
   it('shows Questions only while wired: after dispose, tools hear nobody will answer', async () => {
     const session = askingSession();
     const host = new MobileSessionHost(new FakeBus(), session);

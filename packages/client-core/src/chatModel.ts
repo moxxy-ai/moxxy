@@ -22,6 +22,7 @@ import { QUESTION_PLUGIN_ID } from '@moxxy/sdk/questions';
 import {
   ChunkedBlockLog,
   FILE_DIFF_TOOL_NAMES,
+  isAgentWorkEvent,
   newBlockId,
   pairToolEvents,
   questionAnswerOf,
@@ -391,7 +392,12 @@ export function createRuntime(initialEvents: ReadonlyArray<MoxxyEvent> = []): Ch
 export function isRenderedEvent(event: MoxxyEvent): boolean {
   // An agent connection's account limit and its "finished without replying" show in the chat; its other records are bookkeeping.
   if (event.type === 'plugin_event') {
-    return renderablePluginIds.has(event.pluginId) || accountLimitOfEvent(event) !== undefined || isAgentNoReplyEvent(event);
+    return (
+      renderablePluginIds.has(event.pluginId) ||
+      accountLimitOfEvent(event) !== undefined ||
+      isAgentNoReplyEvent(event) ||
+      isAgentWorkEvent(event)
+    );
   }
   return RENDERED_EVENT_TYPES.has(event.type);
 }

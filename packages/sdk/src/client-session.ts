@@ -99,6 +99,9 @@ export interface ClientSession extends SessionLike {
   /** Switch the conversation's auto-approve (read it from `getInfo().autoApprove`).
    *  Optional: a client of a runner without the shared switch has none. */
   setAutoApprove?(enabled: boolean): Promise<void>;
+  /** Stop one work the agent runs in the background (`AgentBackgroundWork.id`); `false` when it runs none such.
+   *  Optional: a client of a runner that cannot pass it on has none. */
+  stopBackgroundWork?(workId: string): Promise<boolean>;
   /** Called with the new info when it changes outside a turn (e.g. an agent CLI
    *  was found outdated); returns the unsubscribe. */
   onInfoChanged?(listener: (info: SessionInfo) => void): () => void;

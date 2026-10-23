@@ -74,6 +74,7 @@ import {
   type SessionReadAttachmentParams,
   type SessionRecordExchangeParams,
   type SessionRecordExchangeResult,
+  type SessionStopBackgroundWorkResult,
   type SurfaceDataNotification,
   type SurfaceListResult,
   type TurnCompleteNotification,
@@ -546,6 +547,16 @@ export class RemoteSession implements ClientSession {
   async setAutoApprove(enabled: boolean): Promise<void> {
     this.requireServerProtocol(21, 'Sharing auto-approve with the runner');
     await this.peer.request(RunnerMethod.SessionSetAutoApprove, { enabled });
+  }
+
+  /**
+   * Stop one work the agent runs in the background (v29); `false` when it runs
+   * no such work. The list without it arrives with the next `info.changed`.
+   */
+  async stopBackgroundWork(workId: string): Promise<boolean> {
+    this.requireServerProtocol(29, 'Stopping background work');
+    const result = await this.peer.request<SessionStopBackgroundWorkResult>(RunnerMethod.SessionStopBackgroundWork, { workId });
+    return result.stopped;
   }
 
   getInfo(): SessionInfo {

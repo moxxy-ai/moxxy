@@ -69,11 +69,17 @@ describe('Workbench, collapsed', () => {
 describe('Workbench, open', () => {
   it('names every tab and hints it, so a tab drawn as its icon alone is still found', () => {
     render(<Workbench tab="terminal" onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" />);
-    for (const name of ['Terminal', 'Files', 'Diff', 'Browser', 'Media']) {
+    for (const name of ['Terminal', 'Files', 'Diff', 'Browser', 'Media', 'Agents']) {
       const tab = screen.getByRole('tab', { name });
       expect(tab).toHaveAttribute('data-tip', name);
       expect(tab.querySelector('.bench__tab-label')).toHaveTextContent(name);
     }
+  });
+  it("offers the agent's background work beside the existing panes", () => {
+    const onPick = vi.fn();
+    render(<Workbench tab="terminal" onPick={onPick} onClose={vi.fn()} workspaceId="ws" />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Agents' }));
+    expect(onPick).toHaveBeenCalledWith('agents');
   });
   it('offers the media library beside the existing panes', () => {
     const onPick = vi.fn();

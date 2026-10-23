@@ -2,6 +2,7 @@ import {
   estimateTextTokens,
   type AgentStepEvent,
   type AgentStepRequest,
+  type AgentActivity,
   type AgentTurnStart,
   type LLMProvider,
   type ModelDescriptor,
@@ -102,6 +103,17 @@ export class ClaudeAgentProvider implements LLMProvider {
     return this.sessions().onAgentTurn(listener);
   }
 
+  /** What Claude's background work does between turns, recorded at once. */
+  onAgentActivity(listener: (activity: AgentActivity) => void): () => void {
+    return this.sessions().onActivity(listener);
+  }
+
+  /** Stop one work Claude runs in the background in the conversation. */
+  async stopBackgroundWork(sessionId: string, workId: string): Promise<boolean> {
+    const live = this.sessions().running(sessionId);
+    return live ? live.stopWork(workId) : false;
+  }
+
   private sessions(): AgentSessionPool<ClaudeAgentSession> {
     return this.config.sessions ?? claudeSessions();
   }
@@ -189,7 +201,8 @@ export class ClaudeAgentProvider implements LLMProvider {
       ...(permissionMode ? { permissionMode } : {}),
       tools: req.allTools ?? req.tools,
       ...(req.skills ? { skills: req.skills } : {}),
-      onAgentTurn: (name) => this.sessions().agentTurn({ sessionId: req.sessionId, name }),
+      onAgentTurn: (name, workId) => this.sessions().agentTurn({ sessionId: req.sessionId, name, ...(workId ? { workId } : {}) }),
+      onActivity: (events) => this.sessions().activity({ sessionId: req.sessionId, events }),
     };
   }
 }

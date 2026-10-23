@@ -172,4 +172,24 @@ describe('the live agent sessions', () => {
     expect(before).toEqual([]);
     expect(now).toEqual(['conv-a: A command finished']);
   });
+
+  it("passes what an agent did in the background to whoever listens now", () => {
+    const sessions = new AgentSessionPool<{ close(): void }>({ limit: 1 });
+    const heard: string[] = [];
+    sessions.onActivity((activity) => heard.push(`${activity.sessionId}: ${activity.events.map((e) => e.type).join(",")}`));
+
+    sessions.activity({ sessionId: "conv-a", events: [{ type: "background_work", work: [] }] });
+
+    expect(heard).toEqual(["conv-a: background_work"]);
+  });
+
+  it("finds the running agent of a conversation without taking it, also while it is in a turn", async () => {
+    const { sessions } = pool();
+    const lease = await sessions.acquire("conv-a");
+
+    expect(sessions.running("conv-a")).toBe(lease.session);
+    expect(sessions.running("conv-b")).toBeUndefined();
+    await lease.discard();
+    expect(sessions.running("conv-a")).toBeUndefined();
+  });
 });

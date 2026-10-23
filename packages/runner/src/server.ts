@@ -71,6 +71,7 @@ import {
   handleSessionReadAttachment,
   handleSessionRecordExchange,
   handleSessionSetAutoApprove,
+  handleSessionStopBackgroundWork,
   handlePermissionAddAllow,
   handleCommandRun,
   type HandlerContext,
@@ -272,6 +273,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.SessionReadAttachment, (raw) => handleSessionReadAttachment(ctx, raw));
     peer.handle(RunnerMethod.SessionRecordExchange, (raw) => handleSessionRecordExchange(ctx, raw));
     peer.handle(RunnerMethod.SessionSetAutoApprove, (raw) => handleSessionSetAutoApprove(ctx, raw));
+    peer.handle(RunnerMethod.SessionStopBackgroundWork, (raw) => handleSessionStopBackgroundWork(ctx, raw));
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
     peer.handle(RunnerMethod.QuestionAnswer, (raw) => this.handleQuestionAnswer(raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));

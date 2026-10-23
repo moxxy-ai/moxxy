@@ -339,6 +339,10 @@ export interface IpcCommands {
     workspaceId?: string;
     enabled: boolean;
   }) => Promise<void>;
+  /** Stop one work the agent of the workspace's conversation runs in the
+   *  background (`SessionInfo.backgroundWork`); `false` when it runs no such
+   *  work. Every client sees the list without it through `session.info.changed`. */
+  'session.stopBackgroundWork': (args: { workspaceId?: string; workId: string }) => Promise<boolean>;
   /** Answer an open Question of the workspace's conversation. Questions are
    *  read from the conversation log, so every client of it shows the same one
    *  and the first answer closes it everywhere; a later answer rejects. */

@@ -411,6 +411,12 @@ describe('isRenderedEvent plugin registry seam', () => {
     expect(isRenderedEvent(connection('agent_session'))).toBe(false);
   });
 
+  it("keeps the agent's background work, which the Agents panel lists from the chat", () => {
+    const connection = (subtype: string): MoxxyEvent => evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype, payload: {} });
+    expect(isRenderedEvent(connection('background_work'))).toBe(true);
+    expect(isRenderedEvent(connection('background_work_ended'))).toBe(true);
+  });
+
   it('keeps the note that the agent finished a turn it took up by itself without replying', () => {
     expect(isRenderedEvent(evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype: 'no_reply', payload: {} }))).toBe(true);
   });

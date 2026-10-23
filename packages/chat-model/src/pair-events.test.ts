@@ -839,6 +839,27 @@ describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
     expect(blocks.filter((b) => b.kind === 'subagent-group')).toHaveLength(1);
   });
 
+  it("draws nothing for the agent's background work, and keeps the helpers around it in one group", () => {
+    const work = (subtype: string): PluginEvent => ({
+      ...base(),
+      type: 'plugin_event',
+      source: 'system',
+      pluginId: asPluginId('@moxxy/agent-connection'),
+      subtype,
+      payload: { provider: 'claude-code', work: [] },
+    });
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'a', label: 'One' }),
+      work('background_work'),
+      subagentEvent('subagent_message', { childSessionId: 'a', text: 'Looking.' }),
+      subagentEvent('subagent_started', { childSessionId: 'b', label: 'Two' }),
+      work('background_work_ended'),
+    ]);
+
+    expect(blocks.map((b) => b.kind)).toEqual(['subagent-group']);
+    expect(asSubagentGroup(blocks[0]).agents).toHaveLength(2);
+  });
+
   it("leaves a subagent still running when the turn ends as going on in the background, settled", () => {
     const blocks = pairToolEvents([
       subagentEvent('subagent_started', { childSessionId: 'bg1', label: 'List files' }),

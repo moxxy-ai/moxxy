@@ -113,7 +113,19 @@ Every Moxxy mode works on an agent connection. Where the agent has its own versi
 | Research | Every sub-question runs in its own agent session; the summary is a turn of the parent session. |
 | Collaborative | Every peer is its own Moxxy process with its own agent session; coordination tools go over MCP. |
 
-A turn the agent starts by itself (a helper it left working finished) opens its own entry in the conversation, "agent continued", on every surface. It does so also when the conversation went to another connection and came back while the work ran.
+A turn the agent starts by itself (a helper it left working finished) opens its own entry in the conversation, "agent continued", on every surface. It does so also when the conversation went to another connection and came back while the work ran. On the desktop that entry opens the work that ended in the Agents pane. Work the person stopped opens no such turn on Codex; Claude decides for itself whether to answer a stopped task.
+
+## Background work
+
+Claude and Codex can leave work running after their turn: a helper agent that goes on, or a command such as a dev server. Moxxy records it in the conversation as it happens, not at the agent's next turn:
+
+- what runs now, as one list that replaces the one before (`background_work`, from Claude's `background_tasks_changed` and Codex's commands and subagents);
+- each command's end, with how it ended and the last 4 KB it printed (`background_work_ended`; Claude's task output file, Codex's `aggregatedOutput`);
+- each helper's steps, what it says as it works (`subagent_message`), and its answer, also between turns.
+
+The list of what runs now is also part of the session's info (`SessionInfo.backgroundWork`), held in memory: after a restart of the runner nothing shows as running that no longer runs. Stop on one work (`session.stopBackgroundWork`, runner protocol v29) stops a Claude task (`stopTask`), ends a Codex command (`thread/backgroundTerminals/terminate`) or interrupts a Codex subagent's own turn (`turn/interrupt`; Codex 0.163 reports that only as the subagent's turn ending `interrupted`, so that ends it). A stopped helper is recorded as stopped, not as failed. Nothing can be sent to a helper while it works. A command's output shows once it ends; there is no live tail yet. OpenCode reports no background work yet.
+
+The desktop shows all of it in the Agents pane of the work panel, and says above the message box what runs in the background. Every surface reads the same log and the same info, and a phone can stop work through the same command.
 
 ## Effort, models and fast mode
 

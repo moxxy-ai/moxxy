@@ -1,4 +1,4 @@
-import { waitFor, type AgentTurnStart } from '@moxxy/sdk';
+import { waitFor, type AgentActivity, type AgentTurnStart } from '@moxxy/sdk';
 
 /** A running vendor agent session (a process, a thread on an app-server). */
 export interface LiveSession {
@@ -44,6 +44,7 @@ export class AgentSessionPool<T extends LiveSession> {
   private readonly entries = new Map<string, Entry<T>>();
   private readonly listeners = new Set<() => void>();
   private readonly agentTurnListeners = new Set<(start: AgentTurnStart) => void>();
+  private readonly activityListeners = new Set<(activity: AgentActivity) => void>();
   private clock = 0;
   private closed = false;
 
@@ -88,6 +89,22 @@ export class AgentSessionPool<T extends LiveSession> {
   /** An agent of this pool took up a turn by itself. */
   agentTurn(start: AgentTurnStart): void {
     for (const listener of [...this.agentTurnListeners]) listener(start);
+  }
+
+  /** Hear what an agent of this pool did in the background between turns; carried by the pool for the reason `onAgentTurn` is. */
+  onActivity(listener: (activity: AgentActivity) => void): () => void {
+    this.activityListeners.add(listener);
+    return () => this.activityListeners.delete(listener);
+  }
+
+  /** An agent of this pool did something in the background. */
+  activity(activity: AgentActivity): void {
+    for (const listener of [...this.activityListeners]) listener(activity);
+  }
+
+  /** The conversation's running agent, without taking it: Stop of a background work reaches it mid-turn too. */
+  running(conversation: string): T | undefined {
+    return this.entries.get(conversation)?.session;
   }
 
   /** The conversation ended: close its agent, even mid-turn. */

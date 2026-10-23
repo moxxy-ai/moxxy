@@ -421,6 +421,12 @@ attachment bytes; an attached file is copied there only when it is opened. Compl
 by browser tools do not. Repeated images and links appear once. Rebuilding
 the cache never rewrites the conversation. The phone has no new screen yet.
 
+### Agents
+
+Agents is the sixth pane, also found by name in ⌘K ("background work", "helpers"). It lists the chat's helpers and the commands its agent left running, those that run now first (`shell/surfaces/agents`). Picking one opens its mini chat: a helper's task in a bubble on the right, what it said and the tools it called in order, then its answer; for a command, once it ended, what it printed last (its line is the heading, and the agent's summary shows only when it says more). A running work has Stop; nothing here writes to the agent. Durations count up while something runs and do not animate otherwise. "Show in chat" scrolls the chat to the "Agent continued" entry the work opened, and marks it a moment.
+
+In the chat, "Agent continued" is one chip without a box under it (its prompt is its name). When it says which work ended, clicking it opens that work here. Above the message box, a quiet line says what runs in the background ("In the background npm run dev") and opens this pane; its dot pulses unless reduced motion is on. The pane does not open by itself. The phone has no screen for it yet.
+
 ## The other views
 
 Every view outside the conversation is built from one small kit, so they read

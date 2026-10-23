@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import {
+  AGENT_CONNECTION_PLUGIN_ID,
   AGENT_GOAL_SUBTYPE,
   QUESTION_ASKED,
   assertDefined,
@@ -615,7 +616,7 @@ describe('turns Claude takes up by itself', () => {
     messages: [assistantText('The helper found two files.')],
   };
 
-  it("opens a Moxxy turn for it, marked as Claude's, with the background helper's work and what Claude said, sending Claude nothing", async () => {
+  it("opens a Moxxy turn for it, marked as Claude's, with what Claude said, the helper's work recorded as it came, sending Claude nothing", async () => {
     const { claude, session } = connect(async function* (turn) {
       if (turn.text === '2+2?') yield assistantText('4');
       else yield* launchInBackground();
@@ -628,10 +629,12 @@ describe('turns Claude takes up by itself', () => {
 
     const opened = session.log.ofType('user_prompt').at(-1);
     expect(opened).toMatchObject({ origin: { kind: 'agent', name: 'List files finished in the background' } });
-    const inIt = session.log.slice().filter((e) => opened && e.turnId === opened.turnId);
-    expect(inIt.filter((e) => e.type === 'plugin_event').map((e) => (e as { subtype: string }).subtype)).toEqual(
-      expect.arrayContaining(['subagent_tool_call', 'subagent_completed']),
-    );
+    const all = session.log.slice();
+    const helperDone = all.findIndex((e) => e.type === 'plugin_event' && e.subtype === 'subagent_completed');
+    expect(all.some((e) => e.type === 'plugin_event' && e.subtype === 'subagent_tool_call')).toBe(true);
+    expect(helperDone).toBeGreaterThan(-1);
+    expect(helperDone).toBeLessThan(all.findIndex((e) => e === opened));
+    expect(all.filter((e) => opened && e.turnId === opened.turnId && e.type === 'assistant_message')).toHaveLength(1);
     expect(claude.last.received).toHaveLength(1);
 
     const next = await collectTurn(session, '2+2?');
@@ -684,6 +687,121 @@ describe('turns Claude takes up by itself', () => {
 
     expect(blocked).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'blocked by a Moxxy rule' } });
     expect(allowed).toEqual({});
+  });
+});
+
+describe("Claude's work in the background", () => {
+  const sub = (content: unknown[]): ClaudeMessage => ({ type: 'assistant', message: { content }, parent_tool_use_id: 'toolu_agent' }) as ClaudeMessage;
+  const system = (fields: Record<string, unknown>): ClaudeMessage => ({ type: 'system', ...fields }) as ClaudeMessage;
+  const tasks = (...list: Array<Record<string, unknown>>): ClaudeMessage => system({ subtype: 'background_tasks_changed', tasks: list });
+  const devServer = { task_id: 't2', task_type: 'local_bash', description: 'npm run dev' };
+  const helper = { task_id: 't1', task_type: 'local_agent', subagent_type: 'Explore', description: 'List files' };
+  const workOf = (session: Session, subtype: string) =>
+    session.log.ofType('plugin_event').filter((e) => e.pluginId === AGENT_CONNECTION_PLUGIN_ID && e.subtype === subtype).map((e) => e.payload);
+  const startServer = async function* (): AsyncIterable<ClaudeMessage> {
+    yield assistantToolUse('toolu_bg', 'Bash', { command: 'npm run dev', run_in_background: true });
+    yield tasks(devServer);
+    yield system({ subtype: 'task_started', task_id: 't2', tool_use_id: 'toolu_bg', description: 'npm run dev', task_type: 'local_bash', is_backgrounded: true });
+    yield toolResult('toolu_bg', 'Command running in background with ID: t2.');
+    yield assistantText('The server is starting.');
+  };
+  const launchHelper = async function* (): AsyncIterable<ClaudeMessage> {
+    yield assistantToolUse('toolu_agent', 'Agent', { description: 'List files', prompt: 'list the files', run_in_background: true });
+    yield tasks(helper);
+    yield system({ subtype: 'task_started', task_id: 't1', tool_use_id: 'toolu_agent', description: 'List files', task_type: 'local_agent', is_backgrounded: true });
+    yield { ...toolResult('toolu_agent', 'Async agent launched'), tool_use_result: { isAsync: true, status: 'async_launched' } } as ClaudeMessage;
+    yield assistantText('A helper is on it.');
+  };
+
+  it('lists a command Claude left running while it runs, and records how it ended with what it printed last', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'moxxy-claude-task-'));
+    const output = join(dir, 't2.output');
+    writeFileSync(output, 'compiling\nready on http://localhost:5173\n');
+    const { claude, session } = connect(startServer);
+    session.setPermissionResolver(allowAll);
+
+    await collectTurn(session, 'start the dev server');
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([{ id: 't2', kind: 'command', label: 'npm run dev' }]));
+
+    claude.last.sendBetweenTurns([
+      system({ subtype: 'task_notification', task_id: 't2', tool_use_id: 'toolu_bg', status: 'stopped', output_file: output, summary: 'npm run dev was stopped' }),
+      tasks(),
+    ]);
+    await vi.waitFor(() => expect(workOf(session, 'background_work_ended')).toHaveLength(1));
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+
+    expect(workOf(session, 'background_work_ended')[0]).toEqual({
+      provider: 'claude-code',
+      id: 't2',
+      kind: 'command',
+      label: 'npm run dev',
+      status: 'stopped',
+      summary: 'npm run dev was stopped',
+      output: 'compiling\nready on http://localhost:5173\n',
+    });
+    expect(session.log.ofType('user_prompt')).toHaveLength(1);
+    removeDirSync(dir);
+  });
+
+  it("shows a background helper's steps and words as they happen, not at Claude's next turn, and each once", async () => {
+    const { claude, session } = connect(launchHelper);
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'list the files in the background');
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([{ id: 'toolu_agent', kind: 'agent', label: 'List files' }]));
+
+    claude.last.sendBetweenTurns([
+      sub([{ type: 'text', text: 'Listing the folder.' }, { type: 'tool_use', id: 'toolu_ls', name: 'Bash', input: { command: 'ls' } }]),
+    ]);
+    await vi.waitFor(() => expect(session.log.ofType('plugin_event').some((e) => e.subtype === 'subagent_tool_call')).toBe(true));
+    expect(session.log.ofType('user_prompt')).toHaveLength(1);
+
+    claude.last.startOwnTurn({
+      background: [
+        sub([{ type: 'text', text: 'Two files.' }]),
+        system({ subtype: 'task_notification', task_id: 't1', tool_use_id: 'toolu_agent', status: 'completed', output_file: '', summary: 'Two files.' }),
+        tasks(),
+      ],
+      messages: [assistantText('The helper found two files.')],
+    });
+    await vi.waitFor(() => expect(said(session.log.ofType('assistant_message'))).toContain('The helper found two files.'));
+
+    const helperEvents = session.log.ofType('plugin_event').filter((e) => e.pluginId === '@moxxy/subagents');
+    expect(helperEvents.map((e) => e.subtype)).toEqual(['subagent_started', 'subagent_message', 'subagent_tool_call', 'subagent_message', 'subagent_completed']);
+    // Claude lists the helper before it says which call started it: it is listed once, by that call.
+    const listedIds = workOf(session, 'background_work').flatMap((p) => (p.work as ReadonlyArray<{ id: string }>).map((w) => w.id));
+    expect(new Set(listedIds)).toEqual(new Set(['toolu_agent']));
+    expect(session.log.ofType('user_prompt').at(-1)?.origin).toEqual({ kind: 'agent', name: 'List files finished in the background', workId: 'toolu_agent' });
+    expect(session.getInfo().backgroundWork).toEqual([]);
+  });
+
+  it('stops one background work through Claude, and says when Claude runs no such work', async () => {
+    const { claude, session } = connect(launchHelper);
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'list the files in the background');
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
+
+    expect(await session.stopBackgroundWork('toolu_agent')).toBe(true);
+    expect(await session.stopBackgroundWork('nothing-like-it')).toBe(false);
+    expect(claude.last.stoppedTasks).toEqual(['t1']);
+    claude.last.sendBetweenTurns([
+      system({ subtype: 'task_notification', task_id: 't1', tool_use_id: 'toolu_agent', status: 'stopped', output_file: '', summary: '' }),
+      tasks(),
+    ]);
+
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+    const ended = session.log.ofType('plugin_event').find((e) => e.subtype === 'subagent_completed');
+    expect(ended?.payload).toMatchObject({ childSessionId: 'toolu_agent', stopReason: 'stopped' });
+  });
+
+  it("lists nothing running once the conversation's Claude is closed, as its work ends with it", async () => {
+    const { session, pool } = connect(startServer);
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'start the dev server');
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
+
+    await pool.close(String(session.id));
+
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
   });
 });
 

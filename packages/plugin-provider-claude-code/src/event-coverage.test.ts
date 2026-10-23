@@ -36,10 +36,10 @@ const SHOWN: Record<string, ReadonlyArray<ClaudeMessage>> = {
 /** The kinds Moxxy leaves out of the chat, and why. */
 const LEFT_ALONE: Record<string, string> = {
   result: "ends the turn; the session reads it, with Claude's error when it failed",
-  'system/task_started': 'the session reads it to follow a background subagent',
+  'system/task_started': 'the session reads it to follow a background subagent or command',
   'system/task_progress': "its tokens go into the subagent's row when it ends",
   'system/task_updated': "the subagent's row shows its start and end",
-  'system/background_tasks_changed': "the subagent's row shows its start and end",
+  'system/background_tasks_changed': 'the session reads it as the list of work Claude runs in the background, for the agents panel',
   'system/compact_boundary': "Claude shortening its own context; Moxxy's record of the conversation stays whole",
   'system/api_retry': 'Claude retries by itself; a failure that stays ends the turn with its error',
   'system/model_refusal_fallback': 'Claude moved to another model by itself and carries on',

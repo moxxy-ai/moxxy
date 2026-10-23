@@ -1,7 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import type { Readable, Writable } from 'node:stream';
-import type { AgentAccountLimit, AgentApprovalDecision, AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome, Skill, ToolDef } from '@moxxy/sdk';
+import type {
+  AgentAccountLimit,
+  AgentApprovalDecision,
+  AgentBackgroundWork,
+  AgentStepEvent,
+  AgentStepRequest,
+  AgentToolCall,
+  AgentToolOutcome,
+  AgentWorkEnd,
+  Skill,
+  ToolDef,
+} from '@moxxy/sdk';
 import { isContextWindowSize } from '@moxxy/sdk';
 import {
   Inbox,
@@ -79,8 +90,10 @@ export interface CodexSessionSettings {
   readonly tools?: ReadonlyArray<ToolDef>;
   /** The conversation's Moxxy skills: Codex reads those meant for it through one more Moxxy tool, listed with the tools. */
   readonly skills?: ReadonlyArray<Skill>;
-  /** Work Codex left running ended while no Moxxy turn runs; `name` says what. Codex itself starts no turn then. */
-  readonly onAgentTurn?: (name: string) => void;
+  /** Work Codex left running ended while no Moxxy turn runs; `name` says what, `workId` which work. Codex itself starts no turn then. */
+  readonly onAgentTurn?: (name: string, workId?: string) => void;
+  /** What Codex's background work did, for the conversation to record at once: its list, a command's end, a subagent's steps after its turn. */
+  readonly onActivity?: (events: ReadonlyArray<AgentStepEvent>) => void;
 }
 
 interface Policy {
@@ -273,6 +286,10 @@ export class CodexAgentSession implements LiveSession {
   private late: AgentStepEvent[] = [];
   /** A turn was asked of the conversation to show what finished after Codex's turn. */
   private agentTurnPending = false;
+  /** The background work last reported, to report it again only when it changes. */
+  private shownWork: ReadonlyArray<AgentBackgroundWork> = [];
+  /** Background work the person stopped: its end is recorded, but asks no turn of the conversation. */
+  private readonly stopping = new Set<string>();
   /** The Moxxy tools Codex listed as the thread opened, the same for every turn. */
   private listed: ToolDef[];
   /** Names of Codex's own skills, read as the thread opens. */
@@ -417,13 +434,33 @@ export class CodexAgentSession implements LiveSession {
       this.mcp.setHandler(idleToolsHandler(this.listed, this.offered, LENT_AS));
       this.inTurn = false;
       this.dismissQueued();
+      // What outlives the turn now runs in the background.
+      this.reportWork();
     }
+  }
+
+  /** Stop one work Codex runs in the background (`AgentBackgroundWork.id`); `false` when Codex runs no such work. */
+  async stopWork(workId: string): Promise<boolean> {
+    if (this.leftRunning.has(workId)) {
+      this.stopping.add(workId);
+      const stopped = await this.terminateCommand(workId);
+      if (!stopped) this.stopping.delete(workId);
+      return stopped;
+    }
+    const turn = this.subagents.turnOf(workId);
+    if (turn === undefined) return false;
+    this.stopping.add(workId);
+    await this.client.request('turn/interrupt', { threadId: workId, turnId: turn }).catch(() => undefined);
+    return true;
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.alive = false;
+    // Codex's background work ends with its app-server.
+    this.leftRunning.clear();
+    this.reportWork([]);
     this.client.close();
     this.connection.close();
     this.dismissQueued();
@@ -624,8 +661,12 @@ export class CodexAgentSession implements LiveSession {
         }
         continue;
       }
-      // A subagent works in a thread of its own; its turns are not the conversation's.
-      if (isTurnEvent(item.method) && params.threadId !== this.threadId) continue;
+      // A subagent works in a thread of its own; its turns are not the conversation's,
+      // though the subagents keep them for Stop.
+      if (isTurnEvent(item.method) && params.threadId !== this.threadId) {
+        yield* this.subagents.fromThread(item.method, params);
+        continue;
+      }
       if (item.method === 'turn/started') {
         const turn = params.turn as CodexTurn | undefined;
         if (!turn) continue;
@@ -680,7 +721,7 @@ export class CodexAgentSession implements LiveSession {
       }
       const ended = this.endOfLeftRunning(item.method, params);
       if (ended) {
-        yield* ended;
+        yield* ended.events;
         continue;
       }
       if (!this.belongsHere(params)) continue;
@@ -811,19 +852,34 @@ export class CodexAgentSession implements LiveSession {
    * not this turn's to stop.
    */
   private async endCommandsOf(turns: ReadonlySet<string>): Promise<void> {
+    await this.terminateWhere((itemId) => {
+      const turn = this.commandTurns.get(itemId);
+      return turn !== undefined && turns.has(turn);
+    });
+  }
+
+  /** End the command a call left running, found by the item that started it; `false` when no such command runs. */
+  private async terminateCommand(itemId: string): Promise<boolean> {
+    return (await this.terminateWhere((id) => id === itemId)) > 0;
+  }
+
+  /** End every background command of the thread whose item `pick` chooses; how many it ended. */
+  private async terminateWhere(pick: (itemId: string) => boolean): Promise<number> {
+    let ended = 0;
     let cursor: string | null = null;
     do {
       const page: CodexBackgroundTerminals | undefined = await this.client
         .request<CodexBackgroundTerminals>('thread/backgroundTerminals/list', { threadId: this.threadId, ...(cursor ? { cursor } : {}) })
         .catch(() => undefined);
-      if (!page) return;
+      if (!page) return ended;
       for (const terminal of page.data) {
-        const turn = this.commandTurns.get(terminal.itemId);
-        if (turn === undefined || !turns.has(turn)) continue;
+        if (!pick(terminal.itemId)) continue;
         await this.client.request('thread/backgroundTerminals/terminate', { threadId: this.threadId, processId: terminal.processId }).catch(() => undefined);
+        ended += 1;
       }
       cursor = page.nextCursor;
     } while (cursor);
+    return ended;
   }
 
   /** Which Codex turn started each command, noted as Codex reports it, ahead of the turn reading it. */
@@ -892,36 +948,83 @@ export class CodexAgentSession implements LiveSession {
    */
   private noteLate(method: string, params: unknown): void {
     const p = (params ?? {}) as Record<string, unknown>;
+    // A subagent's steps are recorded as they come.
     if (typeof p.threadId === 'string' && p.threadId !== this.threadId) {
-      this.late.push(...this.subagents.fromThread(method, p));
+      const events = this.subagents.fromThread(method, p);
+      this.report(events);
+      // A subagent stopped in its own thread asks no turn: the person stopped it.
+      if (events.some((event) => event.type === 'subagent_completed')) {
+        this.stopping.delete(p.threadId);
+        this.reportWork();
+      }
       return;
     }
     const ended = this.endOfLeftRunning(method, p);
     if (ended) {
-      this.late.push(...ended);
-      this.askForTurn('A command Codex left running finished');
+      // What the person stopped is ended for them already; it asks no turn.
+      if (ended.stopped) return;
+      this.late.push(...ended.events);
+      this.askForTurn('A command Codex left running finished', ended.id);
       return;
     }
     if (!isSubagentActivity(method, p)) return;
     const done = this.subagents.activity(p.item).filter((event) => event.type === 'subagent_completed');
     if (done.length === 0) return;
+    const item = p.item as { agentPath?: unknown; agentThreadId?: unknown };
+    const workId = typeof item.agentThreadId === 'string' ? item.agentThreadId : undefined;
+    if (workId !== undefined && this.stopping.delete(workId)) {
+      this.report(done);
+      this.reportWork();
+      return;
+    }
     this.late.push(...done);
-    this.askForTurn(`${labelOf((p.item as { agentPath?: unknown }).agentPath)} finished in the background`);
+    this.reportWork();
+    this.askForTurn(`${labelOf(item.agentPath)} finished in the background`, workId);
   }
 
-  /** The end of a call Codex left running, as a call of its own beside the one shown running; `undefined` for anything else. */
-  private endOfLeftRunning(method: string, params: Record<string, unknown>): AgentStepEvent[] | undefined {
-    const item = params.item as { id?: unknown } | undefined;
-    if (method !== 'item/completed' || typeof item?.id !== 'string' || !this.leftRunning.has(item.id)) return undefined;
+  /**
+   * The end of a call Codex left running, as a call of its own beside the one
+   * shown running; `undefined` for anything else. Its end is recorded for the
+   * agents panel at once, with what the command printed last.
+   */
+  private endOfLeftRunning(
+    method: string,
+    params: Record<string, unknown>,
+  ): { readonly id: string; readonly stopped: boolean; readonly events: AgentStepEvent[] } | undefined {
+    const item = params.item as { id?: unknown; status?: unknown; exitCode?: unknown; aggregatedOutput?: unknown } | undefined;
+    if (method !== 'item/completed' || typeof item?.id !== 'string') return undefined;
+    const call = this.leftRunning.get(item.id);
+    if (!call) return undefined;
     this.leftRunning.delete(item.id);
+    const stopped = this.stopping.delete(item.id);
+    const output = typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : '';
+    const status = stopped ? 'stopped' : commandEnd(item);
+    this.report([{ type: 'background_work_ended', id: item.id, kind: 'command', label: workLabel(call), status, ...(output ? { output } : {}) }]);
+    this.reportWork();
     const translator = new TurnTranslator(this.settings.cwd, (path) => readImageFile(path, this.settings.cwd));
-    return translator.translate('item/completed', { ...params, item: { ...item, id: `${item.id}-ended` } });
+    return { id: item.id, stopped, events: translator.translate('item/completed', { ...params, item: { ...item, id: `${item.id}-ended` } }) };
   }
 
-  private askForTurn(name: string): void {
+  private askForTurn(name: string, workId?: string): void {
     if (this.closed || this.agentTurnPending) return;
     this.agentTurnPending = true;
-    this.settings.onAgentTurn?.(name);
+    this.settings.onAgentTurn?.(name, workId);
+  }
+
+  /** What Codex runs in the background now: the commands its turns left running and the subagents still working. Reported when it changes. */
+  private reportWork(work: ReadonlyArray<AgentBackgroundWork> = this.workNow()): void {
+    if (sameWork(work, this.shownWork)) return;
+    this.shownWork = work;
+    this.report([{ type: 'background_work', work }]);
+  }
+
+  private workNow(): AgentBackgroundWork[] {
+    const commands = [...this.leftRunning].map(([id, call]): AgentBackgroundWork => ({ id, kind: 'command', label: workLabel(call) }));
+    return [...commands, ...this.subagents.running()];
+  }
+
+  private report(events: ReadonlyArray<AgentStepEvent>): void {
+    if (events.length > 0) this.settings.onActivity?.(events);
   }
 
   private *takeLate(): Generator<AgentStepEvent> {
@@ -1053,4 +1156,19 @@ function contextWindowOf(method: string, params: unknown, model: string): AgentS
   const usage = (params as { tokenUsage?: { modelContextWindow?: unknown } } | undefined)?.tokenUsage;
   const tokens = usage?.modelContextWindow;
   return isContextWindowSize(tokens) ? [{ type: 'context_window', model, tokens }] : [];
+}
+
+/** A background command as the person reads it: the command it runs. */
+function workLabel(call: CodexToolCall): string {
+  const input = call.input as { command?: unknown } | undefined;
+  return typeof input?.command === 'string' && input.command ? input.command : call.name;
+}
+
+function commandEnd(item: { readonly status?: unknown; readonly exitCode?: unknown }): AgentWorkEnd {
+  if (item.status === 'completed') return item.exitCode === 0 || item.exitCode === null || item.exitCode === undefined ? 'completed' : 'failed';
+  return item.status === 'failed' ? 'failed' : 'stopped';
+}
+
+function sameWork(a: ReadonlyArray<AgentBackgroundWork>, b: ReadonlyArray<AgentBackgroundWork>): boolean {
+  return a.length === b.length && a.every((work, i) => work.id === b[i]?.id && work.kind === b[i]?.kind && work.label === b[i]?.label);
 }

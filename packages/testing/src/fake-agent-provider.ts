@@ -1,4 +1,4 @@
-import type { AgentOwnModes, AgentStepEvent, AgentStepRequest, AgentTurnStart } from '@moxxy/sdk';
+import type { AgentActivity, AgentOwnModes, AgentStepEvent, AgentStepRequest, AgentTurnStart } from '@moxxy/sdk';
 import { FakeProvider } from './fake-provider.js';
 
 export type AgentScript = (req: AgentStepRequest) => AsyncIterable<AgentStepEvent>;
@@ -33,8 +33,27 @@ export class FakeAgentProvider extends FakeProvider {
     this.agentTurnListeners.add(listener);
     return () => this.agentTurnListeners.delete(listener);
   }
-  /** The scripted agent starts a turn by itself in the conversation `sessionId`. */
-  startAgentTurn(sessionId: string, name: string): void {
-    for (const listener of [...this.agentTurnListeners]) listener({ sessionId, name });
+  /** The scripted agent starts a turn by itself in the conversation `sessionId`, after the background work `workId` ended. */
+  startAgentTurn(sessionId: string, name: string, workId?: string): void {
+    for (const listener of [...this.agentTurnListeners]) listener({ sessionId, name, ...(workId ? { workId } : {}) });
+  }
+
+  private readonly activityListeners = new Set<(activity: AgentActivity) => void>();
+  onAgentActivity(listener: (activity: AgentActivity) => void): () => void {
+    this.activityListeners.add(listener);
+    return () => this.activityListeners.delete(listener);
+  }
+  /** The scripted agent's background work does something while no turn runs. */
+  reportActivity(sessionId: string, events: ReadonlyArray<AgentStepEvent>): void {
+    for (const listener of [...this.activityListeners]) listener({ sessionId, events });
+  }
+
+  /** Ids of the background work the scripted agent runs now; Stop takes one out. */
+  readonly running = new Set<string>();
+  /** Every Stop asked of the agent, in order. */
+  readonly stopped: Array<{ readonly sessionId: string; readonly workId: string }> = [];
+  async stopBackgroundWork(sessionId: string, workId: string): Promise<boolean> {
+    this.stopped.push({ sessionId, workId });
+    return this.running.delete(workId);
   }
 }

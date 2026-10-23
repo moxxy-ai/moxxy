@@ -212,6 +212,19 @@ export interface LLMProvider {
    * (`continuesAgentTurn`). Returns the unsubscribe.
    */
   onAgentTurn?(listener: (start: AgentTurnStart) => void): () => void;
+  /**
+   * On an agent connection: what the agent's background work does while no
+   * Moxxy turn runs (its helpers' steps, `background_work` as it changes), for
+   * the conversation to record at once rather than at its next turn. Returns
+   * the unsubscribe.
+   */
+  onAgentActivity?(listener: (activity: AgentActivity) => void): () => void;
+  /**
+   * On an agent connection: stop one work the agent runs in the background in
+   * the conversation (`AgentBackgroundWork.id`). Resolves `false` when the
+   * agent has no such work running.
+   */
+  stopBackgroundWork?(sessionId: string, workId: string): Promise<boolean>;
   countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number>;
 }
 
@@ -538,6 +551,8 @@ export interface AgentTurnStart {
   readonly sessionId: string;
   /** What the agent took up, for the marker that opens the turn ("List files finished in the background"). */
   readonly name: string;
+  /** The background work whose end it took up (`AgentBackgroundWork.id`), when the agent says. */
+  readonly workId?: string;
 }
 
 /** What Moxxy does for the agent during its turn. */
@@ -588,6 +603,27 @@ export interface AgentOwnModes {
   readonly goal?: boolean;
 }
 
+/**
+ * Work an agent connection's agent runs in the background: a command it left
+ * running, or a helper agent going on after the turn that started it.
+ */
+export interface AgentBackgroundWork {
+  /** The agent's id for it; a helper's is the `id` of its `subagent_*` events. */
+  readonly id: string;
+  readonly kind: 'command' | 'agent';
+  /** What it does, as the agent names it ("npm run dev", "inspect folder"). */
+  readonly label: string;
+}
+
+/** How a background work ended. */
+export type AgentWorkEnd = 'completed' | 'failed' | 'stopped';
+
+/** What the agent's background work did while no Moxxy turn ran, for the conversation `sessionId`. */
+export interface AgentActivity {
+  readonly sessionId: string;
+  readonly events: ReadonlyArray<AgentStepEvent>;
+}
+
 /** What the agent did, in the order it did it. */
 export type AgentStepEvent =
   | { readonly type: 'text_delta'; readonly delta: string }
@@ -621,7 +657,29 @@ export type AgentStepEvent =
   /** `toolsUnseen` when the agent does not report the subagent's own tool calls (OpenCode). */
   | { readonly type: 'subagent_started'; readonly id: string; readonly label: string; readonly agentType: string; readonly prompt?: string; readonly toolsUnseen?: true }
   | { readonly type: 'subagent_tool_call'; readonly id: string; readonly name: string; readonly input: unknown }
-  | { readonly type: 'subagent_completed'; readonly id: string; readonly text: string; readonly tokensUsed?: number; readonly error?: string }
+  /** What a subagent said as it worked, before its answer. */
+  | { readonly type: 'subagent_message'; readonly id: string; readonly text: string }
+  | {
+      readonly type: 'subagent_completed';
+      readonly id: string;
+      readonly text: string;
+      readonly tokensUsed?: number;
+      readonly error?: string;
+      /** It ended because it was stopped (by the person, or by the agent), not because it failed. */
+      readonly stopped?: true;
+    }
+  /** Everything the agent runs in the background now; it replaces the list before, so a missed end cannot leave work shown running. */
+  | { readonly type: 'background_work'; readonly work: ReadonlyArray<AgentBackgroundWork> }
+  /** One background work ended; `output` is what a command printed last. */
+  | {
+      readonly type: 'background_work_ended';
+      readonly id: string;
+      readonly kind: AgentBackgroundWork['kind'];
+      readonly label: string;
+      readonly status: AgentWorkEnd;
+      readonly summary?: string;
+      readonly output?: string;
+    }
   /** How much of the person's account the agent may still use; a reached limit ends the turn without a raw error. */
   | { readonly type: 'account_limit'; readonly limit: AgentAccountLimit }
   | { readonly type: 'usage'; readonly usage: TokenUsage }

@@ -187,7 +187,12 @@ import type {
  * came from (`path`, `origin`), pushed by `info.changed` whenever it changes;
  * `provider.checkAgents` checks every one again now (additive).
  */
-export const RUNNER_PROTOCOL_VERSION = 28;
+/**
+ * v29: `SessionInfo.backgroundWork` lists what the agent of an agent
+ * connection runs in the background now, pushed by `info.changed`;
+ * `session.stopBackgroundWork` stops one of them (additive).
+ */
+export const RUNNER_PROTOCOL_VERSION = 29;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -245,6 +250,11 @@ export const RunnerMethod = {
    * every client of the session; the change arrives as an `info.changed`.
    */
   SessionSetAutoApprove: 'session.setAutoApprove',
+  /**
+   * client->server: stop one work the agent runs in the background (v29);
+   * the list without it arrives as an `info.changed`.
+   */
+  SessionStopBackgroundWork: 'session.stopBackgroundWork',
   /** client->server: declare which resolvers this client will answer. */
   SetResolver: 'setResolver',
   /** client->server: answer an open Question the session recorded (v27). */
@@ -504,6 +514,16 @@ export interface SessionSetAutoApproveParams {
   readonly enabled: boolean;
 }
 
+/** Params for `session.stopBackgroundWork` (v29). */
+export interface SessionStopBackgroundWorkParams {
+  readonly workId: string;
+}
+
+/** Result of `session.stopBackgroundWork`: `false` when the agent runs no such work. */
+export interface SessionStopBackgroundWorkResult {
+  readonly stopped: boolean;
+}
+
 export interface ProviderSetActiveParams {
   readonly name: string;
   readonly config?: Record<string, unknown>;
@@ -750,6 +770,7 @@ export const sessionRecordExchangeParamsSchema = z
   );
 
 export const sessionSetAutoApproveParamsSchema = z.object({ enabled: z.boolean() }).strict();
+export const sessionStopBackgroundWorkParamsSchema = z.object({ workId: z.string().min(1) }).strict();
 
 export const providerSetActiveParamsSchema = z.object({
   name: z.string(),
