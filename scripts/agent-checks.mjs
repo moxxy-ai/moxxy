@@ -52,6 +52,17 @@ export function newestFixture(fileNames, prefix, compare, upTo) {
   return newest;
 }
 
+/**
+ * Whether OpenCode's `task` tool takes `background`, read from its tool list
+ * (`GET /experimental/tool`): OpenCode offers it only with background
+ * subagents turned on. `undefined` when the list has no `task` tool.
+ */
+export function taskRunsInBackground(tools) {
+  const task = Array.isArray(tools) ? tools.find((tool) => tool?.id === 'task') : undefined;
+  if (!task) return undefined;
+  return Object.hasOwn(task.parameters?.properties ?? {}, 'background');
+}
+
 /** Exit 0 only when something was checked and all of it passed; a check left undone is never a success. */
 export function summarize(results) {
   const counts = { pass: 0, fail: 0, skip: 0, na: 0 };

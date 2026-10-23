@@ -14,7 +14,7 @@
  * socket the way the desktop drives it. The real ~/.moxxy is never touched; the
  * agent CLIs use their real homes, because that is where the sign-ins live.
  *
- * Models: MOXXY_LIVE_CLAUDE_MODEL (claude-sonnet-5-5), MOXXY_LIVE_CODEX_MODEL
+ * Models: MOXXY_LIVE_CLAUDE_MODEL (claude-haiku-5-5), MOXXY_LIVE_CODEX_MODEL
  * (gpt-6-luna, medium effort, fast), MOXXY_LIVE_OPENCODE_MODEL (OpenCode's free
  * default). The report is printed and saved under .live-reports/.
  *
@@ -41,7 +41,6 @@ const opencode = await import(dist('plugin-provider-acp'));
 
 const TURN_LIMIT_MS = 5 * 60_000;
 const STOP_LIMIT_MS = 30_000;
-const NOT_SUPPORTED_BACKGROUND = 'OpenCode reports no background work to Moxxy yet';
 const OWN_RULES_ALLOW_CHANGES = "OpenCode's own rules let it change files in the project without asking";
 
 const AGENTS = {
@@ -49,7 +48,7 @@ const AGENTS = {
     provider: claude.CLAUDE_CODE_PROVIDER_ID,
     plugin: 'plugin-provider-claude-code',
     command: 'claude',
-    model: process.env.MOXXY_LIVE_CLAUDE_MODEL?.trim() || 'claude-sonnet-5-5',
+    model: process.env.MOXXY_LIVE_CLAUDE_MODEL?.trim() || 'claude-haiku-5-5',
     signIn: async () => claude.checkClaudeCliAuth(),
     asksBeforeChange: true,
     background: (command) => `Run this exact shell command with your shell tool's run_in_background option, so it keeps running, and do not wait for it: ${command}. Then reply with exactly BG STARTED.`,
@@ -71,6 +70,10 @@ const AGENTS = {
     model: process.env.MOXXY_LIVE_OPENCODE_MODEL?.trim() || opencode.OPENCODE_DEFAULT_MODEL,
     signIn: async () => opencode.checkOpenCode(),
     asksBeforeChange: false,
+    // OpenCode runs no command in the background; its background work is a subagent (`task` with `background: true`).
+    backgroundKind: 'agent',
+    background: (command) =>
+      `Use your task tool with background set to true to start one general subagent. Its task: run this exact shell command with bash and wait for it to finish: ${command}. Then reply with DONE. Do not wait for the subagent and do not check on it. Reply with exactly BG STARTED.`,
   },
 };
 
@@ -331,22 +334,24 @@ async function checkAgent(agent) {
         const before = new Set(listed().map((work) => work.id));
         const turn = await runner.turn(spec.background(command));
         expectTurn(turn, /BG STARTED/i, 'no BG STARTED in the reply');
-        // The label is the agent's own: Codex shows the command, Claude its description of it.
+        // The label is the agent's own: Codex shows the command, Claude its description of it, OpenCode its subagent's task.
+        const kind = spec.backgroundKind ?? 'command';
         let id;
-        const running = () => listed().find((work) => (id === undefined ? work.kind === 'command' && !before.has(work.id) : work.id === id));
+        const running = () => listed().find((work) => (id === undefined ? work.kind === kind && !before.has(work.id) : work.id === id));
         if (!(await until(async () => running() !== undefined, 60_000))) {
-          throw new Error(`the command is not in what runs in the background; listed: ${JSON.stringify(listed())}`);
+          throw new Error(`the ${kind === 'agent' ? 'subagent' : 'command'} is not in what runs in the background; listed: ${JSON.stringify(listed())}`);
         }
         id = running().id;
-        if (!(await commandLines()).includes(marker)) throw new Error('the command is listed, but it is not running on this machine');
+        // A subagent starts the command a moment after it is listed.
+        if (!(await until(async () => (await commandLines()).includes(marker), kind === 'agent' ? 90_000 : 1_000))) {
+          throw new Error('the work is listed, but its command is not running on this machine');
+        }
         const pressed = Date.now();
         if (!(await runner.session.stopBackgroundWork(id))) throw new Error('Stop said the agent runs no such work');
         const gone = await until(async () => running() === undefined && !(await commandLines()).includes(marker), STOP_LIMIT_MS);
-        if (!gone) throw new Error(running() ? `the command is still listed ${STOP_LIMIT_MS / 1000}s after Stop` : 'the command left the list, but it is still running');
-        return `listed while it ran, stopped ${Math.round((Date.now() - pressed) / 1000)}s after Stop`;
+        if (!gone) throw new Error(running() ? `the work is still listed ${STOP_LIMIT_MS / 1000}s after Stop` : 'the work left the list, but its command is still running');
+        return `${kind === 'agent' ? 'subagent' : 'command'} listed while it ran, stopped ${Math.round((Date.now() - pressed) / 1000)}s after Stop`;
       });
-    } else {
-      record(agent, 'background work', 'na', NOT_SUPPORTED_BACKGROUND);
     }
   } catch (error) {
     record(agent, 'runner', 'fail', message(error));

@@ -3,9 +3,9 @@
  * drive `agentStep`, and OpenCode itself is the stand-in at the `opencode acp`
  * boundary (fake-opencode.testkit.ts). Nothing between them is replaced.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver, type Skill, type ToolDef } from '@moxxy/sdk';
+import { AGENT_CONNECTION_PLUGIN_ID, AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver, type Skill, type ToolDef } from '@moxxy/sdk';
 import { buildSynthesizeSkillPlugin, collectTurn, newTurnId, type Session } from '@moxxy/core';
 import { FakeProvider, addFakeProvider, createFakeSession, textReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
@@ -15,7 +15,7 @@ import { AgentSessionPool } from '@moxxy/agent-connection-kit';
 import { AcpAgentProvider } from './agent-provider.js';
 import { toolsLentTo, type AcpAgentSession } from './acp-session.js';
 import { OPENCODE_AGENT } from './agents.js';
-import { FakeOpenCode, OPENCODE_DEFAULT_RULES, type FakeOpenCodeDefaults, type OpenCodeScene } from './fake-opencode.testkit.js';
+import { FakeOpenCode, OPENCODE_DEFAULT_RULES, type FakeBackgroundTask, type FakeOpenCodeDefaults, type OpenCodeScene } from './fake-opencode.testkit.js';
 
 const sessions: Session[] = [];
 const pools: AgentSessionPool<AcpAgentSession>[] = [];
@@ -930,5 +930,208 @@ describe('one-off text calls', () => {
     }
 
     expect(out.join('')).toBe('asked: Plan search queries.\n\nFind the release date.');
+  });
+});
+
+describe('subagents OpenCode runs in the background', () => {
+  /** A promise the test settles: the subagent works until the test lets it finish. */
+  function gate() {
+    let open: () => void = () => undefined;
+    const opened = new Promise<void>((resolve) => (open = resolve));
+    return { open: () => open(), opened };
+  }
+
+  /** OpenCode 1.19 with background subagents on: the turn starts one and ends at once, the subagent works on. */
+  async function leaveRunning(task: Partial<FakeBackgroundTask> = {}) {
+    const finish = gate();
+    let childId = '';
+    const { opencode, session } = connect(
+      async (turn) => {
+        if (turn.text === '2+2?') return turn.say('4');
+        childId = await turn.background({
+          description: 'inspect folder',
+          prompt: 'List the files, then reply DONE-7.',
+          work: async (child) => {
+            child.tool('bash', { command: 'ls', description: 'List files' }, 'a.txt\n');
+            child.say('Listing done.');
+            await finish.opened;
+            return 'DONE-7';
+          },
+          ...task,
+        });
+        turn.say('STARTED');
+      },
+      { api: true },
+    );
+    session.setPermissionResolver(allowAll);
+    const first = await collectTurn(session, 'Start a helper in the background');
+    return { opencode, session, first, finish, childId: () => childId };
+  }
+
+  const opened = (session: Session) => session.log.ofType('user_prompt').filter((e) => e.origin?.kind === 'agent');
+  const helperEvents = (session: Session, subtype: string) =>
+    session.log.ofType('plugin_event').filter((e) => e.subtype === subtype).map((e) => e.payload as Record<string, unknown>);
+  const workOf = (session: Session, subtype: string) =>
+    session.log.ofType('plugin_event').filter((e) => e.pluginId === AGENT_CONNECTION_PLUGIN_ID && e.subtype === subtype).map((e) => e.payload);
+  const turnEnded = (session: Session, turnId: string) => session.log.slice().some((e) => e.type === 'provider_response' && e.turnId === turnId);
+
+  it('lists the subagent while it works, with its steps as they happen, and shows the turn OpenCode starts once it finished', async () => {
+    const { opencode, session, first, finish, childId } = await leaveRunning();
+
+    // In the turn the subagent only starts; it is not reported done.
+    expect(first.filter((e) => e.type === 'plugin_event' && e.subtype === 'subagent_started')).toHaveLength(1);
+    expect(first.filter((e) => e.type === 'plugin_event' && e.subtype === 'subagent_completed')).toEqual([]);
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([{ id: 'call_ses_1_1', kind: 'agent', label: 'inspect folder' }]));
+    await vi.waitFor(() => expect(helperEvents(session, 'subagent_message')).toEqual([expect.objectContaining({ childSessionId: 'call_ses_1_1', text: 'Listing done.' })]));
+    expect(helperEvents(session, 'subagent_tool_call')).toEqual([expect.objectContaining({ childSessionId: 'call_ses_1_1', name: 'Bash', input: { command: 'ls', description: 'List files' } })]);
+    expect(opened(session)).toHaveLength(0);
+
+    finish.open();
+    await vi.waitFor(() => expect(opened(session)).toHaveLength(1));
+    const turn = opened(session)[0];
+    expect(turn).toMatchObject({ origin: { kind: 'agent', name: 'inspect folder finished in the background', workId: 'call_ses_1_1' } });
+    await vi.waitFor(() => expect(turn && turnEnded(session, turn.turnId)).toBe(true));
+    expect(helperEvents(session, 'subagent_completed')).toEqual([expect.objectContaining({ childSessionId: 'call_ses_1_1', text: 'DONE-7' })]);
+    expect(session.getInfo().backgroundWork).toEqual([]);
+    const inIt = session.log.slice().filter((e) => turn && e.turnId === turn.turnId);
+    expect(said(inIt)).toEqual(['Background task finished: DONE-7']);
+    // OpenCode answered by itself: Moxxy sent it nothing for that turn.
+    expect(opencode.last.sent('session/prompt')).toHaveLength(1);
+    expect(opencode.last.childEnds.get(childId())).toBe('completed');
+
+    expect(said(await collectTurn(session, '2+2?'))).toEqual(['4']);
+  });
+
+  it('reads OpenCode HTTP API with the password it was started with', async () => {
+    const { opencode } = await leaveRunning();
+
+    expect(opencode.last.httpRequests).toContain('GET /event');
+    expect(opencode.last.refusedHttp).toBe(0);
+  });
+
+  it('stops the subagent through OpenCode HTTP API, records it as stopped, and opens no turn for it', async () => {
+    const { opencode, session, childId } = await leaveRunning();
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
+
+    expect(await session.stopBackgroundWork('call_ses_1_1')).toBe(true);
+    expect(await session.stopBackgroundWork('call_ses_1_9')).toBe(false);
+
+    expect(opencode.last.httpRequests).toContain(`POST /session/${childId()}/abort`);
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+    expect(helperEvents(session, 'subagent_completed')).toEqual([expect.objectContaining({ childSessionId: 'call_ses_1_1', stopReason: 'stopped' })]);
+    expect(opencode.last.childEnds.get(childId())).toBe('aborted');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(opened(session)).toHaveLength(0);
+    expect(session.log.ofType('user_prompt')).toHaveLength(1);
+  });
+
+  it('records a subagent OpenCode cancelled with the conversation turn as stopped, not failed', async () => {
+    const finish = gate();
+    const { session } = connect(
+      async (turn) => {
+        await turn.background({ description: 'long job', prompt: 'Sleep.', work: async () => (await finish.opened, 'never') });
+        turn.say('STARTED');
+        await new Promise((resolve) => turn.signal.addEventListener('abort', resolve, { once: true }));
+      },
+      { api: true },
+    );
+    session.setPermissionResolver(allowAll);
+    const stop = new AbortController();
+    const running = collectTurn(session, 'Start it, then wait', { signal: stop.signal });
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
+
+    stop.abort();
+    await running;
+
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+    expect(helperEvents(session, 'subagent_completed')).toEqual([expect.objectContaining({ stopReason: 'stopped' })]);
+    expect(workOf(session, 'background_work').at(-1)).toMatchObject({ work: [] });
+  });
+
+  it("shows a subagent's steps as it works in the turn that waits for it", async () => {
+    const { session } = connect(
+      async (turn) => {
+        await turn.subagent({
+          description: 'read readme',
+          prompt: 'Read the README.',
+          work: async (child) => {
+            child.tool('read', { filePath: '/work/app/README.md' }, '# app');
+            return 'It is about the app.';
+          },
+        });
+        turn.say('Done.');
+      },
+      { api: true },
+    );
+
+    const events = await collectTurn(session, 'Have a helper read the README');
+
+    const helper = events.flatMap((e) => (e.type === 'plugin_event' && e.subtype.startsWith('subagent_') ? [[e.subtype, e.payload]] : []));
+    expect(helper).toEqual([
+      ['subagent_started', expect.objectContaining({ childSessionId: 'call_ses_1_1', label: 'read readme' })],
+      ['subagent_tool_call', expect.objectContaining({ childSessionId: 'call_ses_1_1', name: 'Read', input: { file_path: '/work/app/README.md' } })],
+      ['subagent_message', expect.objectContaining({ childSessionId: 'call_ses_1_1', text: 'It is about the app.' })],
+      ['subagent_completed', expect.objectContaining({ childSessionId: 'call_ses_1_1', text: 'It is about the app.' })],
+    ]);
+    expect(session.getInfo().backgroundWork).toEqual([]);
+  });
+
+  it('reports no background work from an OpenCode that serves no HTTP API', async () => {
+    const { session } = connect(async (turn) => {
+      await turn.background({ description: 'inspect folder', prompt: 'List.', work: async () => 'DONE' });
+      turn.say('STARTED');
+    });
+
+    await collectTurn(session, 'Start a helper in the background');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(session.getInfo().backgroundWork).toEqual([]);
+    expect(opened(session)).toHaveLength(0);
+  });
+});
+
+describe("OpenCode's account limit", () => {
+  it('shows the limit as reached when OpenCode stops to wait for it, and ends the turn instead of letting it wait for hours', async () => {
+    const { opencode, session } = connect(
+      async (turn) => {
+        if (turn.text === '2+2?') return turn.say('4');
+        turn.server.emit('session.status', {
+          sessionID: turn.session.id,
+          status: {
+            type: 'retry',
+            attempt: 1,
+            message: 'Free limit reached',
+            next: Date.now() + 3_600_000,
+            action: { reason: 'free_tier_limit', provider: 'opencode', title: 'Free limit reached', message: 'Subscribe to OpenCode Go.', label: 'subscribe' },
+          },
+        });
+        await new Promise((resolve) => turn.signal.addEventListener('abort', resolve, { once: true }));
+      },
+      { api: true },
+    );
+
+    const events = await collectTurn(session, 'Hello');
+
+    expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'account_limit', payload: expect.objectContaining({ limit: { state: 'reached' } }) }));
+    expect(opencode.last.sent('session/cancel')).toEqual([{ sessionId: 'ses_1' }]);
+    expect(events.filter((e) => e.type === 'error')).toEqual([]);
+    expect(said(await collectTurn(session, '2+2?'))).toEqual(['4']);
+  });
+
+  it('leaves a retry for any other reason to OpenCode', async () => {
+    const { opencode, session } = connect(
+      async (turn) => {
+        turn.server.emit('session.status', { sessionID: turn.session.id, status: { type: 'retry', attempt: 1, message: 'Provider is overloaded', next: Date.now() + 1000 } });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        turn.say('done');
+      },
+      { api: true },
+    );
+
+    const events = await collectTurn(session, 'Hello');
+
+    expect(events.filter((e) => e.type === 'plugin_event' && e.subtype === 'account_limit')).toEqual([]);
+    expect(opencode.last.sent('session/cancel')).toEqual([]);
+    expect(said(events)).toEqual(['done']);
   });
 });

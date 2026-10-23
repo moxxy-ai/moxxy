@@ -110,6 +110,8 @@ export class AcpTurnTranslator {
       state.ended = true;
       const output = toolOutput(update);
       if (state.tool === SUBAGENT_TOOL) {
+        // A subagent started in the background works on: its end comes later, from OpenCode's HTTP API.
+        if (update.status === 'completed' && BACKGROUND_TASK.test(output)) return events;
         events.push(
           update.status === 'completed'
             ? { type: 'subagent_completed', id: update.toolCallId, text: taskResultOf(output) }
@@ -177,6 +179,8 @@ export class AcpTurnTranslator {
 
 /** OpenCode's tool that hands a task to a subagent; ACP reports the task and its answer, not the subagent's own calls. */
 const SUBAGENT_TOOL = 'task';
+/** OpenCode 1.19's answer to a `task` call with `background: true`: the subagent's session, still running. */
+const BACKGROUND_TASK = /^<task id="[^"]+" state="running">/;
 
 function subagentStarted(callId: string, input: Record<string, unknown>): AgentStepEvent {
   const text = (key: string): string | undefined => (typeof input[key] === 'string' && input[key] ? (input[key] as string) : undefined);

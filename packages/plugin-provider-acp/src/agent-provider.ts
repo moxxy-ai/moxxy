@@ -1,6 +1,8 @@
 import {
   estimateTextTokens,
+  type AgentActivity,
   type AgentStepEvent,
+  type AgentTurnStart,
   type AgentStepRequest,
   type LLMProvider,
   type ModelDescriptor,
@@ -116,6 +118,29 @@ export class AcpAgentProvider implements LLMProvider {
     }
   }
 
+  /**
+   * A subagent OpenCode ran in the background finished while no Moxxy turn
+   * runs, and OpenCode answered it by itself: Moxxy opens a turn to show that.
+   */
+  onAgentTurn(listener: (start: AgentTurnStart) => void): () => void {
+    return this.sessions().onAgentTurn(listener);
+  }
+
+  /** What OpenCode's background subagents do, recorded at once. */
+  onAgentActivity(listener: (activity: AgentActivity) => void): () => void {
+    return this.sessions().onActivity(listener);
+  }
+
+  /** Stop one subagent OpenCode runs in the background in the conversation. */
+  async stopBackgroundWork(sessionId: string, workId: string): Promise<boolean> {
+    const live = this.sessions().running(sessionId);
+    return live ? live.stopWork(workId) : false;
+  }
+
+  private sessions(): AgentSessionPool<AcpAgentSession> {
+    return this.config.sessions ?? acpSessions();
+  }
+
   /** One-off text (summaries, skill drafts): a session of its own in plan mode, without Moxxy's tools. */
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
     const model = req.model || this.defaultModel;
@@ -188,8 +213,10 @@ export class AcpAgentProvider implements LLMProvider {
       tools: req.allTools ?? req.tools,
       ...(req.skills ? { skills: req.skills } : {}),
       ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
+      onAgentTurn: (name: string, workId?: string) => this.sessions().agentTurn({ sessionId: req.sessionId, name, ...(workId ? { workId } : {}) }),
+      onActivity: (events: ReadonlyArray<AgentStepEvent>) => this.sessions().activity({ sessionId: req.sessionId, events }),
     };
-    const sessions = this.config.sessions ?? acpSessions();
+    const sessions = this.sessions();
     const create = () => AcpAgentSession.start(settings);
     const lease = await sessions.acquire(req.sessionId, { signal: req.signal, create });
     if (lease.session.isAlive && lease.session.fits(settings)) return lease;

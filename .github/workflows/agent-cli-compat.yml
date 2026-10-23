@@ -5,7 +5,9 @@
 #
 # It needs no account, key or secret: each CLI starts in a throwaway home and
 # answers the handshake its connection opens with; Codex's protocol kinds are
-# compared with the fixture the connection was written against. No model is
+# compared with the fixture the connection was written against; OpenCode, started
+# as Moxxy starts it, must refuse its HTTP API without Moxxy's password, open its
+# event stream with it, and offer `task` in the background. No model is
 # called, so it cannot prove a real conversation — that is the local
 # `pnpm test:agents:live` (see AGENTS.md, "Agent connections: live check").
 #

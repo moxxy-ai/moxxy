@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type { Readable, Writable } from 'node:stream';
-import { isContextWindowSize, waitFor, type AgentApprovalDecision, type AgentStepEvent, type AgentStepRequest, type AgentToolCall, type AgentToolOutcome, type Skill, type ToolDef } from '@moxxy/sdk';
+import { isContextWindowSize, waitFor, type AgentApprovalDecision, type AgentBackgroundWork, type AgentStepEvent, type AgentStepRequest, type AgentToolCall, type AgentToolOutcome, type Skill, type ToolDef } from '@moxxy/sdk';
 import {
   Inbox,
   JsonRpcError,
@@ -34,6 +34,8 @@ import {
   type AcpSessionUpdate,
 } from './protocol.js';
 import { AcpTurnTranslator, toAcpPrompt, toTokenUsage, type AcpShownCall } from './translate.js';
+import { abortOpenCodeSession, watchOpenCodeEvents, type OpenCodeApi, type OpenCodeEvent, type OpenCodeEventWatch } from './opencode-api.js';
+import { OpenCodeHelpers } from './opencode-helpers.js';
 import { askingConfig, asksOutsideProject, runsWithoutAsking, type OpenCodeRule, type ReadAgentMcpServers, type ReadAgentRules } from './rules.js';
 
 /** A running ACP agent (`opencode acp`): its stdout, stdin and stderr. */
@@ -41,6 +43,8 @@ export interface AcpConnection {
   readonly readable: Readable;
   readonly writable: Writable;
   readonly stderr?: Readable;
+  /** OpenCode's HTTP API, where it reports its subagents; without it Moxxy sees no background work. */
+  readonly api?: OpenCodeApi;
   close(): void;
 }
 
@@ -60,6 +64,10 @@ export interface AcpSessionSettings {
   readonly tools?: ReadonlyArray<ToolDef>;
   /** The conversation's Moxxy skills: the agent reads those meant for it through one more Moxxy tool. */
   readonly skills?: ReadonlyArray<Skill>;
+  /** The agent started a turn by itself while no Moxxy turn runs (a background subagent finished); `name` says why, `workId` which work. */
+  readonly onAgentTurn?: (name: string, workId?: string) => void;
+  /** What the agent's background work did, for the conversation to record at once: its list, a subagent's steps and end. */
+  readonly onActivity?: (events: ReadonlyArray<AgentStepEvent>) => void;
 }
 
 type RequestItem = {
@@ -77,6 +85,10 @@ type Item =
   | { readonly kind: 'done'; readonly result: AcpPromptResponse }
   | { readonly kind: 'failed'; readonly error: unknown }
   | { readonly kind: 'stop' }
+  /** What OpenCode's HTTP API says for the turn: steps of a subagent it waits for, a reached account limit. */
+  | { readonly kind: 'api'; readonly events: ReadonlyArray<AgentStepEvent> }
+  /** The conversation's session went idle and the agent has been quiet since: a turn it started by itself is over. */
+  | { readonly kind: 'idle' }
   | { readonly kind: 'ended' };
 
 const MAX_STDERR = 2048;
@@ -93,6 +105,12 @@ const RESOURCE_NOT_FOUND = -32002;
 const MAX_SESSION_PAGES = 50;
 /** How long the first turn waits for the agent's list of commands; OpenCode sends it as the session opens. */
 const COMMANDS_WAIT_MS = 2_000;
+/** How long the agent stays quiet on ACP after OpenCode says its session is idle before a turn it started by itself counts as over (ACP lags its HTTP API). */
+const SETTLE_MS = 300;
+/** Steps kept per subagent whose start the conversation has not seen yet. */
+const MAX_HELD_STEPS = 64;
+/** ACP updates that show the agent at work: one outside any turn means it started one by itself. */
+const WORK_UPDATES = new Set(['agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update', 'plan']);
 const CLIENT_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
 export const CLIENT_CAPABILITIES = { fs: { readTextFile: false, writeTextFile: false }, terminal: false } as const;
@@ -151,6 +169,24 @@ export class AcpAgentSession implements LiveSession {
   private canList = false;
   /** A replacement agent could not load the session: the next turn starts the agent again. */
   private broken = false;
+  /** OpenCode's events, read while its HTTP API is up. */
+  private watch: OpenCodeEventWatch | undefined;
+  /** The subagents OpenCode runs, read from its events. */
+  private readonly helpers = new OpenCodeHelpers(() => this.sessionId);
+  /** Subagents whose start the conversation has seen; the steps of others wait for it. */
+  private readonly shownHelpers = new Set<string>();
+  private readonly heldSteps = new Map<string, AgentStepEvent[]>();
+  /** The background work last reported, to report it again only when it changes. */
+  private shownWork: ReadonlyArray<AgentBackgroundWork> = [];
+  /** OpenCode started a turn by itself and the conversation was asked for one to show it. */
+  private agentTurnPending = false;
+  /** A turn reads the one OpenCode started by itself. */
+  private readingOwnTurn = false;
+  /** OpenCode's session works now, as its events last said. */
+  private agentBusy = false;
+  private settleTimer: ReturnType<typeof setTimeout> | undefined;
+  /** This turn showed the account limit reached. */
+  private limitShown = false;
 
   static async start(settings: AcpSessionSettings): Promise<AcpAgentSession> {
     const mcp = await startMoxxyMcpServer({ name: settings.agent.mcpServerName });
@@ -191,6 +227,7 @@ export class AcpAgentSession implements LiveSession {
     connection.readable.once('end', ended);
     connection.readable.once('close', ended);
     // Outside a turn nothing is shown: that drops the history `session/load` replays.
+    // The agent at work outside one started a turn by itself, which the conversation is asked to show.
     client.onNotification((method, params) => {
       if (method !== 'session/update') return;
       const commands = announcedCommands(params);
@@ -198,11 +235,16 @@ export class AcpAgentSession implements LiveSession {
         this.ownCommands = commands;
         this.commandsHeard = true;
         this.commandWakers.forEach((wake) => wake());
+        return;
       }
-      else if (this.inTurn && !this.loading) this.inbox.push({ kind: 'note', params });
+      if (this.loading) return;
+      if (!this.inTurn && !this.agentTurnPending && this.startsOwnTurn(params)) this.askForTurn('A background task finished');
+      if (!this.inTurn && !this.agentTurnPending) return;
+      this.inbox.push({ kind: 'note', params });
+      if (this.settleTimer) this.settleSoon();
     });
     client.onRequest((method, params) =>
-      this.inTurn ? new Promise((resolve, reject) => this.inbox.push({ kind: 'request', method, params, resolve, reject })) : refusal(method),
+      this.inTurn || this.agentTurnPending ? new Promise((resolve, reject) => this.inbox.push({ kind: 'request', method, params, resolve, reject })) : refusal(method),
     );
     return client;
   }
@@ -242,8 +284,17 @@ export class AcpAgentSession implements LiveSession {
   }
 
   async *turn(req: AgentStepRequest): AsyncGenerator<AgentStepEvent> {
+    // A turn opened to show the one OpenCode started by itself: OpenCode is sent nothing.
+    if (req.continuesAgentTurn) {
+      if (this.agentTurnPending) yield* this.ownTurn(req);
+      return;
+    }
     const mode = agentModeFor(req.mode);
     this.inTurn = true;
+    // A turn OpenCode started by itself and not shown yet is read by this one: OpenCode answers this prompt after it.
+    this.agentTurnPending = false;
+    this.clearSettle();
+    this.limitShown = false;
     const onAbort = () => {
       this.inbox.push({ kind: 'stop' });
       this.client.notify('session/cancel', { sessionId: this.sessionId });
@@ -321,10 +372,21 @@ export class AcpAgentSession implements LiveSession {
     }
   }
 
+  /** Stop one subagent OpenCode runs in the background (`AgentBackgroundWork.id`); `false` when it runs no such work. */
+  async stopWork(workId: string): Promise<boolean> {
+    const api = this.connection.api;
+    const session = api ? this.helpers.stop(workId) : undefined;
+    if (!api || !session) return false;
+    const stopped = await abortOpenCodeSession(api, this.settings.cwd, session);
+    if (!stopped) this.helpers.unstop(workId);
+    return stopped;
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.alive = false;
+    this.unwatch();
     this.client.close();
     this.connection.close();
     this.dismissQueued();
@@ -361,6 +423,8 @@ export class AcpAgentSession implements LiveSession {
     const env = { [CONFIG_CONTENT_ENV]: askingConfig(this.ownMode, rules, process.env[CONFIG_CONTENT_ENV]) };
     const replaced = { connection: this.connection, client: this.client };
     const next = await this.settings.start({ cwd: this.settings.cwd, env });
+    // The subagents of the OpenCode replaced end with it.
+    this.unwatch();
     this.connection = next;
     this.client = this.listen(next);
     replaced.client.close();
@@ -384,6 +448,8 @@ export class AcpAgentSession implements LiveSession {
       clientInfo: { name: 'moxxy', title: 'Moxxy', version: CLIENT_VERSION },
     });
     this.canList = init.agentCapabilities?.sessionCapabilities?.list !== undefined;
+    // OpenCode serves its HTTP API once it answered `initialize`.
+    this.watchEvents();
     const { cwd } = this.settings;
     const mcpServers = [
       {
@@ -495,19 +561,20 @@ export class AcpAgentSession implements LiveSession {
         case 'stop':
           // The agent answers the prompt as cancelled.
           continue;
+        case 'idle':
+          continue;
         case 'moxxy-tool':
           item.resolve(await req.host.runTool(item.call));
           continue;
         case 'request':
           yield* this.answer(item, req, translator, declines);
           continue;
-        case 'note': {
-          const params = (item.params ?? {}) as { sessionId?: unknown; update?: AcpSessionUpdate };
-          if (params.sessionId !== this.sessionId || !params.update) continue;
-          yield* this.contextOf(params.update, req.model);
-          yield* translator.update(params.update);
+        case 'api':
+          yield* item.events;
           continue;
-        }
+        case 'note':
+          yield* this.shown(item.params, translator, req);
+          continue;
         case 'done':
           yield* translator.finish();
           if (item.result.usage) yield { type: 'usage', usage: toTokenUsage(item.result.usage) };
@@ -533,7 +600,7 @@ export class AcpAgentSession implements LiveSession {
       const ask = (item.params ?? {}) as AcpPermissionRequest;
       const callId = ask.toolCall.toolCallId;
       const { call, events } = translator.callFor(ask.toolCall);
-      yield* events;
+      yield* this.withHeldSteps(events);
       // With auto-approve on Moxxy answers for the person, as OpenCode's own auto mode does; standing rules still apply.
       // Work outside the project OpenCode asks about even on its defaults: while
       // Moxxy turned auto-approve on, not the person, the person still answers.
@@ -553,6 +620,197 @@ export class AcpAgentSession implements LiveSession {
     } catch (err) {
       item.reject(err instanceof Error ? err : new Error(String(err)));
     }
+  }
+
+  /**
+   * A turn OpenCode started by itself: a background subagent finished and
+   * OpenCode prompted its session with the result. It is read until OpenCode's
+   * session is idle again; its asks and Moxxy tool calls are answered as in any turn.
+   */
+  private async *ownTurn(req: AgentStepRequest): AsyncGenerator<AgentStepEvent> {
+    this.inTurn = true;
+    this.readingOwnTurn = true;
+    this.limitShown = false;
+    const onAbort = () => {
+      this.inbox.push({ kind: 'stop' });
+      this.client.notify('session/cancel', { sessionId: this.sessionId });
+    };
+    req.signal.addEventListener('abort', onAbort, { once: true });
+    this.mcp.setHandler(
+      moxxyToolsHandler(
+        this.listed,
+        { runTool: (call) => new Promise((resolve) => this.inbox.push({ kind: 'moxxy-tool', call, resolve })) },
+        this.offered,
+      ),
+    );
+    const translator = new AcpTurnTranslator(this.settings.agent.moxxyToolPrefix, this.settings.cwd);
+    // Already over (OpenCode's ACP lags its events), it is read to the end of what came.
+    if (!this.agentBusy) this.settleSoon();
+    try {
+      yield { type: 'session', sessionId: this.sessionId };
+      for (;;) {
+        const item = await this.inbox.next();
+        switch (item.kind) {
+          case 'ended':
+            yield* translator.finish();
+            yield { type: 'error', message: this.endedMessage(), retryable: false };
+            return;
+          case 'idle':
+            yield* translator.finish();
+            return;
+          case 'moxxy-tool':
+            item.resolve(await req.host.runTool(item.call));
+            continue;
+          case 'request': {
+            const declines: string[] = [];
+            yield* this.answer(item, req, translator, declines);
+            this.pendingNotes.push(...declines);
+            continue;
+          }
+          case 'api':
+            yield* item.events;
+            continue;
+          case 'note':
+            yield* this.shown(item.params, translator, req);
+            continue;
+          default:
+            continue;
+        }
+      }
+    } finally {
+      req.signal.removeEventListener('abort', onAbort);
+      this.mcp.setHandler(idleToolsHandler(this.listed, this.offered));
+      this.agentTurnPending = false;
+      this.readingOwnTurn = false;
+      this.inTurn = false;
+      this.clearSettle();
+      this.dismissQueued();
+    }
+  }
+
+  /** One ACP update of the conversation's session as agent events. */
+  private *shown(params: unknown, translator: AcpTurnTranslator, req: AgentStepRequest): Generator<AgentStepEvent> {
+    const { sessionId, update } = (params ?? {}) as { sessionId?: unknown; update?: AcpSessionUpdate };
+    if (sessionId !== this.sessionId || !update) return;
+    yield* this.contextOf(update, req.model);
+    yield* this.withHeldSteps(translator.update(update));
+  }
+
+  /** The events, each subagent's start followed by the steps it took before the conversation saw it start. */
+  private *withHeldSteps(events: Iterable<AgentStepEvent>): Generator<AgentStepEvent> {
+    for (const event of events) {
+      yield event;
+      if (event.type !== 'subagent_started') continue;
+      this.shownHelpers.add(event.id);
+      const held = this.heldSteps.get(event.id) ?? [];
+      this.heldSteps.delete(event.id);
+      if (this.helpers.inBackground(event.id)) this.report(held);
+      else yield* held;
+    }
+  }
+
+  /** Start reading the events of the OpenCode in use, when it serves its HTTP API. */
+  private watchEvents(): void {
+    this.watch?.close();
+    const api: OpenCodeApi | undefined = this.connection.api;
+    if (!api) return;
+    this.watch = watchOpenCodeEvents(api, this.settings.cwd, (event) => this.onEvent(event), {
+      // Without events the end of a turn OpenCode started by itself would never come.
+      onDisconnected: () => {
+        if (this.agentTurnPending || this.readingOwnTurn) this.settleSoon();
+      },
+    });
+  }
+
+  /** Stop reading OpenCode's events: its subagents end with it. */
+  private unwatch(): void {
+    this.watch?.close();
+    this.watch = undefined;
+    this.clearSettle();
+    this.helpers.clear();
+    this.shownHelpers.clear();
+    this.heldSteps.clear();
+    this.agentBusy = false;
+    this.reportWork([]);
+  }
+
+  private onEvent(event: OpenCodeEvent): void {
+    if (this.closed) return;
+    const news = this.helpers.take(event);
+    for (const step of news.steps) this.deliver(step);
+    if (news.workChanged) this.reportWork();
+    if (news.status) {
+      this.agentBusy = news.status === 'busy';
+      if (this.agentBusy) this.clearSettle();
+      else if (this.agentTurnPending || this.readingOwnTurn) this.settleSoon();
+    }
+    // OpenCode would wait for the reset, hours maybe, retrying: the turn ends on the limit, as Claude's does.
+    if (news.limitReached && this.inTurn && !this.limitShown) {
+      this.limitShown = true;
+      this.inbox.push({ kind: 'api', events: [{ type: 'account_limit', limit: { state: 'reached' } }] });
+      this.client.notify('session/cancel', { sessionId: this.sessionId });
+    }
+    if (news.finished && !this.inTurn) {
+      const { label, failed, workId } = news.finished;
+      this.askForTurn(`${label} ${failed ? 'failed' : 'finished'} in the background`, workId);
+    }
+  }
+
+  /**
+   * A subagent's step: in the turn that waits for it, or recorded at once for
+   * one working in the background. A step of a subagent whose start the
+   * conversation has not seen waits for it.
+   */
+  private deliver(step: AgentStepEvent): void {
+    const id = 'id' in step && typeof step.id === 'string' ? step.id : undefined;
+    if (id === undefined) return;
+    if (!this.shownHelpers.has(id)) {
+      const held = this.heldSteps.get(id) ?? [];
+      if (held.length < MAX_HELD_STEPS) held.push(step);
+      this.heldSteps.set(id, held);
+      return;
+    }
+    if (this.inTurn && !this.helpers.inBackground(id)) this.inbox.push({ kind: 'api', events: [step] });
+    else this.report([step]);
+  }
+
+  /** Whether an ACP update outside any turn shows the agent at work in the conversation's session. */
+  private startsOwnTurn(params: unknown): boolean {
+    const { sessionId, update } = (params ?? {}) as { sessionId?: unknown; update?: { sessionUpdate?: unknown } };
+    return this.watch !== undefined && sessionId === this.sessionId && typeof update?.sessionUpdate === 'string' && WORK_UPDATES.has(update.sessionUpdate);
+  }
+
+  private askForTurn(name: string, workId?: string): void {
+    if (this.closed || this.agentTurnPending) return;
+    this.agentTurnPending = true;
+    // Already idle by the time ACP shows its work, the turn is over once the agent is quiet.
+    if (!this.agentBusy) this.settleSoon();
+    this.settings.onAgentTurn?.(name, workId);
+  }
+
+  /** The turn OpenCode started by itself is over once its session is idle and ACP has been quiet a moment. */
+  private settleSoon(): void {
+    this.clearSettle();
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = undefined;
+      this.inbox.push({ kind: 'idle' });
+    }, SETTLE_MS);
+  }
+
+  private clearSettle(): void {
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.settleTimer = undefined;
+  }
+
+  /** What OpenCode runs in the background now; reported when it changes. */
+  private reportWork(work: ReadonlyArray<AgentBackgroundWork> = this.helpers.running()): void {
+    if (sameWork(work, this.shownWork)) return;
+    this.shownWork = work;
+    this.report([{ type: 'background_work', work }]);
+  }
+
+  private report(events: ReadonlyArray<AgentStepEvent>): void {
+    if (events.length > 0) this.settings.onActivity?.(events);
   }
 
   private failureMessage(err: unknown): string {
@@ -580,6 +838,7 @@ export class AcpAgentSession implements LiveSession {
   private dismissQueued(): void {
     for (const item of this.inbox.drain()) {
       if (item.kind === 'ended') this.inbox.push(item);
+      else if (item.kind === 'api') this.report(item.events.filter((event) => event.type !== 'account_limit'));
       else if (item.kind === 'moxxy-tool') item.resolve({ ok: false, message: 'No Moxxy turn is running, so the tool cannot run now.' });
       else if (item.kind === 'request') {
         try {
@@ -596,6 +855,10 @@ export class AcpAgentSession implements LiveSession {
 function refusal(method: string): unknown {
   if (method === 'session/request_permission') return CANCELLED;
   throw new JsonRpcError(-32601, `Moxxy does not handle ${method}.`);
+}
+
+function sameWork(a: ReadonlyArray<AgentBackgroundWork>, b: ReadonlyArray<AgentBackgroundWork>): boolean {
+  return a.length === b.length && a.every((work, i) => work.id === b[i]?.id && work.label === b[i]?.label);
 }
 
 function permissionOutcome(decision: AgentApprovalDecision, options: AcpPermissionRequest['options']): AcpPermissionOutcome {

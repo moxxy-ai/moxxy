@@ -21,6 +21,13 @@ export const OPENCODE_FREE_MODELS: ReadonlyArray<string> = [OPENCODE_DEFAULT_MOD
 export const MOXXY_MCP_SERVER = 'moxxy';
 
 export const OPENCODE_ACP_ARGS = ['acp'] as const;
+/** Where `opencode acp` serves its HTTP API: Moxxy reads OpenCode's background subagents there, which ACP does not report. */
+export const OPENCODE_API_HOST = '127.0.0.1';
+export const OPENCODE_API_USERNAME = 'opencode';
+export const OPENCODE_SERVER_USERNAME_ENV = 'OPENCODE_SERVER_USERNAME';
+export const OPENCODE_SERVER_PASSWORD_ENV = 'OPENCODE_SERVER_PASSWORD';
+/** OpenCode 1.19's switch for subagents that work on after its turn (`task` with `background: true`). */
+export const OPENCODE_BACKGROUND_SUBAGENTS_ENV = 'OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS';
 export const OPENCODE_MODELS_ARGS = ['models'] as const;
 export const OPENCODE_DEBUG_AGENT_ARGS = ['debug', 'agent'] as const;
 export const OPENCODE_DEBUG_CONFIG_ARGS = ['debug', 'config'] as const;
