@@ -465,7 +465,9 @@ export interface IpcCommands {
   /** Synthesize text to speech via the runner's active synthesizer. Returns
    *  base64 audio + its MIME type, or null when no synthesizer is active.
    *  `language` selects the matching local/remote voice when supported;
-   *  `rate` is a bounded speaking-rate multiplier. */
+   *  `rate` is a bounded speaking-rate multiplier. `cache` asks to keep the
+   *  clip on disk and hand it back next time instead of synthesizing again;
+   *  only Gemini TTS keeps it (the read-aloud button sets it). */
   'session.synthesize': (args: {
     workspaceId?: string;
     requestId?: string;
@@ -473,7 +475,12 @@ export interface IpcCommands {
     language?: string;
     rate?: number;
     voice?: string;
+    cache?: boolean;
   }) => Promise<{ audioBase64: string; mimeType: string } | null>;
+  /** How the read-aloud button should send a message: in parts of up to
+   *  `partChars` characters, each kept on disk (Gemini TTS), or null to read
+   *  sentence by sentence as before (Piper and every other synthesizer). */
+  'session.readAloudPlan': (args?: { workspaceId?: string }) => Promise<{ partChars: number } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */
   'session.pickAttachment': () => Promise<string | null>;

@@ -62,6 +62,8 @@ import { desktopEventBus } from '../event-bus';
 import { __resetPickedAttachments } from '../attachment-authz';
 import { assertDefined } from '@moxxy/sdk';
 import { removeDir } from '@moxxy/vitest-preset/fs';
+import { GEMINI_TTS_READ_ALOUD_PART_CHARS } from '@moxxy/plugin-tts-gemini';
+import { createSpeechCache } from '../speech-cache';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -940,5 +942,92 @@ describe('session.* attachment provenance', () => {
         name: 'huge.png',
       }),
     ).resolves.toBeNull();
+  });
+});
+
+describe('read aloud with Gemini: whole messages, heard again from disk', () => {
+  let cacheDir: string;
+  beforeEach(async () => {
+    cacheDir = await mkdtemp(path.join(os.tmpdir(), 'moxxy-read-aloud-'));
+  });
+  afterEach(async () => {
+    await removeDir(cacheDir);
+  });
+
+  function setup(synthesizerName: string | null): {
+    handlers: Map<string, Handler>;
+    synthesize: ReturnType<typeof vi.fn>;
+  } {
+    const synthesize = vi.fn(async (text: string) => ({
+      audio: new Uint8Array([82, 73, 70, 70, text.length]),
+      mimeType: 'audio/wav',
+    }));
+    const remote = {
+      synthesizers: {
+        tryGetActive: () => (synthesizerName ? { name: synthesizerName, synthesize } : undefined),
+      },
+    };
+    const pool = {
+      activeWorkspaceId: () => 'ws-read',
+      get: (id: string) => id === 'ws-read'
+        ? ({ remote: () => remote } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool, {
+      speechCache: createSpeechCache({ dir: cacheDir, maxBytes: 10_000 }),
+      geminiVoice: async () => 'Fola',
+    });
+    return { handlers, synthesize };
+  }
+
+  it('asks for large parts when Gemini speaks, and sentence by sentence otherwise', async () => {
+    const plan = async (name: string | null) => {
+      const handler = setup(name).handlers.get('session.readAloudPlan');
+      assertDefined(handler, 'session.readAloudPlan handler');
+      return handler({ workspaceId: 'ws-read' });
+    };
+    expect(await plan('gemini-tts')).toEqual({ partChars: GEMINI_TTS_READ_ALOUD_PART_CHARS });
+    expect(await plan('local-piper')).toBeNull();
+    expect(await plan(null)).toBeNull();
+  });
+
+  it('synthesizes a message Gemini already read only once', async () => {
+    const { handlers, synthesize } = setup('gemini-tts');
+    const handler = handlers.get('session.synthesize');
+    assertDefined(handler, 'session.synthesize handler');
+    const request = { workspaceId: 'ws-read', text: 'The whole message.', language: 'en', rate: 1, cache: true };
+
+    const first = await handler(request);
+    const second = await handler(request);
+
+    expect(synthesize).toHaveBeenCalledOnce();
+    expect(second).toEqual(first);
+  });
+
+  it('synthesizes again for another voice', async () => {
+    const { handlers, synthesize } = setup('gemini-tts');
+    const handler = handlers.get('session.synthesize');
+    assertDefined(handler, 'session.synthesize handler');
+    await handler({ workspaceId: 'ws-read', text: 'Same words.', cache: true });
+    await handler({ workspaceId: 'ws-read', text: 'Same words.', voice: 'Kore', cache: true });
+    expect(synthesize).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps nothing for Piper, nor for speech not asked to be kept', async () => {
+    const piper = setup('local-piper');
+    const piperHandler = piper.handlers.get('session.synthesize');
+    assertDefined(piperHandler, 'session.synthesize handler');
+    await piperHandler({ workspaceId: 'ws-read', text: 'Local.', cache: true });
+    await piperHandler({ workspaceId: 'ws-read', text: 'Local.', cache: true });
+    expect(piper.synthesize).toHaveBeenCalledTimes(2);
+
+    const voiceMode = setup('gemini-tts');
+    const voiceHandler = voiceMode.handlers.get('session.synthesize');
+    assertDefined(voiceHandler, 'session.synthesize handler');
+    await voiceHandler({ workspaceId: 'ws-read', text: 'A sentence.' });
+    await voiceHandler({ workspaceId: 'ws-read', text: 'A sentence.' });
+    expect(voiceMode.synthesize).toHaveBeenCalledTimes(2);
   });
 });

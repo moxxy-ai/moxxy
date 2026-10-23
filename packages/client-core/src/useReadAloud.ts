@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import {
   SpeechPlaybackQueue,
   type SpeechPlaybackPhase,
 } from './speech-playback-queue.js';
 import { IncrementalSpeechSegmenter } from './streaming-speech.js';
+import { splitForReadAloud } from './read-aloud-parts.js';
+import { api } from './transport.js';
 
 export interface UseReadAloud {
   readonly phase: SpeechPlaybackPhase;
@@ -20,17 +22,37 @@ export function useReadAloud(text: string, workspaceId?: string): UseReadAloud {
 
   useEffect(() => () => queue.cancel(), [queue]);
 
+  // Set while the host says how to send the message, so a second click then
+  // does not start the message twice.
+  const planning = useRef(false);
+
   const stop = useCallback(() => queue.cancel(), [queue]);
   const toggle = useCallback((): void => {
     if (snapshot.phase === 'speaking' || snapshot.phase === 'synthesizing') {
       queue.cancel();
       return;
     }
-    const segmenter = new IncrementalSpeechSegmenter();
-    for (const chunk of [...segmenter.push(text), ...segmenter.flush()]) {
-      queue.enqueue(chunk);
-    }
-  }, [queue, snapshot.phase, text]);
+    if (planning.current) return;
+    planning.current = true;
+    void readAloudPlan(workspaceId)
+      .then((plan) => {
+        if (plan) {
+          // Gemini TTS: the whole message in as few requests as it allows,
+          // each kept on disk so hearing it again costs nothing.
+          for (const part of splitForReadAloud(text, plan.partChars)) {
+            queue.enqueue(part, undefined, { cache: true });
+          }
+          return;
+        }
+        const segmenter = new IncrementalSpeechSegmenter();
+        for (const chunk of [...segmenter.push(text), ...segmenter.flush()]) {
+          queue.enqueue(chunk);
+        }
+      })
+      .finally(() => {
+        planning.current = false;
+      });
+  }, [queue, snapshot.phase, text, workspaceId]);
 
   return {
     phase: snapshot.phase,
@@ -39,4 +61,13 @@ export function useReadAloud(text: string, workspaceId?: string): UseReadAloud {
     toggle,
     stop,
   };
+}
+
+/** How the host wants this message sent; sentence by sentence when it cannot say. */
+async function readAloudPlan(workspaceId: string | undefined): Promise<{ partChars: number } | null> {
+  try {
+    return await api().invoke('session.readAloudPlan', workspaceId ? { workspaceId } : undefined);
+  } catch {
+    return null;
+  }
 }
