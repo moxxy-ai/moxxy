@@ -143,6 +143,20 @@ That line always takes its height and is shown for the message under the
 pointer or holding focus, so revealing it moves nothing. On a touch screen it
 is always shown.
 
+Read aloud speaks with the voice chosen in Settings → Voice. With Local Piper
+(or any voice but Gemini) it reads sentence by sentence, as Voice Mode does.
+With Gemini Flash-Lite it sends the whole answer in one request, or in parts
+of up to 3,000 characters cut between sentences for a long one, so it does not
+spend a request per sentence against Gemini's rate limit. Each part is kept on
+disk in `$MOXXY_HOME/cache/speech`, one WAV file per part, named by a hash of
+the voice, model, language, pace and text, so hearing it again plays the file
+and calls nothing. The store holds 500 MB; a file's modification time is when
+it was last heard, and after each new file the ones heard longest ago are
+deleted until it fits. A part that cannot be read or saved is synthesized
+again; the store never stops speech (`speech-cache.ts` in
+`@moxxy/desktop-host`, `useReadAloud` and `read-aloud-parts.ts` in
+`@moxxy/client-core`).
+
 When a turn marked "Agent continued" finishes without assistant text, tool
 activity or a helper's activity, one neutral note says "The agent finished
 without replying." The agent loop records it only after finishing, so live

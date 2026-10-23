@@ -187,6 +187,14 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('lets read-aloud ask to keep its speech, and asks only a workspace for the plan', () => {
+    expect(() => validateIpcInput('session.synthesize', { text: 'Hello.', cache: true })).not.toThrow();
+    expect(() => validateIpcInput('session.synthesize', { text: 'Hello.', cache: 'yes' })).toThrow();
+    expect(() => validateIpcInput('session.readAloudPlan', undefined)).not.toThrow();
+    expect(() => validateIpcInput('session.readAloudPlan', { workspaceId: 'workspace-1' })).not.toThrow();
+    expect(() => validateIpcInput('session.readAloudPlan', { workspaceId: 'workspace-1', extra: 1 })).toThrow();
+  });
+
   it('validates speech cancellation IDs and selected Gemini voice IDs', () => {
     expect(() => validateIpcInput('session.cancelSynthesis', {
       workspaceId: 'workspace-1',

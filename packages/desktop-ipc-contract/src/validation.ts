@@ -261,8 +261,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       language: speechLanguage.optional(),
       rate: speechRate.optional(),
       voice: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/).optional(),
+      cache: z.boolean().optional(),
     })
     .strict(),
+  'session.readAloudPlan': z.object({ workspaceId: optionalWorkspace }).strict().optional(),
   'session.cancelSynthesis': z.object({
     workspaceId: optionalWorkspace,
     requestId: z.string().min(1).max(64).regex(/^[A-Za-z0-9-]+$/),

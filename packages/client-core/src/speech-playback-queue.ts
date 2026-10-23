@@ -46,6 +46,8 @@ interface QueuedSpeech {
   readonly language: SpeechLanguage;
   readonly prosody: SpeechProsody;
   readonly kind: SpeechPlaybackKind;
+  /** Ask the host to keep this clip on disk (read-aloud with Gemini TTS). */
+  readonly cache: boolean;
   prepared: Promise<PreparedResult> | null;
   synthesisPending: boolean;
   cancelled: boolean;
@@ -101,9 +103,9 @@ export class SpeechPlaybackQueue {
 
   readonly getSnapshot = (): SpeechPlaybackSnapshot => this.snapshot;
 
-  enqueue(markdown: string, language?: SpeechLanguage): void {
+  enqueue(markdown: string, language?: SpeechLanguage, options: { readonly cache?: boolean } = {}): void {
     this.cancelPendingCues();
-    this.enqueueItem(markdown, 'assistant', language);
+    this.enqueueItem(markdown, 'assistant', language, options.cache ?? false);
   }
 
   enqueueCue(markdown: string, language: SpeechLanguage): void {
@@ -154,8 +156,9 @@ export class SpeechPlaybackQueue {
     markdown: string,
     kind: SpeechPlaybackKind,
     language?: SpeechLanguage,
+    cache = false,
   ): void {
-    const item = this.createItem(markdown, kind, language);
+    const item = this.createItem(markdown, kind, language, cache);
     if (!item) return;
     claimPlayback(this);
     this.previousLanguage = item.language;
@@ -171,6 +174,7 @@ export class SpeechPlaybackQueue {
     markdown: string,
     kind: SpeechPlaybackKind,
     language?: SpeechLanguage,
+    cache = false,
   ): QueuedSpeech | null {
     const text = (this.options.prepareText ?? toSpeakableText)(markdown);
     if (!text) return null;
@@ -181,6 +185,7 @@ export class SpeechPlaybackQueue {
       language: selectedLanguage,
       prosody,
       kind,
+      cache,
       prepared: null,
       requestId: makeSynthesisRequestId(),
       synthesisPending: false,
@@ -337,6 +342,7 @@ export class SpeechPlaybackQueue {
           text: item.text,
           language: item.language,
           rate: item.prosody.rate,
+          ...(item.cache ? { cache: true } : {}),
         });
       })
       .then<PreparedResult>((clip) => ({
