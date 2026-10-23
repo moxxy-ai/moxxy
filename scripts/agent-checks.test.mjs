@@ -8,6 +8,7 @@ import {
   parseAgentArgs,
   renderReport,
   summarize,
+  taskRunsInBackground,
 } from './agent-checks.mjs';
 
 const byNumber = (a, b) => {
@@ -138,4 +139,13 @@ test('a backslash in a detail stays a backslash in the report table, so it canno
 test('an HTML comment left open hides the rest of the description, as GitHub renders it', () => {
   assert.equal(liveCheckBox('<!-- note\n- [x] I ran `pnpm test:agents:live` on this commit'), 'missing');
   assert.equal(liveCheckBox('<!-- a --> text <!-- b -->\n- [x] I ran `pnpm test:agents:live` on this commit'), 'checked');
+});
+
+test("reads from OpenCode's tool list whether its task tool can run a subagent in the background", () => {
+  const task = (properties) => [{ id: 'bash', parameters: { properties: { command: {} } } }, { id: 'task', parameters: { properties } }];
+
+  assert.equal(taskRunsInBackground(task({ description: {}, prompt: {}, background: { type: 'boolean' } })), true);
+  assert.equal(taskRunsInBackground(task({ description: {}, prompt: {} })), false);
+  assert.equal(taskRunsInBackground([{ id: 'bash', parameters: { properties: {} } }]), undefined);
+  assert.equal(taskRunsInBackground({ error: 'not a list' }), undefined);
 });

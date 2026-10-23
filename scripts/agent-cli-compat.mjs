@@ -3,8 +3,10 @@
  * Do Claude Code, Codex and OpenCode still speak the way Moxxy's agent
  * connections expect? Checked with no account and no key, so it runs on CI:
  * each CLI starts in a home of its own, answers the handshake its connection
- * opens with, and Codex's protocol kinds are compared with the fixture the
- * connection was written against. No model is called.
+ * opens with, Codex's protocol kinds are compared with the fixture the
+ * connection was written against, and OpenCode's HTTP API, which Moxxy reads
+ * background subagents from, must be behind Moxxy's password and offer them.
+ * No model is called.
  *
  *   pnpm build
  *   node scripts/agent-cli-compat.mjs                    # the CLIs on PATH
@@ -14,11 +16,13 @@
  * Exit 0: every check passed. 1: one failed. 2: a check could not run (a CLI
  * missing, say), which is not a pass.
  */
+import { randomBytes } from 'node:crypto';
 import { appendFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { codexKindsFromGenerated, diffKinds, newestFixture, parseAgentArgs, renderReport, summarize } from './agent-checks.mjs';
+import { codexKindsFromGenerated, diffKinds, newestFixture, parseAgentArgs, renderReport, summarize, taskRunsInBackground } from './agent-checks.mjs';
 import { findTarget, gitState, isolatedEnv, runTarget, startRpc } from './agent-cli-env.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -28,6 +32,7 @@ const { CLAUDE_AGENT_SDK_VERSION, ensureClaudeAgentSdk } = await import(dist('pl
 const { ACP_PROTOCOL_VERSION } = await import(dist('plugin-provider-acp', 'protocol.js'));
 const { CLIENT_CAPABILITIES } = await import(dist('plugin-provider-acp', 'acp-session.js'));
 const { OPENCODE_FREE_MODELS } = await import(dist('plugin-provider-acp', 'constants.js'));
+const { opencodeAcpLaunch } = await import(dist('plugin-provider-acp', 'executable.js'));
 
 const AGENTS = { claude: CLAUDE_CLI, codex: CODEX_CLI, opencode: OPENCODE_CLI };
 const root = mkdtempSync(path.join(tmpdir(), 'moxxy-agent-compat-'));
@@ -140,14 +145,63 @@ async function checkCodex(target, env, version) {
   }
 }
 
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+/**
+ * OpenCode's HTTP API, which Moxxy reads background subagents from: behind
+ * the password Moxxy gave it, and with background subagents turned on.
+ */
+async function checkOpenCodeApi(api, home) {
+  const events = `${api.url}/event?directory=${encodeURIComponent(home)}`;
+  try {
+    const refused = await fetch(events);
+    await refused.body?.cancel();
+    if (refused.status !== 401) throw new Error(`answered ${refused.status} with no password, not 401: OPENCODE_SERVER_PASSWORD no longer guards it`);
+    const stream = new AbortController();
+    const opened = await fetch(events, { headers: { Authorization: api.authorization }, signal: stream.signal });
+    stream.abort();
+    const type = opened.headers.get('content-type') ?? '';
+    if (opened.status !== 200 || !type.startsWith('text/event-stream')) throw new Error(`its event stream answered ${opened.status} ${type} with the password`);
+    record('opencode', 'HTTP API', 'pass', 'refused with no password; event stream open with the one Moxxy gave it');
+  } catch (error) {
+    record('opencode', 'HTTP API', 'fail', message(error));
+  }
+
+  try {
+    const model = OPENCODE_FREE_MODELS[0] ?? '';
+    const [provider, ...rest] = model.split('/');
+    const query = new URLSearchParams({ provider, model: rest.join('/'), directory: home });
+    const answer = await fetch(`${api.url}/experimental/tool?${query}`, { headers: { Authorization: api.authorization } });
+    const background = taskRunsInBackground(answer.ok ? await answer.json() : undefined);
+    if (background === undefined) throw new Error(`its tool list (${answer.status}) has no task tool`);
+    if (!background) throw new Error('task takes no background with OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS on: Moxxy shows no background subagents');
+    record('opencode', 'background subagents', 'pass', 'task takes background');
+  } catch (error) {
+    record('opencode', 'background subagents', 'fail', message(error));
+  }
+}
+
 async function checkOpenCode(target, env, home) {
-  const rpc = startRpc(target, ['acp'], { env, cwd: home });
+  // Started as Moxxy starts it: its HTTP API on a port of Moxxy's, behind a password, background subagents on.
+  const launch = opencodeAcpLaunch({ port: await freePort(), password: randomBytes(24).toString('base64url'), inherited: {} });
+  const rpc = startRpc(target, launch.args, { env: { ...env, ...launch.env }, cwd: home });
   try {
     const init = await rpc.request('initialize', { protocolVersion: ACP_PROTOCOL_VERSION, clientCapabilities: CLIENT_CAPABILITIES });
     if (init.protocolVersion !== ACP_PROTOCOL_VERSION) throw new Error(`answered with ACP version ${init.protocolVersion}, Moxxy speaks ${ACP_PROTOCOL_VERSION}`);
     const session = await rpc.request('session/new', { cwd: home, mcpServers: [] });
     if (typeof session.sessionId !== 'string') throw new Error('session/new answered without a sessionId');
     record('opencode', 'ACP handshake', 'pass', `ACP ${ACP_PROTOCOL_VERSION}: initialize and session/new answered`);
+    // OpenCode serves its HTTP API once it answered `initialize`.
+    await checkOpenCodeApi(launch.api, home);
   } catch (error) {
     record('opencode', 'ACP handshake', 'fail', message(error));
   } finally {
