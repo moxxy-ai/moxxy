@@ -311,7 +311,7 @@ export class ClaudeAgentSession implements LiveSession {
           return;
         }
         if (item.kind === 'message') {
-          if (isOwnResult(item.message)) {
+          if (isOwnResult(item.message, this.owesResult)) {
             this.agentTurnPending = false;
             this.finishedTask = undefined;
             this.finishedWork = undefined;
@@ -320,7 +320,7 @@ export class ClaudeAgentSession implements LiveSession {
               break;
             }
           }
-          if (isPersonResult(item.message)) {
+          if (isPersonResult(item.message, this.owesResult)) {
             this.owesResult = false;
             yield* resultEvents(item.message, req.signal.aborted, this.model);
             break;
@@ -517,7 +517,7 @@ export class ClaudeAgentSession implements LiveSession {
         refuse(item);
         continue;
       }
-      if (isPersonResult(item.message)) {
+      if (isPersonResult(item.message, this.owesResult)) {
         this.owesResult = false;
         return;
       }
@@ -532,7 +532,7 @@ export class ClaudeAgentSession implements LiveSession {
       const item = await this.inbox.next();
       if (item.kind === 'ended') return false;
       if (item.kind !== 'message') refuse(item);
-      else if (isPersonResult(item.message)) {
+      else if (isPersonResult(item.message, this.owesResult)) {
         this.owesResult = false;
         return true;
       }
@@ -648,7 +648,7 @@ export class ClaudeAgentSession implements LiveSession {
       if (item.kind === 'ended') ended = item;
       else if (item.kind !== 'message') refuse(item);
       else if (!this.owesResult) kept.push(item.message);
-      else if (isPersonResult(item.message)) this.owesResult = false;
+      else if (isPersonResult(item.message, this.owesResult)) this.owesResult = false;
     }
     for (const message of kept) {
       this.inbox.push({ kind: 'message', message });
@@ -724,19 +724,24 @@ function contextWindowOf(usage: Readonly<Record<string, ClaudeModelUsage>> | und
 }
 
 /** The `result` of a turn Claude took up by itself. */
-function isOwnResult(message: ClaudeMessage): message is Extract<ClaudeMessage, { type: 'result' }> {
-  return message.type === 'result' && 'is_error' in message && !isPersonResult(message);
+function isOwnResult(message: ClaudeMessage, owed: boolean): message is Extract<ClaudeMessage, { type: 'result' }> {
+  return message.type === 'result' && 'is_error' in message && !isPersonResult(message, owed);
 }
 
 function refusedByRules(reason: string): ClaudePreToolUseOutput {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
 }
 
-function isPersonResult(message: ClaudeMessage): message is Extract<ClaudeMessage, { type: 'result' }> {
+/**
+ * The `result` of the person's turn. A turn Claude started itself is not: one after a background
+ * task carries its origin, but one it woke itself up for (ScheduleWakeup, /loop) carries none, so
+ * a result without an origin is the person's only while Moxxy waits for one (`owed`), as from
+ * a Claude too old to send origins.
+ */
+function isPersonResult(message: ClaudeMessage, owed: boolean): message is Extract<ClaudeMessage, { type: 'result' }> {
   if (message.type !== 'result' || !('is_error' in message)) return false;
-  // A turn Claude started itself after a background task is not the person's.
   const origin = (message as { origin?: { kind?: string } }).origin;
-  return origin === undefined || origin.kind === 'human';
+  return origin === undefined ? owed : origin.kind === 'human';
 }
 
 /** A background helper's own message, or Claude's report on one of its tasks. */

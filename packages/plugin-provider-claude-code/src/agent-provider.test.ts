@@ -641,6 +641,23 @@ describe('turns Claude takes up by itself', () => {
     expect(said(next)).toEqual(['4']);
   });
 
+  it('opens a turn each time Claude wakes itself up, whose result carries no origin, and the next message gets its own reply', async () => {
+    const { claude, session } = connect(async function* (turn) {
+      yield assistantText(turn.text === 'build it' ? 'Building.' : 'Will check back.');
+    });
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'check CI');
+
+    claude.last.startOwnTurn({ messages: [assistantText('First check: still running.')], scheduled: true });
+    await vi.waitFor(() => expect(said(session.log.ofType('assistant_message'))).toContain('First check: still running.'));
+    claude.last.startOwnTurn({ messages: [assistantText('Second check: all green.')], scheduled: true });
+    await vi.waitFor(() => expect(said(session.log.ofType('assistant_message'))).toContain('Second check: all green.'));
+
+    const next = await collectTurn(session, 'build it');
+    expect(said(next)).toEqual(['Building.']);
+    expect(session.log.ofType('user_prompt').map((p) => p.origin?.kind ?? 'person')).toEqual(['person', 'agent', 'agent', 'person']);
+  });
+
   it('opens the turn when the conversation went to another connection and came back while the helper ran', async () => {
     const { claude, session, pool } = connect(async function* () {
       yield* launchInBackground();

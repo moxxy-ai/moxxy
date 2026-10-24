@@ -49,6 +49,8 @@ export interface OwnTurn {
   readonly messages: ReadonlyArray<ClaudeMessage>;
   /** Only the background work's messages: Claude takes up no turn after them. */
   readonly noTurn?: true;
+  /** A turn Claude woke itself up for (ScheduleWakeup, /loop): its result carries no origin at all. */
+  readonly scheduled?: true;
 }
 
 export const assistantText = (text: string, model = 'claude-opus-5-5'): ClaudeMessage =>
@@ -227,7 +229,7 @@ export class FakeQuery implements ClaudeQuery {
     if (turn.noTurn) return;
     yield { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.options.model } as ClaudeMessage;
     yield* turn.messages;
-    yield this.result('success', false, { origin: { kind: 'task-notification', producer: 'session-task' } });
+    yield this.result('success', false, turn.scheduled ? { origin: undefined } : { origin: { kind: 'task-notification', producer: 'session-task' } });
   }
 
   async interrupt(): Promise<unknown> {
