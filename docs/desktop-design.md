@@ -143,6 +143,26 @@ That line always takes its height and is shown for the message under the
 pointer or holding focus, so revealing it moves nothing. On a touch screen it
 is always shown.
 
+Settings → Voice → Transcription picks where speech becomes text, for the chat
+microphone and Voice Mode's Local engine. Cloud is OpenAI over the ChatGPT
+login. Local is Whisper turbo on this computer (`@moxxy/plugin-stt-local`,
+shipped in the plugin seed). The first time, a dialog asks before anything
+downloads and says how big the model is (~1 GB) and that the app stays usable
+meanwhile. The main process then fetches the model's three int8 files from
+Hugging Face, in parallel and pinned by size and sha256 (`ensureModelFiles` in
+`@moxxy/model-fetch`), into `~/.moxxy/models/stt/turbo`, where the plugin finds
+them; nothing is unpacked, so it takes about as long as the bytes do. The card
+shows a progress bar with Cancel, and since the switch runs in the main process
+and reports on `voice.transcription.changed`, the download goes on and shows
+again when the person leaves the tab and comes back. After the download the
+switch enables the plugin, makes `local-whisper` the transcriber, restarts the
+runners and transcribes half a second of silence to load the model, so the
+first dictation does not wait. A notice says when Local is ready or why it
+could not start (see "Toasts"). A failed or cancelled switch leaves Moxxy on
+Cloud; choosing Cloud clears the choice (`local-whisper.ts` in
+`@moxxy/desktop-host`, `useTranscriptionSettings` and `TranscriptionSection` in
+the desktop).
+
 Read aloud speaks with the voice chosen in Settings → Voice. With Local Piper
 (or any voice but Gemini) it reads sentence by sentence, as Voice Mode does.
 With Gemini Flash-Lite it sends the whole answer in one request, or in parts
@@ -377,9 +397,34 @@ and carrying the answer's first line or "Waiting for your decision."; a newer
 one for the same chat replaces the older, and a click brings the main window
 forward on that chat (`attention/show-banner.ts`). A chat removed while it
 answered calls for nothing, and an answer followed at once by its queued
-message calls only when the last of them is done. Each has its own desktop
-preference, `replySound` and `systemNotifications`, both on by default and
-switched in Settings → Preferences → Notifications.
+message calls only when the last of them is done.
+
+While the main window has the keyboard, a chat that calls also gets a toast in
+the top-right corner, under the header bar, with the same words as its banner;
+a click opens it.
+
+Each of the three has its own desktop preference, all on by default and
+switched in Settings → Preferences → Notifications: `replySound` for the
+chime, `inAppToasts` for toasts inside Moxxy and `systemNotifications` for the
+system's own notification (macOS, Windows or Linux) while Moxxy is in the
+background. Turning one off silences only that one, for chats and for
+`app.notice` alike; with toasts off, a notice that arrives while the main
+window is in front shows nothing rather than falling back to a system
+notification.
+
+### Toasts
+
+A toast is a short note about work that finished while the person was
+elsewhere in the app: a chat's answer (above) or work the host ran in the
+background, such as the Whisper download. The host sends that work as an
+`app.notice` (an id, a tone, a title, words and, optionally, the Settings
+section it is about); `notices/useAppNotices.ts` shows it as a toast while the
+main window has the keyboard (when in-app toasts are on) and hands it to the
+system as a banner otherwise (when system notifications are on). One store holds the toasts
+(`notices/toast-store.ts`): at most three, in the top-right corner clear of
+the composer, newest at the bottom, a newer one
+with the same id replacing the older; they leave on their own after six
+seconds, an error after ten. `notices/ToastStack.tsx` draws them.
 
 ## The work panel
 

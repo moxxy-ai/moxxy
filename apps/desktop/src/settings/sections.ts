@@ -68,6 +68,10 @@ export const SETTINGS_SECTIONS = [
     keywords: ['speech', 'tts', 'voice mode', 'read aloud'],
     finds: [
       { label: 'Voice engine', keywords: ['voice mode', 'local'] },
+      {
+        label: 'Transcription',
+        keywords: ['speech to text', 'whisper', 'local transcription', 'cloud transcription', 'dictation', 'microphone'],
+      },
       { label: 'GPT-Live', keywords: ['chatgpt voice', 'realtime'] },
       { label: 'Gemini Flash-Lite', keywords: ['gemini tts', 'google', 'cloud voice', 'gemini api key'] },
       { label: 'Local Piper', keywords: ['on-device voice', 'offline voice'] },
@@ -103,6 +107,7 @@ export const SETTINGS_SECTIONS = [
       { label: 'Theme', keywords: ['dark', 'light', 'system', 'dark mode', 'light mode'] },
       { label: 'Notifications', keywords: ['alerts'] },
       { label: 'Sound', keywords: ['chime', 'ring', 'mute'] },
+      { label: 'In-app toasts', keywords: ['toast', 'popup', 'in-app notification'] },
       { label: 'System notification', keywords: ['banner', 'desktop notification'] },
       { label: 'Update', keywords: ['version', 'about', 'upgrade', 'runner version', 'cli'] },
     ],

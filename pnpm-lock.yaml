@@ -1067,6 +1067,9 @@ importers:
       '@moxxy/mode-collaborative':
         specifier: workspace:*
         version: link:../mode-collaborative
+      '@moxxy/model-fetch':
+        specifier: workspace:*
+        version: link:../model-fetch
       '@moxxy/plugin-browser':
         specifier: workspace:*
         version: link:../plugin-browser
@@ -1128,6 +1131,9 @@ importers:
         specifier: 'catalog:'
         version: 4.6.6
     devDependencies:
+      '@moxxy/plugin-stt-local':
+        specifier: workspace:*
+        version: link:../plugin-stt-local
       '@moxxy/testing':
         specifier: workspace:*
         version: link:../testing

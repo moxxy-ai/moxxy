@@ -195,6 +195,12 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }).strict(),
   'voice.useLocalPiper': z.undefined(),
   'voice.getSettings': z.undefined(),
+  // Switching transcription spawns the CLI to install a fixed package and
+  // restarts runners; the renderer supplies nothing.
+  'voice.getTranscription': z.undefined(),
+  'voice.useLocalTranscription': z.undefined(),
+  'voice.cancelLocalTranscription': z.undefined(),
+  'voice.useCloudTranscription': z.undefined(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
   // GPT-Live spends the host's ChatGPT OAuth credential: the renderer supplies
   // only its WebRTC offer; instructions, model and history stay host-owned.
@@ -566,6 +572,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       voiceEngine: z.enum(['local', 'gpt-live']).optional(),
       replySound: z.boolean().optional(),
       systemNotifications: z.boolean().optional(),
+      inAppToasts: z.boolean().optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
       dismissedAgentUpdates: z.record(providerName, z.string().min(1).max(64)).optional(),
     })

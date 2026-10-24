@@ -102,6 +102,9 @@ export type {
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
+  TranscriptionMode,
+  TranscriptionSettings,
+  TranscriptionSetup,
   SkillFile,
   ReasoningEffort,
   ModelDefaultsChange,
@@ -176,6 +179,7 @@ export type {
 
 // ---------- Events the renderer subscribes to ------------------------------
 export type { IpcEvents } from './events.js';
+export type { AppNotice, AppNoticeTarget } from './notices.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 export type { IpcCommands, IpcCommandName, CollabRunSummary } from './commands.js';

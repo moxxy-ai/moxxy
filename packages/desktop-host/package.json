@@ -33,6 +33,7 @@
     "@moxxy/desktop-app-sdk": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/mode-collaborative": "workspace:*",
+    "@moxxy/model-fetch": "workspace:*",
     "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-computer-control": "workspace:*",
     "@moxxy/plugin-provider-local": "workspace:*",
@@ -55,6 +56,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@moxxy/plugin-stt-local": "workspace:*",
     "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",

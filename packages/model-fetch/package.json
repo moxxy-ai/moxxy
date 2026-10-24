@@ -31,6 +31,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./files": {
+      "types": "./dist/ensure-files.d.ts",
+      "import": "./dist/ensure-files.js"
     }
   },
   "files": [

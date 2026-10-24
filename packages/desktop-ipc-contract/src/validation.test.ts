@@ -28,6 +28,18 @@ describe('IPC payload validation', () => {
     )).toThrow();
   });
 
+  it('accepts no payload for the fixed transcription switch commands', () => {
+    for (const command of [
+      'voice.getTranscription',
+      'voice.useLocalTranscription',
+      'voice.cancelLocalTranscription',
+      'voice.useCloudTranscription',
+    ] as IpcCommandName[]) {
+      expect(() => validateIpcInput(command, undefined)).not.toThrow();
+      expect(() => validateIpcInput(command, { packageName: 'attacker-controlled-package' })).toThrow();
+    }
+  });
+
   it('requires a strict boolean for the local realtime voice-capture lease', () => {
     expect(() => validateIpcInput(
       'voice.setRealtimeCaptureActive' as IpcCommandName,
@@ -473,6 +485,11 @@ describe('IPC payload validation', () => {
   it('allows system notifications to be switched in prefs.update', () => {
     expect(() => validateIpcInput('prefs.update', { systemNotifications: false })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { systemNotifications: 'banner' })).toThrow();
+  });
+
+  it('allows in-app toasts to be switched in prefs.update', () => {
+    expect(() => validateIpcInput('prefs.update', { inAppToasts: false })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { inAppToasts: 'corner' })).toThrow();
   });
 
   it('takes no arguments for window.presence', () => {

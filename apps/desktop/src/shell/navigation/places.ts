@@ -1,3 +1,4 @@
+import type { AppNoticeTarget } from '@moxxy/desktop-ipc-contract';
 import type { IconName } from '@moxxy/desktop-ui';
 import type { AutomationKind } from '../../automations/kinds';
 import { SETTINGS_SECTIONS, type SettingsSection, type SettingsTab } from '../../settings/sections';
@@ -11,6 +12,15 @@ export type SectionTarget =
 
 /** Where a place is: a view, or one section of it. */
 export type PlaceTarget = { readonly destination: DestinationId } | SectionTarget | { readonly destination: 'chat'; readonly pane: 'media' | 'agents' };
+
+const SECTIONS: ReadonlyArray<SettingsSection & { readonly id: SettingsTab }> = SETTINGS_SECTIONS;
+
+/** The section a host notice points at, in the view it belongs to; `null` for
+ *  a section this window does not have. */
+export function noticePlace(target: AppNoticeTarget): SectionTarget | null {
+  const section = SECTIONS.find((candidate) => candidate.id === target.section);
+  return section ? { destination: section.view, section: section.id } : null;
+}
 
 /** Something a person can ask the palette for by name. */
 export interface Place {

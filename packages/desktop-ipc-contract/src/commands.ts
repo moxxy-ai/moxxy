@@ -32,6 +32,7 @@ import type {
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
+  TranscriptionSettings,
   SkillFile,
   ReasoningEffort,
   ModelDefaultsChange,
@@ -385,6 +386,20 @@ export interface IpcCommands {
   'voice.useLocalPiper': () => Promise<void>;
   /** Read the active backend and the saved Gemini voice selection. */
   'voice.getSettings': () => Promise<{ backend: string | null; voiceId: string }>;
+  /** Read whether speech is transcribed in the cloud or on this computer, and
+   *  which transcriber the runner actually runs. Host-only. */
+  'voice.getTranscription': () => Promise<TranscriptionSettings>;
+  /** Download the pinned Whisper turbo model when it is missing (progress on
+   *  `voice.transcription.changed`), then install, enable and select the fixed
+   *  first-party local Whisper package, restart desktop runners and load the
+   *  model. Stays on, or falls back to, Cloud and rejects when it cannot start.
+   *  Accepts no renderer-controlled input. */
+  'voice.useLocalTranscription': () => Promise<void>;
+  /** Stop the model download of a switch to Local; Moxxy stays on Cloud. Does
+   *  nothing once the download is done or when none runs. */
+  'voice.cancelLocalTranscription': () => Promise<void>;
+  /** Unselect local Whisper and restart desktop runners (Cloud transcription). */
+  'voice.useCloudTranscription': () => Promise<void>;
   /** Keep the local main renderer realtime while it owns an active Voice Mode
    * capture. Local desktop IPC only; no audio or workspace data crosses here. */
   'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;

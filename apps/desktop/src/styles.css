@@ -4541,6 +4541,103 @@ button.trigger__chip { text-align: left; cursor: pointer; }
   cursor: pointer;
 }
 
+/* --- Toasts ---------------------------------------------------------
+ * Short notes in the top-right corner, under the header bar, about work that
+ * finished while the person was elsewhere in the app: a chat's answer, a model
+ * download. Clear of the composer and its buttons at the bottom. Newest at the
+ * bottom; they leave on their own. Above the chat, below dialogs. */
+
+.toast-stack {
+  position: fixed;
+  right: var(--space-16);
+  top: calc(var(--frame-bar, 44px) + var(--space-16));
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: min(340px, calc(100vw - var(--space-32)));
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-6) var(--space-8) var(--space-12);
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+  color: var(--color-text);
+  pointer-events: auto;
+}
+.toast__dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--color-text-dim);
+}
+.toast[data-tone='success'] .toast__dot { background: var(--color-green); }
+.toast[data-tone='error'] .toast__dot { background: var(--color-red); }
+.toast__open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: none;
+}
+button.toast__open { cursor: pointer; }
+.toast__title {
+  font-size: var(--type-ui);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toast__body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--type-meta);
+  color: var(--color-text-muted);
+}
+.toast__dismiss {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-6);
+  font-size: var(--type-row);
+  color: var(--color-text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+/* The bar a long setup shows (a model download in Settings → Voice). */
+.setup-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--color-input-soft);
+}
+.setup-progress__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-action, var(--color-primary));
+  transform-origin: left center;
+  transition: transform 240ms var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast.anim-fade-up { animation: none; }
+  .setup-progress__fill { transition: none; }
+}
+
 /* --- The installer screen -----------------------------------------
  * The whole window while Moxxy updates, or sets itself up after an update.
  * One column on the chat surface with the mark the splash shows, so it reads

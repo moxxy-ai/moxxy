@@ -40,6 +40,9 @@ export interface DesktopPrefs {
   /** Whether such a chat also shows a system notification while the app is in
    *  the background. Defaults to true. */
   systemNotifications: boolean;
+  /** Whether Moxxy shows its own toasts in the main window: a chat the person
+   *  is not reading, or work it finished in the background. Defaults to true. */
+  inAppToasts: boolean;
   /** Last native size chosen for the Focus Mode mini text composer.
    *  Null means the renderer should use its built-in default. */
   focusMiniTextSize: FocusMiniTextSize | null;

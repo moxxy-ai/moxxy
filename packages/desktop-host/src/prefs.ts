@@ -25,6 +25,7 @@ const DEFAULTS: DesktopPrefs = {
   voiceEngine: 'local',
   replySound: true,
   systemNotifications: true,
+  inAppToasts: true,
   focusMiniTextSize: null,
   channelRunModes: {},
   dismissedAgentUpdates: {},

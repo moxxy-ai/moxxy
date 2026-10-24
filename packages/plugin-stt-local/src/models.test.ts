@@ -1,58 +1,79 @@
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_MODEL_ID,
-  MODEL_CATALOG,
   findModel,
+  modelBytes,
+  modelDir,
+  modelFiles,
   modelIds,
   requireModel,
 } from './models.js';
 
 describe('MODEL_CATALOG', () => {
-  it('pins tiny/base/small multilingual models with their release URLs + hashes', () => {
-    expect(modelIds()).toEqual(['tiny', 'base', 'small']);
-    for (const m of MODEL_CATALOG) {
-      expect(m.url).toBe(
-        `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-${m.id}.tar.bz2`,
-      );
-      expect(m.archiveRootDir).toBe(`sherpa-onnx-whisper-${m.id}`);
-      expect(m.encoderFile).toBe(`${m.id}-encoder.onnx`);
-      expect(m.decoderFile).toBe(`${m.id}-decoder.onnx`);
-      expect(m.tokensFile).toBe(`${m.id}-tokens.txt`);
-      // 64-hex sha256, lower-case.
-      expect(m.sha256).toMatch(/^[0-9a-f]{64}$/);
-    }
+  const HF = 'https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/resolve/2ca6ff69fc878651b770880507669577ac41c2ff';
+
+  it('pins only Whisper turbo, as its three int8 files on a fixed Hugging Face revision', () => {
+    expect(modelIds()).toEqual(['turbo']);
+    const turbo = findModel('turbo')!;
+    expect(turbo.encoder).toEqual({
+      name: 'turbo-encoder.int8.onnx',
+      url: `${HF}/turbo-encoder.int8.onnx`,
+      bytes: 674_716_297,
+      sha256: 'b02dcdf54f348741e93fe732b67d933c8dcb6735655f710640143081db38878b',
+    });
+    expect(turbo.decoder).toEqual({
+      name: 'turbo-decoder.int8.onnx',
+      url: `${HF}/turbo-decoder.int8.onnx`,
+      bytes: 361_080_764,
+      sha256: '20accd02388482eb3a46bd615631adfdc85e1eb2c7db9ea3f02a40ffe6b81547',
+    });
+    expect(turbo.tokens).toEqual({
+      name: 'turbo-tokens.txt',
+      url: `${HF}/turbo-tokens.txt`,
+      bytes: 816_730,
+      sha256: 'b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126',
+    });
   });
 
-  it('records the scout-verified checksums verbatim', () => {
-    expect(findModel('tiny')!.sha256).toBe(
-      'c46116994e539aa165266d96b325252728429c12535eb9d8b6a2b10f129e66b1',
-    );
-    expect(findModel('base')!.sha256).toBe(
-      '911b2083efd7c0dca2ac3b358b75222660dc09fb716d64fbfc417ba6c99ff3de',
-    );
-    expect(findModel('small')!.sha256).toBe(
-      '486a46afbb7ba798507190ffe02fea2dd726049af212e774537efac6afb210a6',
+  it('lists the files of a model and their total size', () => {
+    const turbo = findModel('turbo')!;
+    expect(modelFiles(turbo).map((file) => file.name)).toEqual([
+      'turbo-encoder.int8.onnx',
+      'turbo-decoder.int8.onnx',
+      'turbo-tokens.txt',
+    ]);
+    expect(modelBytes(turbo)).toBe(674_716_297 + 361_080_764 + 816_730);
+  });
+
+  it('keeps each model in its own directory under the models root', () => {
+    expect(modelDir(findModel('turbo')!, '/home/me/.moxxy/models/stt')).toBe(
+      path.join('/home/me/.moxxy/models/stt', 'turbo'),
     );
   });
 
-  it('defaults to base', () => {
-    expect(DEFAULT_MODEL_ID).toBe('base');
+  it('defaults to turbo', () => {
+    expect(DEFAULT_MODEL_ID).toBe('turbo');
     expect(findModel(DEFAULT_MODEL_ID)).toBeDefined();
   });
 });
 
 describe('requireModel', () => {
   it('returns the catalog entry for a known id', () => {
-    expect(requireModel('small', 'model').id).toBe('small');
+    expect(requireModel('turbo', 'model').id).toBe('turbo');
   });
 
-  it('throws CONFIG_INVALID with the valid ids for an unknown model', () => {
-    expect(() => requireModel('medium', 'model')).toThrow(/Unknown local Whisper model/);
-    try {
-      requireModel('medium', 'model');
-    } catch (err) {
-      expect((err as { code?: string }).code).toBe('CONFIG_INVALID');
-      expect((err as { hint?: string }).hint).toContain('tiny, base, small');
+  it('rejects the removed tiny/base/small models with CONFIG_INVALID naming turbo', () => {
+    for (const removed of ['tiny', 'base', 'small']) {
+      try {
+        requireModel(removed, 'model');
+        expect.unreachable(`${removed} should be rejected`);
+      } catch (err) {
+        expect((err as { code?: string }).code).toBe('CONFIG_INVALID');
+        expect((err as Error).message).toMatch(/Unknown local Whisper model/);
+        expect((err as { hint?: string }).hint).toBe('Valid models: turbo.');
+      }
     }
   });
 });

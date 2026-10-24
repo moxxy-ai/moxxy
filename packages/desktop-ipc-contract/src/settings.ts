@@ -97,6 +97,31 @@ export interface GeminiVoiceInfo {
   readonly description?: string;
 }
 
+/** Where speech is turned into text. Cloud uses the host's ChatGPT login;
+ *  Local runs Whisper turbo on this computer. */
+export type TranscriptionMode = 'cloud' | 'local';
+
+/** How far getting Local ready has come: the model downloading, then local
+ *  Whisper starting in the runner and loading the model. */
+export type TranscriptionSetup =
+  | { readonly phase: 'downloading'; readonly receivedBytes: number; readonly totalBytes: number }
+  | { readonly phase: 'starting' };
+
+export interface TranscriptionSettings {
+  /** Local when local Whisper is the chosen transcriber; Cloud otherwise. */
+  readonly mode: TranscriptionMode;
+  /** The transcriber the runner actually runs, `null` when none. */
+  readonly active: string | null;
+  /** Whisper turbo is on this computer, so choosing Local downloads nothing. */
+  readonly modelReady: boolean;
+  /** The model's download size in bytes. */
+  readonly modelBytes: number;
+  /** Getting Local ready, while it runs in the host; `null` otherwise. */
+  readonly setup: TranscriptionSetup | null;
+  /** Why the last attempt to switch to Local failed; cleared by the next one. */
+  readonly error: string | null;
+}
+
 export interface SkillFile {
   name: string;
   /** True if the file is editable (lives under ~/.moxxy/skills/). */

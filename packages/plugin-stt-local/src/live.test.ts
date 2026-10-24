@@ -14,8 +14,8 @@ import { removeDir } from '@moxxy/vitest-preset/fs';
 const SIDECAR_PATH = fileURLToPath(new URL('../dist/sidecar.js', import.meta.url));
 
 /**
- * Opt-in end-to-end test that REALLY downloads the tiny Whisper model and runs
- * the native sherpa sidecar — off by default (it fetches ~111 MB and needs the
+ * Opt-in end-to-end test that REALLY downloads the turbo Whisper model and runs
+ * the native sherpa sidecar — off by default (it fetches ~1 GB and needs the
  * platform binary). Run manually with:
  *
  *   MOXXY_STT_LOCAL_LIVE=1 pnpm -F @moxxy/plugin-stt-local test
@@ -64,9 +64,9 @@ afterAll(async () => {
 });
 
 describe.skipIf(!LIVE)('local STT (live, real download + native sidecar)', () => {
-  it('downloads the tiny model and transcribes a generated WAV fixture', async () => {
+  it('downloads the turbo model and transcribes a generated WAV fixture', async () => {
     const stt = createLocalWhisperTranscriber({
-      model: 'tiny',
+      model: 'turbo',
       modelsDir,
       sidecarPath: SIDECAR_PATH,
     });

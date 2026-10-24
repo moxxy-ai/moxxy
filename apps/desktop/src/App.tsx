@@ -27,6 +27,7 @@ import { ShellNavProvider } from './shell/navigation/ShellNav';
 import { useShellNavigation } from './shell/navigation/useShellNavigation';
 import { ShellPalette } from './shell/navigation/ShellPalette';
 import { useSections } from './shell/navigation/useSections';
+import type { SectionTarget } from './shell/navigation/places';
 import { Workbench } from './shell/Workbench';
 import { useWorkbench } from './shell/useWorkbench';
 import { showsRuns } from './shell/views';
@@ -52,6 +53,8 @@ import {
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
 import { useAttention } from './attention/useAttention';
+import { Toasts } from './notices/ToastStack';
+import { useAppNotices } from './notices/useAppNotices';
 
 /**
  * Top-level shell. Runner startup is non-blocking: persisted desks/history can
@@ -230,7 +233,16 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
     onSection: sections.show,
     onPane: bench.setTab,
   });
-  const { view, go } = nav;
+  const { view, go, open } = nav;
+  useAppNotices({
+    onOpen: useCallback(
+      (target: SectionTarget) => {
+        open(target);
+        void api().invoke('focus.restoreMain');
+      },
+      [open],
+    ),
+  });
   useAttention({
     desks,
     mainChatId: view === 'chat' ? activeWorkspaceId : null,
@@ -460,6 +472,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
           view so an ask is never invisible (and never double-rendered). */}
       {view !== 'chat' && <GlobalAskFallback workspaceId={activeWorkspaceId} />}
       <WorkflowApprovals modal />
+      <Toasts />
     </div>
     </ShellNavProvider>
   );
