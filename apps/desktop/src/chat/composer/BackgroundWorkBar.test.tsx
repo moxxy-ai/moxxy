@@ -46,6 +46,27 @@ describe('BackgroundWorkBar', () => {
     off();
   });
 
+  it('says when the agent comes back by itself, how soon, and what for, and opens the Agents pane', async () => {
+    __setApiOverride({
+      invoke: async (cmd: string) =>
+        cmd === 'session.info'
+          ? { backgroundWork: [], scheduledWakeups: [{ id: 'c1', prompt: 'Check CI on main', dueAtMs: Date.now() + 5 * 60_000 + 30_000, recurring: false }] }
+          : undefined,
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+    const opened: string[] = [];
+    const off = onAgentWorkFocus((workspaceId) => opened.push(workspaceId));
+    render(<Harness workspaceId="bar-ws-3" />);
+
+    const line = await screen.findByRole('button', { name: /^Back at .+ · in 5 min/ });
+    expect(line).toHaveTextContent('Check CI on main');
+    expect(screen.queryByRole('button', { name: /In the background/ })).toBeNull();
+    fireEvent.click(line);
+
+    expect(opened).toEqual(['bar-ws-3']);
+    off();
+  });
+
   it('is not there while nothing runs in the background', async () => {
     host([]);
     render(<Harness workspaceId="bar-ws-2" />);

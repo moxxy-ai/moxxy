@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
   AgentActivity,
   AgentBackgroundWork,
+  AgentScheduledWakeup,
   AgentTurnStart,
   SubagentNames,
   AppContext,
@@ -728,6 +729,8 @@ export class Session implements ClientSession, SessionRuntime {
    * restarted runner starts with nothing running whatever the log says.
    */
   private runningWork: ReadonlyArray<AgentBackgroundWork> = [];
+  /** When the agent set itself to come back by itself, as it last said; like `runningWork`, gone with the process. */
+  private scheduledWakeups: ReadonlyArray<AgentScheduledWakeup> = [];
   private readonly workListeners = new Set<() => void>();
   /** The agent's helpers between turns, by id, to name them in what they do later. */
   private readonly agentHelpers: SubagentNames = new Map();
@@ -740,6 +743,11 @@ export class Session implements ClientSession, SessionRuntime {
     if (this.closed || activity.sessionId !== String(this.id)) return;
     const provider = this.providers.getActiveName() ?? '';
     for (const event of activity.events) {
+      if (event.type === 'scheduled_wakeups') {
+        this.scheduledWakeups = event.wakeups;
+        for (const listener of [...this.workListeners]) listener();
+        continue;
+      }
       const record = agentActivityRecord(event, provider, this.agentHelpers);
       if (!record) continue;
       await this.log.append({ type: 'plugin_event', sessionId: this.id, turnId: newTurnId(), ...record });
@@ -898,6 +906,7 @@ export class Session implements ClientSession, SessionRuntime {
       fast: this.fast,
       ...(defaultModel !== undefined ? { defaultModel } : {}),
       backgroundWork: this.runningWork,
+      scheduledWakeups: this.scheduledWakeups,
     };
   }
 }

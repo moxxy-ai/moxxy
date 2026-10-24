@@ -10,7 +10,7 @@ import {
   type PluginEvent,
   type UserPromptEvent,
 } from '@moxxy/sdk';
-import { agentWorkFromEvents } from './agent-work.js';
+import { agentWorkFromEvents, wakeupCountdown } from './agent-work.js';
 
 let seq = 0;
 const base = () => {
@@ -139,5 +139,19 @@ describe('agentWorkFromEvents', () => {
     ];
 
     expect(agentWorkFromEvents(events).map((item) => item.id)).toEqual(['b1', 'old']);
+  });
+});
+
+describe('wakeupCountdown', () => {
+  const at = (minutes: number, seconds = 0) => 1_000_000 + minutes * 60_000 + seconds * 1000;
+  it('says how long until the agent comes back, in words every surface uses', () => {
+    expect(wakeupCountdown(at(0, 40), at(0))).toBe('in under a minute');
+    expect(wakeupCountdown(at(3), at(0))).toBe('in 3 min');
+    expect(wakeupCountdown(at(125), at(0))).toBe('in 2 h 5 min');
+    expect(wakeupCountdown(at(60), at(0))).toBe('in 1 h');
+  });
+
+  it('says now once the time has come', () => {
+    expect(wakeupCountdown(at(0), at(0, 10))).toBe('now');
   });
 });

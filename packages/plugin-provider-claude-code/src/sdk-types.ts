@@ -169,6 +169,24 @@ export type ClaudeHookCallback = (
   options: { readonly signal: AbortSignal },
 ) => Promise<ClaudePreToolUseOutput>;
 
+/** A time Claude set itself to come back to the session (ScheduleWakeup, `/loop`, CronCreate). */
+export interface ClaudeSessionCron {
+  readonly id: string;
+  /** A five-field cron expression; a one-shot wakeup's encodes its single fire time. */
+  readonly schedule: string;
+  readonly recurring: boolean;
+  /** What Claude is told when it fires; clipped by Claude at 1000 characters. */
+  readonly prompt: string;
+}
+
+/** Claude's `Stop` hook: it ran the turn to its end. Older Claude sends no `session_crons`. */
+export interface ClaudeStopInput {
+  readonly hook_event_name: 'Stop';
+  readonly session_crons?: ReadonlyArray<ClaudeSessionCron>;
+}
+
+export type ClaudeStopHookCallback = (input: ClaudeStopInput, toolUseID: string | undefined, options: { readonly signal: AbortSignal }) => Promise<Record<string, never>>;
+
 export interface ClaudeQueryOptions {
   readonly cwd: string;
   readonly model?: string;
@@ -189,7 +207,10 @@ export interface ClaudeQueryOptions {
   /** Only the servers in `mcpServers`: none of the person's own, claude.ai connectors included. */
   readonly strictMcpConfig?: boolean;
   readonly canUseTool?: ClaudeCanUseTool;
-  readonly hooks?: { readonly PreToolUse?: ReadonlyArray<{ readonly hooks: ReadonlyArray<ClaudeHookCallback> }> };
+  readonly hooks?: {
+    readonly PreToolUse?: ReadonlyArray<{ readonly hooks: ReadonlyArray<ClaudeHookCallback> }>;
+    readonly Stop?: ReadonlyArray<{ readonly hooks: ReadonlyArray<ClaudeStopHookCallback> }>;
+  };
   readonly env?: Record<string, string | undefined>;
   readonly stderr?: (data: string) => void;
 }

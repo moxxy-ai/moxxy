@@ -658,6 +658,35 @@ describe('turns Claude takes up by itself', () => {
     expect(session.log.ofType('user_prompt').map((p) => p.origin?.kind ?? 'person')).toEqual(['person', 'agent', 'agent', 'person']);
   });
 
+  it('lists when Claude set itself to come back, and names the turn it comes back in a scheduled check-in', async () => {
+    const now = new Date();
+    const thisMinute = `${now.getMinutes()} ${now.getHours()} ${now.getDate()} ${now.getMonth() + 1} *`;
+    const { claude, session } = connect(async function* (turn) {
+      turn.query.crons = [{ id: 'c1', schedule: thisMinute, recurring: false, prompt: '/loop check CI' }];
+      yield assistantText('Will check back.');
+    });
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'check CI in a minute');
+
+    await vi.waitFor(() => expect(session.getInfo().scheduledWakeups).toEqual([{ id: 'c1', prompt: 'check CI', dueAtMs: expect.any(Number), recurring: false }]));
+
+    claude.last.crons = [];
+    claude.last.startOwnTurn({ messages: [assistantText('CI is green.')], scheduled: true });
+    await vi.waitFor(() => expect(said(session.log.ofType('assistant_message'))).toContain('CI is green.'));
+    expect(session.log.ofType('user_prompt').at(-1)?.origin).toEqual({ kind: 'agent', name: 'Scheduled check-in' });
+    await vi.waitFor(() => expect(session.getInfo().scheduledWakeups).toEqual([]));
+  });
+
+  it('lists nothing from a Claude too old to report what it set itself to come back for', async () => {
+    const { session } = connect(async function* (turn) {
+      turn.query.crons = undefined;
+      yield assistantText('ok');
+    });
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'hi');
+    expect(session.getInfo().scheduledWakeups).toEqual([]);
+  });
+
   it('opens the turn when the conversation went to another connection and came back while the helper ran', async () => {
     const { claude, session, pool } = connect(async function* () {
       yield* launchInBackground();

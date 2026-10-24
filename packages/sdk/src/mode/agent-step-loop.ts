@@ -448,6 +448,9 @@ async function runRound(
           if (record) await emit({ ...base, type: 'plugin_event', ...record });
           break;
         }
+        case 'scheduled_wakeups':
+          // What the agent plans now: the session holds it from the agent's activity, the log keeps nothing.
+          break;
         case 'usage':
           usage = usage ? addUsage(usage, event.usage) : event.usage;
           if (!reportsContext) contextTokens = promptTokens(event.usage);

@@ -623,6 +623,21 @@ export interface AgentBackgroundWork {
   readonly label: string;
 }
 
+/**
+ * A time the agent of an agent connection set itself to come back to the
+ * conversation by itself (Claude's ScheduleWakeup, `/loop`, CronCreate).
+ */
+export interface AgentScheduledWakeup {
+  /** The agent's id for it. */
+  readonly id: string;
+  /** What the agent is told when it comes back. */
+  readonly prompt: string;
+  /** When it comes back next (epoch ms); null when it cannot be told. */
+  readonly dueAtMs: number | null;
+  /** Comes back on every match of its schedule, not once. */
+  readonly recurring: boolean;
+}
+
 /** How a background work ended. */
 export type AgentWorkEnd = 'completed' | 'failed' | 'stopped';
 
@@ -678,6 +693,8 @@ export type AgentStepEvent =
     }
   /** Everything the agent runs in the background now; it replaces the list before, so a missed end cannot leave work shown running. */
   | { readonly type: 'background_work'; readonly work: ReadonlyArray<AgentBackgroundWork> }
+  /** Every time the agent set itself to come back; it replaces the list before. Not recorded in the log: it is what is planned now. */
+  | { readonly type: 'scheduled_wakeups'; readonly wakeups: ReadonlyArray<AgentScheduledWakeup> }
   /** One background work ended; `output` is what a command printed last. */
   | {
       readonly type: 'background_work_ended';

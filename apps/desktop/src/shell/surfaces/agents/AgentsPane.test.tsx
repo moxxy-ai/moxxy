@@ -44,6 +44,22 @@ function seed(id: string, events: MoxxyEvent[]): void {
 const server: AgentBackgroundWork = { id: 'b1', kind: 'command', label: 'npm run dev' };
 
 describe('AgentsPane', () => {
+  it('lists when the agent set itself to come back, above what runs, with the time and how soon', async () => {
+    const id = ws();
+    const inFiveMinutes = Date.now() + 5 * 60_000 + 30_000;
+    __setApiOverride({
+      invoke: async (cmd: string) =>
+        cmd === 'session.info' ? { backgroundWork: [], scheduledWakeups: [{ id: 'c1', prompt: 'Check CI on main', dueAtMs: inFiveMinutes, recurring: false }] } : undefined,
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+    render(<AgentsPane workspaceId={id} />);
+
+    const group = await screen.findByRole('group', { name: 'Scheduled' });
+    expect(within(group).getByText('Check CI on main')).toBeTruthy();
+    expect(within(group).getByText(/^Back at .+ · in 5 min$/)).toBeTruthy();
+    expect(screen.queryByText('No background work in this chat yet')).toBeNull();
+  });
+
   it('says there is nothing yet when the agent ran no helper and no background command', () => {
     host([]);
     render(<AgentsPane workspaceId={ws()} />);

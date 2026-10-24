@@ -193,7 +193,8 @@ import type {
  * `session.stopBackgroundWork` stops one of them (additive).
  */
 /** v30: `ProviderInfo.starterModel` names the light model a new conversation starts on while no default is chosen (additive). */
-export const RUNNER_PROTOCOL_VERSION = 30;
+/** v31: `SessionInfo.scheduledWakeups` lists when the agent of an agent connection set itself to come back, pushed by `info.changed` (additive). */
+export const RUNNER_PROTOCOL_VERSION = 31;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is

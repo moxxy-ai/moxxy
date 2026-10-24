@@ -52,6 +52,28 @@ function host(running: ReadonlyArray<AgentBackgroundWork>) {
 }
 
 describe('useAgentWork', () => {
+  it('lists when the agent set itself to come back, soonest first, as the runner says', async () => {
+    const id = ws();
+    const wakeups = [
+      { id: 'late', prompt: 'tidy up', dueAtMs: 9_000, recurring: false },
+      { id: 'soon', prompt: 'check CI', dueAtMs: 5_000, recurring: false },
+      { id: 'unknown', prompt: 'some time', dueAtMs: null, recurring: true },
+    ];
+    __setApiOverride({
+      invoke: async (cmd: string) => (cmd === 'session.info' ? { backgroundWork: [], scheduledWakeups: wakeups } : undefined),
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+    const { result } = renderHook(() => useAgentWork(id));
+    await waitFor(() => expect(result.current.scheduled.map((w) => w.id)).toEqual(['soon', 'late', 'unknown']));
+  });
+
+  it('lists none from a runner that does not say', async () => {
+    const id = ws();
+    host([]);
+    const { result } = renderHook(() => useAgentWork(id));
+    await waitFor(() => expect(result.current.scheduled).toEqual([]));
+  });
+
   it("lists the conversation's background work, and follows what runs now as the runner says", async () => {
     const id = ws();
     const h = host([server]);

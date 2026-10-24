@@ -1,5 +1,5 @@
 import type { CrossProcessFireLock, SkillRegistry } from '@moxxy/sdk';
-import { nextFireTime } from './cron.js';
+import { nextFireTime } from '@moxxy/sdk/cron';
 import type { FiringLock } from './firing-lock.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
 import { syncSkillSchedules } from './skill-sync.js';

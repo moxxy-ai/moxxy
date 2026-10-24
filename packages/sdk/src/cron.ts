@@ -25,7 +25,7 @@
  * matches on EITHER. We follow that convention.
  */
 
-import { assertDefined } from '@moxxy/sdk';
+import { assertDefined } from './assert.js';
 
 interface FieldSpec {
   readonly values: ReadonlySet<number>;

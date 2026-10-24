@@ -58,7 +58,9 @@ export type IconName =
   | 'grid'
   | 'broadcast'
   | 'maximize'
-  | 'minimize';
+  | 'minimize'
+  | 'clock'
+  | 'alert';
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   readonly name: IconName;
@@ -87,6 +89,19 @@ export function Icon({ name, size = 18, ...rest }: IconProps): JSX.Element {
 }
 
 const paths: Record<IconName, JSX.Element> = {
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 1.8" />
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M10.3 4.3 3.2 17a2 2 0 0 0 1.7 3h14.2a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9.5v4" />
+      <path d="M12 16.8h.01" />
+    </>
+  ),
   grid: (
     <>
       <rect x="3.5" y="3.5" width="7" height="7" rx="1.4" />

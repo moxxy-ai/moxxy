@@ -1,20 +1,22 @@
+import type { ReactNode } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import { showInChat, useAgentWork } from '@moxxy/client-core';
 import type { AgentWorkItem } from '@moxxy/chat-model';
-import { STATUS_TEXT, toolLine, workMeta } from './agent-work-view';
+import { STATUS_TEXT, toolLine, wakeupMeta, workMeta } from './agent-work-view';
 import { MarkdownBody } from '../../../chat/MarkdownBody';
 import { useNow } from './useNow';
 import './agents.css';
 
 /**
- * The agent's helpers and background commands of one chat. The list shows
+ * The agent's helpers, background commands and scheduled wakeups of one chat. The list shows
  * what runs now first; picking one opens its mini chat (a helper: its task,
  * what it said and did, its answer) or its output (a command), with Stop
  * while it runs. Nothing here writes to the agent.
  */
 export function AgentsPane({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element {
   const work = useAgentWork(workspaceId);
-  const now = useNow(work.running > 0);
+  // A countdown to a wakeup reads in minutes, so it ticks with the durations of what runs.
+  const now = useNow(work.running > 0 || work.scheduled.length > 0);
   const running = work.items.filter((item) => item.status === 'running');
   const ended = work.items.filter((item) => item.status !== 'running');
   if (work.selected) {
@@ -29,25 +31,57 @@ export function AgentsPane({ workspaceId }: { readonly workspaceId: string | nul
       />
     );
   }
+  const empty = work.items.length === 0 && work.scheduled.length === 0;
   return (
     <section className="agents-pane" aria-label="Background work">
       <header className="agents-pane__header">
         <span>Background work</span>
         {work.running > 0 && <span className="agents-pane__count">{work.running} running</span>}
       </header>
-      {work.items.length === 0 ? (
+      {empty ? (
         <div className="agents-pane__empty">
-          <Icon name="agent" size={28} />
+          <span className="agents-pane__empty-icon" aria-hidden>
+            <Icon name="agent" size={20} />
+          </span>
           <h3>No background work in this chat yet</h3>
-          <p>Helpers the agent starts and commands it leaves running show here, with what they do.</p>
+          <p>Helpers the agent starts, commands it leaves running and times it sets to come back show here.</p>
         </div>
       ) : (
         <div className="agents-pane__body">
+          {work.scheduled.length > 0 && (
+            <WorkGroup title="Scheduled">
+              {work.scheduled.map((wakeup) => (
+                <li key={wakeup.id}>
+                  <div className="agent-work" data-status="scheduled">
+                    <span className="agent-work__tile" aria-hidden>
+                      <Icon name="clock" size={15} />
+                    </span>
+                    <span className="agent-work__text">
+                      <span className="agent-work__label" data-tip={wakeup.prompt}>
+                        {wakeup.prompt}
+                      </span>
+                      <span className="agent-work__meta">{wakeupMeta(wakeup, now)}</span>
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </WorkGroup>
+          )}
           {running.length > 0 && <WorkList title="Running" items={running} now={now} onPick={work.select} />}
           {ended.length > 0 && <WorkList title="Earlier" items={ended} now={now} onPick={work.select} />}
         </div>
       )}
     </section>
+  );
+}
+
+function WorkGroup({ title, children }: { readonly title: string; readonly children: ReactNode }): JSX.Element {
+  const id = `agents-group-${title.toLowerCase()}`;
+  return (
+    <div className="agents-pane__group" role="group" aria-labelledby={id}>
+      <h3 id={id}>{title}</h3>
+      <ul role="list">{children}</ul>
+    </div>
   );
 }
 
@@ -63,23 +97,22 @@ function WorkList({
   readonly onPick: (id: string) => void;
 }): JSX.Element {
   return (
-    <div className="agents-pane__group">
-      <h4>{title}</h4>
-      <ul role="list">
-        {items.map((item) => (
-          <li key={item.id}>
-            <button type="button" className="agent-work" data-status={item.status} onClick={() => onPick(item.id)}>
-              <Icon name={item.kind === 'command' ? 'terminal' : 'agent'} size={14} />
-              <span className="agent-work__text">
-                <span className="agent-work__label">{item.label}</span>
-                <span className="agent-work__meta">{workMeta(item, now)}</span>
-              </span>
-              <span className="agent-work__status">{STATUS_TEXT[item.status]}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <WorkGroup title={title}>
+      {items.map((item) => (
+        <li key={item.id}>
+          <button type="button" className="agent-work" data-status={item.status} onClick={() => onPick(item.id)}>
+            <span className="agent-work__tile" aria-hidden>
+              <Icon name={item.kind === 'command' ? 'terminal' : 'agent'} size={15} />
+            </span>
+            <span className="agent-work__text">
+              <span className="agent-work__label">{item.label}</span>
+              <span className="agent-work__meta">{workMeta(item, now)}</span>
+            </span>
+            <span className="agent-work__status">{STATUS_TEXT[item.status]}</span>
+          </button>
+        </li>
+      ))}
+    </WorkGroup>
   );
 }
 

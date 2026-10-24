@@ -1,4 +1,5 @@
-import { oneLine, summarizeArgs, type AgentWorkItem, type AgentWorkStatus } from '@moxxy/chat-model';
+import type { AgentScheduledWakeup } from '@moxxy/sdk';
+import { oneLine, summarizeArgs, wakeupCountdown, type AgentWorkItem, type AgentWorkStatus } from '@moxxy/chat-model';
 
 /** How a work's state reads in the pane. */
 export const STATUS_TEXT: Readonly<Record<AgentWorkStatus, string>> = {
@@ -28,4 +29,16 @@ function duration(item: AgentWorkItem, nowMs: number): string | null {
 /** A tool call as one short line: what it was given. */
 export function toolLine(input: unknown): string {
   return oneLine(summarizeArgs(input));
+}
+
+/** A time of day as this computer writes it ("22:59"). */
+export function clockTime(ms: number): string {
+  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(ms);
+}
+
+/** One line under a scheduled wakeup: when the agent comes back, and how soon. */
+export function wakeupMeta(wakeup: AgentScheduledWakeup, nowMs: number): string {
+  if (wakeup.dueAtMs === null) return wakeup.recurring ? 'Repeats' : 'Scheduled';
+  const when = `${wakeup.recurring ? 'Next at' : 'Back at'} ${clockTime(wakeup.dueAtMs)}`;
+  return `${when} · ${wakeupCountdown(wakeup.dueAtMs, nowMs)}`;
 }

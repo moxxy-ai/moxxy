@@ -3,7 +3,7 @@ import { assertDefined, createJsonFileStore, type JsonFileStore } from '@moxxy/s
 import { moxxyPath } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
 import { z } from 'zod/v3';
-import { isValidCron } from './cron.js';
+import { isValidCron } from '@moxxy/sdk/cron';
 
 /**
  * Persistent store for scheduled triggers. Single JSON file at

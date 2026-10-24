@@ -69,6 +69,10 @@
       "types": "./dist/agent-work.d.ts",
       "import": "./dist/agent-work.js"
     },
+    "./cron": {
+      "types": "./dist/cron.d.ts",
+      "import": "./dist/cron.js"
+    },
     "./agent-computer-use": {
       "types": "./dist/agent-computer-use.d.ts",
       "import": "./dist/agent-computer-use.js"

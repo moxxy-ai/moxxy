@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import type { AgentBackgroundWork } from '@moxxy/sdk';
+import type { AgentBackgroundWork, AgentScheduledWakeup } from '@moxxy/sdk';
 import { agentWorkFromEvents, type AgentWorkItem } from '@moxxy/chat-model';
 import { api } from './transport.js';
 import { chatStore } from './chatStore.js';
@@ -54,6 +54,8 @@ export interface UseAgentWork {
   readonly items: ReadonlyArray<AgentWorkItem>;
   /** How many of them run now. */
   readonly running: number;
+  /** When the agent set itself to come back by itself, soonest first. */
+  readonly scheduled: ReadonlyArray<AgentScheduledWakeup>;
   readonly selected: AgentWorkItem | null;
   readonly select: (workId: string | null) => void;
   /** Work a Stop was asked for that has not ended yet. */
@@ -71,10 +73,11 @@ export interface UseAgentWork {
 export function useAgentWork(workspaceId: string | null): UseAgentWork {
   const events = useSyncExternalStore(chatStore.subscribe, () => (workspaceId ? chatStore.getChat(workspaceId).events : null));
   const pickedId = useSyncExternalStore(pickedListeners.subscribe, () => (workspaceId ? (picked.get(workspaceId) ?? null) : null));
-  const [runningNow, setRunningNow] = useState<{ readonly workspaceId: string | null; readonly work: ReadonlyArray<AgentBackgroundWork> | undefined }>({
-    workspaceId: null,
-    work: undefined,
-  });
+  const [runningNow, setRunningNow] = useState<{
+    readonly workspaceId: string | null;
+    readonly work: ReadonlyArray<AgentBackgroundWork> | undefined;
+    readonly wakeups: ReadonlyArray<AgentScheduledWakeup>;
+  }>({ workspaceId: null, work: undefined, wakeups: [] });
   const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
@@ -84,7 +87,7 @@ export function useAgentWork(workspaceId: string | null): UseAgentWork {
       void api()
         .invoke('session.info', { workspaceId })
         .then((info) => {
-          if (live) setRunningNow({ workspaceId, work: info?.backgroundWork });
+          if (live) setRunningNow({ workspaceId, work: info?.backgroundWork, wakeups: info?.scheduledWakeups ?? [] });
         })
         .catch(() => undefined);
     };
@@ -101,6 +104,10 @@ export function useAgentWork(workspaceId: string | null): UseAgentWork {
   const items = useMemo(
     () => agentWorkFromEvents(events ?? [], runningNow.workspaceId === workspaceId ? runningNow.work : undefined),
     [events, runningNow, workspaceId],
+  );
+  const scheduled = useMemo(
+    () => (runningNow.workspaceId === workspaceId ? [...runningNow.wakeups].sort(soonestFirst) : []),
+    [runningNow, workspaceId],
   );
   const stopping = useMemo(() => {
     const live = new Set(items.filter((item) => item.status === 'running').map((item) => item.id));
@@ -136,9 +143,15 @@ export function useAgentWork(workspaceId: string | null): UseAgentWork {
   return {
     items,
     running: items.filter((item) => item.status === 'running').length,
+    scheduled,
     selected: items.find((item) => item.id === pickedId) ?? null,
     select,
     stopping,
     stop,
   };
+}
+
+/** A wakeup with no known time goes last. */
+function soonestFirst(a: AgentScheduledWakeup, b: AgentScheduledWakeup): number {
+  return (a.dueAtMs ?? Number.POSITIVE_INFINITY) - (b.dueAtMs ?? Number.POSITIVE_INFINITY);
 }

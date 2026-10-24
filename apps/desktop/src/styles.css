@@ -3325,14 +3325,24 @@ button.trigger__chip { text-align: left; cursor: pointer; }
 }
 .agent-cli-bar__close { margin-left: auto; flex-shrink: 0; }
 
-/* What the agent runs in the background, above the message box; opens the Agents pane. */
-.background-work-bar {
+/* What the agent runs in the background and when it comes back by itself, above the message box,
+ * drawn as the steps bar beside it is: the lead in the text colour, the rest muted. Each line opens
+ * the Agents pane. The running dot breathes the way the mark does (opacity only), and holds still
+ * under reduced motion. */
+.background-work {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+}
+.background-work__line {
   display: flex;
   align-items: center;
-  gap: var(--space-6);
+  gap: var(--space-8);
   min-width: 0;
   max-width: 100%;
-  padding: 0 var(--space-4);
+  min-height: 18px;
+  padding: 0;
   border: 0;
   background: none;
   color: var(--color-text-muted);
@@ -3340,21 +3350,33 @@ button.trigger__chip { text-align: left; cursor: pointer; }
   font-size: var(--type-label);
   text-align: left;
   cursor: pointer;
+  transition: color var(--motion-shift) ease;
 }
-.background-work-bar:hover { color: var(--color-text); }
-.background-work-bar__pulse {
+@media (hover: hover) and (pointer: fine) {
+  .background-work__line:hover { color: var(--color-text); filter: none; }
+  .background-work__line:hover .background-work__chevron { opacity: 1; }
+}
+.background-work__dot {
   flex-shrink: 0;
   width: 6px;
   height: 6px;
+  margin: 0 3px;
   border-radius: 50%;
-  background: var(--color-primary-strong);
-  animation: moxxy-thinking 1.1s ease-in-out infinite;
+  background: var(--color-primary);
+  animation: moxxy-breathe 2.4s ease-in-out infinite;
 }
-.background-work-bar__lead { flex-shrink: 0; font-weight: 600; }
+.background-work__icon { flex-shrink: 0; color: var(--color-primary-strong); }
+.background-work__lead { flex-shrink: 0; color: var(--color-text); font-variant-numeric: tabular-nums; }
+.background-work__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.background-work__more { flex-shrink: 0; color: var(--color-text-dim); font-variant-numeric: tabular-nums; }
+.background-work__chevron { flex-shrink: 0; opacity: 0.5; transition: opacity var(--motion-shift) ease; }
+@keyframes moxxy-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .background-work-bar__pulse { animation: none; }
+  .background-work__dot { animation: none; }
 }
-.background-work-bar__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The agents of a fan-out, one row each. */
 .agent-row { display: flex; flex-direction: column; min-width: 0; }
@@ -4533,8 +4555,12 @@ button.trigger__chip { text-align: left; cursor: pointer; }
   font-weight: 600;
 }
 .update-banner__dismiss {
-  padding: var(--space-2) var(--space-6);
-  font-size: var(--type-row);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-block);
   color: var(--color-text-dim);
   background: transparent;
   border: none;
@@ -4609,10 +4635,15 @@ button.toast__open { cursor: pointer; }
   font-size: var(--type-meta);
   color: var(--color-text-muted);
 }
+/* The close control is an icon on a 24 px target, as in the CLI bar. */
 .toast__dismiss {
   flex-shrink: 0;
-  padding: var(--space-2) var(--space-6);
-  font-size: var(--type-row);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-block);
   color: var(--color-text-dim);
   background: transparent;
   border: none;

@@ -5,6 +5,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
+import { Icon } from '@moxxy/desktop-ui';
 import { dismissToast, getToasts, subscribeToasts, type Toast } from './toast-store';
 
 export function ToastStack({
@@ -41,7 +42,7 @@ export function ToastStack({
               <span className="toast__open">{words}</span>
             )}
             <button type="button" aria-label="Dismiss" className="toast__dismiss" onClick={() => onDismiss(toast.id)}>
-              ✕
+              <Icon name="x" size={12} />
             </button>
           </div>
         );

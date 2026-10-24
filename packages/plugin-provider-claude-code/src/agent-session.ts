@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type { AgentStepEvent, AgentStepHost, AgentStepRequest, AgentToolCall, AgentToolOutcome, Skill, ToolDef } from '@moxxy/sdk';
+import type { AgentScheduledWakeup, AgentStepEvent, AgentStepHost, AgentStepRequest, AgentToolCall, AgentToolOutcome, Skill, ToolDef } from '@moxxy/sdk';
 import {
   Inbox,
   agentModeFor,
@@ -31,6 +31,7 @@ import type {
   ClaudeQuery,
   ClaudeUserContent,
   ClaudeUserMessage,
+  ClaudeStopInput,
 } from './sdk-types.js';
 import {
   MOXXY_MCP_SERVER,
@@ -44,6 +45,7 @@ import {
 import { ClaudeBackgroundWork } from './background-work.js';
 import { ClaudeSubagents } from './subagents.js';
 import { ClaudeTaskList } from './task-list.js';
+import { dueWakeup, wakeupsOf } from './scheduled-wakeups.js';
 
 export interface ClaudeSessionSettings {
   readonly sdk: ClaudeAgentSdk;
@@ -174,6 +176,8 @@ export class ClaudeAgentSession implements LiveSession {
   private owesResult = false;
   /** Claude took up a turn by itself and no Moxxy turn has read it yet. */
   private agentTurnPending = false;
+  /** When Claude set itself to come back, as its last `Stop` said. */
+  private wakeups: AgentScheduledWakeup[] = [];
   /** Claude's tasks by id, named as they started, to say which one finished. */
   private readonly taskNames = new Map<string, string>();
   /** The task whose end Claude takes up next, once it finished in the background. */
@@ -240,7 +244,10 @@ export class ClaudeAgentSession implements LiveSession {
         ...(settings.resume ? { resume: settings.resume } : {}),
         mcpServers: { [MOXXY_MCP_SERVER]: { type: 'http', url: mcp.url, headers: { Authorization: mcp.authorization } } },
         canUseTool: (name, input, options) => this.onCanUseTool(name, input, options),
-        hooks: { PreToolUse: [{ hooks: [async (input) => this.onPreToolUse(input.tool_name, input.tool_input, input.tool_use_id, input.agent_id !== undefined)] }] },
+        hooks: {
+          PreToolUse: [{ hooks: [async (input) => this.onPreToolUse(input.tool_name, input.tool_input, input.tool_use_id, input.agent_id !== undefined)] }],
+          Stop: [{ hooks: [async (input) => this.onStop(input)] }],
+        },
         env: claudeEnv(),
         stderr: (data) => {
           this.stderr = (this.stderr + data).slice(-MAX_STDERR);
@@ -592,6 +599,19 @@ export class ClaudeAgentSession implements LiveSession {
     );
   }
 
+  /** Claude ended a turn: what it set itself to come back for is said again, whenever it changed. */
+  private async onStop(input: ClaudeStopInput): Promise<Record<string, never>> {
+    // An older Claude does not say; nothing is listed rather than a guess.
+    if (input.session_crons) this.setWakeups(wakeupsOf(input.session_crons, Date.now()));
+    return {};
+  }
+
+  private setWakeups(wakeups: AgentScheduledWakeup[]): void {
+    if (JSON.stringify(wakeups) === JSON.stringify(this.wakeups)) return;
+    this.wakeups = wakeups;
+    this.report([{ type: 'scheduled_wakeups', wakeups }]);
+  }
+
   private onPreToolUse(name: string, input: unknown, callId: string, inSubagent: boolean): Promise<ClaudePreToolUseOutput> {
     if (name.startsWith(MOXXY_TOOL_PREFIX)) return Promise.resolve({});
     if (!this.inTurn) return this.checkRulesBetweenTurns(name, input, callId);
@@ -627,7 +647,10 @@ export class ClaudeAgentSession implements LiveSession {
     if (!this.inTurn && isBackgroundHelperNote(message)) this.report(this.between.translate(message));
     if (this.closed || this.inTurn || this.owesResult || this.agentTurnPending || !isInit(message)) return;
     this.agentTurnPending = true;
-    const name = this.finishedTask ? `${this.finishedTask} finished in the background` : 'A background task finished';
+    const due = this.finishedTask ? undefined : dueWakeup(this.wakeups, Date.now());
+    // A one-shot wakeup is spent once Claude comes back for it; its Stop says what is left.
+    if (due && !due.recurring) this.setWakeups(this.wakeups.filter((wakeup) => wakeup !== due));
+    const name = this.finishedTask ? `${this.finishedTask} finished in the background` : due ? 'Scheduled check-in' : 'A background task finished';
     this.settings.onAgentTurn?.(name, this.finishedWork);
   }
 

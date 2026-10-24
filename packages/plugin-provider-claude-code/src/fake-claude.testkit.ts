@@ -15,6 +15,7 @@ import type {
   ClaudePermissionMode,
   ClaudePermissionResult,
   ClaudePreToolUseOutput,
+  ClaudeSessionCron,
   ClaudeQuery,
   ClaudeQueryOptions,
   ClaudeResolvedSettings,
@@ -186,12 +187,16 @@ export class FakeQuery implements ClaudeQuery {
           }
           yield* this.statuses.splice(0);
           if (next.done) break;
-          if (next.value.type === 'result') ended = true;
+          if (next.value.type === 'result') {
+            ended = true;
+            await this.stopHooks();
+          }
           yield next.value;
         }
         if (this.stop.signal.aborted) {
           yield this.result('error_during_execution', true);
         } else if (!ended) {
+          await this.stopHooks();
           yield this.result('success', false);
         }
       }
@@ -222,13 +227,25 @@ export class FakeQuery implements ClaudeQuery {
     this.startOwnTurn({ background: messages, messages: [], noTurn: true });
   }
 
-  private *ownTurn(): Generator<ClaudeMessage> {
+  /** What Claude has set itself to come back for, as its `Stop` hook reports at the end of every turn. */
+  crons: ReadonlyArray<ClaudeSessionCron> | undefined = [];
+
+  private async stopHooks(): Promise<void> {
+    for (const matcher of this.options.hooks?.Stop ?? []) {
+      for (const hook of matcher.hooks) {
+        await hook({ hook_event_name: 'Stop', ...(this.crons ? { session_crons: this.crons } : {}) }, undefined, { signal: this.stop.signal });
+      }
+    }
+  }
+
+  private async *ownTurn(): AsyncGenerator<ClaudeMessage> {
     const turn = this.ownTurns.shift();
     if (!turn) return;
     yield* turn.background ?? [];
     if (turn.noTurn) return;
     yield { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.options.model } as ClaudeMessage;
     yield* turn.messages;
+    await this.stopHooks();
     yield this.result('success', false, turn.scheduled ? { origin: undefined } : { origin: { kind: 'task-notification', producer: 'session-task' } });
   }
 

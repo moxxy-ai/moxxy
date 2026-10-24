@@ -263,6 +263,7 @@ export type {
   AgentTurnStart,
   AgentActivity,
   AgentBackgroundWork,
+  AgentScheduledWakeup,
   AgentWorkEnd,
   AgentStepEvent,
   AgentGoalStatus,

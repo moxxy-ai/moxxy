@@ -191,3 +191,13 @@ function draft(items: Map<string, Draft>, id: string, kind: Draft['kind'], label
 function text(value: unknown): string | null {
   return typeof value === 'string' && value ? value : null;
 }
+
+/** How long until the agent comes back by itself ("in 3 min"), said the same on every surface. */
+export function wakeupCountdown(dueAtMs: number, nowMs: number): string {
+  const minutes = Math.floor((dueAtMs - nowMs) / 60_000);
+  if (dueAtMs <= nowMs) return 'now';
+  if (minutes < 1) return 'in under a minute';
+  if (minutes < 60) return `in ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 === 0 ? `in ${hours} h` : `in ${hours} h ${minutes % 60} min`;
+}

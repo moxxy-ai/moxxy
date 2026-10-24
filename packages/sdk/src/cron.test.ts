@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertDefined } from '@moxxy/sdk';
+import { assertDefined } from './assert.js';
 import { isValidCron, isValidTimeZone, nextFireTime, parseCron } from './cron.js';
 
 describe('parseCron', () => {

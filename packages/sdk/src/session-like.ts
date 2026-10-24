@@ -5,7 +5,7 @@ import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { SessionQuestions } from './question.js';
 import type { PermissionResolver } from './permission.js';
-import type { AgentBackgroundWork, AgentCliReport, ModelDescriptor, ProviderKeyValidation, ReasoningEffort } from './provider.js';
+import type { AgentBackgroundWork, AgentScheduledWakeup, AgentCliReport, ModelDescriptor, ProviderKeyValidation, ReasoningEffort } from './provider.js';
 import type { PluginSetupSpec } from './schemas.js';
 import type { ToolIcon } from './tool-icon.js';
 import type { ToolCompactPresentation } from './tool.js';
@@ -185,6 +185,8 @@ export interface SessionInfo {
   readonly runningTurns?: ReadonlyArray<string>;
   /** What the conversation's agent runs in the background now; absent from runners that predate it. */
   readonly backgroundWork?: ReadonlyArray<AgentBackgroundWork>;
+  /** When the conversation's agent set itself to come back by itself; absent from runners that predate it. */
+  readonly scheduledWakeups?: ReadonlyArray<AgentScheduledWakeup>;
 }
 
 /**
