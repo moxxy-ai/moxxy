@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineTool, openQuestionsFromEvents, type QuestionItem, type QuestionOutcome } from '@moxxy/sdk';
 import { Session } from '../session.js';
 import { EventLog } from '../events/log.js';

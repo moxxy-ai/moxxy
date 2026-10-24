@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile, link, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type {
   PendingToolCall,
   PermissionDecision,

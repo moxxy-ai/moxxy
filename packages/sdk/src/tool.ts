@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import type { z } from 'zod/v3';
 import type { EventLogReader } from './log.js';
 import type { ToolIcon } from './tool-icon.js';
 import type { PermissionRule } from './permission.js';

@@ -772,5 +772,5 @@ export {
   type InstallTarget,
 } from './install-hints.js';
 
-export { z } from 'zod';
+export { z } from 'zod/v3';
 export { workflowApprovalItemSchema, workflowApprovalItemsSchema } from './workflow-approval.js';

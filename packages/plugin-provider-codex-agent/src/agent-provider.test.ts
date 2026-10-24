@@ -4,7 +4,7 @@
  * boundary (fake-codex.testkit.ts). Nothing between them is replaced.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   AGENT_CONNECTION_PLUGIN_ID,
   AGENT_GOAL_SUBTYPE,

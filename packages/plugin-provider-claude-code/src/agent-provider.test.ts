@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   AGENT_CONNECTION_PLUGIN_ID,
   AGENT_GOAL_SUBTYPE,

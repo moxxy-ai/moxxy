@@ -4,7 +4,7 @@
  * because the loop that implements it is tested in mode-default.
  */
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineTool, type AgentStepHost, type AgentToolCall } from '@moxxy/sdk';
 import { idleToolsHandler, mcpToolsFrom, moxxyToolsHandler, sameToolNames, toMcpResult, withoutOwnMcpServers } from './moxxy-tools.js';
 

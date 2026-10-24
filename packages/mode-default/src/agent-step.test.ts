@@ -7,7 +7,7 @@
  * session, the mode and the loop are real.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   AGENT_ACCOUNT_LIMIT_SUBTYPE,
   AGENT_CONNECTION_PLUGIN_ID,

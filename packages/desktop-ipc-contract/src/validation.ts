@@ -9,7 +9,7 @@
  * already-defended-in-depth commands are intentionally absent.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';

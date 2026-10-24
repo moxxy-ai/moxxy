@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineMode, definePlugin, defineTool, runReactLoop, type ProviderEvent } from '@moxxy/sdk';
 import { collectTurn } from '@moxxy/core';
 import { FakeAgentProvider, FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';

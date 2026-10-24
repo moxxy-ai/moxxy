@@ -45,8 +45,7 @@ import { FakeProvider, toolUseReply, textReply, createFakeSession } from '@moxxy
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { collectTurn } from '@moxxy/core';
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
-import { defineTool } from '@moxxy/sdk';
+import { defineTool, z } from '@moxxy/sdk';
 
 it('reproduces #N', async () => {
   const provider = new FakeProvider({

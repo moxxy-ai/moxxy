@@ -4,7 +4,7 @@
  * descriptions do not ride along in every request.
  */
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineTool, type AgentStepHost, type AgentToolCall, type Skill } from '@moxxy/sdk';
 import { idleToolsHandler, moxxyToolsHandler } from './moxxy-tools.js';
 

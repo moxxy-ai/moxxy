@@ -7,7 +7,7 @@
  */
 
 import { defineTool, type ToolDef, type ToolIsolationSpec } from '@moxxy/sdk';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getProcessHubClient } from './process-client.js';
 
 /** The modes a collaboration's own agents run in (set via MOXXY_MODE by the coordinator). */

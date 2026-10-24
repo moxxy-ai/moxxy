@@ -1,5 +1,5 @@
 import type { EventLogReader } from '@moxxy/sdk';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { clipboardFlagsFor, isSystemKeyCombo, parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError } from '../contract/outcome.js';
 import type { ComputerAction } from '../contract/tools.js';

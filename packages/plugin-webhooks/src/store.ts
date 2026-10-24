@@ -2,7 +2,7 @@ import { rename } from 'node:fs/promises';
 import { assertDefined, createJsonFileStore, type JsonFileStore } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /**
  * Persistent store for webhook triggers. Single JSON file at

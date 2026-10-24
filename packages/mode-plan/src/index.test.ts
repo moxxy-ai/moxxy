@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineTool } from '@moxxy/sdk';
 import { collectTurn } from '@moxxy/core';
 import { createFakeSession, FakeAgentProvider, FakeProvider, textReply, toolUseReply } from '@moxxy/testing';

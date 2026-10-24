@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { MoxxyEvent } from './events.js';
 import { asPluginId, type TurnId } from './ids.js';
 import type { QuestionAnswerDisplay } from './tool-display.js';

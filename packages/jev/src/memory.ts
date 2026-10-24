@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createMutex } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { AppElement, AppTree } from './tree.js';
 import { pointsAtFocus } from './words.js';
 

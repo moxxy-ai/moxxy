@@ -21,7 +21,7 @@
 
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { gfmFromMarkdown } from 'mdast-util-gfm';
 import { gfm } from 'micromark-extension-gfm';

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { VoiceCallPhase, VoiceToolActivity } from '@moxxy/client-core';
 
 export const DESKTOP_VOICE_CALL_CHANNEL = 'moxxy.desktop.voice-call.v1';

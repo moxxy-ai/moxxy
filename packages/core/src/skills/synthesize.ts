@@ -11,7 +11,7 @@ import {
   type TurnId,
   matchLoadableTools,
 } from '@moxxy/sdk';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defaultProjectSkillsDir, defaultUserSkillsDir } from './loader.js';
 import { draftSkill } from './synthesize-draft.js';
 import type { Session } from '../session.js';

@@ -53,8 +53,7 @@ anything the sugar doesn't cover.
 ### Tools
 
 ```ts
-import { defineTool } from '@moxxy/sdk';
-import { z } from 'zod';
+import { defineTool, z } from '@moxxy/sdk';
 
 const { ask, addTool } = setupAgent({ plugins: [defaultMode, openai], provider: { name: 'openai' } });
 

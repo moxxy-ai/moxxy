@@ -7,7 +7,7 @@ import {
   workflowResumeParamsSchema,
 } from '../protocol.js';
 import type { HandlerContext } from './context.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 const approvalCommandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list') }).strict(),

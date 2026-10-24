@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { TOOL_ICONS, isToolIcon } from './tool-icon.js';
 import { defineTool } from './define.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 describe('tool icons', () => {
   it('is a closed vocabulary, so a surface can map it exhaustively', () => {

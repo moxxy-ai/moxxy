@@ -4,7 +4,7 @@
  * boundary (fake-opencode.testkit.ts). Nothing between them is replaced.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { AGENT_CONNECTION_PLUGIN_ID, AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents, definePlugin, defineTool, type MoxxyEvent, type PermissionResolver, type Skill, type ToolDef } from '@moxxy/sdk';
 import { buildSynthesizeSkillPlugin, collectTurn, newTurnId, type Session } from '@moxxy/core';
 import { FakeProvider, addFakeProvider, createFakeSession, textReply } from '@moxxy/testing';

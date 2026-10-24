@@ -17,7 +17,7 @@ import type { SynthesizerDef } from './synthesizer.js';
 import type { ViewRendererDef } from './view-renderer.js';
 import type { TunnelProviderDef } from './tunnel.js';
 import type { WorkflowExecutorDef } from './workflow.js';
-import type { z } from 'zod';
+import type { z } from 'zod/v3';
 
 export function definePlugin(spec: PluginSpec): Plugin {
   // Spread spec first so the defaults below can't be clobbered by an

@@ -1,5 +1,5 @@
 import { computerCursorSchema } from '@moxxy/sdk';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { actionResultSchema } from '../contract/outcome.js';
 import { appTreeSchema } from '@moxxy/jev';
 

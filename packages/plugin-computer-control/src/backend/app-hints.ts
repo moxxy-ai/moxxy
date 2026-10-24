@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseFrontmatterFile } from '@moxxy/sdk';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** What the model should know about one family of apps before it drives them. */
 export interface AppHint {

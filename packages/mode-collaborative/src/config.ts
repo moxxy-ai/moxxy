@@ -5,7 +5,7 @@
  * extended without touching the loop.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 export interface CollabConfig {
   /** Hard cap on implementer agents (architect is extra). */

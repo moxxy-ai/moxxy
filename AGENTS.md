@@ -171,6 +171,7 @@ requirement automatically.
 ### Don't
 
 - **Don't add a dependency without justification.** The framework is intended to be light. Built-ins use only Node stdlib + `zod` + `ulid` + `jiti`. Plugin authors can add their own — but core/SDK stays minimal.
+- **Don't import bare `'zod'`.** The catalog is zod 4, but Moxxy's schemas are zod 3 ones: import from `'zod/v3'` or use `z` from `@moxxy/sdk`. `zodToJsonSchema` reads zod 3 internals, so a zod 4 schema reaches the model with no fields. Lint enforces it (`no-restricted-imports` in `eslint.config.js`).
 - **Don't import from `@moxxy/core` inside `@moxxy/sdk` or any plugin that contributes to the loop runtime** (loops, compactors, providers without UI). Channels are the exception.
 - **Don't mutate the event log.** Append-only. Compaction adds a `compaction` event with `replacedRange`; selectors honor it. Selectors must stay pure folds.
 - **Don't introduce features that need importing a plugin from core.** Use lifecycle hooks, or pass services via closure (see `buildSynthesizeSkillPlugin(session)` for the pattern).
