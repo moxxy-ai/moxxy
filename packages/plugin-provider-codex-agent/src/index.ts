@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
 import { CODEX_CLI, checkAgentCli } from '@moxxy/agent-connection-kit';
 import { CODEX_AGENT_NAME, CODEX_AGENT_PROVIDER_ID, CODEX_SERVICE_NAME } from './constants.js';
-import { codexAgentModels, codexSessions, createCodexAgentClient, type CodexAgentProviderConfig } from './agent-provider.js';
+import { CODEX_AGENT_STARTER_MODEL, codexAgentModels, codexSessions, createCodexAgentClient, type CodexAgentProviderConfig } from './agent-provider.js';
 import { codexTarget, spawnCodexAppServer } from './executable.js';
 import { codexOwnAutoApprove } from './own-settings.js';
 import { codexOfferedModels } from './offered-models.js';
@@ -12,6 +12,7 @@ export const codexAgentProviderDef = defineProvider({
   name: CODEX_AGENT_PROVIDER_ID,
   agentName: CODEX_AGENT_NAME,
   models: codexAgentModels,
+  starterModel: CODEX_AGENT_STARTER_MODEL,
   agentCli: {
     check: (opts) => {
       const command = resolveCodexExecutable();
@@ -77,6 +78,7 @@ function providerConfigFrom(config: Readonly<Record<string, unknown>>): CodexAge
 export { CODEX_AGENT_PROVIDER_ID, CODEX_SERVICE_NAME, CODEX_EXECUTABLE_ENV } from './constants.js';
 export {
   CODEX_AGENT_DEFAULT_MODEL,
+  CODEX_AGENT_STARTER_MODEL,
   CodexAgentProvider,
   codexAgentModels,
   codexSessions,

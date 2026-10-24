@@ -19,6 +19,8 @@ import type { ClaudeAgentSdk, ClaudeEffort, ClaudePermissionMode } from './sdk-t
 import { toTokenUsage } from './translate.js';
 
 export const CLAUDE_CODE_DEFAULT_MODEL = 'claude-sonnet-5-5';
+/** What a new conversation starts on while the person chose no default: light, so it spares their plan. */
+export const CLAUDE_CODE_STARTER_MODEL = 'claude-haiku-5-5';
 const NON_TEXT_BLOCK_TOKENS = 256;
 const MAX_LIVE_CLAUDE_SESSIONS = 8;
 
@@ -74,6 +76,7 @@ export class ClaudeAgentProvider implements LLMProvider {
   /** Its own plan mode and goal: Moxxy shows the plan and ends the goal when the agent says so. */
   readonly agentOwns = { plan: true, goal: true } as const;
   readonly models = claudeCodeModels;
+  readonly starterModel = CLAUDE_CODE_STARTER_MODEL;
   private readonly defaultModel: string;
   private readonly loadSdk: () => Promise<ClaudeAgentSdk>;
 

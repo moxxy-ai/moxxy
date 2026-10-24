@@ -194,9 +194,10 @@ describe('runTurn turnId filtering', () => {
   });
 
   describe('the model a turn runs on when it names none', () => {
-    const models = [{ id: 'noop-first' }, { id: 'noop-chosen' }, { id: 'noop-last' }];
+    const models = [{ id: 'noop-first' }, { id: 'noop-chosen' }, { id: 'noop-last' }, { id: 'noop-small' }];
     const otherModels = [{ id: 'other-first' }, { id: 'other-chosen' }];
-    const modelEcho = (): Session => {
+    const modelEcho = (starterModel?: string): Session => {
+      const starter = starterModel ? { starterModel } : {};
       const session = new Session({ cwd: '/tmp', silent: true });
       session.pluginHost.registerStatic(
         definePlugin({
@@ -206,7 +207,8 @@ describe('runTurn turnId filtering', () => {
             defineProvider({
               name: 'noop',
               models,
-              createClient: () => ({ name: 'noop', models, stream: async function* () {}, countTokens: async () => 0 }),
+              ...starter,
+              createClient: () => ({ name: 'noop', models, ...starter, stream: async function* () {}, countTokens: async () => 0 }),
             }),
             defineProvider({
               name: 'other',
@@ -280,6 +282,52 @@ describe('runTurn turnId filtering', () => {
 
       expect(session.getInfo().defaultModel).toBe('noop-first');
       expect(await ranOn(session)).toMatchObject({ text: 'noop-first' });
+    });
+
+    it("is the provider's starter model when no default is set, not the first it lists", async () => {
+      const session = modelEcho('noop-small');
+
+      expect(session.getInfo().defaultModel).toBe('noop-small');
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-small' });
+    });
+
+    it('gives the starter model way to the default the person set and to the model the conversation ran on', async () => {
+      const session = modelEcho('noop-small');
+      session.defaultModels = { noop: 'noop-chosen' };
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-chosen' });
+
+      session.lastResolvedModel = 'noop-last';
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-last' });
+    });
+
+    it("tells every surface each provider's starter model, also for a provider that is not active", () => {
+      const session = modelEcho('noop-small');
+      session.providers.setActive('other');
+
+      const providers = session.getInfo().providers;
+      expect(providers.find((p) => p.name === 'noop')?.starterModel).toBe('noop-small');
+      expect(providers.find((p) => p.name === 'other')).not.toHaveProperty('starterModel');
+    });
+
+    it('is the first model when the starter model is not among those the provider lists', async () => {
+      const session = modelEcho('noop-retired');
+
+      expect(session.getInfo().defaultModel).toBe('noop-first');
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-first' });
+    });
+
+    it('reports the starter model while the provider is replaced and not built again yet', () => {
+      const session = modelEcho();
+      session.providers.replace(
+        defineProvider({
+          name: 'noop',
+          models,
+          starterModel: 'noop-small',
+          createClient: () => ({ name: 'noop', models, stream: async function* () {}, countTokens: async () => 0 }),
+        }),
+      );
+
+      expect(session.getInfo().defaultModel).toBe('noop-small');
     });
 
     it('is not reported while no provider is active', () => {

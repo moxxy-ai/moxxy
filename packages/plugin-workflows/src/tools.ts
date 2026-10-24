@@ -3,6 +3,7 @@ import {
   assertDefined,
   defineTool,
   MoxxyError,
+  startingModel,
   z,
   type EmittedEvent,
   type LLMProvider,
@@ -161,9 +162,10 @@ function createTool(deps: WorkflowToolDeps): ToolDef {
       if (!provider) {
         throw new MoxxyError({ code: 'PROVIDER_NOT_CONFIGURED', message: 'workflow_create: no active provider to draft with.' });
       }
-      // 'default' matches run-turn's terminal fallback — never a hardcoded
-      // vendor model id that goes stale.
-      const model = deps.draftModel ?? provider.models[0]?.id ?? 'default';
+      // The provider's light starter model, like a new conversation's: drafting
+      // a short YAML needs no flagship. 'default' matches run-turn's terminal
+      // fallback — never a hardcoded vendor model id that goes stale.
+      const model = deps.draftModel ?? startingModel(provider) ?? 'default';
       const drafted = await draftWorkflow(provider, model, intent, ctx.signal, {
         ...(deps.listSkills ? { availableSkills: deps.listSkills() } : {}),
         ...(deps.listTools ? { availableTools: deps.listTools() } : {}),

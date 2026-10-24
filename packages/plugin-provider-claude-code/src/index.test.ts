@@ -26,6 +26,19 @@ describe('the Claude plugin', () => {
     await session.close();
   });
 
+  it('starts a new conversation on Haiku 5.5 while the person chose no default model', async () => {
+    const { claudeCodeProviderDef } = await import('./index.js');
+    const provider = new ClaudeAgentProvider({
+      executable: '/usr/local/bin/claude',
+      loadSdk: async () => new FakeClaude(async function* () {}),
+    });
+    const session = createFakeSession({ provider, plugins: [defaultModePlugin] });
+
+    expect(session.getInfo().defaultModel).toBe('claude-haiku-5-5');
+    expect(claudeCodeProviderDef.starterModel).toBe('claude-haiku-5-5');
+    await session.close();
+  });
+
   it("lists the models the person's Claude offers, and still knows Haiku 5.5 when Claude is not asked", async () => {
     const { claudeCodeProviderDef, claudeCodeModels } = await import('./index.js');
 

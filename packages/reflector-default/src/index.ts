@@ -10,6 +10,7 @@ import {
   type ReflectionProposal,
   type ReflectorDef,
   type SessionId,
+  startingModel,
 } from '@moxxy/sdk';
 
 /**
@@ -265,7 +266,7 @@ export const reflectorDefaultDef: ReflectorDef = {
     if (!digest) return [];
 
     const req: ProviderRequest = {
-      model: provider.models[0]?.id ?? 'unknown',
+      model: startingModel(provider) ?? 'unknown',
       system: REFLECT_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: [{ type: 'text', text: digest }] }],
       maxTokens: REFLECT_MAX_TOKENS,

@@ -30,7 +30,7 @@ import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
 import { AgentSessionPool } from '@moxxy/agent-connection-kit';
-import { ClaudeAgentProvider, claudeCodeModels } from './agent-provider.js';
+import { CLAUDE_CODE_STARTER_MODEL, ClaudeAgentProvider } from './agent-provider.js';
 import type { ClaudeMessage } from './sdk-types.js';
 import { ClaudeAgentSession, toolsLentToClaude } from './agent-session.js';
 import { FakeClaude, assistantText, assistantToolUse, toolResult, type ClaudeScene, type FakeTurn } from './fake-claude.testkit.js';
@@ -76,8 +76,8 @@ describe('a turn on the Claude agent connection', () => {
     const { options, received } = claude.last;
     expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' });
     expect(options.pathToClaudeCodeExecutable).toBe('/Users/me/.local/bin/claude');
-    // The model is the conversation's choice (a fresh one starts on the first Claude model).
-    expect(options.model).toBe(claudeCodeModels[0]?.id);
+    // The model is the conversation's choice (a fresh one starts on the light starter model).
+    expect(options.model).toBe(CLAUDE_CODE_STARTER_MODEL);
     expect(options.includePartialMessages).toBe(true);
     expect(options.mcpServers?.moxxy?.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
     expect(received[0]).toMatchObject({ message: { role: 'user', content: [{ type: 'text', text: 'Run echo spike-ok' }] }, origin: { kind: 'human' } });
@@ -854,7 +854,7 @@ describe('stopping and failing', () => {
       });
     });
 
-    await collectTurn(session, 'hi');
+    await collectTurn(session, 'hi', { model: 'claude-fable-5-1' });
 
     const models = session.getInfo().providers.find((p) => p.name === 'claude-code')?.models ?? [];
     expect(models.find((m) => m.id === 'claude-fable-5-1')?.contextWindow).toBe(640_000);

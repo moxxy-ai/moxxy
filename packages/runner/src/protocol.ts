@@ -192,7 +192,8 @@ import type {
  * connection runs in the background now, pushed by `info.changed`;
  * `session.stopBackgroundWork` stops one of them (additive).
  */
-export const RUNNER_PROTOCOL_VERSION = 29;
+/** v30: `ProviderInfo.starterModel` names the light model a new conversation starts on while no default is chosen (additive). */
+export const RUNNER_PROTOCOL_VERSION = 30;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is

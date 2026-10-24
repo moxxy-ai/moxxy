@@ -815,9 +815,12 @@ export class Session implements ClientSession, SessionRuntime {
     }
     const active = this.providers.getActiveName();
     let activeProviderModels: LLMProvider['models'] | null = null;
+    let activeStarterModel: string | undefined;
     if (active) {
       try {
-        activeProviderModels = this.providers.getActive().models;
+        const provider = this.providers.getActive();
+        activeProviderModels = provider.models;
+        activeStarterModel = provider.starterModel;
       } catch {
         // A definition can be registered/selected before credentials build an
         // instance. Fall back to its declared catalog until activation lands.
@@ -825,7 +828,11 @@ export class Session implements ClientSession, SessionRuntime {
     }
     const declared = this.providers.list().find((p) => p.name === active);
     const defaultModel = active
-      ? resolveTurnModel(this, { name: active, models: activeProviderModels ?? (declared ? declared.models : []) })
+      ? resolveTurnModel(this, {
+          name: active,
+          models: activeProviderModels ?? (declared ? declared.models : []),
+          starterModel: activeStarterModel ?? declared?.starterModel,
+        })
       : undefined;
     const ready = this.readyProviders;
     const contextWindowEvents = this.log.ofType('plugin_event');
@@ -837,6 +844,7 @@ export class Session implements ClientSession, SessionRuntime {
       activeProvider: active,
       providers: this.providers.list().map((p) => {
         const agentCli = this.agentClis.report(p.name);
+        const starterModel = (p.name === active ? activeStarterModel : undefined) ?? p.starterModel;
         return {
           name: p.name,
           models: withRecordedContextWindows(
@@ -844,6 +852,7 @@ export class Session implements ClientSession, SessionRuntime {
             recordedContextWindows(contextWindowEvents, p.name),
           ),
           authKind: p.auth?.kind === 'oauth' ? 'oauth' : 'api-key',
+          ...(starterModel ? { starterModel } : {}),
           ...(p.agentName ? { agentName: p.agentName } : {}),
           ...(agentCli ? { agentCli } : {}),
           supportsLiveModelDiscovery: p.supportsLiveModelDiscovery === true,

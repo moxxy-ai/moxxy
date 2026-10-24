@@ -44,7 +44,7 @@ context:
   fast: true
 ```
 
-A turn runs on the model it names; without one, on the model the conversation last ran on; in a new conversation, on `items.<provider>.model`; and only when that is not set, on the first model the provider lists. This is one setting for every surface: the desktop, `moxxy` in the terminal, the runner and the channels all read it when a conversation starts. The desktop writes it in **Settings → Providers → Default model** (model, effort and fast in one row). Conversations already open keep what they run on.
+A turn runs on the model it names; without one, on the model the conversation last ran on; in a new conversation, on `items.<provider>.model`; when that is not set, on the provider's light starter model (`starterModel`: Haiku 5.5 for Claude, GPT-6 Luna for Codex, so an unset default does not spend a plan on the biggest model); and only when the provider names none, or no longer lists it, on the first model it lists. This is one setting for every surface: the desktop, `moxxy` in the terminal, the runner and the channels all read it when a conversation starts. The desktop writes it in **Settings → Providers → Default model** (model, effort and fast in one row). Conversations already open keep what they run on.
 
 ### Reasoning effort and fast mode
 

@@ -61,6 +61,10 @@
       "types": "./dist/agent-no-reply.d.ts",
       "import": "./dist/agent-no-reply.js"
     },
+    "./starting-model": {
+      "types": "./dist/starting-model.d.ts",
+      "import": "./dist/starting-model.js"
+    },
     "./agent-work": {
       "types": "./dist/agent-work.d.ts",
       "import": "./dist/agent-work.js"

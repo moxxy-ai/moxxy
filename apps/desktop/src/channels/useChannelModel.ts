@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, toErrorMessage } from '@moxxy/client-core';
+import { startingModel } from '@moxxy/sdk/starting-model';
 import type { ProviderInfo } from '../chat/agent-picker/types';
 
 /**
@@ -86,7 +87,8 @@ export function useChannelModel(options: {
 
   const pick = useCallback(
     async (provider: string, picked: string | null): Promise<void> => {
-      const modelId = picked ?? providers.find((p) => p.name === provider)?.models[0]?.id;
+      const offered = providers.find((p) => p.name === provider);
+      const modelId = picked ?? (offered ? startingModel(offered) : undefined);
       if (!modelId) {
         setError(`${provider} has no models to pick`);
         return;

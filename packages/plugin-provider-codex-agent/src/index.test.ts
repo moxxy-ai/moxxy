@@ -8,6 +8,16 @@ import { CodexAgentProvider, codexSessions, codexAgentPlugin } from './index.js'
 import { FakeCodex } from './fake-codex.testkit.js';
 
 describe('the Codex plugin', () => {
+  it('starts a new conversation on GPT-6 Luna while the person chose no default model', async () => {
+    const { codexAgentProviderDef } = await import('./index.js');
+    const provider = new CodexAgentProvider({ startAppServer: new FakeCodex(async () => undefined).start });
+    const session = createFakeSession({ provider, plugins: [defaultModePlugin] });
+
+    expect(session.getInfo().defaultModel).toBe('gpt-6-luna');
+    expect(codexAgentProviderDef.starterModel).toBe('gpt-6-luna');
+    await session.close();
+  });
+
   it('closes the conversation running Codex when the conversation shuts down', async () => {
     const codex = new FakeCodex(async (turn) => {
       await turn.say('hi');

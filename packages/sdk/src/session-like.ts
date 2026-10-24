@@ -64,6 +64,9 @@ export type ProviderAuthKind = 'api-key' | 'oauth';
 export interface ProviderInfo {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /** The light model a new conversation starts on while the person chose no
+   *  default (see `startingModel`); absent when the provider names none. */
+  readonly starterModel?: string;
   /** 'oauth' when the provider declares an oauth login on its plugin
    *  definition, 'api-key' otherwise. Defaults to 'api-key' for
    *  providers that don't declare. */

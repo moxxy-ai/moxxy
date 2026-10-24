@@ -25,7 +25,7 @@ import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
 import { AgentSessionPool } from '@moxxy/agent-connection-kit';
-import { CODEX_AGENT_DEFAULT_MODEL, CodexAgentProvider, codexAgentModels } from './agent-provider.js';
+import { CODEX_AGENT_STARTER_MODEL, CodexAgentProvider, codexAgentModels } from './agent-provider.js';
 import { toolsLentToCodex, type CodexAgentSession } from './codex-session.js';
 import { FakeCodex, type CodexScene, type FakeCodexDefaults } from './fake-codex.testkit.js';
 
@@ -81,7 +81,7 @@ describe('a turn on the Codex agent connection', () => {
     // model the person picked in Moxxy. Its checklist tool, off by default since Codex 0.152, is on
     // so the step list shows.
     expect(Object.keys(start ?? {}).sort()).toEqual(['config', 'cwd', 'model']);
-    expect(start).toMatchObject({ cwd: '/work/app', model: codexAgentModels[0]?.id, config: { mcp_servers: { moxxy: { url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/) } }, 'tools.update_plan.enabled': true } });
+    expect(start).toMatchObject({ cwd: '/work/app', model: CODEX_AGENT_STARTER_MODEL, config: { mcp_servers: { moxxy: { url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/) } }, 'tools.update_plan.enabled': true } });
     expect(server.sent('turn/start')[0]).toMatchObject({ threadId: 'thread-1', input: [{ type: 'text', text: 'Run echo spike-ok', text_elements: [] }] });
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool_call_requested', name: 'Bash', input: { command: 'echo spike-ok', cwd: '/work/app' }, executedBy: 'provider' }));
     expect(events).toContainEqual(expect.objectContaining({ type: 'tool_result', ok: true, output: 'spike-ok\n' }));
@@ -158,9 +158,9 @@ describe('a turn on the Codex agent connection', () => {
 
     const events = await collectTurn(session, 'which model?');
 
-    expect(codex.last.sent('thread/start')[0]).toMatchObject({ model: codexAgentModels[0]?.id });
+    expect(codex.last.sent('thread/start')[0]).toMatchObject({ model: CODEX_AGENT_STARTER_MODEL });
     expect(codex.last.sent('thread/settings/update').some((update) => 'model' in update)).toBe(false);
-    expect(said(events)).toEqual([codexAgentModels[0]?.id]);
+    expect(said(events)).toEqual([CODEX_AGENT_STARTER_MODEL]);
   });
 
   it('switches the thread to another model the person picks later in the conversation', async () => {
@@ -220,7 +220,7 @@ describe('a turn on the Codex agent connection', () => {
 
     expect(codex.servers).toHaveLength(2);
     expect(codex.servers[0]?.closed).toBe(true);
-    expect(codex.last.sent('thread/resume')[0]).toMatchObject({ threadId: 'thread-1', cwd: '/work/app', model: codexAgentModels[0]?.id });
+    expect(codex.last.sent('thread/resume')[0]).toMatchObject({ threadId: 'thread-1', cwd: '/work/app', model: CODEX_AGENT_STARTER_MODEL });
     expect(codex.last.sent('thread/start')).toHaveLength(0);
   });
 
@@ -829,7 +829,7 @@ describe('plan mode', () => {
 
     expect(codex.last.sent('thread/settings/update')[0]).toMatchObject({
       sandboxPolicy: { type: 'readOnly', networkAccess: false },
-      collaborationMode: { mode: 'plan', settings: { model: codexAgentModels[0]?.id, developer_instructions: null } },
+      collaborationMode: { mode: 'plan', settings: { model: CODEX_AGENT_STARTER_MODEL, developer_instructions: null } },
     });
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'plan_completed', payload: { title: 'Fix add', questions: 0 } }));
     expect(events.filter((e) => e.type === 'assistant_message').at(-1)).toMatchObject({ source: 'system', content: plan });
@@ -1088,7 +1088,7 @@ describe('stopping and failing', () => {
 
     await collectTurn(session, 'hi');
 
-    const model = session.getInfo().providers.find((p) => p.name === 'codex-agent')?.models.find((m) => m.id === CODEX_AGENT_DEFAULT_MODEL);
+    const model = session.getInfo().providers.find((p) => p.name === 'codex-agent')?.models.find((m) => m.id === CODEX_AGENT_STARTER_MODEL);
     expect(model?.contextWindow).toBe(380_000);
   });
 

@@ -177,6 +177,12 @@ export interface ModelDescriptor {
 export interface LLMProvider {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /**
+   * The model a new conversation starts on while the person chose no default
+   * for this provider: a light one, so an unset default does not spend their
+   * plan on the biggest model. Ignored when the provider does not list it.
+   */
+  readonly starterModel?: string;
   /** For an agent connection, the agent's name as the person knows it ("Codex"), the same as its `ProviderDef.agentName`. */
   readonly agentName?: string;
   /**
@@ -433,6 +439,8 @@ export interface ProviderAgentCli {
 export interface ProviderDef {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /** What {@link LLMProvider.starterModel} says, known before the provider is built. */
+  readonly starterModel?: string;
   /** For an agent connection, the agent's name as the person knows it ("Codex"), which surfaces use to say what it does. */
   readonly agentName?: string;
   /** For an agent connection, how its CLI is checked for presence and updates. */

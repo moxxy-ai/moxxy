@@ -61,6 +61,12 @@ describe('useModelTuning', () => {
     expect(result.current).toMatchObject({ canSetEffort: true, canSetFast: false });
   });
 
+  it('offers what the model the runner starts on has while the conversation picked none', () => {
+    installApi();
+    const { result } = renderHook(() => useModelTuning('ws', infoWith({ defaultModel: 'plain' }), null));
+    expect(result.current).toMatchObject({ canSetEffort: true, canSetFast: false });
+  });
+
   it("gives a new runner the person's last choice", async () => {
     const invoke = installApi();
     const first = renderHook(() => useModelTuning('ws', infoWith(), 'gpt-6-luna'));

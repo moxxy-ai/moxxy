@@ -209,7 +209,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
   }, [session]);
 
   const providerName = session.providers.getActiveName() ?? '(none)';
-  const activeModel = resolveActiveModel(session, activeModelOverride, model);
+  const sessionInfo = session.getInfo();
+  const activeModel = resolveActiveModel(sessionInfo, activeModelOverride, model);
   const contextWindow = resolveContextWindow(session, activeModel);
   // Re-estimated every render (~30Hz while streaming), but the estimator is
   // incrementally cached per log: an unchanged log is a pure cache hit and an
@@ -217,7 +218,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const contextUsed = estimateContextTokens(session.log);
   const modeName = getModeName(session);
   const modeBadge = getModeBadge(session);
-  const sessionInfo = session.getInfo();
   const agentName = sessionInfo.providers.find((p) => p.name === sessionInfo.activeProvider)?.agentName;
   const agentComputer = turn.busy ? turnComputerUse(stream.events) : null;
   const nowMs = Date.now();

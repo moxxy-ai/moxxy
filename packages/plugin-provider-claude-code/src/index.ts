@@ -3,6 +3,7 @@ import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
 import { CLAUDE_CLI, checkAgentCli } from '@moxxy/agent-connection-kit';
 import { CLAUDE_AGENT_NAME, CLAUDE_CODE_PROVIDER_ID, CLAUDE_CODE_SERVICE_NAME } from './constants.js';
 import {
+  CLAUDE_CODE_STARTER_MODEL,
   claudeCodeModels,
   claudeSessions,
   createClaudeCodeClient,
@@ -25,6 +26,7 @@ export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
   agentName: CLAUDE_AGENT_NAME,
   models: claudeCodeModels,
+  starterModel: CLAUDE_CODE_STARTER_MODEL,
   agentCli: {
     check: (opts) => {
       const command = resolveClaudeExecutable();
@@ -112,6 +114,7 @@ export {
 } from './login.js';
 export {
   CLAUDE_CODE_DEFAULT_MODEL,
+  CLAUDE_CODE_STARTER_MODEL,
   ClaudeAgentProvider,
   claudeCodeModels,
   claudeSessions,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ClientSession } from '@moxxy/sdk';
-import { buildSlashSuggestions, nextSelectableMode } from './helpers.js';
+import { buildSlashSuggestions, nextSelectableMode, resolveActiveModel } from './helpers.js';
 
 describe('buildSlashSuggestions', () => {
   const session = {
@@ -81,5 +81,19 @@ describe('nextSelectableMode', () => {
       modes: { list: () => [only], getActive: () => only },
     } as unknown as ClientSession;
     expect(nextSelectableMode(session)).toBeNull();
+  });
+});
+
+describe('resolveActiveModel', () => {
+  const info = { defaultModel: 'light' };
+
+  it('shows the model the runner runs a turn on while none is picked', () => {
+    expect(resolveActiveModel(info, null, undefined)).toBe('light');
+    expect(resolveActiveModel({}, null, undefined)).toBe('default');
+  });
+
+  it('shows a picked model first', () => {
+    expect(resolveActiveModel(info, 'picked', 'prop')).toBe('picked');
+    expect(resolveActiveModel(info, null, 'prop')).toBe('prop');
   });
 });

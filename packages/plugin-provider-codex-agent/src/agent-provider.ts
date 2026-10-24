@@ -18,6 +18,8 @@ import type { CodexThreadResponse, CodexTokenUsage, CodexTurn } from './protocol
 import { toTokenUsage } from './translate.js';
 
 export const CODEX_AGENT_DEFAULT_MODEL = 'gpt-6-astra';
+/** What a new conversation starts on while the person chose no default: light, so it spares their plan. */
+export const CODEX_AGENT_STARTER_MODEL = 'gpt-6-luna';
 const NON_TEXT_BLOCK_TOKENS = 256;
 const MAX_LIVE_CODEX_SESSIONS = 8;
 
@@ -78,6 +80,7 @@ export class CodexAgentProvider implements LLMProvider {
   /** Its own plan mode and goal: Moxxy shows the plan and ends the goal when the agent says so. */
   readonly agentOwns = { plan: true, goal: true } as const;
   readonly models = codexAgentModels;
+  readonly starterModel = CODEX_AGENT_STARTER_MODEL;
   private readonly defaultModel: string;
   private readonly start: StartCodexAppServer;
 

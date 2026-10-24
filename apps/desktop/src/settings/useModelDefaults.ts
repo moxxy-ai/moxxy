@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@moxxy/client-core';
 import type { ModelDefaultsChange, StoredModelDefaults } from '@moxxy/desktop-ipc-contract';
+import { startingModel } from '@moxxy/sdk/starting-model';
 import {
   effortLevelsFor,
   forgetSharedTuningChoice,
@@ -17,6 +18,7 @@ interface ModelOffer {
 interface ProviderOffer {
   readonly name: string;
   readonly models: ReadonlyArray<ModelOffer>;
+  readonly starterModel?: string;
 }
 
 /** What the runner says can be picked: the connected providers, and the one it runs now. */
@@ -69,7 +71,9 @@ export function useModelDefaults(): ModelDefaultsState {
         const ready = new Set(info.readyProviders);
         setOffer({
           active: info.activeProvider,
-          providers: info.providers.filter((p) => ready.has(p.name)).map((p) => ({ name: p.name, models: p.models })),
+          providers: info.providers
+            .filter((p) => ready.has(p.name))
+            .map((p) => ({ name: p.name, models: p.models, ...(p.starterModel ? { starterModel: p.starterModel } : {}) })),
         });
       })
       .catch((reason: unknown) => {
@@ -104,7 +108,7 @@ export function useModelDefaults(): ModelDefaultsState {
 
   const provider = stored.provider ?? offer.active;
   const offered = offer.providers.find((p) => p.name === provider);
-  const model = stored.model ?? offered?.models[0]?.id ?? null;
+  const model = stored.model ?? (offered ? startingModel(offered) : undefined) ?? null;
   const descriptor = offered?.models.find((m) => m.id === model);
   // A model the provider does not list (a custom one) may have whatever its provider's models have.
   const like = descriptor ? [descriptor] : (offered?.models ?? []);

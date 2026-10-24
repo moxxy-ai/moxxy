@@ -102,11 +102,16 @@ export interface ModelTuning {
   readonly setFast: (enabled: boolean) => Promise<void>;
 }
 
-/** What the model in use offers; an unknown model id (a custom or live one) offers what any of its provider's models do. */
+/**
+ * What the model in use offers: the one picked, else the one the runner runs a
+ * turn on. An unknown model id (a custom or live one) offers what any of its
+ * provider's models do.
+ */
 function offers(info: SessionInfo, model: string | null): { reasoning: boolean; fast: boolean } {
   const provider = info.providers.find((p) => p.name === info.activeProvider);
   const models = provider?.models ?? [];
-  const descriptor = model === null ? models[0] : models.find((m) => m.id === model);
+  const inUse = model ?? info.defaultModel ?? null;
+  const descriptor = inUse === null ? models[0] : models.find((m) => m.id === inUse);
   const candidates = descriptor ? [descriptor] : models;
   return {
     reasoning: candidates.some((m) => m.supportsReasoning === true),

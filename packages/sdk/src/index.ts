@@ -272,6 +272,7 @@ export type {
   AgentApprovalRequest,
   AgentApprovalDecision,
 } from './provider.js';
+export { startingModel } from './starting-model.js';
 export {
   ACCOUNT_LIMIT_NEAR_PERCENT,
   AGENT_ACCOUNT_LIMIT_SUBTYPE,
