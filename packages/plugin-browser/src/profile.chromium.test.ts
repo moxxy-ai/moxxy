@@ -61,7 +61,9 @@ describe('claimProfile', () => {
   });
 });
 
-describe.skipIf(!available)('the terminal browser profile', () => {
+// Every test starts a real browser, some several; on a loaded Windows runner
+// that outlasts the default 10 s, as for the other Chromium tests.
+describe.skipIf(!available)('the terminal browser profile', { timeout: 30_000 }, () => {
   let state: SidecarState | null = null;
   // Each test's browser is its own (a profile cannot be shared), and closing
   // one under a full parallel `pnpm test` can take longer than the default.

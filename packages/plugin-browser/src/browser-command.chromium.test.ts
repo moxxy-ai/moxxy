@@ -57,7 +57,9 @@ describe('/browser', () => {
     expect(textOf(await run(newProfile(), 'login file:///etc/passwd'))).toMatch(/^error: .*not a website/);
   });
 
-  describe.skipIf(!available)('on a real profile', () => {
+  // Each command starts and closes a real browser; several in one test outlast
+  // the default 10 s on a loaded Windows runner, as for the other Chromium tests.
+  describe.skipIf(!available)('on a real profile', { timeout: 30_000 }, () => {
     it('signs in to a site, lists it, and forgets it', async () => {
       const profile = newProfile();
       let closed = 0;
