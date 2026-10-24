@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createMutex, type Mutex } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /**
  * Per-host webhook config: where the listener binds and what public URL

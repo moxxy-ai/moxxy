@@ -7,7 +7,7 @@ import type {
 import { classifyHttpStatus, estimateTextTokens, resolveProviderTools } from '@moxxy/sdk';
 import { isAuthRejection, withCredentialLock } from '@moxxy/plugin-oauth';
 import { CODEX_RESPONSES_URL, refreshTokens } from './oauth.js';
-import { codexModels, DEFAULT_CODEX_MODEL } from './models.js';
+import { CODEX_STARTER_MODEL, codexModels, DEFAULT_CODEX_MODEL } from './models.js';
 import { toResponsesBody } from './translate.js';
 import { buildCodexHeaders } from './codex/headers.js';
 import { consumeResponsesSse, toErrorEvent } from './codex/stream-consumer.js';
@@ -91,6 +91,7 @@ export interface CodexProviderConfig {
 export class CodexProvider implements LLMProvider {
   readonly name = 'openai-codex';
   readonly models = codexModels;
+  readonly starterModel = CODEX_STARTER_MODEL;
 
   private tokens: CodexTokens | undefined;
   private readonly onTokensRefreshed?: (next: CodexTokens) => void | Promise<void>;

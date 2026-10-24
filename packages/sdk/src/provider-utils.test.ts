@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { zodToJsonSchema } from './provider-utils.js';
 import { resolveProviderTools } from './provider-tool-utils.js';
 import { defineTool } from './define.js';

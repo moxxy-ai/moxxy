@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
-import { buildSubagentDetailUi, selectSubagentDetailAgent } from '../src/subagentDetailUi';
+import { buildSubagentDetailUi, selectSubagentDetailAgent, subagentStatusLabel } from '../src/subagentDetailUi';
 import type { SubagentGroupTranscriptItem, SubagentTranscriptItem } from '../src/chatTranscript';
 
 function agent(overrides: Partial<SubagentTranscriptItem> = {}): SubagentTranscriptItem {
@@ -109,5 +109,14 @@ describe('mobile subagent detail modal ui model', () => {
 
     expect(selectSubagentDetailAgent(firstGroup, 'child-1')?.toolCallCount).toBe(1);
     expect(selectSubagentDetailAgent(refreshedGroup, 'child-1')?.toolCallCount).toBe(2);
+  });
+});
+
+describe('a helper that outlives its turn, on the phone', () => {
+  it('says it goes on in the background, and that its later row reports back from there', () => {
+    expect(subagentStatusLabel(agent({ status: 'background' }))).toBe('In the background');
+    expect(buildSubagentDetailUi(agent({ status: 'background', responseText: '', finalPreview: null })).responseText).toBe('Went on in the background.');
+    expect(subagentStatusLabel(agent({ continued: true }))).toBe('Done in the background');
+    expect(subagentStatusLabel(agent())).toBe('Done');
   });
 });

@@ -47,6 +47,18 @@ export interface PendingToolCall {
 export interface PermissionContext {
   readonly turnId?: string;
   readonly toolDescription?: string;
+  /**
+   * The rule declared by the tool this turn offers under the call's name. A
+   * mode may offer tools the session registry does not hold (plan mode's
+   * `plan_complete`), so the resolver needs it from the call site.
+   */
+  readonly toolPermission?: PermissionRule;
+  /**
+   * The person answers even while auto-approve is on (standing rules still
+   * decide first): the agent's own setting would have asked them, and they
+   * never chose auto-approve for it.
+   */
+  readonly askPerson?: boolean;
   readonly skillContext?: string;
   readonly sessionId: string;
 }

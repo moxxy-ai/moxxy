@@ -127,6 +127,7 @@ function transcriptItemRenderSignature(item: TranscriptItem): string {
         agent.label,
         agent.agentType,
         agent.status,
+        agent.continued === true ? 'continued' : '',
         agent.toolCallCount,
         agent.tokensUsed ?? '',
         agent.responseText,
@@ -152,6 +153,14 @@ function transcriptItemRenderSignature(item: TranscriptItem): string {
       item.count,
       item.events.map((event) => `${event.id}\u001e${event.type}\u001e${event.text}`).join('\u001f'),
     ].join('\u001f');
+  }
+
+  if (item.kind === 'answered') {
+    return [item.kind, item.id, ...item.lines].join('\u001f');
+  }
+
+  if (item.kind === 'trigger') {
+    return [item.kind, item.id, item.label, item.name].join('\u001f');
   }
 
   return [item.kind, item.id, item.label, item.text].join('\u001f');

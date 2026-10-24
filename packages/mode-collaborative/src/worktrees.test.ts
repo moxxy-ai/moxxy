@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { canSymlink } from '@moxxy/vitest-preset/platform';
+import { canSymlink, manyProcessesTimeout } from '@moxxy/vitest-preset/platform';
 import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,7 +35,7 @@ async function initRepo(): Promise<string> {
   return dir;
 }
 
-describe('worktree git engine', () => {
+describe('worktree git engine', { timeout: manyProcessesTimeout }, () => {
   it('detects a git repo and resolves a clean base', async () => {
     const repo = await initRepo();
     expect(await isGitRepo(repo)).toBe(true);

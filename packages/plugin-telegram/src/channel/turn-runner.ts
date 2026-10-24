@@ -4,6 +4,7 @@ import type { ClientSession as Session } from '@moxxy/sdk';
 import { channelTurnContext, driveTurn, subscribeTurn } from '@moxxy/channel-kit';
 import type { FramePump } from './frame-pump.js';
 import type { TypingIndicator } from './typing-indicator.js';
+import { sendToolImages } from './send-images.js';
 
 export interface TurnRunnerLogger {
   warn(msg: string, meta?: Record<string, unknown>): void;
@@ -92,6 +93,8 @@ export async function runUserTurn(
       signal: controller.signal,
     });
     await framePump.flush(true);
+    // The images tools returned go out under the reply.
+    if (bot) await sendToolImages(bot.api, chatId, framePump.renderState.images(), logger);
     // The text reply is now out. Speak the final assistant body if a voice
     // reply is wired — isolated so a synth/transcode/transport failure can
     // never break (or re-report) the already-delivered text turn.

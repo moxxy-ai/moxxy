@@ -122,6 +122,7 @@ through [GitHub Discussions](https://github.com/moxxy-ai/moxxy/discussions).
 - [Getting started](docs/getting-started.md)
 - [Developer alpha](docs/developer-alpha.md)
 - [Features and channels](docs/features.md)
+- [Agent connections](docs/agent-connections.md)
 - [Developer guide](docs/developer-guide.md)
 - [Configuration reference](docs/configuration.md)
 - [Security policy](SECURITY.md)

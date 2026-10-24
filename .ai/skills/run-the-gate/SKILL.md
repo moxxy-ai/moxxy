@@ -35,3 +35,8 @@ Gotchas:
 - A Stop hook already runs `pnpm -w typecheck` on dirty worktrees
   (`.claude/hooks/gate-on-stop.sh`) — that is a backstop, not the gate.
 - CI also requires a changeset on every PR — see the add-a-changeset skill.
+- Before a merge into `development` (and before a release), also run
+  `pnpm test:agents:live` — real turns through Claude Code, Codex and OpenCode
+  on your own sign-ins, which CI cannot do. Report its commit, CLI versions and
+  results; "not checked" is not a pass. See AGENTS.md, "Agent connections:
+  live check before merging".

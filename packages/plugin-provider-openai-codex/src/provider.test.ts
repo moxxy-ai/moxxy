@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { resolveTurnModel } from '@moxxy/core';
+import { openaiCodexProviderDef } from './index.js';
 import { CodexProvider } from './provider.js';
 import { CODEX_RESPONSES_URL } from './oauth.js';
 import type { CodexTokens } from './types.js';
@@ -56,6 +58,15 @@ function baseRequest(over: Partial<ProviderRequest> = {}): ProviderRequest {
     ...over,
   };
 }
+
+describe('CodexProvider', () => {
+  it('starts a new conversation on GPT-6 Luna while the person chose no default model', () => {
+    const provider = new CodexProvider({ tokens: makeTokens() });
+
+    expect(resolveTurnModel({ lastResolvedModel: null }, provider)).toBe('gpt-6-luna');
+    expect(openaiCodexProviderDef.starterModel).toBe('gpt-6-luna');
+  });
+});
 
 describe('CodexProvider.stream', () => {
   it('uses hosted web search first and retries with the client fallback when the backend rejects it', async () => {

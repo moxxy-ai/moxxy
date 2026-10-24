@@ -8,6 +8,7 @@ import type { EventLogReader } from './log.js';
 import type { PermissionResolver } from './permission.js';
 import type { LLMProvider, ReasoningEffort } from './provider.js';
 import type { LoopGuardSettings } from './mode/stuck-loop.js';
+import type { QuestionItem, QuestionOutcome } from './question.js';
 import type { Skill } from './skill.js';
 import type { SubagentSpawner } from './subagent.js';
 import type { ToolDef } from './tool.js';
@@ -89,6 +90,13 @@ export interface ModeContext {
   readonly systemPrompt?: string;
   readonly provider: LLMProvider;
   readonly tools: ToolRegistry;
+  /**
+   * Every tool of the session, in any mode (`tools` is this turn's mode's,
+   * plus any it adds for itself). An agent connection lists these to the
+   * vendor agent, which reads its tool list once, and refuses a call to one
+   * this mode does not offer.
+   */
+  readonly allTools?: ToolRegistry;
   readonly skills: SkillRegistry;
   readonly log: EventLogReader;
   readonly compactor: CompactorDef | null;
@@ -125,6 +133,11 @@ export interface ModeContext {
    * picked the default option, or fail closed depending on the strategy.
    */
   readonly approval?: ApprovalResolver;
+  /**
+   * Ask the person a Question in this turn (the conversation's Questions).
+   * Absent where nobody can be asked (subagents, synthetic test contexts).
+   */
+  readonly ask?: (questions: ReadonlyArray<QuestionItem>) => Promise<QuestionOutcome>;
   readonly hooks: HookDispatcher;
   readonly pluginHost: PluginHostHandle;
   /** Inter-plugin service registry (mirrors {@link AppContext.services}). */

@@ -2,6 +2,23 @@
 import type { PluginCatalogEntry } from './catalog-types.js';
 export const PROVIDER_PLUGIN_CATALOG = [
   {
+    "id": "provider-acp",
+    "packageName": "@moxxy/plugin-provider-acp",
+    "installSpec": "@moxxy/plugin-provider-acp",
+    "label": "OpenCode agent",
+    "description": "OpenCode does the work with your own OpenCode setup and models; Moxxy shows it and lends its browser and tools.",
+    "provides": [
+      {
+        "category": "provider",
+        "name": "opencode"
+      }
+    ],
+    "provider": {
+      "auth": "oauth",
+      "defaultModel": "opencode/big-pickle"
+    }
+  },
+  {
     "id": "provider-anthropic",
     "packageName": "@moxxy/plugin-provider-anthropic",
     "installSpec": "@moxxy/plugin-provider-anthropic",
@@ -23,8 +40,8 @@ export const PROVIDER_PLUGIN_CATALOG = [
     "id": "provider-claude-code",
     "packageName": "@moxxy/plugin-provider-claude-code",
     "installSpec": "@moxxy/plugin-provider-claude-code",
-    "label": "Claude (Pro/Max sign-in)",
-    "description": "Claude models through an existing Claude Code subscription sign-in.",
+    "label": "Claude Agent",
+    "description": "Claude Code does the work on your Claude Pro/Max sign-in; Moxxy shows it and lends its browser and tools.",
     "provides": [
       {
         "category": "provider",
@@ -34,6 +51,23 @@ export const PROVIDER_PLUGIN_CATALOG = [
     "provider": {
       "auth": "oauth",
       "defaultModel": "claude-sonnet-5-5"
+    }
+  },
+  {
+    "id": "provider-codex-agent",
+    "packageName": "@moxxy/plugin-provider-codex-agent",
+    "installSpec": "@moxxy/plugin-provider-codex-agent",
+    "label": "ChatGPT — Codex agent",
+    "description": "Codex does the work on your ChatGPT sign-in; Moxxy shows it and lends its browser and tools.",
+    "provides": [
+      {
+        "category": "provider",
+        "name": "codex-agent"
+      }
+    ],
+    "provider": {
+      "auth": "oauth",
+      "defaultModel": "gpt-6-astra"
     }
   },
   {
@@ -88,8 +122,8 @@ export const PROVIDER_PLUGIN_CATALOG = [
     "id": "provider-openai-codex",
     "packageName": "@moxxy/plugin-provider-openai-codex",
     "installSpec": "@moxxy/plugin-provider-openai-codex",
-    "label": "OpenAI Codex (ChatGPT sign-in)",
-    "description": "Codex models through a ChatGPT subscription sign-in.",
+    "label": "ChatGPT — Moxxy",
+    "description": "Moxxy does the work with ChatGPT models on your ChatGPT sign-in.",
     "provides": [
       {
         "category": "provider",

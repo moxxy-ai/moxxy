@@ -31,6 +31,7 @@ export type IconName =
   | 'edit'
   | 'rotate'
   | 'mic'
+  | 'mic-off'
   | 'check'
   | 'x'
   | 'sliders'
@@ -51,6 +52,8 @@ export type IconName =
   | 'phone-down'
   | 'monitor'
   | 'file'
+  | 'image'
+  | 'link'
   | 'diff'
   | 'grid'
   | 'broadcast'
@@ -221,6 +224,17 @@ const paths: Record<IconName, JSX.Element> = {
       <path d="M12 18v3" />
     </>
   ),
+  // The mic, cut through: the strokes stop short of the slash.
+  'mic-off': (
+    <>
+      <path d="M3 3l18 18" />
+      <path d="M15 10V5a3 3 0 0 0-5.7-1.3" />
+      <path d="M9 9v2a3 3 0 0 0 5.1 2.1" />
+      <path d="M18.9 13.2A7 7 0 0 0 19 11" />
+      <path d="M5 11a7 7 0 0 0 11.9 5" />
+      <path d="M12 18v3" />
+    </>
+  ),
   check: <path d="m5 12 5 5L20 7" />,
   x: (
     <>
@@ -360,6 +374,19 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
       <path d="M14 3v5h5" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
     </>
   ),
   diff: (

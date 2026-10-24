@@ -50,10 +50,11 @@ export interface ModeTranscript {
 }
 
 /**
- * The tools a mode calls only to say its work is done. What they say is drawn
- * as the card that follows, so the call itself is not a row of the conversation.
+ * The tools a mode calls only to say its work is done, and Claude's own plan
+ * hand-off. What they say is drawn as the card that follows, so the call itself
+ * is not a row of the conversation.
  */
-export const MODE_SIGNAL_TOOLS: ReadonlySet<string> = new Set(['plan_complete', 'goal_complete', 'goal_abandon']);
+export const MODE_SIGNAL_TOOLS: ReadonlySet<string> = new Set(['plan_complete', 'goal_complete', 'goal_abandon', 'ExitPlanMode']);
 
 type PluginEvent = Extract<MoxxyEvent, { type: 'plugin_event' }>;
 
@@ -189,7 +190,8 @@ export function readModeEvents(events: ReadonlyArray<MoxxyEvent>): ModeTranscrip
     if (event.type === 'assistant_message') {
       const outcome = pending !== null && pending.turnId === event.turnId ? pending.outcome : null;
       if (outcome !== null) outcomes.set(event.id, outcome);
-      openPlanId = outcome !== null && outcome.kind === 'plan' ? event.id : null;
+      // Only the person moves past a plan; the agent saying more after it does not.
+      if (outcome !== null) openPlanId = outcome.kind === 'plan' ? event.id : null;
       pending = null;
       continue;
     }

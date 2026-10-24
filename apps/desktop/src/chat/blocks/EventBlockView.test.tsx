@@ -6,6 +6,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { onAgentWorkFocus } from '@moxxy/client-core';
+import { AgentWorkLinkProvider } from '../agent-work-link';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { assertDefined } from '@moxxy/sdk';
@@ -24,6 +26,37 @@ function userPrompt(extra: Partial<MoxxyEvent>): MoxxyEvent {
     ...extra,
   } as MoxxyEvent;
 }
+
+describe('EventBlockView — a turn the agent took up after its background work', () => {
+  const continued = userPrompt({
+    text: 'List files finished in the background',
+    origin: { kind: 'agent', name: 'List files finished in the background', workId: 'toolu_1' },
+  });
+
+  it('opens that work in the Agents pane instead of repeating its name in a box', () => {
+    const opened: string[] = [];
+    const off = onAgentWorkFocus((workspaceId) => opened.push(workspaceId));
+    render(
+      <AgentWorkLinkProvider workspaceId="ws">
+        <EventBlockView event={continued} />
+      </AgentWorkLinkProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Agent continued/ }));
+
+    expect(opened).toEqual(['ws']);
+    expect(screen.getAllByText(/List files finished in the background/)).toHaveLength(1);
+    expect(screen.getByTestId('block-trigger')).toHaveAttribute('data-event-id', 'e1');
+    off();
+  });
+
+  it('shows nothing to expand when it names no work', () => {
+    render(<EventBlockView event={userPrompt({ text: 'Claude went on', origin: { kind: 'agent', name: 'Claude went on' } })} />);
+
+    expect(screen.getByTestId('block-trigger').querySelector('button')).toBeNull();
+    expect(screen.getAllByText(/Claude went on/)).toHaveLength(1);
+  });
+});
 
 describe('EventBlockView — ambient trigger marker', () => {
   it('renders a collapsed trigger marker for a webhook-origin prompt', () => {
@@ -65,5 +98,50 @@ describe('EventBlockView — ambient trigger marker', () => {
     render(<EventBlockView event={userPrompt({})} />);
     expect(screen.getByTestId('block-user')).toBeTruthy();
     expect(screen.queryByTestId('block-trigger')).toBeNull();
+  });
+});
+
+describe("EventBlockView — an agent's account limit", () => {
+  const limitEvent = (limit: Record<string, unknown>): MoxxyEvent =>
+    ({
+      type: 'plugin_event',
+      id: 'e2' as MoxxyEvent['id'],
+      seq: 2,
+      ts: new Date(2026, 9, 12, 14, 0).getTime(),
+      sessionId: 's1' as MoxxyEvent['sessionId'],
+      turnId: 't1' as MoxxyEvent['turnId'],
+      source: 'system',
+      pluginId: '@moxxy/agent-connection',
+      subtype: 'account_limit',
+      payload: { provider: 'claude-code', agent: 'Claude', limit },
+    }) as unknown as MoxxyEvent;
+
+  it('says in the conversation that the limit is used up and when it resets, in place of the raw error', () => {
+    render(<EventBlockView event={limitEvent({ state: 'reached', windowMinutes: 300, resetsAt: new Date(2026, 9, 12, 18, 0).getTime() })} />);
+    expect(screen.getByRole('alert').textContent).toBe("Claude's 5-hour limit is used up · resets at 18:00");
+  });
+
+  it('leaves a limit with room left to the bar above the message box', () => {
+    const { container } = render(<EventBlockView event={limitEvent({ state: 'near', usedPercent: 92 })} />);
+    expect(container.textContent).toBe('');
+  });
+});
+
+describe('EventBlockView — a turn the agent took up by itself and finished without replying', () => {
+  it('says so where the turn ended', () => {
+    const noReply = {
+      type: 'plugin_event',
+      id: 'e3' as MoxxyEvent['id'],
+      seq: 3,
+      ts: 0,
+      sessionId: 's1' as MoxxyEvent['sessionId'],
+      turnId: 't1' as MoxxyEvent['turnId'],
+      source: 'system',
+      pluginId: '@moxxy/agent-connection',
+      subtype: 'no_reply',
+      payload: {},
+    } as MoxxyEvent;
+    render(<EventBlockView event={noReply} />);
+    expect(screen.getByTestId('block-system').textContent).toBe('The agent finished without replying.');
   });
 });

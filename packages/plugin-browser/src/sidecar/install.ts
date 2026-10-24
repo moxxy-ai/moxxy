@@ -6,7 +6,7 @@
 
 import { spawn } from 'node:child_process';
 import { claimProfile, type BrowserProfile } from '../profile-lock.js';
-import { assertPublicUrl } from '../ssrf-guard.js';
+import { assertReachableUrl, localSiteOf } from '../ssrf-guard.js';
 import { SidecarError } from './types.js';
 import type { BrowserKind, BrowserType, PageHandle, PlaywrightHandle } from './types.js';
 
@@ -135,9 +135,10 @@ export async function launchWithAutoInstall(
   which: BrowserKind,
   headless: boolean,
   profile?: BrowserProfile,
+  localSites: () => readonly string[] = () => [],
 ): Promise<LaunchResult> {
   try {
-    return await launchOnce(browserType, headless, profile);
+    return await launchOnce(browserType, headless, profile, localSites);
   } catch (err) {
     if (!isMissingBrowserError(err)) throw err;
     process.stderr.write(
@@ -156,7 +157,7 @@ export async function launchWithAutoInstall(
     }
     process.stderr.write(`moxxy-browser: install complete, retrying launch\n`);
     const installed = `Auto-installed Playwright ${which} browser (~150MB, one-time).`;
-    const retried = await launchOnce(browserType, headless, profile);
+    const retried = await launchOnce(browserType, headless, profile, localSites);
     return { handle: retried.handle, installNotice: [installed, retried.installNotice].filter(Boolean).join(' ') };
   }
 }
@@ -172,7 +173,8 @@ const profileBusy = (holder: number): string =>
 async function launchOnce(
   browserType: BrowserType,
   headless: boolean,
-  profile?: BrowserProfile,
+  profile: BrowserProfile | undefined,
+  localSites: () => readonly string[],
 ): Promise<LaunchResult> {
   // deviceScaleFactor: 2 so the live-view / region screenshots are captured at
   // Retina density — a 1× capture upscaled into a HiDPI pane is what made the
@@ -184,7 +186,7 @@ async function launchOnce(
     if (typeof claim === 'function') {
       try {
         const context = (await browserType.launchPersistentContext(profile.dir, { headless, ...options })) as PlaywrightHandle['context'];
-        await installNavigationSsrfGuard(context);
+        await installNavigationSsrfGuard(context, localSites);
         const page = (context.pages?.()[0] ?? (await context.newPage())) as PageHandle;
         // The context is the browser here; closing it is what lets go of the profile.
         const browser = { close: async () => claim() };
@@ -198,7 +200,7 @@ async function launchOnce(
   }
   const browser = await browserType.launch({ headless });
   const context = (await browser.newContext(options)) as PlaywrightHandle['context'];
-  await installNavigationSsrfGuard(context);
+  await installNavigationSsrfGuard(context, localSites);
   const page = (await context.newPage()) as unknown as PageHandle;
   return { handle: { browser, context, page }, installNotice: notice };
 }
@@ -209,10 +211,16 @@ async function launchOnce(
  * page reached via a legitimate public goto can then redirect or
  * script-navigate itself to e.g. http://169.254.169.254/ — those navigations
  * never pass through the RPC layer, so we intercept them here. Navigation
- * requests (top-level + iframes, which covers HTTP redirect hops too) go
- * through the same `assertPublicUrl` guard as web_fetch; everything else is
- * passed through untouched so ordinary page loads don't pay a DNS round-trip
- * per subresource.
+ * requests (top-level + iframes) go through the same guard as web_fetch — with
+ * a page on this computer passing only at an address and port in
+ * `localSites()`, the grants of the agent's latest call — and everything else
+ * is passed through untouched so ordinary page loads don't pay a DNS
+ * round-trip per subresource.
+ *
+ * Residual risk: HTTP redirect hops are NOT seen here. Playwright calls a
+ * route handler once, for the first URL of a redirect chain, and the browser
+ * follows a 3xx on its own — so an allowed page answering 302 to another
+ * local port or a private address is followed unchecked (seen live).
  *
  * Residual risk: by default SUBRESOURCE requests (img/fetch/script) from a
  * loaded page are NOT filtered — a hostile page can fire blind GET/POSTs at
@@ -221,7 +229,10 @@ async function launchOnce(
  * request — at the cost of a (cached) DNS resolution per distinct host — by
  * setting `MOXXY_BROWSER_FILTER_SUBRESOURCES=1`.
  */
-async function installNavigationSsrfGuard(context: PlaywrightHandle['context']): Promise<void> {
+export async function installNavigationSsrfGuard(
+  context: PlaywrightHandle['context'],
+  localSites: () => readonly string[],
+): Promise<void> {
   if (typeof context.route !== 'function') {
     // Loose projection: tests pass a stub without route(). But a REAL Playwright
     // context always has route(), so if a production context ever reaches here
@@ -261,20 +272,21 @@ async function installNavigationSsrfGuard(context: PlaywrightHandle['context']):
     }
     // Navigations are always re-checked live (cheap, and the cache is keyed by
     // host so a vetted host stays vetted). Subresources consult the cache first.
-    const cached = !isNav ? verdictCache.get(host) : undefined;
+    // A page on this computer is never cached: its verdict follows the grants.
+    const local = localSiteOf(url) !== null;
+    const cached = !isNav && !local ? verdictCache.get(host) : undefined;
     if (cached === true) return route.abort('blockedbyclient');
     if (cached === false) return route.continue();
     try {
       // fail-closed: an unresolvable name must not navigate the browser (whose
       // resolver may differ from node:dns).
-      await assertPublicUrl(
-        url,
-        isNav ? 'browser_session navigation' : 'browser_session subresource',
-        { failClosed: true },
-      );
-      remember(host, false);
+      await assertReachableUrl(url, isNav ? 'browser_session navigation' : 'browser_session subresource', {
+        failClosed: true,
+        localSites: localSites(),
+      });
+      if (!local) remember(host, false);
     } catch {
-      remember(host, true);
+      if (!local) remember(host, true);
       return route.abort('blockedbyclient');
     }
     return route.continue();

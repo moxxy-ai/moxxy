@@ -28,6 +28,18 @@ describe('IPC payload validation', () => {
     )).toThrow();
   });
 
+  it('accepts no payload for the fixed transcription switch commands', () => {
+    for (const command of [
+      'voice.getTranscription',
+      'voice.useLocalTranscription',
+      'voice.cancelLocalTranscription',
+      'voice.useCloudTranscription',
+    ] as IpcCommandName[]) {
+      expect(() => validateIpcInput(command, undefined)).not.toThrow();
+      expect(() => validateIpcInput(command, { packageName: 'attacker-controlled-package' })).toThrow();
+    }
+  });
+
   it('requires a strict boolean for the local realtime voice-capture lease', () => {
     expect(() => validateIpcInput(
       'voice.setRealtimeCaptureActive' as IpcCommandName,
@@ -78,6 +90,25 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput(command, { ...args, path: '/etc/passwd' })).toThrow();
   });
 
+  it('asks for a chat media library by workspace only', () => {
+    expect(() => validateIpcInput('chat.media', { workspaceId: 'w1' })).not.toThrow();
+    expect(() => validateIpcInput('chat.media', { workspaceId: '' })).toThrow();
+    expect(() => validateIpcInput('chat.media', { workspaceId: 'w1', dir: '/tmp' })).toThrow();
+  });
+
+  it('names a library item by its id, never by a path', () => {
+    for (const command of ['chat.mediaThumbnail', 'chat.openMediaFile'] as const) {
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: 'a:4:0' })).not.toThrow();
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: '' })).toThrow();
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: 'x'.repeat(201) })).toThrow();
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: 'a:4:0', path: '/etc/passwd' })).toThrow();
+    }
+    const read = { workspaceId: 'w1', id: 't:9:1', offset: 0 };
+    expect(() => validateIpcInput('chat.readMediaImage', read)).not.toThrow();
+    expect(() => validateIpcInput('chat.readMediaImage', { ...read, offset: -4 })).toThrow();
+    expect(() => validateIpcInput('chat.readMediaImage', { ...read, offset: 0.5 })).toThrow();
+  });
+
   it('rejects non-http(s) openExternal URLs', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'https://ok.com' })).not.toThrow();
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'file:///etc/passwd' })).toThrow();
@@ -88,6 +119,25 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: 'openai-codex' })).not.toThrow();
     expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: '--flag' })).toThrow();
     expect(() => validateIpcInput('onboarding.saveProviderKey', { provider: '../x', secret: 'k' })).toThrow();
+  });
+
+  it("runs only an agent CLI's install or update, by connection name", () => {
+    expect(() => validateIpcInput('agents.run', { provider: 'codex-agent', action: 'install' })).not.toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: 'claude-code', action: 'update' })).not.toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: 'codex-agent', action: 'uninstall' })).toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: '; rm -rf /', action: 'install' })).toThrow();
+    expect(() => validateIpcInput('agents.check', undefined)).not.toThrow();
+    expect(() => validateIpcInput('agents.check', { workspaceId: '' })).toThrow();
+  });
+
+  it('remembers a dismissed agent update by connection and version only', () => {
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { 'codex-agent': '0.162.1' } })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { '../x': '0.162.1' } })).toThrow();
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { opencode: 'v'.repeat(65) } })).toThrow();
+  });
+
+  it('keeps installing agent CLIs on this computer, out of reach of a remote client', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('agents.run')).toBe(false);
   });
 
   it('guards interactive-login ids + bounds the pasted answer', () => {
@@ -147,6 +197,14 @@ describe('IPC payload validation', () => {
     expect(() =>
       validateIpcInput('session.synthesize', { text: 'Hello', language: 'en', sneaky: true }),
     ).toThrow();
+  });
+
+  it('lets read-aloud ask to keep its speech, and asks only a workspace for the plan', () => {
+    expect(() => validateIpcInput('session.synthesize', { text: 'Hello.', cache: true })).not.toThrow();
+    expect(() => validateIpcInput('session.synthesize', { text: 'Hello.', cache: 'yes' })).toThrow();
+    expect(() => validateIpcInput('session.readAloudPlan', undefined)).not.toThrow();
+    expect(() => validateIpcInput('session.readAloudPlan', { workspaceId: 'workspace-1' })).not.toThrow();
+    expect(() => validateIpcInput('session.readAloudPlan', { workspaceId: 'workspace-1', extra: 1 })).toThrow();
   });
 
   it('validates speech cancellation IDs and selected Gemini voice IDs', () => {
@@ -332,6 +390,28 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('session.setAutoApprove', {})).toThrow();
   });
 
+  it('takes an answer to a question as chosen option ids and bounded words of the person own', () => {
+    const answer = (answers: unknown) => () =>
+      validateIpcInput('session.answerQuestion', { workspaceId: 'ws', questionId: 'q-1', answers });
+    expect(answer({ q1: { selected: ['o1'] } })).not.toThrow();
+    expect(answer({ q1: { selected: [], other: 'Teal' } })).not.toThrow();
+    expect(answer({ q1: { selected: 'o1' } })).toThrow();
+    expect(answer({ q1: { selected: [], other: 'x'.repeat(10_001) } })).toThrow();
+    expect(answer({ q1: { selected: ['o1'], extra: true } })).toThrow();
+    expect(() => validateIpcInput('session.answerQuestion', { questionId: '', answers: {} })).toThrow();
+  });
+
+  it('takes the id of one background work to stop, and lets a paired phone stop it too', () => {
+    expect(() => validateIpcInput('session.stopBackgroundWork', { workspaceId: 'ws', workId: 'b1' })).not.toThrow();
+    expect(() => validateIpcInput('session.stopBackgroundWork', { workId: '' })).toThrow();
+    expect(() => validateIpcInput('session.stopBackgroundWork', { workId: 'x'.repeat(257) })).toThrow();
+    expect(REMOTE_ALLOWED_COMMANDS.has('session.stopBackgroundWork')).toBe(true);
+  });
+
+  it('lets a paired phone answer the conversation questions', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('session.answerQuestion')).toBe(true);
+  });
+
   it('requires a strict boolean for mobileGateway.setEnabled', () => {
     expect(() => validateIpcInput('mobileGateway.setEnabled', { enabled: true })).not.toThrow();
     expect(() => validateIpcInput('mobileGateway.setEnabled', { enabled: 'yes' })).toThrow();
@@ -405,6 +485,11 @@ describe('IPC payload validation', () => {
   it('allows system notifications to be switched in prefs.update', () => {
     expect(() => validateIpcInput('prefs.update', { systemNotifications: false })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { systemNotifications: 'banner' })).toThrow();
+  });
+
+  it('allows in-app toasts to be switched in prefs.update', () => {
+    expect(() => validateIpcInput('prefs.update', { inAppToasts: false })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { inAppToasts: 'corner' })).toThrow();
   });
 
   it('takes no arguments for window.presence', () => {

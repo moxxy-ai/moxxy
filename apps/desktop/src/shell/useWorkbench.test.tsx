@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { __setApiOverride } from '@moxxy/client-core';
+import { __setApiOverride, focusAgentWork } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { useWorkbench } from './useWorkbench';
 
@@ -32,6 +32,14 @@ describe('useWorkbench', () => {
     expect(result.current).toMatchObject({ tab: 'terminal', full: true });
     act(() => result.current.toggleFull());
     expect(result.current).toMatchObject({ tab: 'terminal', full: false });
+  });
+
+  it("opens the Agents pane when the chat or the composer asks to show the chat's background work", () => {
+    const { result } = renderHook(() => useWorkbench('ws'));
+    act(() => focusAgentWork('other-ws', 'b1'));
+    expect(result.current.tab).toBeNull();
+    act(() => focusAgentWork('ws', 'b1'));
+    expect(result.current.tab).toBe('agents');
   });
 
   it('opens the browser in full view when nothing is open', () => {

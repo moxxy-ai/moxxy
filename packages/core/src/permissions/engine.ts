@@ -2,7 +2,7 @@ import { createMutex, type Mutex, type PendingToolCall, type PermissionDecision 
 import { PRIVATE_FILE_MODE, writeFileAtomic } from '@moxxy/sdk/server';
 import { promises as fs } from 'node:fs';
 import { posix } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /**
  * Flat shape used by the policy file and the engine's mutator API.

@@ -206,11 +206,41 @@ describe('prepareBundledRuntimes', () => {
     await writeManifest('darwin-arm64', [{ name: 'node', id: 'v1-aaa', archive: node }]);
     const env: NodeJS.ProcessEnv = { PATH: '/usr/bin' };
 
-    void prepareBundledRuntimes({ resourcesPath: resources, moxxyHome: home, platform: 'darwin', arch: 'arm64', env });
+    void prepareBundledRuntimes({ resourcesPath: resources, moxxyHome: home, platform: 'darwin', arch: 'arm64', env, loginShellPath: async () => null });
     expect(env.PATH).toBe('/usr/bin');
     await bundledRuntimesReady();
 
     expect(env.PATH).toBe(['/usr/bin', path.join(home, 'runtimes', 'node', 'bin')].join(':'));
+  });
+
+  it("puts the terminal's PATH ahead of the one the app started with, so the agent CLIs are the terminal's", async () => {
+    const env: NodeJS.ProcessEnv = { PATH: '/usr/bin:/opt/homebrew/bin' };
+
+    await prepareBundledRuntimes({
+      resourcesPath: resources,
+      moxxyHome: home,
+      platform: 'darwin',
+      arch: 'arm64',
+      env,
+      loginShellPath: async () => '/Users/me/.local/bin:/opt/homebrew/bin:/usr/bin',
+    });
+
+    expect(env.PATH).toBe('/Users/me/.local/bin:/opt/homebrew/bin:/usr/bin');
+  });
+
+  it.skipIf(process.platform === 'win32')("writes in the app's log how the terminal's PATH was read", async () => {
+    const logged: string[] = [];
+
+    await prepareBundledRuntimes({
+      resourcesPath: resources,
+      moxxyHome: home,
+      platform: 'linux',
+      arch: 'x64',
+      env: { PATH: '/usr/bin:/bin', SHELL: '/bin/bash', HOME: home },
+      log: (msg) => logged.push(msg),
+    });
+
+    expect(logged).toContainEqual(expect.stringMatching(/^terminal PATH: read from \/bin\/bash in \d+ ms$/));
   });
 
   it('reports a runtime that cannot be unpacked and lets the app start without it', async () => {
@@ -219,7 +249,7 @@ describe('prepareBundledRuntimes', () => {
     await writeManifest('darwin-arm64', [{ name: 'python', id: '3.12-bbb', archive: 'python.tar.gz' }]);
     const logged: string[] = [];
 
-    await prepareBundledRuntimes({ resourcesPath: resources, moxxyHome: home, platform: 'darwin', arch: 'arm64', env: {}, log: (msg) => logged.push(msg) });
+    await prepareBundledRuntimes({ resourcesPath: resources, moxxyHome: home, platform: 'darwin', arch: 'arm64', env: {}, loginShellPath: async () => null, log: (msg) => logged.push(msg) });
 
     expect(logged.join('\n')).toMatch(/bundled python runtime/);
   });

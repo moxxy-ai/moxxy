@@ -140,6 +140,13 @@ function scopedSessionView(
       },
       enumerable: true,
     },
+    lastResolvedProvider: {
+      get: () => session.lastResolvedProvider,
+      set: (provider: string | null) => {
+        session.lastResolvedProvider = provider;
+      },
+      enumerable: true,
+    },
   });
   return view;
 }

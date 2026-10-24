@@ -21,7 +21,7 @@ export interface WorkflowApprovalsView {
   revoke(id: string): Promise<void>;
   cancel(id: string): Promise<void>;
 }
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 export const workflowApprovalItemSchema = z
   .object({

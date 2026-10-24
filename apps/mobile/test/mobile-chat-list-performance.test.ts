@@ -83,4 +83,13 @@ describe('mobile chat list performance model', () => {
     expect(cache.get('first')).not.toBe(first);
     expect(parses).toBe(4);
   });
+
+  it('redraws an answered Question only when what it says changes', () => {
+    const answered: TranscriptItem = { id: 'answered:c1', kind: 'answered', title: 'You answered', lines: ['Which colour? → Blue'] };
+    const same: TranscriptItem = { ...answered, lines: ['Which colour? → Blue'] };
+    const changed: TranscriptItem = { ...answered, lines: ['Which colour? → Red'] };
+
+    expect(shouldUpdateMobileMessageBlock({ item: answered, copied: false }, { item: same, copied: false })).toBe(false);
+    expect(shouldUpdateMobileMessageBlock({ item: answered, copied: false }, { item: changed, copied: false })).toBe(true);
+  });
 });

@@ -6,8 +6,9 @@
  * session, but exposes the shared workspace registry so remote clients can see
  * the same workspace/session index as the desktop. It mirrors the desktop
  * `SessionDriver` + `ask-broker`: stream `session.log` → `runner.event`, run a
- * turn → `runner.turn.complete`, and route permission/approval prompts through
- * `ask.request` / `ask.respond`. The SAME `@moxxy/client-core` hooks work against
+ * turn → `runner.turn.complete`, route permission/approval prompts through
+ * `ask.request` / `ask.respond`, and take answers to Questions over
+ * `session.answerQuestion`. The SAME `@moxxy/client-core` hooks work against
  * either backend.
  *
  * Chat history is loaded from the shared persisted session log for archived
@@ -219,6 +220,7 @@ export class MobileSessionHost {
     this.bus.handle('session.setAutoApprove', async ({ enabled }) => {
       this.autoApprove = enabled;
     });
+    this.bus.handle('session.stopBackgroundWork', async ({ workId }) => (await this.session.stopBackgroundWork?.(workId)) ?? false);
     this.bus.handle('session.setMode', async ({ mode }) => {
       this.session.modes.setActive(mode);
       // Re-broadcast the phase so connected clients see the new activeMode
@@ -314,6 +316,11 @@ export class MobileSessionHost {
     this.bus.handle('ask.respond', async ({ requestId, response }) => {
       this.answerAsk(requestId, response);
     });
+    // A Question the agent asked: the phone answers it the way the desktop does.
+    this.bus.handle('session.answerQuestion', async ({ questionId, answers }) => {
+      if (!this.session.questions) throw new IpcError('not-supported', 'Answering questions requires an updated runner');
+      await this.session.questions.answer(questionId, answers);
+    });
     // History paging for the mobile channel. The desktop's NDJSON mirror — and
     // its `chat.append` / `chat.clearLog` / `chat.migrate` IPCs — were retired
     // (the runner log is the sole chat history there); the only surviving
@@ -348,6 +355,8 @@ export class MobileSessionHost {
 
     this.session.setPermissionResolver(this.permissionResolver);
     this.session.setApprovalResolver(this.approvalResolver);
+    // The phone shows Questions, so tools may ask them.
+    if (this.session.questions) this.disposers.push(this.session.questions.attachSurface());
 
     // Tell any already-connected client we're connected (snapshotAll covers a
     // late joiner; this covers one that connected before wire()).

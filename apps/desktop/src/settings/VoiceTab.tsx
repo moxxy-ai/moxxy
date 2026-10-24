@@ -1,7 +1,9 @@
 import { Button, TextInput } from '@moxxy/desktop-ui';
 import { useVoiceEnginePreference } from '@/voice-call/useVoiceEngine';
 import { Section } from './settings-primitives';
+import { useTranscriptionSettings } from './useTranscriptionSettings';
 import { useVoiceSettings, type VoiceSettingsState } from './useVoiceSettings';
+import { TranscriptionSection } from './TranscriptionSection';
 import { VoiceEngineSection } from './VoiceEngineSection';
 
 const cardStyle: React.CSSProperties = {
@@ -29,15 +31,21 @@ const noteStyle: React.CSSProperties = {
   fontSize: 'var(--type-meta)',
 };
 
-/** Render-only surface for everything voice: the Voice Mode engine and, for the
- *  Local engine, the spoken voice. IPC and lifecycle live in the hooks. */
+/** Render-only surface for everything voice: the Voice Mode engine, where speech
+ *  is transcribed and, for the Local engine, the spoken voice. IPC and lifecycle
+ *  live in the hooks. */
 export function VoiceTab(): JSX.Element {
   const engine = useVoiceEnginePreference();
   const voice = useVoiceSettings();
+  const transcription = useTranscriptionSettings();
 
   return (
-    <Section title="Voice" description="Choose how Voice Mode talks with you and which voice reads replies aloud.">
+    <Section
+      title="Voice"
+      description="Choose how Voice Mode talks with you, where your speech is transcribed and which voice reads replies aloud."
+    >
       <VoiceEngineSection />
+      <TranscriptionSection transcription={transcription} />
       {engine === 'gpt-live' ? (
         <p style={noteStyle}>
           GPT-Live speaks with its own voice. Switch to Local to choose a Gemini or Piper voice.

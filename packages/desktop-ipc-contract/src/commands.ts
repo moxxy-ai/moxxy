@@ -5,6 +5,7 @@ import type {
   MoxxyEvent,
   SessionInfo,
   OpenSurfaceResult,
+  QuestionAnswers,
   SurfaceInfo,
   SurfaceInputMessage,
   SurfaceSize,
@@ -31,10 +32,13 @@ import type {
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
+  TranscriptionSettings,
   SkillFile,
   ReasoningEffort,
   ModelDefaultsChange,
   StoredModelDefaults,
+  AgentCliAction,
+  AgentCliRunResult,
 } from './settings.js';
 import type { Desk, DeskSession, DesksOverview, SessionsOverview } from './desks.js';
 import type {
@@ -43,6 +47,7 @@ import type {
   RunTurnArgs,
   RunTurnResult,
 } from './chat.js';
+import type { ChatMediaImageChunk, ChatMediaImageData, ChatMediaLibrary } from './chat-media.js';
 import type {
   AppUpdateInfo,
   AppUpdateCheck,
@@ -335,6 +340,18 @@ export interface IpcCommands {
     workspaceId?: string;
     enabled: boolean;
   }) => Promise<void>;
+  /** Stop one work the agent of the workspace's conversation runs in the
+   *  background (`SessionInfo.backgroundWork`); `false` when it runs no such
+   *  work. Every client sees the list without it through `session.info.changed`. */
+  'session.stopBackgroundWork': (args: { workspaceId?: string; workId: string }) => Promise<boolean>;
+  /** Answer an open Question of the workspace's conversation. Questions are
+   *  read from the conversation log, so every client of it shows the same one
+   *  and the first answer closes it everywhere; a later answer rejects. */
+  'session.answerQuestion': (args: {
+    workspaceId?: string;
+    questionId: string;
+    answers: QuestionAnswers;
+  }) => Promise<void>;
   /** Run a slash command on the workspace's runner. The runner returns
    *  a CommandOutput (text / session-action / noop / error) which the
    *  caller renders inline in the transcript. */
@@ -369,6 +386,20 @@ export interface IpcCommands {
   'voice.useLocalPiper': () => Promise<void>;
   /** Read the active backend and the saved Gemini voice selection. */
   'voice.getSettings': () => Promise<{ backend: string | null; voiceId: string }>;
+  /** Read whether speech is transcribed in the cloud or on this computer, and
+   *  which transcriber the runner actually runs. Host-only. */
+  'voice.getTranscription': () => Promise<TranscriptionSettings>;
+  /** Download the pinned Whisper turbo model when it is missing (progress on
+   *  `voice.transcription.changed`), then install, enable and select the fixed
+   *  first-party local Whisper package, restart desktop runners and load the
+   *  model. Stays on, or falls back to, Cloud and rejects when it cannot start.
+   *  Accepts no renderer-controlled input. */
+  'voice.useLocalTranscription': () => Promise<void>;
+  /** Stop the model download of a switch to Local; Moxxy stays on Cloud. Does
+   *  nothing once the download is done or when none runs. */
+  'voice.cancelLocalTranscription': () => Promise<void>;
+  /** Unselect local Whisper and restart desktop runners (Cloud transcription). */
+  'voice.useCloudTranscription': () => Promise<void>;
   /** Keep the local main renderer realtime while it owns an active Voice Mode
    * capture. Local desktop IPC only; no audio or workspace data crosses here. */
   'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;
@@ -449,7 +480,9 @@ export interface IpcCommands {
   /** Synthesize text to speech via the runner's active synthesizer. Returns
    *  base64 audio + its MIME type, or null when no synthesizer is active.
    *  `language` selects the matching local/remote voice when supported;
-   *  `rate` is a bounded speaking-rate multiplier. */
+   *  `rate` is a bounded speaking-rate multiplier. `cache` asks to keep the
+   *  clip on disk and hand it back next time instead of synthesizing again;
+   *  only Gemini TTS keeps it (the read-aloud button sets it). */
   'session.synthesize': (args: {
     workspaceId?: string;
     requestId?: string;
@@ -457,7 +490,12 @@ export interface IpcCommands {
     language?: string;
     rate?: number;
     voice?: string;
+    cache?: boolean;
   }) => Promise<{ audioBase64: string; mimeType: string } | null>;
+  /** How the read-aloud button should send a message: in parts of up to
+   *  `partChars` characters, each kept on disk (Gemini TTS), or null to read
+   *  sentence by sentence as before (Piper and every other synthesizer). */
+  'session.readAloudPlan': (args?: { workspaceId?: string }) => Promise<{ partChars: number } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */
   'session.pickAttachment': () => Promise<string | null>;
@@ -644,6 +682,24 @@ export interface IpcCommands {
     index: number;
     offset: number;
   }) => Promise<{ data: string; total: number } | null>;
+  /** The chat's photos, files and links, newest first, read from its whole
+   *  log (not just the loaded page) through an index the host keeps beside it.
+   *  `null` for an unknown/unreadable session. */
+  'chat.media': (args: { workspaceId: string }) => Promise<ChatMediaLibrary | null>;
+  /** A small copy of a library image, made once and kept. `null` when the
+   *  item is gone or cannot be drawn small. */
+  'chat.mediaThumbnail': (args: { workspaceId: string; id: string }) => Promise<ChatMediaImageData | null>;
+  /** One slice of a library image's bytes from `offset` characters; repeat
+   *  with `offset += data.length` until `total`. */
+  'chat.readMediaImage': (args: {
+    workspaceId: string;
+    id: string;
+    offset: number;
+  }) => Promise<ChatMediaImageChunk | null>;
+  /** Open a library file with its default app (only types that just view or
+   *  play), or show it in the file manager. An attached copy is written out
+   *  under the host's cache first. */
+  'chat.openMediaFile': (args: { workspaceId: string; id: string }) => Promise<{ opened: 'app' | 'folder' }>;
 
   // Workflows
   'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;
@@ -889,6 +945,13 @@ export interface IpcCommands {
   /** Subset of providers that the user added via `provider_add` — the
    *  ones for which live /v1/models fetching is wired. */
   'settings.adminProviders': () => Promise<ReadonlyArray<string>>;
+  /** Check every agent connection's CLI now, asking the registry again; the
+   *  new state arrives in each runner's info (`ProviderEntry.agentCli`). */
+  'agents.check': (args?: { workspaceId?: string }) => Promise<void>;
+  /** Install the CLI behind an agent connection with the vendor's installer,
+   *  or update it with its own command, on this computer. Lines and progress
+   *  stream as `agents.progress`. An update is refused while any turn runs. */
+  'agents.run': (args: { provider: string; action: AgentCliAction }) => Promise<AgentCliRunResult>;
   'settings.mcpServers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<McpServerEntry>>;
   'settings.mcpToggle': (args: {
     workspaceId?: string;

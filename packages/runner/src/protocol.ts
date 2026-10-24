@@ -1,4 +1,5 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
+import { questionAnswersSchema } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -9,6 +10,7 @@ import type {
   PermissionContext,
   PermissionDecision,
   Principal,
+  QuestionAnswers,
   OpenSurfaceResult,
   SessionInfo,
   SurfaceDataMessage,
@@ -178,7 +180,20 @@ import type {
  * out (`content: ''` + `omittedBytes`), and `session.readAttachment` reads them
  * back in bounded slices (additive: older clients just see the size).
  */
-export const RUNNER_PROTOCOL_VERSION = 26;
+/** v27: `setResolver` takes `question` (this client shows Questions) and `question.answer` answers one (additive). */
+/**
+ * v28: `ProviderInfo.agentCli` reports each agent connection's CLI (missing,
+ * update required/available, current), with the file checked and where it
+ * came from (`path`, `origin`), pushed by `info.changed` whenever it changes;
+ * `provider.checkAgents` checks every one again now (additive).
+ */
+/**
+ * v29: `SessionInfo.backgroundWork` lists what the agent of an agent
+ * connection runs in the background now, pushed by `info.changed`;
+ * `session.stopBackgroundWork` stops one of them (additive).
+ */
+/** v30: `ProviderInfo.starterModel` names the light model a new conversation starts on while no default is chosen (additive). */
+export const RUNNER_PROTOCOL_VERSION = 30;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -236,8 +251,15 @@ export const RunnerMethod = {
    * every client of the session; the change arrives as an `info.changed`.
    */
   SessionSetAutoApprove: 'session.setAutoApprove',
+  /**
+   * client->server: stop one work the agent runs in the background (v29);
+   * the list without it arrives as an `info.changed`.
+   */
+  SessionStopBackgroundWork: 'session.stopBackgroundWork',
   /** client->server: declare which resolvers this client will answer. */
   SetResolver: 'setResolver',
+  /** client->server: answer an open Question the session recorded (v27). */
+  QuestionAnswer: 'question.answer',
   /** client->server: switch the active mode. */
   ModeSetActive: 'mode.setActive',
   /** client->server: set the session's reasoning/thinking effort (v9). */
@@ -250,6 +272,8 @@ export const RunnerMethod = {
   ProviderSetEnabled: 'provider.setEnabled',
   /** client->server: re-probe every provider's credentials → readyProviders (v7). */
   ProviderRefreshReady: 'provider.refreshReady',
+  /** client->server: check every agent connection's CLI again, asking the vendors' registry anew (v28). */
+  ProviderCheckAgents: 'provider.checkAgents',
   /** client->server: patch a stored (runtime-registered) provider's config (v7). */
   ProviderConfigure: 'provider.configure',
   /** client->server: persist an allow-always permission rule. */
@@ -414,6 +438,14 @@ export interface SetResolverParams {
   readonly permission?: boolean;
   /** This client will answer `approval.confirm` for the turns it owns. */
   readonly approval?: boolean;
+  /** This client shows the session's Questions and can answer them (v27). */
+  readonly question?: boolean;
+}
+
+/** Params for `question.answer` (v27). */
+export interface QuestionAnswerParams {
+  readonly questionId: string;
+  readonly answers: QuestionAnswers;
 }
 
 export interface ModeSetActiveParams {
@@ -481,6 +513,16 @@ export interface SessionRecordExchangeResult {
 /** Params for `session.setAutoApprove` (v21). */
 export interface SessionSetAutoApproveParams {
   readonly enabled: boolean;
+}
+
+/** Params for `session.stopBackgroundWork` (v29). */
+export interface SessionStopBackgroundWorkParams {
+  readonly workId: string;
+}
+
+/** Result of `session.stopBackgroundWork`: `false` when the agent runs no such work. */
+export interface SessionStopBackgroundWorkResult {
+  readonly stopped: boolean;
 }
 
 export interface ProviderSetActiveParams {
@@ -682,7 +724,12 @@ export const abortParamsSchema = z.object({ turnId: z.string() });
 export const setResolverParamsSchema = z.object({
   permission: z.boolean().optional(),
   approval: z.boolean().optional(),
+  question: z.boolean().optional(),
 });
+
+export const questionAnswerParamsSchema = z
+  .object({ questionId: z.string().min(1), answers: questionAnswersSchema })
+  .strict();
 
 export const modeSetActiveParamsSchema = z.object({ name: z.string() });
 
@@ -724,6 +771,7 @@ export const sessionRecordExchangeParamsSchema = z
   );
 
 export const sessionSetAutoApproveParamsSchema = z.object({ enabled: z.boolean() }).strict();
+export const sessionStopBackgroundWorkParamsSchema = z.object({ workId: z.string().min(1) }).strict();
 
 export const providerSetActiveParamsSchema = z.object({
   name: z.string(),

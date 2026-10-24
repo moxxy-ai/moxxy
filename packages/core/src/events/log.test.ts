@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { EventLog } from './log.js';
 import { asSessionId, asTurnId, asToolCallId } from '@moxxy/sdk';
 

@@ -1,5 +1,5 @@
 import { defineTool, zodToJsonSchema, type LifecycleHooks, type SurfaceDef, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { FILE_PANEL_NOTE, withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from '../contract/outcome.js';

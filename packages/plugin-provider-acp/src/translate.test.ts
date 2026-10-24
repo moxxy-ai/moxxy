@@ -1,0 +1,219 @@
+/**
+ * OpenCode's file changes as Moxxy diffs. The updates are shaped as OpenCode
+ * 1.18 sends them over ACP: a finished call carries the tool's own output and
+ * metadata in `rawOutput`, and for an edit only the replaced text in `content`.
+ */
+import { describe, expect, it } from 'vitest';
+import type { AcpSessionUpdate } from './protocol.js';
+import { AcpTurnTranslator } from './translate.js';
+
+const started = (id: string, tool: string, rawInput: Record<string, unknown>): AcpSessionUpdate => ({
+  sessionUpdate: 'tool_call',
+  toolCallId: id,
+  title: tool,
+  kind: 'edit',
+  status: 'in_progress',
+  rawInput,
+});
+const finished = (id: string, output: string, metadata: Record<string, unknown>, content: unknown[] = []): AcpSessionUpdate => ({
+  sessionUpdate: 'tool_call_update',
+  toolCallId: id,
+  status: 'completed',
+  content: [{ type: 'content', content: { type: 'text', text: output } }, ...content],
+  rawOutput: { output, metadata },
+});
+
+describe("OpenCode's file changes", () => {
+  it('show an edit as a diff, from the unified diff in its metadata', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    t.update(started('e1', 'edit', { filePath: '/repo/src/db.ts', oldString: 'const port = 5432;', newString: 'const port = 5433;' }));
+    const diff =
+      'Index: /repo/src/db.ts\n===================================================================\n--- /repo/src/db.ts\n+++ /repo/src/db.ts\n' +
+      '@@ -1,2 +1,2 @@\n const host = "x";\n-const port = 5432;\n+const port = 5433;\n';
+
+    const [result] = t.update(
+      finished('e1', 'Edit applied successfully.', { diagnostics: {}, diff, filediff: { file: '/repo/src/db.ts', additions: 1, deletions: 1 }, truncated: false }, [
+        { type: 'diff', path: '/repo/src/db.ts', oldText: 'const port = 5432;', newText: 'const port = 5433;' },
+      ]),
+    );
+
+    expect(result).toMatchObject({
+      type: 'tool_result',
+      callId: 'e1',
+      ok: true,
+      output: { display: { kind: 'file-diff', path: 'src/db.ts', mode: 'update', added: 1, removed: 1 } },
+    });
+    const output = (result as { output: { forModel: string; display: { hunks: Array<{ lines: Array<{ newNo?: number }> }> } } }).output;
+    expect(output.forModel).toContain('Edit applied successfully.');
+    expect(output.display.hunks[0]?.lines[2]?.newNo).toBe(2);
+  });
+
+  it('show a new file as all added, from the content it was given', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    t.update(started('w1', 'write', { filePath: '/repo/notes.md', content: '# Notes\nport 5433\n' }));
+
+    const [result] = t.update(finished('w1', 'Wrote file successfully.', { diagnostics: {}, filepath: '/repo/notes.md', exists: false, truncated: false }));
+
+    expect(result).toMatchObject({ output: { display: { kind: 'file-diff', path: 'notes.md', mode: 'create', added: 2, removed: 0 } } });
+  });
+
+  it('keep the text when a write replaced a file whose old content OpenCode does not send', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    t.update(started('w2', 'write', { filePath: '/repo/notes.md', content: 'new\n' }));
+
+    expect(t.update(finished('w2', 'Wrote file successfully.', { filepath: '/repo/notes.md', exists: true }))).toEqual([
+      { type: 'tool_result', callId: 'w2', ok: true, output: 'Wrote file successfully.' },
+    ]);
+  });
+});
+
+describe("OpenCode's images", () => {
+  it('keep the image a finished call sends, such as an image file it read, with its text', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    t.update({ sessionUpdate: 'tool_call', toolCallId: 'r1', title: 'read', kind: 'read', status: 'in_progress', rawInput: { filePath: '/repo/shot.png' } });
+
+    const [result] = t.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'r1',
+      status: 'completed',
+      content: [
+        { type: 'content', content: { type: 'text', text: 'Image read successfully' } },
+        { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'iVBOR' } },
+      ],
+      rawOutput: { output: 'Image read successfully', metadata: {} },
+    });
+
+    expect(result).toEqual({
+      type: 'tool_result',
+      callId: 'r1',
+      ok: true,
+      output: { forModel: 'Image read successfully', mediaType: 'image/png', base64: 'iVBOR' },
+    });
+  });
+
+  it('keep every different image a finished call sends, in order', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    t.update({ sessionUpdate: 'tool_call', toolCallId: 'r2', title: 'screens', kind: 'other', status: 'in_progress', rawInput: {} });
+    const image = (data: string) => ({ type: 'content', content: { type: 'image', mimeType: 'image/png', data } }) as const;
+
+    const [result] = t.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'r2',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: 'Two screens' } }, image('ONE'), image('ONE'), image('TWO')],
+      rawOutput: { output: 'Two screens', metadata: {} },
+    });
+
+    expect(result).toMatchObject({ output: { base64: 'ONE', moreImages: [{ mediaType: 'image/png', base64: 'TWO' }] } });
+  });
+});
+
+describe("OpenCode's todo list", () => {
+  it('shows the list OpenCode wrote as the result of its todowrite call', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    t.update({ sessionUpdate: 'tool_call', toolCallId: 'td1', title: 'todowrite', kind: 'other', status: 'pending', rawInput: {} });
+    const todos = [
+      { content: 'Create a.txt containing a', status: 'completed', priority: 'high' },
+      { content: 'Create b.txt containing b', status: 'in_progress', priority: 'high' },
+    ];
+    const shown = t.update({ sessionUpdate: 'tool_call_update', toolCallId: 'td1', status: 'in_progress', kind: 'other', title: 'todowrite', rawInput: { todos } });
+
+    const [result] = t.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'td1',
+      status: 'completed',
+      title: '1 todos',
+      content: [{ type: 'content', content: { type: 'text', text: JSON.stringify(todos, null, 2) } }],
+      rawOutput: { output: JSON.stringify(todos, null, 2), metadata: {} },
+    });
+
+    expect(shown).toEqual([{ type: 'tool_call', callId: 'td1', name: 'TodoWrite', input: { todos } }]);
+    expect(result).toMatchObject({
+      type: 'tool_result',
+      ok: true,
+      output: {
+        display: {
+          kind: 'step-list',
+          steps: [
+            { text: 'Create a.txt containing a', status: 'completed' },
+            { text: 'Create b.txt containing b', status: 'in_progress' },
+          ],
+        },
+      },
+    });
+  });
+
+  it("shows an ACP agent's plan as a call of its own", () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+
+    const events = t.update({ sessionUpdate: 'plan', entries: [{ content: 'Read the code', priority: 'high', status: 'pending' }] });
+
+    expect(events).toMatchObject([
+      { type: 'tool_call', name: 'update_plan' },
+      { type: 'tool_result', ok: true, output: { display: { kind: 'step-list', steps: [{ text: 'Read the code', status: 'pending' }] } } },
+    ]);
+    expect((events[0] as { callId: string }).callId).toBe((events[1] as { callId: string }).callId);
+  });
+});
+
+describe("OpenCode's subagents", () => {
+  const launched = (t: AcpTurnTranslator) => {
+    t.update({ sessionUpdate: 'tool_call', toolCallId: 'task1', title: 'task', kind: 'think', status: 'pending', rawInput: {} });
+    return t.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'task1',
+      status: 'in_progress',
+      rawInput: { description: 'List files', prompt: 'list the files', subagent_type: 'general' },
+    });
+  };
+
+  it('show a task OpenCode hands to a subagent as a subagent, whose own tools OpenCode does not report', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+
+    expect(launched(t)).toEqual([
+      { type: 'subagent_started', id: 'task1', label: 'List files', agentType: 'general', prompt: 'list the files', toolsUnseen: true },
+    ]);
+  });
+
+  it("end it with the subagent's answer, without OpenCode's wrapping", () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    launched(t);
+    const output = '<task id="ses_1" state="completed">\n<task_result>\nTwo files: a.txt, notes.txt.\n</task_result>\n</task>';
+
+    expect(
+      t.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'task1',
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: output } }],
+        rawOutput: { output, metadata: { sessionId: 'ses_1' } },
+      }),
+    ).toEqual([{ type: 'subagent_completed', id: 'task1', text: 'Two files: a.txt, notes.txt.' }]);
+  });
+
+  it('end it with the reason when the subagent failed', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    launched(t);
+
+    expect(
+      t.update({ sessionUpdate: 'tool_call_update', toolCallId: 'task1', status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'model refused' } }] }),
+    ).toEqual([{ type: 'subagent_completed', id: 'task1', text: '', error: 'model refused' }]);
+  });
+
+  it('keep a subagent OpenCode started in the background running: its end comes later', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    launched(t);
+    const output = '<task id="ses_2" state="running">\n<summary>Background task started</summary>\n<task_result>\nThe task is working in the background.\n</task_result>\n</task>';
+
+    expect(
+      t.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'task1',
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: output } }],
+        rawOutput: { output },
+      }),
+    ).toEqual([]);
+  });
+});
+

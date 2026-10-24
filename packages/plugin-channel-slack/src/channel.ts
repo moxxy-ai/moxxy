@@ -366,7 +366,7 @@ export class SlackChannel implements Channel<SlackStartOpts> {
   private mirrorForeignTurn(event: MoxxyEvent): void {
     // Skipped for our own turnIds (robust to async ordering / replay, #8) and
     // while a turn of ours is streaming via the frame pump.
-    const text = this.turns.mirrorText(event);
+    const text = this.turns.mirrorReply(event);
     if (text == null) return;
     if (!this.client || this.lastChannelId == null || this.lastThreadTs == null) return;
     void this.client

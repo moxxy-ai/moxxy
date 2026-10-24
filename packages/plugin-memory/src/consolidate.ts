@@ -3,6 +3,7 @@ import {
   assertDefined,
   defineTool,
   definePlugin,
+  startingModel,
   type LifecycleHooks,
   type LLMProvider,
   type Plugin,
@@ -203,7 +204,7 @@ export async function consolidateMemory(
     let response = '';
     let aborted = false;
     const iterable = provider.stream({
-      model: provider.models[0]?.id ?? 'unknown',
+      model: startingModel(provider) ?? 'unknown',
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
       maxTokens: 2000,

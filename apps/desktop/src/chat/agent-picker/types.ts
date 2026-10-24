@@ -1,5 +1,5 @@
 import type { ReasoningEffort } from '@moxxy/desktop-ipc-contract';
-import type { SkillInfo } from '@moxxy/sdk';
+import type { AgentCliReport, SkillInfo } from '@moxxy/sdk';
 import type { CommandInfo } from '../command-palette/types';
 
 /**
@@ -20,6 +20,12 @@ export interface ProviderInfo {
     readonly supportsFast?: boolean;
   }>;
   readonly supportsLiveModelDiscovery?: boolean;
+  /** The light model a new conversation starts on while no default is chosen. */
+  readonly starterModel?: string;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"). */
+  readonly agentName?: string;
+  /** For an agent connection, the last check of its CLI. */
+  readonly agentCli?: AgentCliReport;
 }
 
 /**

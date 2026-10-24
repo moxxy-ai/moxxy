@@ -1,7 +1,7 @@
 import type { Workflow } from '@moxxy/sdk';
 import { assertDefined } from '@moxxy/sdk';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { validateCondition } from './template.js';
 
 /**

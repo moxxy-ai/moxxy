@@ -1,90 +1,85 @@
 /**
  * The pinned Whisper model catalog.
  *
- * Every model is a multilingual sherpa-onnx Whisper export published as a
- * `.tar.bz2` under the project's `asr-models` GitHub release. Each `sha256` is
- * copied VERBATIM from that release's `checksum.txt` (re-verified 2026-07-05) —
- * so a first-use download is content-addressed and tamper-evident, unlike an
- * unverified blob fetch. The archive extracts to a single top directory
- * (`archiveRootDir`) holding `<id>-encoder.onnx`, `<id>-decoder.onnx` (+ int8
- * variants we don't use) and `<id>-tokens.txt`.
+ * The one model is Whisper large-v3 turbo, the multilingual sherpa-onnx int8
+ * export. Its three files download as they are from Hugging Face, pinned to a
+ * fixed revision and checked against their size and sha256 — byte for byte the
+ * files the project's `asr-models` GitHub release packs into a `.tar.bz2`
+ * (verified 2026-10-24), but with no archive to unpack: unpacking it in
+ * JavaScript took about 67 s against 9 s for the download.
  *
- * All three are the MULTILINGUAL models (not the `.en` English-only exports),
- * so Polish (and any other Whisper language) works — `small` is the accuracy
- * sweet spot for Polish, `base` the balanced default, `tiny` the fastest.
+ * Multilingual (not an `.en` export), so Polish and every other Whisper
+ * language work.
  */
 
-import { MoxxyError } from '@moxxy/sdk';
+import path from 'node:path';
 
-export type WhisperModelId = 'tiny' | 'base' | 'small';
+import { MoxxyError } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
+import type { ModelFile } from '@moxxy/model-fetch/files';
+
+export type WhisperModelId = 'turbo';
 
 export interface WhisperModelEntry {
-  /** Stable model id (also the `model` config value). */
+  /** Stable model id (also the `model` config value and its directory name). */
   readonly id: WhisperModelId;
   /** Human label for UI surfaces / the first-use notice. */
   readonly label: string;
-  /** Pinned archive URL (sherpa-onnx GitHub `asr-models` release). */
-  readonly url: string;
-  /** Pinned hex sha256 of the archive (from the release checksum.txt). */
-  readonly sha256: string;
-  /** Top directory the archive extracts to (`sherpa-onnx-whisper-<id>`). */
-  readonly archiveRootDir: string;
-  /** Encoder ONNX filename inside `archiveRootDir` (`<id>-encoder.onnx`). */
-  readonly encoderFile: string;
-  /** Decoder ONNX filename inside `archiveRootDir` (`<id>-decoder.onnx`). */
-  readonly decoderFile: string;
-  /** Tokens filename inside `archiveRootDir` (`<id>-tokens.txt`). */
-  readonly tokensFile: string;
-  /** Approximate download size in MB (for the one-time first-use notice). */
-  readonly approxMb: number;
+  readonly encoder: ModelFile;
+  readonly decoder: ModelFile;
+  readonly tokens: ModelFile;
 }
 
-const RELEASE_BASE = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models';
-
-function whisperModel(
-  id: WhisperModelId,
-  label: string,
-  sha256: string,
-  approxMb: number,
-): WhisperModelEntry {
-  const archiveRootDir = `sherpa-onnx-whisper-${id}`;
-  return {
-    id,
-    label,
-    url: `${RELEASE_BASE}/${archiveRootDir}.tar.bz2`,
-    sha256,
-    archiveRootDir,
-    encoderFile: `${id}-encoder.onnx`,
-    decoderFile: `${id}-decoder.onnx`,
-    tokensFile: `${id}-tokens.txt`,
-    approxMb,
-  };
-}
+const TURBO_REVISION = '2ca6ff69fc878651b770880507669577ac41c2ff';
+const TURBO_BASE = `https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/resolve/${TURBO_REVISION}`;
 
 export const MODEL_CATALOG: readonly WhisperModelEntry[] = [
-  whisperModel(
-    'tiny',
-    'Whisper tiny (multilingual — fastest, lowest accuracy)',
-    'c46116994e539aa165266d96b325252728429c12535eb9d8b6a2b10f129e66b1',
-    111,
-  ),
-  whisperModel(
-    'base',
-    'Whisper base (multilingual — balanced; default)',
-    '911b2083efd7c0dca2ac3b358b75222660dc09fb716d64fbfc417ba6c99ff3de',
-    198,
-  ),
-  whisperModel(
-    'small',
-    'Whisper small (multilingual — best accuracy; recommended for Polish)',
-    '486a46afbb7ba798507190ffe02fea2dd726049af212e774537efac6afb210a6',
-    610,
-  ),
+  {
+    id: 'turbo',
+    label: 'Whisper turbo (multilingual, large-v3 turbo)',
+    encoder: {
+      name: 'turbo-encoder.int8.onnx',
+      url: `${TURBO_BASE}/turbo-encoder.int8.onnx`,
+      bytes: 674_716_297,
+      sha256: 'b02dcdf54f348741e93fe732b67d933c8dcb6735655f710640143081db38878b',
+    },
+    decoder: {
+      name: 'turbo-decoder.int8.onnx',
+      url: `${TURBO_BASE}/turbo-decoder.int8.onnx`,
+      bytes: 361_080_764,
+      sha256: '20accd02388482eb3a46bd615631adfdc85e1eb2c7db9ea3f02a40ffe6b81547',
+    },
+    tokens: {
+      name: 'turbo-tokens.txt',
+      url: `${TURBO_BASE}/turbo-tokens.txt`,
+      bytes: 816_730,
+      sha256: 'b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126',
+    },
+  },
 ];
 
-/** Default model when the caller doesn't pick one. `base` balances size vs.
- *  accuracy; `small` is recommended for Polish (see the catalog description). */
-export const DEFAULT_MODEL_ID: WhisperModelId = 'base';
+/** Every file of a model, in download order. */
+export function modelFiles(entry: WhisperModelEntry): ModelFile[] {
+  return [entry.encoder, entry.decoder, entry.tokens];
+}
+
+/** The model's download size in bytes. */
+export function modelBytes(entry: WhisperModelEntry): number {
+  return modelFiles(entry).reduce((sum, file) => sum + file.bytes, 0);
+}
+
+/** The models root: `~/.moxxy/models/stt`, MOXXY_HOME-aware. */
+export function defaultModelsDir(): string {
+  return moxxyPath('models', 'stt');
+}
+
+/** Where a model's files live under the models root. */
+export function modelDir(entry: WhisperModelEntry, modelsDir: string): string {
+  return path.join(modelsDir, entry.id);
+}
+
+/** The model used when the caller doesn't pick one — the only one there is. */
+export const DEFAULT_MODEL_ID: WhisperModelId = 'turbo';
 
 /** All valid model ids, for error messages and validation. */
 export function modelIds(): string[] {

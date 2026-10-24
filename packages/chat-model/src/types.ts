@@ -13,7 +13,8 @@ export type Block =
   | SubagentBlock
   | SubagentGroupBlock
   | LiveToolBlockData
-  | CollaborationBlock;
+  | CollaborationBlock
+  | StepListBlock;
 
 /** One agent on a collaborative team (from collab_agent_* + roster events). */
 export interface CollabAgentView {
@@ -104,6 +105,8 @@ export interface SubagentBlock {
   /** ms timestamp of completion, or null while running. */
   completedAtMs: number | null;
   toolCallCount: number;
+  /** True when the agent that ran it does not report its tool calls, so the count says nothing. */
+  readonly toolsUnseen?: boolean;
   /** Total tokens the child consumed (input + output), null until completion. */
   tokensUsed: number | null;
   /** The agent's tool calls in order (name + input), accumulated live from
@@ -115,6 +118,10 @@ export interface SubagentBlock {
   finalPreview: string | null;
   /** Error message if the agent failed (subagent_error/abort or non-OK stopReason). */
   error: string | null;
+  /** Still running when its turn ended: the agent went on without waiting for it. */
+  backgrounded?: boolean;
+  /** What a subagent from an earlier turn did after that turn ended, shown where it happened. */
+  readonly continued?: boolean;
 }
 
 /**
@@ -143,6 +150,20 @@ export interface ToolCallBlockData {
   readonly id: string;
   readonly request: ToolCallRequestedEvent;
   outcome: ToolResultEvent | { type: 'denied'; reason: string } | null;
+}
+
+/**
+ * An agent's list of steps for one turn: every call that changed it this turn
+ * (Claude's tasks, Codex's plan, OpenCode's todos), shown as one list where the
+ * first of them was. Each call's result carries the whole list, so the last
+ * one is the list as it stands.
+ */
+export interface StepListBlock {
+  kind: 'step-list';
+  readonly id: string;
+  readonly calls: ToolCallBlockData[];
+  /** Set once the turn ends: no later change can join the list. */
+  closed: boolean;
 }
 
 export interface SkillScopeBlock {

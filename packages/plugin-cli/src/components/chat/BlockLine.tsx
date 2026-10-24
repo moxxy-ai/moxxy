@@ -7,6 +7,7 @@ import { ToolCallBlock } from './ToolCallBlock.js';
 import { SubagentScopeView } from './SubagentScopeView.js';
 import { SubagentGroupView } from './SubagentGroupView.js';
 import { CollabScopeView } from './CollabScopeView.js';
+import { StepListView } from './StepListView.js';
 import { ShimmerText } from './ShimmerText.js';
 import { ActivityDot, type ActivityDotState } from './ActivityDot.js';
 import {
@@ -69,6 +70,9 @@ export const BlockLine: React.FC<BlockLineProps> = memo(
     }
     if (block.kind === 'collab') {
       return <CollabScopeView scope={block} />;
+    }
+    if (block.kind === 'step-list') {
+      return <StepListView block={block} />;
     }
     return (
       <SkillScopeView

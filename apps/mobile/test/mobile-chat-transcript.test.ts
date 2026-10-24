@@ -2,6 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { buildChatTranscript } from '../src/chatTranscript';
 
 describe('mobile chat transcript model', () => {
+  it('shows when a continued agent turn finished without replying, also after history replay', () => {
+    const started = { id: 'continued', type: 'user_prompt', text: 'Task finished', origin: { kind: 'agent', name: 'Task finished' } };
+    const ended = { id: 'no-reply', type: 'plugin_event', pluginId: '@moxxy/agent-connection', subtype: 'no_reply', payload: {} };
+
+    expect(buildChatTranscript([started])).toEqual([
+      { id: 'continued', kind: 'trigger', label: 'Agent continued', name: 'Task finished' },
+    ]);
+    const transcript = buildChatTranscript([started, ended]);
+    expect(transcript).toEqual([
+      { id: 'continued', kind: 'trigger', label: 'Agent continued', name: 'Task finished' },
+      { id: 'no-reply', kind: 'notice', label: 'Finished', text: 'The agent finished without replying.' },
+    ]);
+    expect(buildChatTranscript([started, ended, ended])).toEqual(transcript);
+  });
+
   it('folds streamed assistant chunks into one assistant message instead of event cards', () => {
     const transcript = buildChatTranscript([
       { id: 'u1', type: 'user_prompt', text: 'Powiedz OK' },
@@ -304,5 +319,59 @@ describe('mobile chat transcript model', () => {
       { id: 'a1', type: 'assistant_message', content: 'Hi.' },
     ]);
     expect(transcript.some((item) => item.kind === 'reasoning')).toBe(false);
+  });
+});
+
+describe('turns something other than the person started', () => {
+  it('shows one as a marker saying what started it, not as the person message', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'List files finished in the background', origin: { kind: 'agent', name: 'List files finished in the background' } },
+    ]);
+
+    expect(transcript).toEqual([{ id: 'u1', kind: 'trigger', label: 'Agent continued', name: 'List files finished in the background' }]);
+  });
+});
+
+describe('an agent helper that outlives its turn', () => {
+  const sub = (id: string, subtype: string, payload: Record<string, unknown>) => ({ id, type: 'plugin_event', pluginId: '@moxxy/subagents', subtype, payload });
+
+  it('says it went on in the background, and shows what it did later in a row of its own', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'List the files in the background' },
+      sub('s1', 'subagent_started', { childSessionId: 'bg1', label: 'List files', agentType: 'general-purpose' }),
+      { id: 'u2', type: 'user_prompt', text: 'List files finished in the background', origin: { kind: 'agent', name: 'List files finished in the background' } },
+      sub('s2', 'subagent_tool_call', { childSessionId: 'bg1', name: 'Bash', input: { command: 'ls' } }),
+      sub('s3', 'subagent_completed', { childSessionId: 'bg1', text: 'Two files.' }),
+    ]);
+
+    const groups = transcript.filter((item) => item.kind === 'subagent-group');
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({ status: 'background', summary: '1 general-purpose agent in the background', agents: [{ status: 'background', toolCallCount: 0 }] });
+    expect(groups[1]).toMatchObject({
+      status: 'done',
+      summary: '1 general-purpose agent finished in the background',
+      agents: [{ label: 'List files', continued: true, status: 'done', toolCallCount: 1, finalPreview: 'Two files.' }],
+    });
+  });
+});
+
+describe("an agent's account limit", () => {
+  const limit = (id: string, state: string) => ({
+    id,
+    type: 'plugin_event',
+    pluginId: '@moxxy/agent-connection',
+    subtype: 'account_limit',
+    ts: new Date(2026, 9, 12, 14, 0).getTime(),
+    payload: { provider: 'codex-agent', agent: 'Codex', limit: { state, windowMinutes: 300, resetsAt: new Date(2026, 9, 12, 18, 0).getTime() } },
+  });
+
+  it('says where the turn stopped that the limit is used up and when it resets, as the desktop does', () => {
+    expect(buildChatTranscript([limit('l1', 'reached')])).toEqual([
+      { id: 'l1', kind: 'error', label: 'Limit', text: "Codex's 5-hour limit is used up · resets at 18:00" },
+    ]);
+  });
+
+  it('shows nothing in the conversation for a limit with room left', () => {
+    expect(buildChatTranscript([limit('l2', 'near')])).toEqual([]);
   });
 });

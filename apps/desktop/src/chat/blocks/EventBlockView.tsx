@@ -1,4 +1,7 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
+import { AGENT_NO_REPLY_TEXT, isAgentNoReplyEvent } from '@moxxy/sdk/agent-no-reply';
+import { accountLimitText } from '@moxxy/chat-model';
 import { UserBlock } from './UserBlock';
 import { TriggerBlock } from './TriggerBlock';
 import { ActionRow } from './ActionRow';
@@ -9,7 +12,7 @@ import { TraceEntry } from '../trace/TraceEntry';
 import { ModeNoteLine } from '../modes/ModeNoteLine';
 import { ModeOutcomeCard } from '../modes/ModeOutcomeCard';
 import { useModeNote, useModeOutcome } from '../modes/ModeTranscriptContext';
-import { usePlanActions } from '../modes/plan-next';
+import { usePlanCard } from '../modes/plan-next';
 
 export function EventBlockView({
   event,
@@ -21,14 +24,14 @@ export function EventBlockView({
   // Both are undefined outside a plan, goal or research turn.
   const outcome = useModeOutcome(event.id);
   const note = useModeNote(event.id);
-  const planActions = usePlanActions(event.id, outcome);
+  const plan = usePlanCard(event.id, outcome);
   switch (event.type) {
     case 'user_prompt':
       // A machine-initiated turn (fired webhook/schedule/workflow) renders as a
       // compact, expandable trigger marker instead of the raw synthesized prompt.
       return event.origin ? (
         <TraceEntry kind="trigger">
-          <TriggerBlock origin={event.origin} text={event.text} />
+          <TriggerBlock origin={event.origin} text={event.text} eventId={String(event.id)} />
         </TraceEntry>
       ) : (
         <TraceEntry kind="commanded" meta={stamp(event.ts)}>
@@ -47,8 +50,8 @@ export function EventBlockView({
           meta={stamp(event.ts)}
           actions={<ActionRow text={event.content} />}
         >
-          {outcome ? (
-            <ModeOutcomeCard outcome={outcome} text={event.content} actions={planActions} />
+          {plan.outcome ? (
+            <ModeOutcomeCard outcome={plan.outcome} text={event.content} actions={plan.actions} rewrite={plan.rewrite} />
           ) : (
             <AssistantBlock
               text={event.content}
@@ -76,7 +79,23 @@ export function EventBlockView({
           <SystemBlock text={event.reason} tone="info" />
         </TraceEntry>
       );
-    case 'plugin_event':
+    case 'plugin_event': {
+      // An agent's used-up account limit is said where the turn stopped, in place of its raw error.
+      const limit = accountLimitOfEvent(event);
+      if (limit && limit.limit.state === 'reached') {
+        return (
+          <TraceEntry kind="error" label="Limit" meta={stamp(event.ts)}>
+            <SystemBlock text={accountLimitText(limit, event.ts ?? Date.now())} tone="error" />
+          </TraceEntry>
+        );
+      }
+      if (isAgentNoReplyEvent(event)) {
+        return (
+          <TraceEntry kind="system">
+            <SystemBlock text={AGENT_NO_REPLY_TEXT} tone="info" />
+          </TraceEntry>
+        );
+      }
       // A step of a plan, goal or research run; any other plugin event is
       // bookkeeping.
       return note ? (
@@ -84,6 +103,7 @@ export function EventBlockView({
           <ModeNoteLine note={note} />
         </TraceEntry>
       ) : null;
+    }
     default:
       // skill_invoked is consumed into skill-scope; everything else is
       // bookkeeping the chat surface doesn't render.

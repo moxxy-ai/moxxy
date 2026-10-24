@@ -1,4 +1,5 @@
 import { EventLog } from '@moxxy/core';
+import { RemoteQuestions } from './remote-questions.js';
 import type {
   AgentsClientView,
   ApprovalDecision,
@@ -73,6 +74,7 @@ import {
   type SessionReadAttachmentParams,
   type SessionRecordExchangeParams,
   type SessionRecordExchangeResult,
+  type SessionStopBackgroundWorkResult,
   type SurfaceDataNotification,
   type SurfaceListResult,
   type TurnCompleteNotification,
@@ -203,6 +205,7 @@ export class RemoteSession implements ClientSession {
   readonly providerAdmin: ProviderAdminClientView;
   readonly computerControl: ComputerControlService;
   readonly workflows: WorkflowsClientView;
+  readonly questions: RemoteQuestions;
   /**
    * Turns that completed before their `runTurn` stream was registered. A fast
    * turn can finish on the runner before the client processes the `runTurn`
@@ -240,6 +243,10 @@ export class RemoteSession implements ClientSession {
 
   constructor(transport: Transport) {
     this.peer = new JsonRpcPeer(transport);
+    this.questions = new RemoteQuestions({
+      request: (method, params) => this.peer.request(method, params),
+      requireServerProtocol: (minVersion, feature) => this.requireServerProtocol(minVersion, feature),
+    });
 
     // Server->client notifications.
     this.peer.on(RunnerNotification.Event, (params) => {
@@ -540,6 +547,16 @@ export class RemoteSession implements ClientSession {
   async setAutoApprove(enabled: boolean): Promise<void> {
     this.requireServerProtocol(21, 'Sharing auto-approve with the runner');
     await this.peer.request(RunnerMethod.SessionSetAutoApprove, { enabled });
+  }
+
+  /**
+   * Stop one work the agent runs in the background (v29); `false` when it runs
+   * no such work. The list without it arrives with the next `info.changed`.
+   */
+  async stopBackgroundWork(workId: string): Promise<boolean> {
+    this.requireServerProtocol(29, 'Stopping background work');
+    const result = await this.peer.request<SessionStopBackgroundWorkResult>(RunnerMethod.SessionStopBackgroundWork, { workId });
+    return result.stopped;
   }
 
   getInfo(): SessionInfo {

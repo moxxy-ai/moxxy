@@ -14,6 +14,14 @@ function setup(locked = false) {
 }
 
 describe('useShellNavigation', () => {
+  it('opens the media pane on the current chat from a palette place', () => {
+    const onPane = vi.fn();
+    const { result } = renderHook(() => useShellNavigation({ sessionLoading: false, onShowShortcuts: noop, onOpenPalette: noop, onSection: noop, onPane }));
+    act(() => result.current.go('settings'));
+    act(() => result.current.open({ destination: 'chat', pane: 'media' }));
+    expect(onPane).toHaveBeenCalledWith('media');
+    expect(result.current.view).toBe('chat');
+  });
   it('starts on the run and goes where it is told', () => {
     const { result } = setup();
     expect(result.current.view).toBe('chat');

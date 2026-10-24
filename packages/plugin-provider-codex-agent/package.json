@@ -1,0 +1,85 @@
+{
+  "name": "@moxxy/plugin-provider-codex-agent",
+  "version": "0.42.1",
+  "description": "Codex agent connection for moxxy: OpenAI Codex itself does the work through `codex app-server`, on the person's ChatGPT sign-in, while Moxxy shows it, asks for approvals and questions, and lends its own tools over MCP.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "provider",
+    "openai",
+    "codex",
+    "chatgpt",
+    "llm"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-provider-codex-agent"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "provider"
+    },
+    "catalog": {
+      "label": "ChatGPT — Codex agent",
+      "description": "Codex does the work on your ChatGPT sign-in; Moxxy shows it and lends its browser and tools.",
+      "provides": [
+        {
+          "category": "provider",
+          "name": "codex-agent"
+        }
+      ],
+      "provider": {
+        "auth": "oauth",
+        "defaultModel": "gpt-6-astra"
+      }
+    }
+  },
+  "dependencies": {
+    "@moxxy/agent-connection-kit": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@moxxy/core": "workspace:*",
+    "@moxxy/mode-default": "workspace:*",
+    "@moxxy/mode-goal": "workspace:*",
+    "@moxxy/mode-plan": "workspace:*",
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  }
+}

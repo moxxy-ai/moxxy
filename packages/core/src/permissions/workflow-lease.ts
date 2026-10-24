@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 
 const ticketSchema = z

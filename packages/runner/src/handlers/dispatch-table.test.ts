@@ -31,6 +31,7 @@ function stubSession(): Session {
     runTurn: () => undefined,
     log: { subscribe: () => noopUnsub, onClear: () => noopUnsub },
     modes: { onActiveChange: () => noopUnsub },
+    onInfoChanged: () => noopUnsub,
     surfaces: { onData: () => noopUnsub, closeAll: () => undefined },
   } as unknown as Session;
 }

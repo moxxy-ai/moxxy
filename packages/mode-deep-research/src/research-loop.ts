@@ -10,6 +10,7 @@ import {
   MAX_FOLLOWUPS_PER_ROUND,
   MAX_FOLLOWUP_ROUNDS,
   MAX_REDRAFTS,
+  NO_PLAN_FEEDBACK,
   MAX_SUBAGENTS,
 } from './constants.js';
 import {
@@ -308,6 +309,7 @@ async function* runPlanningPhase(
 
   let redraftFeedback: string | null = null;
   let redraftCount = 0;
+  let askedForPlan = false;
 
   while (true) {
     if (ctx.signal.aborted) {
@@ -321,9 +323,19 @@ async function* runPlanningPhase(
       return null;
     }
 
-    const planText = await collectQueryPlan(ctx, redraftFeedback);
-    if (planText === null) return null;
-    const queries = parseQueries(planText);
+    const drafted = await collectQueryPlan(ctx, redraftFeedback);
+    if (drafted === null) return null;
+    const planned = parseQueries(drafted);
+    // A planner can answer the question instead of planning (small models do,
+    // for a simple question). Ask once more; if it answers again, research the
+    // question as asked rather than showing an answer nothing has checked.
+    if (planned.length === 0 && !askedForPlan) {
+      askedForPlan = true;
+      redraftFeedback = NO_PLAN_FEEDBACK;
+      continue;
+    }
+    const queries = planned.length > 0 ? planned : [originalPrompt];
+    const planText = planned.length > 0 ? drafted : `QUERIES:\n1. ${originalPrompt}`;
 
     yield await ctx.emit({
       type: 'plugin_event',
@@ -334,18 +346,6 @@ async function* runPlanningPhase(
       subtype: 'deep_research_queries_drafted',
       payload: { text: planText, queries, redraft: redraftCount },
     });
-
-    if (queries.length === 0) {
-      yield await ctx.emit({
-        type: 'assistant_message',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'model',
-        content: planText,
-        stopReason: 'end_turn',
-      });
-      return null;
-    }
 
     if (queries.length > MAX_SUBAGENTS) {
       // Over-production is a normal, recoverable failure mode ("be exhaustive"

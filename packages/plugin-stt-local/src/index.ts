@@ -21,6 +21,10 @@ export {
   modelIds,
   findModel,
   requireModel,
+  modelFiles,
+  modelBytes,
+  modelDir,
+  defaultModelsDir,
   type WhisperModelEntry,
   type WhisperModelId,
 } from './models.js';
@@ -49,7 +53,7 @@ export {
 
 export interface BuildLocalSttPluginOptions {
   /** Build-time defaults / test seams for the transcriber (injected
-   *  `ensureModelImpl`, `hostFactory`, `fetchImpl`, `modelsDir`, `log`, …). */
+   *  `ensureModelFilesImpl`, `hostFactory`, `fetchImpl`, `modelsDir`, `log`, …). */
   readonly defaults?: LocalWhisperOptions;
 }
 

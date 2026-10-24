@@ -21,6 +21,7 @@ import { loadActiveProvider, loadDisabledProviders } from '@moxxy/config';
 import {
   asTurnId,
   defineMode,
+  openQuestionsFromEvents,
   definePlugin,
   defineProvider,
   defineSurface,
@@ -37,7 +38,7 @@ import type {
   SurfaceDataMessage,
   SurfaceInstance,
 } from '@moxxy/sdk';
-import { FakeProvider, streamingTextReply, textReply, toolUseReply } from '@moxxy/testing';
+import { FakeAgentProvider, FakeProvider, streamingTextReply, textReply, toolUseReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { startRunnerServer, type RunnerServer } from './server.js';
 import { connectRemoteSession, RemoteSession } from './remote-session.js';
@@ -1303,6 +1304,38 @@ describe('provider management (protocol v7)', () => {
     await waitFor(() => remote.getInfo().readyProviders.includes('fake2'));
   });
 
+  it("provider.checkAgents asks every agent connection's CLI again and pushes what it found", async () => {
+    const socketPath = tmpSocket();
+    const provider = new FakeProvider({ script: [textReply('hi')] });
+    const session = buildSession(provider);
+    const refreshes: Array<boolean | undefined> = [];
+    let installed = '0.150.0';
+    session.providers.register({
+      name: 'codex-agent',
+      models: [],
+      createClient: () => provider,
+      agentCli: {
+        check: async (opts) => {
+          refreshes.push(opts?.refresh);
+          return { state: installed === '0.150.0' ? 'update-required' : 'current', command: 'codex', installed, latest: '0.162.1', minimum: '0.155.1', checkedAt: 1 };
+        },
+      },
+    });
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+    const cliOf = () => remote.getInfo().providers.find((p) => p.name === 'codex-agent')?.agentCli;
+
+    await remote.providerAdmin.checkAgents();
+    await waitFor(() => cliOf()?.state === 'update-required');
+    expect(refreshes).toEqual([true]);
+
+    // A check the runner makes by itself (its hourly one) reaches the client too.
+    installed = '0.162.1';
+    await session.agentClis.check();
+    await waitFor(() => cliOf()?.state === 'current');
+  });
+
   it('provider.configure forwards to the session providerAdmin view and pushes info', async () => {
     const socketPath = tmpSocket();
     const provider = new FakeProvider({ script: [textReply('hi')] });
@@ -2004,6 +2037,39 @@ describe('conversation auto-approve (protocol v21)', () => {
   });
 });
 
+describe("the agent's background work (protocol v29)", () => {
+  function agent(): FakeAgentProvider {
+    return new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+  }
+
+  it('every client sees what runs in the background and when it ends', async () => {
+    const provider = agent();
+    const { session, socketPath } = await serve(provider);
+    const desktop = await attach(socketPath, 'desktop');
+    const server = { id: 'b1', kind: 'command' as const, label: 'npm run dev' };
+
+    provider.reportActivity(String(session.id), [{ type: 'background_work', work: [server] }]);
+    await waitFor(() => desktop.getInfo().backgroundWork?.[0]?.id === 'b1');
+    provider.reportActivity(String(session.id), [{ type: 'background_work', work: [] }]);
+
+    await waitFor(() => desktop.getInfo().backgroundWork?.length === 0);
+  });
+
+  it('a client stops one work the agent runs in the background', async () => {
+    const provider = agent();
+    provider.running.add('b1');
+    const { socketPath } = await serve(provider);
+    const desktop = await attach(socketPath, 'desktop');
+
+    expect(await desktop.stopBackgroundWork('b1')).toBe(true);
+    expect(await desktop.stopBackgroundWork('gone')).toBe(false);
+    expect(provider.stopped.map((stop) => stop.workId)).toEqual(['b1', 'gone']);
+    expect(provider.running.has('b1')).toBe(false);
+  });
+});
+
 describe('running turns (protocol v22)', () => {
   /** A conversation whose turns block until they are aborted. */
   async function serveBlocking(): Promise<{ session: Session; socketPath: string }> {
@@ -2049,6 +2115,48 @@ describe('running turns (protocol v22)', () => {
     await waitFor(() => desktop.getInfo().runningTurns?.length === 0);
   });
 
+  it("a turn started later from within a client's finished turn is the runner's own: listed as running and stoppable", async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    let release = (): void => undefined;
+    const later = new Promise<void>((resolve) => (release = resolve));
+    let laterTurn: Promise<void> | undefined;
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-later',
+        modes: [
+          defineMode({
+            name: 'later-mode',
+            run: async function* (modeCtx) {
+              if (String(modeCtx.turnId) !== 'agent-turn') {
+                // Something set going in the client's turn (an agent's background work) starts a turn after it ended.
+                void later.then(() => {
+                  laterTurn = botTurn(session, 'agent-turn');
+                });
+                return;
+              }
+              await new Promise<void>((resolve) => {
+                if (modeCtx.signal.aborted) return resolve();
+                modeCtx.signal.addEventListener('abort', () => resolve(), { once: true });
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('later-mode');
+    servers.push(await startRunnerServer(session, { socketPath }));
+    const desktop = await attach(socketPath, 'desktop');
+    for await (const _event of desktop.runTurn('start something in the background')) void _event;
+
+    release();
+    await waitFor(() => desktop.getInfo().runningTurns?.includes('agent-turn') === true);
+
+    await desktop.abortTurn('agent-turn');
+    await laterTurn;
+    await waitFor(() => desktop.getInfo().runningTurns?.length === 0);
+  });
+
   it('a client attaching in the middle of a turn sees it running', async () => {
     const { session, socketPath } = await serveBlocking();
     const turn = botTurn(session, 'bot-turn');
@@ -2060,3 +2168,104 @@ describe('running turns (protocol v22)', () => {
     await turn;
   });
 });
+
+describe('questions (protocol v27)', () => {
+  const colour = {
+    id: 'q1',
+    question: 'Which colour?',
+    options: [
+      { id: 'red', label: 'Red' },
+      { id: 'blue', label: 'Blue' },
+    ],
+    multiSelect: false,
+    allowOther: true,
+  };
+
+  /** A runner whose model calls a tool that asks one question and returns what came back. */
+  async function serveAsking() {
+    const provider = new FakeProvider({ script: [toolUseReply('asks', {}), textReply('done')] });
+    const { session, socketPath } = await serve(provider);
+    session.tools.register(
+      defineTool({
+        name: 'asks',
+        description: 'Asks the person one question.',
+        inputSchema: z.object({}),
+        permission: { action: 'allow' },
+        handler: async (_input, ctx) => (ctx.ask ? JSON.stringify(await ctx.ask([colour])) : 'no ask'),
+      }),
+    );
+    return { session, socketPath };
+  }
+
+  const toolOutput = (remote: RemoteSession) => {
+    const result = remote.log.ofType('tool_result').at(-1);
+    return result && result.ok ? result.output : undefined;
+  };
+
+  it('a question asked in a turn shows on an attached client, which answers it', async () => {
+    const { socketPath } = await serveAsking();
+    const desktop = await attach(socketPath, 'desktop');
+    assertQuestions(desktop).attachSurface();
+
+    const turn = (async () => {
+      for await (const _event of desktop.runTurn('ask me')) void _event;
+    })();
+    await waitFor(() => openQuestionsFromEvents(desktop.log.slice()).length === 1);
+    const [open] = openQuestionsFromEvents(desktop.log.slice());
+    await assertQuestions(desktop).answer(String(open?.questionId), { q1: { selected: ['blue'] } });
+    await turn;
+
+    expect(JSON.parse(String(toolOutput(desktop)))).toEqual({ kind: 'answered', answers: { q1: { selected: ['blue'] } } });
+  });
+
+  it('any attached client can answer, and the second answer is turned away', async () => {
+    const { socketPath } = await serveAsking();
+    const desktop = await attach(socketPath, 'desktop');
+    const bot = await attach(socketPath, 'discord');
+    assertQuestions(desktop).attachSurface();
+
+    const turn = (async () => {
+      for await (const _event of desktop.runTurn('ask me')) void _event;
+    })();
+    await waitFor(() => openQuestionsFromEvents(bot.log.slice()).length === 1);
+    const id = String(openQuestionsFromEvents(bot.log.slice())[0]?.questionId);
+    await assertQuestions(bot).answer(id, { q1: { selected: ['red'] } });
+    await expect(assertQuestions(desktop).answer(id, { q1: { selected: ['blue'] } })).rejects.toThrow(
+      'This question is no longer open.',
+    );
+    await turn;
+
+    expect(JSON.parse(String(toolOutput(desktop)))).toEqual({ kind: 'answered', answers: { q1: { selected: ['red'] } } });
+    await waitFor(() => openQuestionsFromEvents(desktop.log.slice()).length === 0);
+  });
+
+  it('with no client showing questions, the tool hears nobody will answer', async () => {
+    const { socketPath } = await serveAsking();
+    const remote = await attach(socketPath);
+
+    for await (const _event of remote.runTurn('ask me')) void _event;
+
+    expect(JSON.parse(String(toolOutput(remote)))).toEqual({ kind: 'unanswerable' });
+  });
+
+  it('a client that detaches, or disconnects, stops counting as one that answers', async () => {
+    const { session, socketPath } = await serveAsking();
+    const desktop = await attach(socketPath, 'desktop');
+    const detach = assertQuestions(desktop).attachSurface();
+    await waitFor(() => session.questions.surfaceCount === 1);
+
+    detach();
+    await waitFor(() => session.questions.surfaceCount === 0);
+
+    assertQuestions(desktop).attachSurface();
+    await waitFor(() => session.questions.surfaceCount === 1);
+    await desktop.close();
+    await waitFor(() => session.questions.surfaceCount === 0);
+  });
+});
+
+function assertQuestions(remote: RemoteSession) {
+  const questions = remote.questions;
+  if (!questions) throw new Error('RemoteSession has no questions slice');
+  return questions;
+}

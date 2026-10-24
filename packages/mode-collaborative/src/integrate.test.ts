@@ -7,6 +7,7 @@ import { integrate } from './integrate.js';
 import { collabBranch, worktreePath, worktreeRoot } from './constants.js';
 import { addWorktree, commitAll, git, headSha } from './worktrees.js';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
+import { manyProcessesTimeout } from '@moxxy/vitest-preset/platform';
 
 const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const cleanups: Array<() => void> = [];
@@ -52,7 +53,7 @@ async function agentWorktree(
   return wt;
 }
 
-describe('integrate ownership + verifyGate', () => {
+describe('integrate ownership + verifyGate', { timeout: manyProcessesTimeout }, () => {
   it('resolves a conflict by board ownership and promotes when no gate', async () => {
     const repo = await initRepo();
     const base = await headSha(repo);

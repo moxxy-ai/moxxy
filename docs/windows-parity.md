@@ -55,7 +55,11 @@ Each row is a real fault, with the commit that fixed it.
 | Running the tests wrote fixtures into the developer's real `~/.moxxy` and rewrote the vault key | tests moved `HOME`; Windows resolves the home from `USERPROFILE` | `tooling/vitest-preset/isolate.js` |
 | A security patch was rejected only on Windows checkouts | the audit hashed a patch file; `core.autocrlf` rewrote its line endings | removed with `650c2640` |
 | Disabling a provider (or any other setting) was sometimes not saved | the atomic write renames over `config.yaml`; Windows refuses that with `EPERM` while any reader has the file open, and the caller swallowed the error | `writeFileAtomic` in `packages/sdk/src/fs-utils.ts` retries the rename briefly |
+| "Forget every sign-in" in the Moxxy Browser failed with `EPERM` right after the browser closed | Chromium's helper processes keep the profile's files open for a moment after the window is gone; Windows refuses to delete an open file | `signOut` in `packages/plugin-browser/src/profile.ts` removes the profile with `maxRetries` / `retryDelay`, which retries `EPERM` and `EBUSY` |
 | `Windows test` failed at random, in a different package almost every PR (`core`, `mode-collaborative`, `isolator-subprocess`) | a test removed its temp folder while something still used it: a write the test had not waited for (`ENOTEMPTY`), a child process with the folder as its cwd (`EBUSY`), the virus scanner reading a new file (`EPERM`). Linux removes such a folder; Windows refuses for a moment | every test removes what it made with `removeDir` / `removeDirSync` from `@moxxy/vitest-preset/fs`, and lint rejects a bare recursive `rm` in tests; tests also wait for their own writes and children to end |
+| Agent connections said the version of an npm-installed Claude Code, Codex or OpenCode was unknown, and could not update it | npm installs each as a `.cmd` shim that only a shell runs, and Moxxy starts no shell; the tests stood in for the CLIs with `#!/bin/sh` scripts, which Windows cannot run either | `agentCliTargetAt` in `packages/agent-connection-kit/src/agent-cli.ts` runs what the shim points at; the tests use `writeFakeCli` / `fakeInstaller` from `@moxxy/vitest-preset/fake-cli` |
+| (macOS and Linux) The desktop found an old Homebrew `claude` instead of the terminal's, or no CLI at all | an app started from Finder or a menu gets a short system PATH, not the one the shell profile builds | the desktop reads the login shell's PATH once at start (`packages/desktop-host/src/login-shell-path.ts`). Windows gives an app the full PATH from the start, so it reads none there |
+| Collaborative-mode tests on real git timed out in `Windows test` | each `git` call is a process start, many times slower on the Windows runner; a test under a second elsewhere passed 10 s there | `manyProcessesTimeout` from `@moxxy/vitest-preset/platform` |
 | (macOS and Linux, kept here because the fix is POSIX-only) The `terminal` tool waited out its whole timeout after an installer that asks questions | the tool typed its end marker after the command; a program that reads the terminal input swallowed it | zsh and bash now report each return to the prompt themselves (`packages/plugin-terminal/src/shell-hooks.ts`). Windows shells and every other shell still get the typed marker, so the fault can still happen there |
 | The agent waited with `Sleep` on Windows where it waits with `Wait` everywhere else, and `StopJob` left a stopped dev server running | the `Bash` tool spawned `/bin/sh`, so every command and background job failed with `spawn /bin/sh ENOENT` and the model fell back to the terminal plugin and fixed pauses; its tests were skipped on Windows, so CI stayed green. Stopping a job signalled only the shell, never its children | `Bash` runs Git Bash on Windows, or Windows PowerShell where Git is not installed (`systemShell` in `packages/tools-builtin/src/shell.ts`, and the tool description names the shell); a job is stopped with `taskkill /T /F`. The job and `Bash` tests now run on Windows wherever the shell speaks sh |
 | The PowerShell fallback's tests timed out only on the CI runner (over 10 s for `exit 7`) | Windows PowerShell looks a cmdlet (here the launcher's own `Remove-Item`) up through every module on `PSModulePath` before its own, and the runner image has thousands; a module that exports the same name takes the cmdlet over | the launcher in `packages/tools-builtin/src/shell.ts` imports `Microsoft.PowerShell.Management` and `.Utility` from `$PSHOME` first |
@@ -71,6 +75,43 @@ Still open, and worth knowing before building on top of them:
   are found only under `.ai/` there.
 - `scripts/security-audit.mjs` runs `spawnSync('pnpm', …)`, which cannot find
   `pnpm.cmd`. It works in CI because that job runs on Ubuntu.
+
+## Agent connections
+
+The agent connections ([Agent connections](agent-connections.md)) start the
+vendor's CLI on your computer, so they meet every assumption below at once.
+They were written for Windows but have not yet run on a Windows machine with a
+real Claude Code, Codex or OpenCode. What is handled:
+
+- **Installers.** Claude's and Codex's installers run as `.ps1` scripts through
+  Windows PowerShell by its full path (`installInvocation` in
+  `packages/agent-connection-kit/src/agent-cli.ts`). OpenCode's install script
+  is POSIX only, so on Windows it installs with `npm install -g opencode-ai`.
+- **Finding the CLI.** `findAgentCli` looks on `PATH`, then in the folder the
+  vendor's installer uses (`installDirs`, joined with `path.win32` on Windows).
+- **`.cmd` shims.** An npm install puts `claude.cmd` / `codex.cmd` /
+  `opencode.cmd` on `PATH`, which only a shell can run. Each connection starts
+  the JavaScript entry behind the shim with Node instead (`claudeExecutableForSdk`,
+  `codexTarget`, `opencodeTarget`), and asks for the native `.exe` when there is
+  none.
+- **Stopping an install or update** ends the whole process tree with `killTree`.
+- **Closing a conversation** ends the live Codex or OpenCode with
+  `stopAgentProcess` (`packages/agent-connection-kit/src/stop-agent.ts`): on
+  Windows the whole tree (`taskkill /T`), since a Codex from npm is the Node
+  launcher `codex.js` with the native agent as its child, and OpenCode's own
+  children (MCP servers it started) would outlive it too. On macOS and Linux
+  the agent is signalled directly: it is not spawned as a process-group
+  leader, so a group kill (`killTree` there) would miss it.
+- **Claude's plan file** is recognised under `.claude\plans\` as well as
+  `.claude/plans/` (`claudePlanFileOf`).
+
+Still open:
+
+- The vendors' `.ps1` installers and `codex update` / `claude update` /
+  `opencode upgrade` have not been run from Moxxy on Windows, nor has closing
+  a conversation been watched in Task Manager there.
+- Claude's process is started and ended by the Claude Agent SDK, not by
+  Moxxy.
 
 ## Tests
 

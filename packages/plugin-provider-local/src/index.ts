@@ -13,7 +13,7 @@ import {
   pickOpenAICompatConfig,
   type OpenAICompatConfig,
 } from '@moxxy/plugin-provider-openai';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /**
  * Default endpoint: Ollama's OpenAI-compatible server. Override with the

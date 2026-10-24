@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineTool } from '@moxxy/sdk';
 import { silentLogger } from '../logger.js';
 import { ToolRegistryImpl } from './tools.js';

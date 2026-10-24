@@ -1,5 +1,5 @@
 import { OF_THE_FOCUS, pointsAtFocus, wordsIn } from '@moxxy/jev';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { parseKeyCombo, type KeyCombo } from './keys.js';
 
 const coordinate = z.number().finite().nonnegative();

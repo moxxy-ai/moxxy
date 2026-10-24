@@ -8,11 +8,13 @@ import {
   sessionReadAttachmentParamsSchema,
   sessionRecordExchangeParamsSchema,
   sessionSetAutoApproveParamsSchema,
+  sessionStopBackgroundWorkParamsSchema,
   sessionSetReasoningParamsSchema,
   sessionSetFastParamsSchema,
   type CommandRunResult,
   type SessionLoadHistoryResult,
   type SessionRecordExchangeResult,
+  type SessionStopBackgroundWorkResult,
 } from '../protocol.js';
 import type { HandlerContext } from './context.js';
 
@@ -136,6 +138,15 @@ export async function handleSessionSetAutoApprove(
   const { enabled } = sessionSetAutoApproveParamsSchema.parse(raw);
   await ctx.session.setAutoApprove(enabled);
   return {};
+}
+
+/** Stop one work the agent runs in the background (v29). */
+export async function handleSessionStopBackgroundWork(
+  ctx: HandlerContext,
+  raw: unknown,
+): Promise<SessionStopBackgroundWorkResult> {
+  const { workId } = sessionStopBackgroundWorkParamsSchema.parse(raw);
+  return { stopped: await ctx.session.stopBackgroundWork(workId) };
 }
 
 export async function handlePermissionAddAllow(

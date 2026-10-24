@@ -1,4 +1,5 @@
 import { definePlugin, type ToolDef } from '@moxxy/sdk';
+import { askUserTool } from './ask-user.js';
 import { bashTool } from './bash.js';
 import { editTool } from './edit.js';
 import { globTool } from './glob.js';
@@ -11,7 +12,7 @@ import { stopJobTool } from './stop-job.js';
 import { waitTool } from './wait.js';
 import { writeTool } from './write.js';
 
-export { bashTool, editTool, globTool, grepTool, readTool, recallTool, sleepTool, stopJobTool, waitTool, writeTool };
+export { askUserTool, bashTool, editTool, globTool, grepTool, readTool, recallTool, sleepTool, stopJobTool, waitTool, writeTool };
 
 // dispatch_agent moved to @moxxy/plugin-subagents so subagent support
 // is itself a swappable block. Without that plugin installed, the model
@@ -28,6 +29,7 @@ export const builtinTools: ReadonlyArray<ToolDef> = [
   sleepTool,
   waitTool,
   stopJobTool,
+  askUserTool,
 ];
 
 export const builtinToolsPlugin = definePlugin({

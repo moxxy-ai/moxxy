@@ -17,7 +17,7 @@ import type { BrowserWindow } from 'electron';
 
 import type { RemoteSession } from '@moxxy/runner';
 import { asTurnId } from '@moxxy/sdk';
-import type { RunTurnOptions, UserPromptAttachment } from '@moxxy/sdk';
+import type { QuestionAnswers, RunTurnOptions, UserPromptAttachment } from '@moxxy/sdk';
 
 import type { IpcEvents, RunTurnVisibility } from '@moxxy/desktop-ipc-contract';
 import { openAsk, cancelAsksFor } from './ask-broker.js';
@@ -147,6 +147,10 @@ export class SessionDriver {
         return res.mode && res.mode !== 'deny' ? { mode: res.mode, decidedNow: true } : { mode: res.mode ?? 'deny' };
       },
     });
+    // The app shows the conversation's Questions (read from the log by the
+    // renderer), so the runner counts it as a surface that can answer them.
+    this.disposes.push(this.session.questions.attachSurface());
+
     this.session.setApprovalResolver({
       name: 'desktop-ask',
       confirm: async (request, context) => {
@@ -313,6 +317,16 @@ export class SessionDriver {
   /** Toggle auto-approve. When on, tool calls run without opening the
    *  renderer's approval sheet — for the whole conversation when the runner
    *  shares the switch, for this driver only on an older runner. */
+  /** Answer an open Question of this conversation; rejects when it is no longer open. */
+  answerQuestion(questionId: string, answers: QuestionAnswers): Promise<void> {
+    return this.session.questions.answer(questionId, answers);
+  }
+
+  /** Stop one work the conversation's agent runs in the background; `false` when it runs no such work. */
+  async stopBackgroundWork(workId: string): Promise<boolean> {
+    return this.session.stopBackgroundWork(workId);
+  }
+
   async setAutoApprove(on: boolean): Promise<void> {
     this.autoApprove = on;
     if (this.session.getInfo().autoApprove !== undefined) await this.session.setAutoApprove(on);

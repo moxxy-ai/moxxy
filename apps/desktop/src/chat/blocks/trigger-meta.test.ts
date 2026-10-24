@@ -9,6 +9,7 @@ describe('describeTrigger', () => {
   it.each([
     ['webhook', 'bell', 'Webhook received'],
     ['schedule', 'rotate', 'Schedule fired'],
+    ['agent', 'agent', 'Agent continued'],
     ['workflow', 'workflow', 'Workflow ran'],
     ['checkpoint', 'check', 'Checkpoint intervened'],
     ['voice', 'mic', 'Voice conversation'],

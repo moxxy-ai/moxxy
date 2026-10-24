@@ -12,7 +12,7 @@
  * silently ignored, so a typo never grants something unintended.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { APP_PERMISSIONS } from './permissions.js';
 

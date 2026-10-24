@@ -41,6 +41,20 @@ import {
   waitForSessionState,
 } from './shared';
 import { channelOfChat, syncChannelChatModel, type ChannelChatModelDeps } from '../channel-chat-model';
+import { loadCategoryItemConfig } from '@moxxy/config';
+import {
+  DEFAULT_VOICE,
+  GEMINI_TTS_MODEL,
+  GEMINI_TTS_READ_ALOUD_PART_CHARS,
+  GEMINI_TTS_SYNTHESIZER_NAME,
+} from '@moxxy/plugin-tts-gemini';
+import {
+  createSpeechCache,
+  defaultSpeechCacheDir,
+  SPEECH_CACHE_MAX_BYTES,
+  speechCacheKey,
+  type SpeechCache,
+} from '../speech-cache';
 
 /** Strict base64 (optional `=` padding). `Buffer.from(x, 'base64')` silently
  *  drops invalid characters and decodes a partial/garbage buffer, so reject a
@@ -66,6 +80,15 @@ function synthesisRequestKey(workspaceId: string, requestId: string): string {
 export interface SessionHandlerDependencies {
   /** Where a bot chat's model comes from (defaults to the in-process vault). */
   readonly channelModels: ChannelChatModelDeps;
+  /** Where read-aloud keeps Gemini's speech (defaults to `$MOXXY_HOME/cache/speech`). */
+  readonly speechCache: SpeechCache;
+  /** The Gemini voice the person chose in Settings, part of what a kept clip is. */
+  readonly geminiVoice: () => Promise<string>;
+}
+
+async function configuredGeminiVoice(): Promise<string> {
+  const config = await loadCategoryItemConfig('synthesizer', GEMINI_TTS_SYNTHESIZER_NAME);
+  return typeof config.voice === 'string' ? config.voice : DEFAULT_VOICE;
 }
 
 export function registerSessionHandlers(
@@ -76,6 +99,9 @@ export function registerSessionHandlers(
     vault: () => getInProcessPlugins().vault,
     activateProvider: providerActivator(pool),
   };
+  const speechCache = dependencies.speechCache
+    ?? createSpeechCache({ dir: defaultSpeechCacheDir(), maxBytes: SPEECH_CACHE_MAX_BYTES });
+  const geminiVoice = dependencies.geminiVoice ?? configuredGeminiVoice;
   // ---- Session (per-workspace) --------------------------------------------
 
   handle('computer.snapshot', async ({workspaceId}) => {
@@ -181,6 +207,16 @@ export function registerSessionHandlers(
     // keeps it itself for an older runner that has no shared switch).
     await mustDriver(id).setAutoApprove(enabled);
     broadcastHostEvent('session.autoApprove.changed', { workspaceId: id, enabled });
+  });
+  handle('session.stopBackgroundWork', async ({ workspaceId, workId }) => {
+    const id = workspaceId ?? pool.activeWorkspaceId();
+    if (!id) return false;
+    return mustDriver(id).stopBackgroundWork(workId);
+  });
+  handle('session.answerQuestion', async ({ workspaceId, questionId, answers }) => {
+    const id = workspaceId ?? pool.activeWorkspaceId();
+    if (!id) throw new IpcError('not-connected', 'no active session to answer the question in');
+    await mustDriver(id).answerQuestion(questionId, answers);
   });
   handle('session.runCommand', async ({ workspaceId, name, args }) => {
     const { session } = resolveCtx(pool, { workspaceId });
@@ -378,7 +414,13 @@ export function registerSessionHandlers(
     const result = await transcriber.transcribe(audio, opts);
     return result.text;
   });
-  handle('session.synthesize', async ({ workspaceId, requestId, text, language, rate, voice }) => {
+  handle('session.readAloudPlan', async (args) => {
+    const synth = resolveSupervisor(pool, args?.workspaceId)?.remote()?.synthesizers.tryGetActive();
+    return synth?.name === GEMINI_TTS_SYNTHESIZER_NAME
+      ? { partChars: GEMINI_TTS_READ_ALOUD_PART_CHARS }
+      : null;
+  });
+  handle('session.synthesize', async ({ workspaceId, requestId, text, language, rate, voice, cache }) => {
     // Text-to-speech routes through the RUNNER's active synthesizer (unlike
     // STT, which uses the in-process Codex transcriber): a user-authored TTS
     // plugin (e.g. ElevenLabs) lives in ~/.moxxy/plugins, loaded by the runner.
@@ -404,7 +446,24 @@ export function registerSessionHandlers(
         ...(voice ? { voice } : {}),
         signal: controller.signal,
       };
+      // Only Gemini's speech is kept: it costs money and counts against a
+      // rate limit, while Piper speaks locally for free.
+      const cacheKey = cache && synth.name === GEMINI_TTS_SYNTHESIZER_NAME
+        ? speechCacheKey({
+          synthesizer: synth.name,
+          model: GEMINI_TTS_MODEL,
+          voice: voice ?? await geminiVoice().catch(() => DEFAULT_VOICE),
+          text,
+          ...(language ? { language } : {}),
+          ...(rate !== undefined ? { rate } : {}),
+        })
+        : null;
+      const kept = cacheKey ? await speechCache.get(cacheKey) : null;
+      if (kept) {
+        return { audioBase64: Buffer.from(kept.audio).toString('base64'), mimeType: kept.mimeType };
+      }
       const result = await synth.synthesize(text, options);
+      if (cacheKey) await speechCache.put(cacheKey, result);
       return {
         audioBase64: Buffer.from(result.audio).toString('base64'),
         mimeType: result.mimeType,

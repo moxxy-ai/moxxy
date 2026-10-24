@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { onAgentWorkFocus } from '@moxxy/client-core';
 import type { WorkbenchTab } from './Workbench';
 import { useAgentSurfaceReveal } from './surfaces/useAgentSurfaceReveal';
 
@@ -22,7 +23,7 @@ export interface WorkbenchState {
 /**
  * The workbench beside a chat: which pane is open, whether it is in full view,
  * and the pane opened for you the first time that chat's agent drives its
- * browser or terminal. Every chat with a workbench — a workspace, a channel
+ * browser or terminal, or when the chat asks to show its agent's background work. Every chat with a workbench — a workspace, a channel
  * bot — uses this, so the agent's work shows the same way wherever you talk to
  * it.
  */
@@ -49,5 +50,12 @@ export function useWorkbench(workspaceId: string | null): WorkbenchState {
   }, [tab, setTab]);
 
   useAgentSurfaceReveal(workspaceId, setTab);
+  // The chat's "Agent continued" and the composer's background marker open the Agents pane.
+  useEffect(
+    () => onAgentWorkFocus((asked) => {
+      if (asked === workspaceId) setTab('agents');
+    }),
+    [workspaceId, setTab],
+  );
   return { tab, open: tab !== null, setTab, toggle, full, toggleFull };
 }

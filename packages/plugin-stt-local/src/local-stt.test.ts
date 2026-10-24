@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { MOXXY_PCM16_24KHZ_MIME } from '@moxxy/sdk';
-import { ensureModel } from '@moxxy/model-fetch';
+import type { ensureModelFiles } from '@moxxy/model-fetch';
 
 import {
   createLocalWhisperTranscriber,
@@ -49,14 +49,14 @@ function fakeHost(result: TranscribeResult = { text: 'hello world' }): {
   };
 }
 
-/** A fake ensureModel recording the urls it was asked to fetch. */
-function fakeEnsure(): { impl: typeof ensureModel; urls: string[] } {
-  const urls: string[] = [];
-  const impl = (async (opts: Parameters<typeof ensureModel>[0]) => {
-    urls.push(opts.url);
+/** A fake ensureModelFiles recording each model it was asked to fetch. */
+function fakeEnsure(): { impl: typeof ensureModelFiles; calls: Parameters<typeof ensureModelFiles>[0][] } {
+  const calls: Parameters<typeof ensureModelFiles>[0][] = [];
+  const impl = (async (opts: Parameters<typeof ensureModelFiles>[0]) => {
+    calls.push(opts);
     return { dir: opts.dir, skipped: false };
-  }) as unknown as typeof ensureModel;
-  return { impl, urls };
+  }) as typeof ensureModelFiles;
+  return { impl, calls };
 }
 
 function makeTranscriber(
@@ -71,7 +71,7 @@ function makeTranscriber(
   const ensure = fakeEnsure();
   const transcriber = createLocalWhisperTranscriber({
     modelsDir: '/models/stt',
-    ensureModelImpl: ensure.impl,
+    ensureModelFilesImpl: ensure.impl,
     hostFactory: () => host.host,
     log: () => {},
     ...over,
@@ -80,28 +80,29 @@ function makeTranscriber(
 }
 
 describe('LocalWhisperTranscriber.transcribe', () => {
-  it('defaults to the base model, decodes raw PCM, and returns the transcript', async () => {
+  it('defaults to the turbo model, decodes raw PCM, and returns the transcript', async () => {
     const { transcriber, host, ensure } = makeTranscriber();
     const out = await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
     expect(out.text).toBe('hello world');
-    expect(ensure.urls).toEqual([
-      'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2',
+    const modelRoot = path.join('/models/stt', 'turbo');
+    expect(ensure.calls.map((call) => call.dir)).toEqual([modelRoot]);
+    expect(ensure.calls[0]!.files.map((file) => file.name)).toEqual([
+      'turbo-encoder.int8.onnx',
+      'turbo-decoder.int8.onnx',
+      'turbo-tokens.txt',
     ]);
     const req = host.reqs[0]!;
-    expect(req.encoder).toContain(path.join('sherpa-onnx-whisper-base', 'base-encoder.onnx'));
-    expect(req.decoder).toContain('base-decoder.onnx');
-    expect(req.tokens).toContain('base-tokens.txt');
+    expect(req.encoder).toBe(path.join(modelRoot, 'turbo-encoder.int8.onnx'));
+    expect(req.decoder).toBe(path.join(modelRoot, 'turbo-decoder.int8.onnx'));
+    expect(req.tokens).toBe(path.join(modelRoot, 'turbo-tokens.txt'));
     expect(req.sampleRate).toBe(16_000);
     expect(req.samples.length).toBe(160); // resampled 24k → 16k
     expect(req.task).toBe('transcribe');
     expect(out.durationSec).toBeCloseTo(160 / 16_000, 6);
   });
 
-  it('selects a configured model (small) and its files', async () => {
-    const { transcriber, host, ensure } = makeTranscriber({ model: 'small' });
-    await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
-    expect(ensure.urls[0]).toContain('sherpa-onnx-whisper-small.tar.bz2');
-    expect(host.reqs[0]!.encoder).toContain('small-encoder.onnx');
+  it('rejects a removed model (small) left in config, before any download', () => {
+    expect(() => makeTranscriber({ model: 'small' })).toThrow(/Unknown local Whisper model "small"/);
   });
 
   it('passes a per-call language hint through to the recognizer', async () => {
@@ -145,14 +146,14 @@ describe('LocalWhisperTranscriber.transcribe', () => {
     await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
     await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
     await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
-    expect(ensure.urls.length).toBe(1);
+    expect(ensure.calls.length).toBe(1);
   });
 
   it('returns empty text for empty/silent audio without touching the model', async () => {
     const { transcriber, host, ensure } = makeTranscriber();
     const out = await transcriber.transcribe(new Uint8Array(0), { mimeType: MOXXY_PCM16_24KHZ_MIME });
     expect(out.text).toBe('');
-    expect(ensure.urls.length).toBe(0);
+    expect(ensure.calls.length).toBe(0);
     expect(host.reqs.length).toBe(0);
   });
 
@@ -202,14 +203,14 @@ describe('buildLocalSttPlugin', () => {
     const plugin = buildLocalSttPlugin({
       defaults: {
         modelsDir: '/models/stt',
-        ensureModelImpl: ensure.impl,
+        ensureModelFilesImpl: ensure.impl,
         hostFactory: () => host.host,
         log: () => {},
       },
     });
-    const inst = plugin.transcribers![0]!.createClient({ model: 'small', language: 'pl' });
+    const inst = plugin.transcribers![0]!.createClient({ model: 'turbo', language: 'pl' });
     await inst.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
-    expect(ensure.urls[0]).toContain('sherpa-onnx-whisper-small.tar.bz2');
+    expect(ensure.calls[0]!.dir).toBe(path.join('/models/stt', 'turbo'));
     expect(host.reqs[0]!.language).toBe('pl');
   });
 

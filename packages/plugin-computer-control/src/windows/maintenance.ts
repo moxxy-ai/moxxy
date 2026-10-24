@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { CONTRACT_PROTOCOL_VERSION } from '../backend/rpc.js';
 import { verifyHelperArtifact } from '../helper/artifact.js';
 import { HelperTransport } from '../helper/transport.js';

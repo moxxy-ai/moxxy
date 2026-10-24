@@ -1,10 +1,7 @@
 import { isContextOverflowError, runCompactionIfNeeded } from '../compactor-helpers.js';
 import { runElisionIfNeeded } from '../elision-helpers.js';
 import type { MoxxyEvent } from '../events.js';
-import { asPluginId } from '../ids.js';
 import type { ModeContext } from '../mode.js';
-import type { TokenUsage } from '../provider.js';
-import type { StopReason } from '../provider-utils.js';
 import { usageEventFields } from '../token-accounting.js';
 import {
   emitRequestsAndDetectStuck,
@@ -14,8 +11,9 @@ import {
   type StuckTripInfo,
 } from '../tool-dispatch.js';
 import { nextBackoffMs, sleepWithAbort } from './abort-backoff.js';
-import type { CheckpointResult, TurnCheckpoint } from './checkpoint.js';
-import { collectProviderStream, type CollectedToolUse } from './collect-stream.js';
+import { emitAbort, emitError, runCheckpointGate } from './checkpoint-gate.js';
+import { runAgentStepLoop } from './agent-step-loop.js';
+import { collectProviderStream } from './collect-stream.js';
 import { buildSystemPromptWithSkills, projectMessages, skillsWithinReach } from './project-messages.js';
 import { createStuckLoopDetector } from './stuck-loop.js';
 
@@ -44,8 +42,6 @@ const DEFAULT_MAX_ITERATIONS = 500;
 const MAX_REACTIVE_COMPACTIONS = 2;
 const DEFAULT_MAX_INJECTIONS = 3;
 const DEFAULT_MAX_INJECT_CHARS = 16_384;
-const DEFAULT_CHECKPOINT_TIMEOUT_MS = 120_000;
-const CHECKPOINT_EVENT_PLUGIN_ID = asPluginId('react-loop');
 
 // Abort-aware sleep, injectable for tests so back-off paths run instantly and
 // deterministically. Production delegates to sleepWithAbort: a real timer that
@@ -70,115 +66,18 @@ export function __setRetrySleepForTests(
   };
 }
 
-/** What a clean provider call produced — input to {@link ReactLoopOptions.onProviderSuccess}. */
-export interface ProviderSuccessInfo {
-  readonly text: string;
-  readonly stopReason: StopReason;
-  readonly toolUses: ReadonlyArray<CollectedToolUse>;
-  readonly usage?: TokenUsage;
-  readonly iteration: number;
-}
-
-/** A completed tool batch — input to {@link ReactLoopOptions.onToolBatchEnd}. */
-export interface ToolBatchInfo {
-  readonly toolUses: ReadonlyArray<CollectedToolUse>;
-  readonly iteration: number;
-}
-
-/** Hooks return this to end the turn; the hook emits its own wrap-up events first. */
-export interface StopDirective {
-  readonly action: 'stop';
-}
-
-export interface ReactLoopOptions {
-  /** Name stamped on `mode_iteration` events (e.g. `'default'`, `'goal'`). */
-  readonly strategyName: string;
-  /**
-   * Iteration cap when the context doesn't supply one. Default 500. May be
-   * `Number.POSITIVE_INFINITY` for an uncapped loop (goal mode): the run then
-   * ends only via a terminal signal (checkpoint/hook stop, abort, fatal
-   * error) — an explicit `ctx.maxIterations` still takes precedence.
-   */
-  readonly defaultMaxIterations?: number;
-  /** Prefix for provider-error messages (goal mode uses `'goal: '`). */
-  readonly errorPrefix?: string;
-  /**
-   * When set, an already-aborted signal is reported (with this reason) BEFORE
-   * the first iteration — goal/collab preflight. When omitted the first
-   * iteration's own abort check covers it with the generic reason.
-   */
-  readonly preflightAbortReason?: string;
-  /** Turn-end gates, run in declared order. Omit/empty → plain ReAct loop. */
-  readonly checkpoints?: ReadonlyArray<TurnCheckpoint>;
-  /**
-   * Hard cap on checkpoint `inject`/`retry` rounds per idle EPISODE — i.e.
-   * consecutive gate rounds with no tool work between them; the count resets
-   * whenever a tool batch executes (default 3). When exhausted the turn ends
-   * with the model's answer as-is plus a visible warning — a
-   * permanently-failing gate degrades loudly instead of looping forever.
-   */
-  readonly maxInjections?: number;
-  /** Clamp on injected feedback length in characters (default 16_384). */
-  readonly maxInjectChars?: number;
-  /**
-   * Stuck-loop policy + wording overrides; sensible defaults from
-   * `strategyName`. `action` picks what a detector trip does:
-   *
-   *   - `'abort'` (default): fail the batch and end the turn with a fatal
-   *     error — the historical behavior, right for attended modes where the
-   *     user is present to redirect.
-   *   - `'nudge'`: never stop. The batch still executes (repeated calls are
-   *     usually legitimate work — re-running a failing build between edits),
-   *     a visible warning + `extraOnStuck` events are emitted, the detector
-   *     resets, and `nudgeText` (or a default) rides the next provider call
-   *     as a volatile steer. For unattended modes (goal) where a heuristic
-   *     must never kill the run.
-   */
-  readonly stuck?: Partial<StuckLoopReport> & {
-    readonly action?: 'abort' | 'nudge';
-    /** Volatile steer for `'nudge'` trips; default wording when omitted. */
-    readonly nudgeText?: (info: StuckTripInfo) => string;
-  };
-  /**
-   * Runs after compaction/elision, before the provider call. May return a
-   * volatile user message to ride ONLY the next call (collab's inbox/pause
-   * awareness) — never appended to the log; the cache strategy is told via
-   * `volatileTailCount` so its tail breakpoint stays ahead of it.
-   */
-  readonly onIterationStart?: (
-    ctx: ModeContext,
-    iteration: number,
-  ) => Promise<{ readonly volatileUserText?: string } | undefined>;
-  /**
-   * Runs after every clean provider call (reasoning already logged, tools not
-   * yet executed). Return `{action: 'stop'}` to end the turn — the hook emits
-   * its own wrap-up events first (goal mode's token-budget backstop).
-   */
-  readonly onProviderSuccess?: (
-    ctx: ModeContext,
-    info: ProviderSuccessInfo,
-  ) => Promise<StopDirective | undefined>;
-  /**
-   * Runs after a tool batch executes cleanly. Return `{action: 'stop'}` to
-   * end the turn (goal/collab terminal-tool detection: `goal_complete`,
-   * `collab_done`); the hook emits its own completion events first.
-   */
-  readonly onToolBatchEnd?: (
-    ctx: ModeContext,
-    info: ToolBatchInfo,
-  ) => Promise<StopDirective | undefined>;
-  /**
-   * Replaces the default "exceeded maxIterations" fatal error — the hook
-   * emits its own cap-reached events (goal mode adds a plugin event and its
-   * own wording). The loop returns right after.
-   */
-  readonly onMaxIterations?: (ctx: ModeContext, maxIterations: number) => Promise<void>;
-}
+export type { ProviderSuccessInfo, ReactLoopOptions, StopDirective, ToolBatchInfo } from './react-loop-options.js';
+import type { ReactLoopOptions } from './react-loop-options.js';
 
 export async function* runReactLoop(
   ctx: ModeContext,
   opts: ReactLoopOptions,
 ): AsyncIterable<MoxxyEvent> {
+  // An agent connection: the vendor's agent does each round, not this loop.
+  if (ctx.provider.agentStep) {
+    yield* runAgentStepLoop(ctx, opts);
+    return;
+  }
   if (opts.preflightAbortReason && ctx.signal.aborted) {
     yield await emitAbort(ctx, opts.preflightAbortReason);
     return;
@@ -499,145 +398,6 @@ export async function* runReactLoop(
   );
 }
 
-/** Gate outcome: end the turn, or loop again (optionally with a volatile nudge). */
-type GateVerdict = { readonly kind: 'end' } | { readonly kind: 'loop'; readonly volatileText?: string };
-
-interface GateRound {
-  readonly candidateText: string;
-  readonly stopReason: StopReason;
-  readonly iteration: number;
-  readonly consecutiveIdle: number;
-  readonly injectionsUsed: number;
-  readonly injectionBudget: number;
-  readonly maxInjectChars: number;
-}
-
-async function* runCheckpointGate(
-  ctx: ModeContext,
-  checkpoints: ReadonlyArray<TurnCheckpoint>,
-  round: GateRound,
-): AsyncGenerator<MoxxyEvent, GateVerdict> {
-  // Natural completions face every checkpoint; truncated/errored candidates
-  // only face the idle-tolerant ones — reviewing a half-sentence as if it
-  // were a completion claim wastes a checker run and confuses the model.
-  const eligible = checkpoints.filter(
-    (cp) =>
-      (round.stopReason === 'end_turn' || (cp.gateOn ?? 'end_turn') === 'idle') && (cp.applies?.(ctx) ?? true),
-  );
-  if (eligible.length === 0) return { kind: 'end' };
-
-  // Budget exhausted → the answer ships as-is, but LOUDLY: silent
-  // degradation would let the user believe a gated answer passed its gates.
-  if (round.injectionsUsed >= round.injectionBudget) {
-    yield await emitError(
-      ctx,
-      'retryable',
-      `checkpoint budget exhausted (${round.injectionBudget} rounds) — ` +
-        `ending the turn with unresolved checkpoint feedback; verify the result manually.`,
-    );
-    return { kind: 'end' };
-  }
-
-  for (const cp of eligible) {
-    // User cancelled mid-gate: end the turn WITHOUT retracting the
-    // already-logged answer — an abort must never un-say what was said.
-    if (ctx.signal.aborted) return { kind: 'end' };
-
-    yield await emitCheckpointEvent(ctx, 'checkpoint_started', {
-      name: cp.name,
-      iteration: round.iteration,
-    });
-
-    const timeoutMs = Math.max(1_000, cp.timeoutMs ?? DEFAULT_CHECKPOINT_TIMEOUT_MS);
-    const timeoutCtl = new AbortController();
-    const timer = setTimeout(() => timeoutCtl.abort(), timeoutMs);
-    timer.unref?.();
-    let result: CheckpointResult;
-    try {
-      result = await cp.run(
-        {
-          candidateText: round.candidateText,
-          stopReason: round.stopReason,
-          iteration: round.iteration,
-          consecutiveIdle: round.consecutiveIdle,
-          injectionsUsed: round.injectionsUsed,
-          injectionBudget: round.injectionBudget,
-          signal: AbortSignal.any([ctx.signal, timeoutCtl.signal]),
-        },
-        ctx,
-      );
-    } catch (err) {
-      if (ctx.signal.aborted) return { kind: 'end' };
-      // Fail OPEN, visibly. A crashed or timed-out checker downgrades the
-      // gate to a warning — it must never wedge the turn (fail-closed is a
-      // turn that can never end) and never crash it (the answer is already
-      // logged).
-      const why = timeoutCtl.signal.aborted
-        ? `timed out after ${timeoutMs}ms`
-        : `failed: ${err instanceof Error ? err.message : String(err)}`;
-      yield await emitError(ctx, 'retryable', `checkpoint "${cp.name}" ${why} — proceeding unchecked`);
-      continue;
-    } finally {
-      clearTimeout(timer);
-    }
-
-    switch (result.action) {
-      case 'pass': {
-        yield await emitCheckpointEvent(ctx, 'checkpoint_passed', { name: cp.name });
-        continue;
-      }
-      case 'stop': {
-        // The checkpoint already emitted its own wrap-up events.
-        yield await emitCheckpointEvent(ctx, 'checkpoint_stopped', { name: cp.name });
-        return { kind: 'end' };
-      }
-      case 'retry': {
-        yield await emitCheckpointEvent(ctx, 'checkpoint_retry', { name: cp.name });
-        return { kind: 'loop' };
-      }
-      case 'inject': {
-        // Guard the guard: an inject with blank text would loop the turn
-        // with no new signal for the model — a checker bug; fail open.
-        const feedback = result.text?.trim();
-        if (!feedback) {
-          yield await emitError(
-            ctx,
-            'retryable',
-            `checkpoint "${cp.name}" injected empty feedback — ignored`,
-          );
-          continue;
-        }
-        const clamped = clampChars(feedback, round.maxInjectChars);
-        if (result.volatile) {
-          yield await emitCheckpointEvent(ctx, 'checkpoint_injected', {
-            name: cp.name,
-            volatile: true,
-          });
-          return { kind: 'loop', volatileText: clamped };
-        }
-        // Persistent: a checkpoint-origin user prompt. Projected as a
-        // user-role message by the existing projection case, marked via the
-        // same `origin` machinery trigger prompts use, cache-safe because it
-        // is an ordinary append at the log tail.
-        yield await ctx.emit({
-          type: 'user_prompt',
-          sessionId: ctx.sessionId,
-          turnId: ctx.turnId,
-          source: 'system',
-          text: clamped,
-          origin: { kind: 'checkpoint', name: cp.name },
-        });
-        yield await emitCheckpointEvent(ctx, 'checkpoint_injected', {
-          name: cp.name,
-          volatile: false,
-        });
-        return { kind: 'loop' };
-      }
-    }
-  }
-  return { kind: 'end' };
-}
-
 function defaultStuckNudge(trip: StuckTripInfo): string {
   return (
     `You have called the tool \`${trip.toolName}\` ${trip.count} times ${trip.how}. ` +
@@ -662,50 +422,4 @@ function buildStuckReport(opts: ReactLoopOptions): StuckLoopReport {
         `reset or rephrase.`),
     ...(opts.stuck?.extraOnStuck ? { extraOnStuck: opts.stuck.extraOnStuck } : {}),
   };
-}
-
-function clampChars(text: string, max: number): string {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max)}\n…[checkpoint feedback truncated: ${text.length - max} chars dropped]`;
-}
-
-async function emitAbort(ctx: ModeContext, reason: string): Promise<MoxxyEvent> {
-  return ctx.emit({
-    type: 'abort',
-    sessionId: ctx.sessionId,
-    turnId: ctx.turnId,
-    source: 'system',
-    reason,
-  });
-}
-
-async function emitError(
-  ctx: ModeContext,
-  kind: 'retryable' | 'fatal',
-  message: string,
-): Promise<MoxxyEvent> {
-  return ctx.emit({
-    type: 'error',
-    sessionId: ctx.sessionId,
-    turnId: ctx.turnId,
-    source: 'system',
-    kind,
-    message,
-  });
-}
-
-async function emitCheckpointEvent(
-  ctx: ModeContext,
-  subtype: string,
-  payload: unknown,
-): Promise<MoxxyEvent> {
-  return ctx.emit({
-    type: 'plugin_event',
-    sessionId: ctx.sessionId,
-    turnId: ctx.turnId,
-    source: 'system',
-    pluginId: CHECKPOINT_EVENT_PLUGIN_ID,
-    subtype,
-    payload,
-  });
 }

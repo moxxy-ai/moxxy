@@ -446,6 +446,8 @@ async function runSelfHostedTui(
     bootedSession = result.session;
     bootedVault = result.vault;
     bootedChannels = result.session.channels.list();
+    // Agent connections' CLIs: checked now and every hour; the status line reads the result.
+    result.session.agentClis.start();
     // Option A: open the socket so other clients can attach while this TUI is
     // open. A lost race (someone else bound first) just means we run without
     // sharing — not an error.

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 export const memoryTypeSchema = z.enum(['fact', 'preference', 'project', 'reference']);
 export type MemoryType = z.infer<typeof memoryTypeSchema>;

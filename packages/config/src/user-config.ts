@@ -105,6 +105,25 @@ export async function setCategoryDefault(
   });
 }
 
+/** Unselect the category's contribution (`plugins.<category>.default`), so the
+ *  host falls back to its built-in choice. Item options are kept. */
+export async function clearCategoryDefault(
+  category: string,
+  opts: UserConfigOptions = {},
+): Promise<void> {
+  assertPluginCategory(category);
+  const configPath = opts.configPath ?? defaultUserConfigPath();
+  await configMutex.run(async () => {
+    const doc = await readUserConfigDoc(configPath);
+    const key = ['plugins', category, 'default'];
+    if (!doc.hasIn(key)) return;
+    doc.deleteIn(key);
+    pruneEmpty(doc, ['plugins', category]);
+    pruneEmpty(doc, ['plugins']);
+    await writeUserConfigDoc(configPath, doc);
+  });
+}
+
 /** Read the selected active-def contribution (`plugins.<category>.default`). */
 export async function loadCategoryDefault(
   category: string,

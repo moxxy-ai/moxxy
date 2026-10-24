@@ -27,13 +27,14 @@ import {
   definePlugin,
   defineProvider,
   defineTool,
+  openQuestionsFromEvents,
   z,
   type ComputerControlSnapshot,
   type ModeContext,
   type MoxxyEvent,
   type UserPromptAttachment,
 } from '@moxxy/sdk';
-import { FakeProvider, textReply } from '@moxxy/testing';
+import { FakeAgentProvider, FakeProvider, textReply } from '@moxxy/testing';
 import {
   startRunnerServer,
   connectRemoteSession,
@@ -368,6 +369,7 @@ function fakeRemote(options: {
     },
     onSurfaceData: () => () => undefined,
     onReset: () => () => undefined,
+    questions: { attachSurface: () => () => undefined, answer: async () => undefined },
     // A runner that predates the shared auto-approve switch reports none.
     getInfo: () => ({}),
   };
@@ -687,5 +689,51 @@ describe('SessionDriver foreground turn status', () => {
       payload: { workspaceId: 'ws-background-status', turnId, visibility: 'background' },
     });
     driver.dispose();
+  });
+});
+
+describe('SessionDriver background work', () => {
+  it("stops one work the conversation's agent runs in the background, through the runner", async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'ok' };
+    });
+    provider.running.add('b1');
+    const socketPath = tmpSocket();
+    servers.push(await startRunnerServer(buildSession(provider), { socketPath }));
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-w');
+
+    await expect(driver.stopBackgroundWork('b1')).resolves.toBe(true);
+    await expect(driver.stopBackgroundWork('b1')).resolves.toBe(false);
+    driver.dispose();
+  });
+});
+
+describe('SessionDriver questions', () => {
+  it('shows questions for the conversation while it runs, and answers them through the runner', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('ok')] }));
+    servers.push(await startRunnerServer(session, { socketPath }));
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win } = fakeWindow();
+
+    const driver = new SessionDriver(remote, win, 'ws-q');
+    await waitFor(() => session.questions.surfaceCount === 1);
+
+    const outcome = session.questions.ask({
+      turnId: asTurnId('t1'),
+      questions: [{ id: 'q1', question: 'Which colour?', options: [{ id: 'red', label: 'Red' }], multiSelect: false, allowOther: false }],
+      signal: new AbortController().signal,
+    });
+    await waitFor(() => openQuestionsFromEvents(remote.log.slice()).length === 1);
+    const id = String(openQuestionsFromEvents(remote.log.slice())[0]?.questionId);
+    await driver.answerQuestion(id, { q1: { selected: ['red'] } });
+    await expect(outcome).resolves.toEqual({ kind: 'answered', answers: { q1: { selected: ['red'] } } });
+
+    driver.dispose();
+    await waitFor(() => session.questions.surfaceCount === 0);
   });
 });

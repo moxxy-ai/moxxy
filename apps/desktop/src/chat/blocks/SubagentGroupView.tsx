@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { formatTokensK, type SubagentBlock, type SubagentGroupBlock } from '@moxxy/chat-model';
+import { formatTokensK, subagentGroupHeader, subagentState, subagentToolsLabel, type SubagentBlock, type SubagentGroupBlock } from '@moxxy/chat-model';
 import { DisclosureRow } from './DisclosureRow';
-import { SubagentDetail } from './SubagentView';
+import { SubagentDetail, subagentNote } from './SubagentView';
 import { TraceEntry } from '../trace/TraceEntry';
 import { useAgentTitle } from '../modes/ModeTranscriptContext';
 
@@ -17,14 +17,15 @@ export function SubagentGroupView({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
 
-  const running = block.agents.filter(isRunning).length;
+  const running = block.agents.filter((a) => subagentState(a) === 'running').length;
+  const background = block.agents.filter((a) => subagentState(a) === 'background').length;
   const failed = block.agents.filter((a) => a.error !== null).length;
 
   return (
     <TraceEntry kind="subagent" testId="block-subagent-group">
       <DisclosureRow
-        state={ledState(running, failed)}
-        label={headerLabel(block, running, failed)}
+        state={ledState(running, background, failed)}
+        label={subagentGroupHeader(block)}
         live={running > 0}
         open={open}
         onToggle={() => setOpen((v) => !v)}
@@ -45,17 +46,17 @@ export function SubagentGroupView({
 function AgentRow({ agent }: { readonly agent: SubagentBlock }): JSX.Element {
   const [open, setOpen] = useState(false);
   const title = useAgentTitle(agent.childSessionId) ?? agent.label;
-  const running = isRunning(agent);
-  const state = agent.error ? 'failed' : running ? 'running' : 'done';
+  const state = subagentState(agent);
+  const note = subagentNote(agent);
   const tokens = formatTokensK(agent.tokensUsed);
   return (
     <div className="agent-row">
       <button type="button" className="agent-row__head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <span className="led" data-state={state} aria-hidden />
         <span className="agent-row__name">{title}</span>
+        {note && <span className="agent-row__note">{note}</span>}
         <span className="agent-row__meta">
-          {agent.toolCallCount} tool {agent.toolCallCount === 1 ? 'use' : 'uses'}
-          {tokens ? ` · ${tokens} tokens` : ''}
+          {[subagentToolsLabel(agent, 'use'), tokens ? `${tokens} tokens` : null].filter(Boolean).join(' · ')}
         </span>
         <span className="agent-row__state" data-tone={state}>
           {STATE_WORD[state]}
@@ -67,28 +68,12 @@ function AgentRow({ agent }: { readonly agent: SubagentBlock }): JSX.Element {
   );
 }
 
-const STATE_WORD = { running: 'Running', done: 'Done', failed: 'Failed' } as const;
-
-function isRunning(a: SubagentBlock): boolean {
-  return a.completedAtMs === null && a.error === null;
-}
-
-/** "4 Explore agents finished" / "3 agents running" / "3 agents finished, 1
- *  failed". The default kind has no name worth saying, and a mixed batch has
- *  none to say. */
-function headerLabel(block: SubagentGroupBlock, running: number, failed: number): string {
-  const n = block.agents.length;
-  const named = block.agentType !== 'mixed' && block.agentType !== 'default';
-  const typeWord = named ? `${block.agentType} ` : '';
-  const noun = n === 1 ? 'agent' : 'agents';
-  const verb = running > 0 ? 'running' : 'finished';
-  const failSuffix = failed > 0 ? `, ${failed} failed` : '';
-  return `${n} ${typeWord}${noun} ${verb}${failSuffix}`;
-}
+const STATE_WORD = { running: 'Running', background: 'In the background', done: 'Done', failed: 'Failed' } as const;
 
 /** The batch's one state: any failure outranks any still running, which outranks
- *  the whole fan-out having landed. */
-function ledState(running: number, failed: number): 'failed' | 'running' | 'done' {
+ *  any going on in the background, which outranks the whole fan-out having landed. */
+function ledState(running: number, background: number, failed: number): 'failed' | 'running' | 'background' | 'done' {
   if (failed > 0) return 'failed';
-  return running > 0 ? 'running' : 'done';
+  if (running > 0) return 'running';
+  return background > 0 ? 'background' : 'done';
 }

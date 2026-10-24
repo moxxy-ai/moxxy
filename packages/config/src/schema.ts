@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { pluginSettingsSchema } from './plugin-settings-schema.js';
 import { pluginsTreeSchema } from './plugins-tree-schema.js';
 

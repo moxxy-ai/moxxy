@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** TypeSafe's System One endpoint: one state, many typed questions, answered in parallel. */
 export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';

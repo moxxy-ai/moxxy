@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 const STORAGE_KEY = 'moxxy.model-preferences.v1';
 

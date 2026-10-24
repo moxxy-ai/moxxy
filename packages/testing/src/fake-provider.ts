@@ -8,6 +8,8 @@ export type ScriptedReplies = ReadonlyArray<ScriptedReply>;
 export interface FakeProviderOptions {
   readonly name?: string;
   readonly models?: ReadonlyArray<ModelDescriptor>;
+  /** The provider's light starter model (`LLMProvider.starterModel`). */
+  readonly starterModel?: string;
   readonly script?: ScriptedReplies;
   readonly byHash?: Record<string, ScriptedReply>;
   readonly onRequest?: (req: ProviderRequest) => void;
@@ -32,6 +34,7 @@ const defaultModel: ModelDescriptor = {
 export class FakeProvider implements LLMProvider {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  readonly starterModel?: string;
   readonly received: ProviderRequest[] = [];
   private cursor = 0;
   private readonly script: ScriptedReplies;
@@ -42,6 +45,7 @@ export class FakeProvider implements LLMProvider {
   constructor(opts: FakeProviderOptions = {}) {
     this.name = opts.name ?? 'fake';
     this.models = opts.models ?? [defaultModel];
+    if (opts.starterModel) this.starterModel = opts.starterModel;
     this.script = opts.script ?? [];
     this.byHash = opts.byHash ?? {};
     this.onRequest = opts.onRequest;

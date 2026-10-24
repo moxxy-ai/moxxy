@@ -10,7 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { deleteSkill, listSkills, readSkill, writeSkill } from './skills';
@@ -102,5 +102,48 @@ describe('skills', () => {
     // The atomic rename never leaves a stray *.tmp sibling behind.
     const list = await listSkills();
     expect(list.map((s) => s.name)).toEqual(['note.md']);
+  });
+
+  describe('folder skills (<name>/SKILL.md, as `npx skills` installs them)', () => {
+    const skillsRoot = (): string => path.join(tmpHome, '.moxxy', 'skills');
+    const writeFolderSkill = (folder: string, frontmatter: string, extra: Record<string, string> = {}): void => {
+      const dir = path.join(skillsRoot(), folder);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'SKILL.md'), `---\n${frontmatter}\n---\nbody`);
+      for (const [file, body] of Object.entries(extra)) writeFileSync(path.join(dir, file), body);
+    };
+
+    it('lists a folder skill next to flat ones, ignoring its reference files', async () => {
+      await writeSkill('flat.md', '---\nname: flat\ndescription: Flat one.\n---\n');
+      writeFolderSkill('animate', 'name: animate\ndescription: Build an animation.', { 'RECIPES.md': '# recipes' });
+      const list = await listSkills();
+      expect(list.map((s) => s.name)).toEqual(['animate/SKILL.md', 'flat.md']);
+      expect(list[0]).toMatchObject({ editable: true, description: 'Build an animation.' });
+      expect(list[0]?.problem).toBeUndefined();
+    });
+
+    it('marks a skill the agent cannot load and says why', async () => {
+      writeFolderSkill('broken', 'description: No name here.');
+      await writeSkill('Bad Name.md', '---\nname: Bad Name\ndescription: x\n---\n');
+      const list = await listSkills();
+      expect(list.find((s) => s.name === 'broken/SKILL.md')?.problem).toMatch(/name/);
+      expect(list.find((s) => s.name === 'Bad Name.md')?.problem).toMatch(/name/);
+    });
+
+    it('reads, writes and deletes a folder skill (the whole folder)', async () => {
+      writeFolderSkill('animate', 'name: animate\ndescription: x', { 'RECIPES.md': '# recipes' });
+      await writeSkill('animate/SKILL.md', 'edited');
+      expect(await readSkill('animate/SKILL.md')).toBe('edited');
+      await deleteSkill('animate/SKILL.md');
+      expect(existsSync(path.join(skillsRoot(), 'animate'))).toBe(false);
+      expect(await listSkills()).toEqual([]);
+    });
+
+    it('accepts only <folder>/SKILL.md, never other nested paths', async () => {
+      await expect(readSkill('animate/RECIPES.md')).rejects.toThrow(/invalid/);
+      await expect(readSkill('a/b/SKILL.md')).rejects.toThrow(/invalid/);
+      await expect(readSkill('../SKILL.md')).rejects.toThrow(/invalid/);
+      await expect(deleteSkill('animate\\SKILL.md')).rejects.toThrow(/invalid/);
+    });
   });
 });

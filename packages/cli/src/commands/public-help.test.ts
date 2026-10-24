@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseArgv } from '../argv.js';
+import { runAgentsCommand } from './agents.js';
 import { runChannelsCommand } from './channels.js';
 import { runConfigCommand } from './config.js';
 import { runLoginCommand } from './login.js';
@@ -11,6 +12,7 @@ import { runResumeCommand } from './resume.js';
 import { runTuiCommand } from './tui.js';
 
 const CASES = [
+  ['agents', runAgentsCommand],
   ['channels', runChannelsCommand],
   ['config', runConfigCommand],
   ['login', runLoginCommand],
