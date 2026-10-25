@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { Session, silentLogger } from '@moxxy/core';
-import { assertDefined } from '@moxxy/sdk';
+import { readSessionIndex, Session, silentLogger } from '@moxxy/core';
+import { assertDefined, definePlugin, defineProvider } from '@moxxy/sdk';
 import { MOXXY_WORKSPACE_ID, WorkspaceRegistry } from '@moxxy/workspace-registry';
 import { describe, expect, it } from 'vitest';
 
@@ -89,6 +89,47 @@ describe('attachSessionPersistence workspace registry sync', () => {
         eventCount: 1,
         source: 'tui',
       });
+      await session.close();
+    } finally {
+      if (original === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = original;
+    }
+  });
+
+  it('names no model in a new conversation until a turn runs on one', async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'moxxy-home-'));
+    const original = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = home;
+    try {
+      const cwd = path.join(home, 'project');
+      mkdirSync(cwd, { recursive: true });
+      const session = new Session({ cwd, logger: silentLogger });
+      // Listed biggest first, as Claude Code lists Fable; a new conversation starts on the light one.
+      const models = [{ id: 'big-model' }, { id: 'light-model' }];
+      session.pluginHost.registerStatic(definePlugin({
+        name: '@test/providers',
+        version: '0.0.0',
+        providers: [defineProvider({
+          name: 'agent',
+          models,
+          starterModel: 'light-model',
+          createClient: () => ({ name: 'agent', models, starterModel: 'light-model', stream: async function* () {}, countTokens: async () => 0 }),
+        })],
+      }));
+      session.providers.setActive('agent');
+
+      const handle = attachSessionPersistence(session, cwd, false);
+      assertDefined(handle, 'session persistence handle');
+      await session.log.append({ type: 'user_prompt', turnId: 'turn-1', text: 'hello' });
+      await handle.settleWrites();
+      await handle.flush();
+      const listed = async () => (await readSessionIndex()).find((meta) => meta.id === String(session.id));
+      expect(await listed()).toMatchObject({ provider: 'agent', model: null });
+
+      await session.log.append({ type: 'provider_request', turnId: 'turn-1', provider: 'agent', model: 'light-model' });
+      await handle.settleWrites();
+      await handle.flush();
+      expect(await listed()).toMatchObject({ provider: 'agent', model: 'light-model' });
       await session.close();
     } finally {
       if (original === undefined) delete process.env.MOXXY_HOME;

@@ -296,6 +296,12 @@ export class Session implements ClientSession, SessionRuntime {
       stopAdopting();
       stopAdoptingOnClear();
     };
+    // `/new` (here or through the runner) starts a new conversation: the model the
+    // old one ran on no longer comes first, the chosen default or the starter does.
+    this.log.onClear(() => {
+      this.lastResolvedModel = null;
+      this.lastResolvedProvider = null;
+    });
     this.modes = new ModeRegistry();
     this.compactors = new CompactorRegistry();
     this.cacheStrategies = new CacheStrategyRegistry();

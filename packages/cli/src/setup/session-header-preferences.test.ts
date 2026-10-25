@@ -78,6 +78,52 @@ describe('applySessionHeaderPreferences', () => {
   });
 });
 
+describe('applySessionHeaderPreferences in a conversation nothing happened in', () => {
+  it('keeps the active provider but takes no model as the one the conversation last ran on', async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'moxxy-session-header-'));
+    const moxxyHome = path.join(home, '.moxxy');
+    const originalMoxxyHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = moxxyHome;
+    try {
+      const sessionId = '01SESSIONHEADEREMPTY000000';
+      const sessionsDir = path.join(moxxyHome, 'sessions');
+      mkdirSync(sessionsDir, { recursive: true });
+      // An older runner wrote the first model its provider lists into a conversation that had not started.
+      writeFileSync(
+        path.join(sessionsDir, `${sessionId}.meta.json`),
+        JSON.stringify({
+          id: sessionId,
+          cwd: '/tmp/project',
+          startedAt: '2026-06-16T00:00:00.000Z',
+          lastActivity: '2026-06-16T00:00:00.000Z',
+          eventCount: 0,
+          firstPrompt: null,
+          provider: 'session-provider',
+          model: 'big-model',
+        }, null, 2) + '\n',
+        'utf8',
+      );
+      writeFileSync(path.join(sessionsDir, `${sessionId}.jsonl`), '', 'utf8');
+      const session = new Session({ cwd: '/tmp/project', logger: silentLogger });
+      session.pluginHost.registerStatic(
+        definePlugin({
+          name: '@test/session-header-providers',
+          version: '0.0.0',
+          providers: [providerDef('session-provider', ['big-model', 'light-model'])],
+        }),
+      );
+
+      await applySessionHeaderPreferences(session, sessionId, async () => ({}), silentLogger);
+
+      expect(session.providers.getActiveName()).toBe('session-provider');
+      expect(session.lastResolvedModel).toBeNull();
+    } finally {
+      if (originalMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = originalMoxxyHome;
+    }
+  });
+});
+
 function providerDef(name: string, modelIds: string[]) {
   const models = modelIds.map((id) => ({ id }));
   return defineProvider({

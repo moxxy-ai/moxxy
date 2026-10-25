@@ -300,6 +300,16 @@ describe('runTurn turnId filtering', () => {
       expect(await ranOn(session)).toMatchObject({ text: 'noop-last' });
     });
 
+    it('starts a new conversation (/new) on the starter model, not the one the old conversation ran on', async () => {
+      const session = modelEcho('noop-small');
+      expect(await ranOn(session, 'noop-first')).toMatchObject({ text: 'noop-first' });
+
+      await session.reset();
+
+      expect(session.getInfo().defaultModel).toBe('noop-small');
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-small' });
+    });
+
     it("tells every surface each provider's starter model, also for a provider that is not active", () => {
       const session = modelEcho('noop-small');
       session.providers.setActive('other');
