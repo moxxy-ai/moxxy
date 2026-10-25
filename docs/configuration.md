@@ -46,6 +46,8 @@ context:
 
 A turn runs on the model it names; without one, on the model the conversation last ran on; in a new conversation (also one `/new` starts, and one restarted before its first turn), on `items.<provider>.model`; when that is not set, on the provider's light starter model (`starterModel`: Haiku 5.5 for Claude, GPT-6 Luna for Codex, so an unset default does not spend a plan on the biggest model); and only when the provider names none, or no longer lists it, on the first model it lists. This is one setting for every surface: the desktop, `moxxy` in the terminal, the runner and the channels all read it when a conversation starts. The desktop writes it in **Settings → Providers → Default model** (model, effort and fast in one row). Conversations already open keep what they run on.
 
+Local models (`local` provider, `LOCAL_MODEL_BASE_URL` or `items.local.config.baseURL`): Moxxy plans compaction around the context the server really gives the model. Ollama reports it through `/api/ps` and `/api/show`, LM Studio 0.4+ through `/api/v1/models` (the context a loaded model was loaded with). A model that is not loaded yet counts as 4096 tokens until the server loads it; a server with neither API counts as 8192.
+
 ### Reasoning effort and fast mode
 
 ```yaml

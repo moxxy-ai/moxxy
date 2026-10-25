@@ -141,8 +141,9 @@ const localModelsResponseSchema = z.object({
 }).passthrough();
 
 const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
-const OLLAMA_METADATA_TIMEOUT_MS = 2_000;
-const OLLAMA_UNLOADED_CONTEXT_FLOOR = 4_096;
+const METADATA_TIMEOUT_MS = 2_000;
+/** A model not loaded yet gets its context when the server loads it; assume little until then. */
+const UNLOADED_CONTEXT_FLOOR = 4_096;
 const MAX_CONTEXT_WINDOW = 10_000_000;
 
 export interface LocalModelDiscoveryOptions {
@@ -164,7 +165,27 @@ const ollamaShowResponseSchema = z.object({
   capabilities: z.array(z.string()).optional(),
 }).passthrough();
 
+const contextLengthSchema = z.number().int().positive().max(MAX_CONTEXT_WINDOW);
+
+/** LM Studio 0.4+ native `GET /api/v1/models`. */
+const lmStudioModelsResponseSchema = z.object({
+  models: z.array(z.object({
+    key: z.string(),
+    variants: z.array(z.string()).optional(),
+    loaded_instances: z.array(z.object({
+      id: z.string().optional(),
+      config: z.object({ context_length: contextLengthSchema.optional() }).passthrough().optional(),
+    }).passthrough()).optional(),
+    max_context_length: contextLengthSchema.optional(),
+    capabilities: z.object({
+      vision: z.boolean().optional(),
+      trained_for_tool_use: z.boolean().optional(),
+    }).passthrough().optional(),
+  }).passthrough()),
+}).passthrough();
+
 type OllamaRunningResponse = z.infer<typeof ollamaRunningResponseSchema>;
+type LmStudioModels = z.infer<typeof lmStudioModelsResponseSchema>['models'];
 type OllamaShowResponse = z.infer<typeof ollamaShowResponseSchema>;
 
 /**
@@ -252,9 +273,10 @@ export async function discoverLocalModels(
 }
 
 /**
- * Enrich the live local catalog with Ollama-native runtime metadata. Servers
- * that only implement the OpenAI-compatible surface retain the existing
- * conservative descriptors; no Ollama endpoint is assumed from a model id.
+ * Enrich the live local catalog with the server's own runtime metadata: Ollama's
+ * `/api/ps` + `/api/show`, else LM Studio's `/api/v1/models`. Servers that only
+ * implement the OpenAI-compatible surface retain the existing conservative
+ * descriptors; no native endpoint is assumed from a model id.
  */
 export async function discoverLocalModelDescriptors(
   config: OpenAICompatConfig = {},
@@ -264,7 +286,10 @@ export async function discoverLocalModelDescriptors(
   if (ids.length === 0) return [];
   const baseURL = resolveLocalBaseURL(config);
   const running = await readOllamaRunning(baseURL, options.signal);
-  if (!running) return ids.map(genericLocalDescriptor);
+  if (!running) {
+    const lmStudio = await readLmStudioModels(baseURL, config, options.signal);
+    return ids.map((id) => (lmStudio && lmStudioDescriptor(id, lmStudio)) ?? genericLocalDescriptor(id));
+  }
 
   return Promise.all(ids.map(async (id) => {
     const show = await readOllamaShow(baseURL, id, options.signal);
@@ -272,16 +297,39 @@ export async function discoverLocalModelDescriptors(
   }));
 }
 
-async function discoverOllamaModelDescriptor(
+/** The server's current view of one model, or null when it offers no native metadata. */
+async function discoverServerModelDescriptor(
   model: string,
   config: OpenAICompatConfig,
   options: LocalModelDiscoveryOptions,
 ): Promise<ModelDescriptor | null> {
   const baseURL = resolveLocalBaseURL(config);
   const running = await readOllamaRunning(baseURL, options.signal);
-  if (!running) return null;
+  if (!running) {
+    const lmStudio = await readLmStudioModels(baseURL, config, options.signal);
+    return lmStudio ? lmStudioDescriptor(model, lmStudio) : null;
+  }
   const show = await readOllamaShow(baseURL, model, options.signal);
   return ollamaDescriptor(model, running, show);
+}
+
+function lmStudioDescriptor(id: string, models: LmStudioModels): ModelDescriptor | null {
+  const model = models.find((candidate) => (
+    candidate.key === id
+    || candidate.variants?.includes(id) === true
+    || candidate.loaded_instances?.some((instance) => instance.id === id) === true
+  ));
+  if (!model) return null;
+  const instance = model.loaded_instances?.find((candidate) => candidate.id === id) ?? model.loaded_instances?.[0];
+  const contextWindow = instance?.config?.context_length
+    ?? Math.min(model.max_context_length ?? UNLOADED_CONTEXT_FLOOR, UNLOADED_CONTEXT_FLOOR);
+  return {
+    id,
+    contextWindow,
+    supportsTools: model.capabilities?.trained_for_tool_use ?? genericLocalDescriptor(id).supportsTools,
+    supportsStreaming: true,
+    ...(model.capabilities?.vision === true ? { supportsImages: true } : {}),
+  };
 }
 
 function genericLocalDescriptor(id: string): ModelDescriptor {
@@ -304,7 +352,7 @@ function ollamaDescriptor(
   const configured = show ? configuredNumCtx(show) : null;
   const contextWindow = active?.context_length
     ?? clampConfiguredContext(configured, maximum)
-    ?? Math.min(maximum ?? OLLAMA_UNLOADED_CONTEXT_FLOOR, OLLAMA_UNLOADED_CONTEXT_FLOOR);
+    ?? Math.min(maximum ?? UNLOADED_CONTEXT_FLOOR, UNLOADED_CONTEXT_FLOOR);
   const capabilities = show?.capabilities;
   const seeded = localModels.find((model) => model.id === id);
   const supportsTools = capabilities
@@ -352,7 +400,8 @@ function clampConfiguredContext(configured: number | null, maximum: number | nul
   return maximum ? Math.min(configured, maximum) : configured;
 }
 
-function ollamaNativeURL(baseURL: string, endpoint: 'ps' | 'show'): string {
+/** A native endpoint beside the server's OpenAI-compatible `/v1`. */
+function nativeURL(baseURL: string, endpoint: 'ps' | 'show' | 'v1/models'): string {
   const url = new URL(baseURL);
   url.search = '';
   url.hash = '';
@@ -365,8 +414,8 @@ function ollamaNativeURL(baseURL: string, endpoint: 'ps' | 'show'): string {
 
 function metadataSignal(signal?: AbortSignal): AbortSignal {
   return signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(OLLAMA_METADATA_TIMEOUT_MS)])
-    : AbortSignal.timeout(OLLAMA_METADATA_TIMEOUT_MS);
+    ? AbortSignal.any([signal, AbortSignal.timeout(METADATA_TIMEOUT_MS)])
+    : AbortSignal.timeout(METADATA_TIMEOUT_MS);
 }
 
 async function readOllamaRunning(
@@ -374,7 +423,7 @@ async function readOllamaRunning(
   signal?: AbortSignal,
 ): Promise<OllamaRunningResponse | null> {
   try {
-    const response = await fetch(ollamaNativeURL(baseURL, 'ps'), {
+    const response = await fetch(nativeURL(baseURL, 'ps'), {
       headers: { accept: 'application/json' },
       signal: metadataSignal(signal),
     });
@@ -392,7 +441,7 @@ async function readOllamaShow(
   signal?: AbortSignal,
 ): Promise<OllamaShowResponse | null> {
   try {
-    const response = await fetch(ollamaNativeURL(baseURL, 'show'), {
+    const response = await fetch(nativeURL(baseURL, 'show'), {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json' },
       body: JSON.stringify({ model }),
@@ -406,7 +455,26 @@ async function readOllamaShow(
   }
 }
 
-class OllamaAwareLocalProvider implements LLMProvider {
+async function readLmStudioModels(
+  baseURL: string,
+  config: OpenAICompatConfig,
+  signal?: AbortSignal,
+): Promise<LmStudioModels | null> {
+  try {
+    const response = await fetch(nativeURL(baseURL, 'v1/models'), {
+      // LM Studio can require its API token; local servers ignore the placeholder.
+      headers: { accept: 'application/json', ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}) },
+      signal: metadataSignal(signal),
+    });
+    if (!response.ok) return null;
+    const parsed = lmStudioModelsResponseSchema.safeParse(await response.json());
+    return parsed.success ? parsed.data.models : null;
+  } catch {
+    return null;
+  }
+}
+
+class ServerAwareLocalProvider implements LLMProvider {
   readonly name = 'local';
   readonly models: ReadonlyArray<ModelDescriptor>;
 
@@ -423,7 +491,7 @@ class OllamaAwareLocalProvider implements LLMProvider {
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<void> {
     if (options.signal?.aborted) return;
-    const descriptor = await discoverOllamaModelDescriptor(model, this.config, options);
+    const descriptor = await discoverServerModelDescriptor(model, this.config, options);
     if (!descriptor || options.signal?.aborted) return;
     const index = this.catalog.findIndex((candidate) => candidate.id === model);
     if (index >= 0) this.catalog.splice(index, 1, descriptor);
@@ -468,7 +536,7 @@ export const localProviderDef = defineProvider({
       defaultModel: cfg.defaultModel ?? LOCAL_DEFAULT_MODEL,
       models: catalog,
     });
-    return new OllamaAwareLocalProvider(delegate, catalog, { ...cfg, baseURL });
+    return new ServerAwareLocalProvider(delegate, catalog, { ...cfg, baseURL });
   },
   auth: { kind: 'none' },
 });
