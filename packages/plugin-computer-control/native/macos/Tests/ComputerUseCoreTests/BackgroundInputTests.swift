@@ -71,6 +71,12 @@ import Testing
         #expect(WindowEvent.stamp(primed[1], to: address, group: 1).location == WindowEvent.primer)
     }
 
+    // macOS 27 holds a press next to a window's corner as a title-bar click and hands it to the
+    // app's view after the gesture: the primer has to land where no window or screen reaches.
+    @Test func putsThePrimerFarOutsideEveryWindowAndScreen() {
+        #expect(WindowEvent.primer.x <= -10_000 && WindowEvent.primer.y <= -10_000)
+    }
+
     @Test func leavesAGestureWithoutAPressAlone() {
         let move = MouseScript.single(.move, at: CGPoint(x: 1, y: 1), button: .left, held: true)
         #expect(WindowEvent.withPrimer(move) == move)
