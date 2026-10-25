@@ -16,8 +16,16 @@ import { randomUUID } from 'node:crypto';
 import type { BrowserWindow } from 'electron';
 
 import type { RemoteSession } from '@moxxy/runner';
-import { asTurnId } from '@moxxy/sdk';
-import type { QuestionAnswers, RunTurnOptions, UserPromptAttachment } from '@moxxy/sdk';
+import { asTurnId, createDeferredPermissionResolver } from '@moxxy/sdk';
+import type {
+  DeferredPermissionResolver,
+  PendingToolCall,
+  PermissionContext,
+  PermissionDecision,
+  QuestionAnswers,
+  RunTurnOptions,
+  UserPromptAttachment,
+} from '@moxxy/sdk';
 
 import type { IpcEvents, RunTurnVisibility } from '@moxxy/desktop-ipc-contract';
 import { openAsk, cancelAsksFor } from './ask-broker.js';
@@ -54,6 +62,10 @@ export class SessionDriver {
    *  attach of the same window returns the existing unsub instead of stacking
    *  another 'closed' listener (which a re-bound focus widget would leak). */
   private readonly attachCleanups = new Map<BrowserWindow, () => void>();
+  /** Asks the person through the renderer's sheet and remembers an "Allow for
+   *  this session" answer for the rest of the conversation. Replaced on `/new`,
+   *  so a new conversation starts with no session grants. */
+  private asker: DeferredPermissionResolver;
 
   constructor(
     private readonly session: RemoteSession,
@@ -99,7 +111,10 @@ export class SessionDriver {
 
     // `/new` from another client of the conversation (a channel bot, the TUI)
     // wiped the runner's log: clear this chat too, or it keeps the old one.
-    this.disposes.push(this.session.onReset(() => this.send('chat.cleared', { workspaceId })));
+    this.disposes.push(this.session.onReset(() => {
+      this.asker = this.createAsker();
+      this.send('chat.cleared', { workspaceId });
+    }));
 
     // Forward agentic-surface frames (terminal bytes, browser frames) so the
     // renderer's pane can render them. Tagged with workspaceId so a background
@@ -114,6 +129,7 @@ export class SessionDriver {
     // handles permissions/approvals, so loop strategies (research)
     // actually pause and ask instead of assuming. Without them the runner
     // falls back to deny/auto and barrels ahead.
+    this.asker = this.createAsker();
     this.session.setPermissionResolver({
       name: 'desktop-ask',
       check: async (call, ctx) => {
@@ -121,30 +137,7 @@ export class SessionDriver {
         // goal mode (and any opted-in run) works hands-off. Mirrors the TUI's
         // yolo flag, which the permission queue checks before showing a prompt.
         if (this.autoApprove) return { mode: 'allow', decidedNow: true };
-        const signal = ctx.turnId ? this.turns.get(ctx.turnId)?.controller.signal : undefined;
-        const res = await withComputerApprovalFocus(this.session.computerControl,
-          String(this.session.id), call, ctx, signal, () => openAsk(
-          {
-            workspaceId,
-            kind: 'permission',
-            tool: {
-              name: call.name,
-              input: call.input,
-              ...(ctx.toolDescription ? { description: ctx.toolDescription } : {}),
-            },
-          },
-          (channel, payload) => this.send(channel, payload),
-          signal,
-        ));
-        // "Always allow" must persist so the runner's permission engine
-        // skips the prompt on the next call. The resolver only decides
-        // THIS call; without recording the rule, allow_always behaves
-        // exactly like allow_session and the sheet reappears every time.
-        if (res.mode === 'allow_always') {
-          void this.session.permissions.addAllow({ name: call.name });
-        }
-        // A sheet that was answered decided this call; a vanished one did not.
-        return res.mode && res.mode !== 'deny' ? { mode: res.mode, decidedNow: true } : { mode: res.mode ?? 'deny' };
+        return this.asker.check(call, ctx);
       },
     });
     // The app shows the conversation's Questions (read from the log by the
@@ -181,6 +174,46 @@ export class SessionDriver {
     this.session.onClose(() => {
       this.dispose();
     });
+  }
+
+  /** The sheet that decides one call. "Allow once" (`allow`) and "Deny" decide
+   *  only this call; "Allow for this session" is remembered by the deferred
+   *  resolver for the tool, or only for the same request where the tool's rule
+   *  narrows it; "Always allow" is also persisted to the runner's policy so it
+   *  outlives the conversation. */
+  private createAsker(): DeferredPermissionResolver {
+    return createDeferredPermissionResolver({
+      name: 'desktop-ask',
+      prompt: (call, ctx) => this.askPerson(call, ctx),
+    });
+  }
+
+  private async askPerson(call: PendingToolCall, ctx: PermissionContext): Promise<PermissionDecision> {
+    const signal = ctx.turnId ? this.turns.get(ctx.turnId)?.controller.signal : undefined;
+    const res = await withComputerApprovalFocus(this.session.computerControl,
+      String(this.session.id), call, ctx, signal, () => openAsk(
+      {
+        workspaceId: this.workspaceId,
+        kind: 'permission',
+        tool: {
+          name: call.name,
+          input: call.input,
+          ...(ctx.toolDescription ? { description: ctx.toolDescription } : {}),
+        },
+      },
+      (channel, payload) => this.send(channel, payload),
+      signal,
+    ));
+    // "Always allow" must persist so the runner's permission engine
+    // skips the prompt on the next call, also in a later conversation.
+    if (res.mode === 'allow_always') {
+      void this.session.permissions.addAllow({ name: call.name });
+    }
+    // A tool can narrow a session grant to the same request; the sheet then grants just that.
+    const scope = ctx.toolPermission?.sessionScope;
+    if (res.mode === 'allow_session' && scope) return { mode: res.mode, sessionScope: scope };
+    // A sheet that vanished without an answer decided nothing: deny.
+    return { mode: res.mode ?? 'deny' };
   }
 
   /** True when this driver is bridging `session` — used by the IPC
@@ -363,6 +396,7 @@ export class SessionDriver {
     // Deny any in-flight prompt so the runner doesn't block on a sheet that's
     // about to vanish with the driver.
     cancelAsksFor(this.workspaceId);
+    this.asker.abortAll('desktop session closed');
     for (const turn of this.turns.values()) turn.controller.abort();
     this.turns.clear();
     // Drop 'closed' listeners on any still-open attached (secondary) windows

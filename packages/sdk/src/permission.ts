@@ -30,6 +30,13 @@ export interface PermissionRule {
     }>;
   };
   readonly reason?: string;
+  /**
+   * How far an "allow for this session" answer reaches for this tool: only
+   * later calls with the same values under these input keys. For a tool whose
+   * approval grants something by itself (access to an app), where a grant of
+   * the whole tool would let every later, wider request through unasked.
+   */
+  readonly sessionScope?: { readonly inputKeys: ReadonlyArray<string> };
 }
 
 export interface PendingToolCall {

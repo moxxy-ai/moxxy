@@ -41,6 +41,26 @@ The TUI's resolver wraps the file policy with an interactive prompt:
 file-allowed → silent allow; file-denied → silent deny; otherwise →
 "allow once / allow always / deny once / deny always" picker.
 
+The desktop app asks with a sheet (also shown in the focus window and on
+the phone): **Allow once** runs this one call and asks again next time;
+**Allow for session** lets the tool run without asking for the rest of the
+conversation (a new conversation, `/new`, forgets it); **Always allow**
+persists a rule, as below; **Deny** refuses this call only.
+
+A tool whose approval grants something by itself can narrow the session
+answer with `sessionScope` on its permission rule: the grant then covers
+only later calls with the same values under those input keys.
+`computer_request_access` does this, so allowing one access request for the
+session never lets a request for another app, or for full control, through
+unasked.
+
+```ts
+permission: {
+  action: 'prompt',
+  sessionScope: { inputKeys: ['apps', 'full_access'] },
+}
+```
+
 ## Allow-always
 
 Choosing "allow always" in the TUI persists a rule to the policy file

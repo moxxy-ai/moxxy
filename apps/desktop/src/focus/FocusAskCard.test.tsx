@@ -47,7 +47,8 @@ describe('FocusAskCard', () => {
     expect(read(card)).toEqual(inDesktop);
     expect(inDesktop.answers).toEqual([
       ['Allow once', 'primary'],
-      ['Always allow Bash', 'neutral'],
+      ['Allow for session', 'neutral'],
+      ['Always allow', 'neutral'],
       ['Deny', 'danger'],
     ]);
   });

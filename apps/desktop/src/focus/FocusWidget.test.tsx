@@ -2247,7 +2247,7 @@ describe('FocusWidget bidirectional sync', () => {
       assertDefined(respond, 'ask.respond invoke');
       expect(respond.args).toEqual({
         requestId: 'ask-focus-toast',
-        response: { mode: 'allow_session' },
+        response: { mode: 'allow' },
       });
     });
   });

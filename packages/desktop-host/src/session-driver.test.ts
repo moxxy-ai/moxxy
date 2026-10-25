@@ -34,7 +34,8 @@ import {
   type MoxxyEvent,
   type UserPromptAttachment,
 } from '@moxxy/sdk';
-import { FakeAgentProvider, FakeProvider, textReply } from '@moxxy/testing';
+import { FakeAgentProvider, FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
+import { defaultModePlugin } from '@moxxy/mode-default';
 import {
   startRunnerServer,
   connectRemoteSession,
@@ -735,5 +736,174 @@ describe('SessionDriver questions', () => {
 
     driver.dispose();
     await waitFor(() => session.questions.surfaceCount === 0);
+  });
+});
+
+describe('SessionDriver permission answers through a real tool loop', () => {
+  type AskMode = 'allow' | 'allow_session' | 'deny';
+
+  /** A conversation on the default tool loop with two tools that must ask. */
+  async function serveTools(script: ConstructorParameters<typeof FakeProvider>[0]['script']): Promise<{ session: Session; remote: RemoteSession }> {
+    const provider = new FakeProvider({ script });
+    const session = new Session({ cwd: process.cwd(), logger: silentLogger, permissionResolver: autoAllowResolver });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'driver-tools-shim',
+        providers: [defineProvider({ name: provider.name, models: [...provider.models], createClient: () => provider })],
+        tools: [
+          defineTool({
+            name: 'Write',
+            description: 'write a file',
+            inputSchema: z.object({ file_path: z.string(), content: z.string() }),
+            permission: { action: 'prompt' },
+            handler: (input) => `wrote ${input.file_path}`,
+          }),
+          defineTool({
+            name: 'echo',
+            description: 'echo the input text',
+            inputSchema: z.object({ text: z.string() }),
+            permission: { action: 'prompt' },
+            handler: (input) => input.text,
+          }),
+          // Answering it grants something by itself, so a session grant covers only the same request.
+          defineTool({
+            name: 'grant',
+            description: 'grant access to an app',
+            inputSchema: z.object({ app: z.string(), reason: z.string() }),
+            permission: { action: 'prompt', sessionScope: { inputKeys: ['app'] } },
+            handler: (input) => `granted ${input.app}`,
+          }),
+        ],
+      }),
+    );
+    session.providers.setActive(provider.name);
+    session.pluginHost.registerStatic(defaultModePlugin);
+    const socketPath = tmpSocket();
+    servers.push(await startRunnerServer(session, { socketPath }));
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    return { session, remote };
+  }
+
+  /** Run one turn, answering every sheet the app raises as a person would. Returns the tools asked about. */
+  async function runAnswering(remote: RemoteSession, sent: Array<{ channel: string; payload: unknown }>, answer: AskMode): Promise<string[]> {
+    const before = sent.length;
+    const answered = new Set<string>();
+    let done = false;
+    const turn = (async () => {
+      for await (const _event of remote.runTurn('go')) void _event;
+      done = true;
+    })();
+    while (!done) {
+      for (const frame of sent.slice(before)) {
+        if (frame.channel !== 'ask.request') continue;
+        const ask = frame.payload as AskRequest;
+        if (answered.has(ask.requestId)) continue;
+        answered.add(ask.requestId);
+        answerAsk(ask.requestId, { mode: answer });
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await turn;
+    return sent
+      .slice(before)
+      .filter((f) => f.channel === 'ask.request')
+      .map((f) => String((f.payload as AskRequest).tool?.name));
+  }
+
+  const twoWrites = [
+    toolUseReply('Write', { file_path: 'a.txt', content: 'a' }),
+    toolUseReply('Write', { file_path: 'b.txt', content: 'b' }),
+    textReply('done'),
+  ];
+
+  it('"Allow once" lets one call run and asks again for the next one', async () => {
+    const { remote } = await serveTools(twoWrites);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-once');
+
+    expect(await runAnswering(remote, sent, 'allow')).toEqual(['Write', 'Write']);
+    expect(remote.log.ofType('tool_result').length).toBe(2);
+    driver.dispose();
+  });
+
+  it('"Allow for session" asks once and lets later calls of that tool run without asking', async () => {
+    const { remote } = await serveTools(twoWrites);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-session');
+
+    expect(await runAnswering(remote, sent, 'allow_session')).toEqual(['Write']);
+    expect(remote.log.ofType('tool_result').length).toBe(2);
+    driver.dispose();
+  });
+
+  it('a session grant covers only the tool it was given for', async () => {
+    const { remote } = await serveTools([
+      toolUseReply('Write', { file_path: 'a.txt', content: 'a' }),
+      toolUseReply('echo', { text: 'hi' }),
+      toolUseReply('Write', { file_path: 'b.txt', content: 'b' }),
+      textReply('done'),
+    ]);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-scope');
+
+    expect(await runAnswering(remote, sent, 'allow_session')).toEqual(['Write', 'echo']);
+    driver.dispose();
+  });
+
+  it('a session grant of a tool that narrows it covers only the same request', async () => {
+    const { remote } = await serveTools([
+      toolUseReply('grant', { app: 'Safari', reason: 'look' }),
+      toolUseReply('grant', { app: 'Safari', reason: 'look again' }),
+      toolUseReply('grant', { app: 'Terminal', reason: 'run' }),
+      textReply('done'),
+    ]);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-narrow');
+
+    expect(await runAnswering(remote, sent, 'allow_session')).toEqual(['grant', 'grant']);
+    expect(remote.log.ofType('tool_result').length).toBe(3);
+    driver.dispose();
+  });
+
+  it('a session grant lasts across turns of the conversation', async () => {
+    const { remote } = await serveTools([
+      toolUseReply('Write', { file_path: 'a.txt', content: 'a' }),
+      textReply('first'),
+      toolUseReply('Write', { file_path: 'b.txt', content: 'b' }),
+      textReply('second'),
+    ]);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-turns');
+
+    expect(await runAnswering(remote, sent, 'allow_session')).toEqual(['Write']);
+    expect(await runAnswering(remote, sent, 'allow_session')).toEqual([]);
+    driver.dispose();
+  });
+
+  it('a new conversation (/new) forgets the session grant and asks again', async () => {
+    const { session, remote } = await serveTools([
+      toolUseReply('Write', { file_path: 'a.txt', content: 'a' }),
+      textReply('first'),
+      toolUseReply('Write', { file_path: 'b.txt', content: 'b' }),
+      textReply('second'),
+    ]);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-new');
+
+    expect(await runAnswering(remote, sent, 'allow_session')).toEqual(['Write']);
+    await session.reset();
+    await waitFor(() => sent.some((f) => f.channel === 'chat.cleared'));
+    expect(await runAnswering(remote, sent, 'allow_session')).toEqual(['Write']);
+    driver.dispose();
+  });
+
+  it('a denied call is not remembered: the next call of the tool asks again', async () => {
+    const { remote } = await serveTools(twoWrites);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-deny');
+
+    expect(await runAnswering(remote, sent, 'deny')).toEqual(['Write', 'Write']);
+    driver.dispose();
   });
 });

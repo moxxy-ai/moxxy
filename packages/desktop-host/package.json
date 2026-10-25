@@ -56,6 +56,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@moxxy/mode-default": "workspace:*",
     "@moxxy/plugin-stt-local": "workspace:*",
     "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",

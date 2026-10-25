@@ -1131,6 +1131,9 @@ importers:
         specifier: 'catalog:'
         version: 4.6.6
     devDependencies:
+      '@moxxy/mode-default':
+        specifier: workspace:*
+        version: link:../mode-default
       '@moxxy/plugin-stt-local':
         specifier: workspace:*
         version: link:../plugin-stt-local

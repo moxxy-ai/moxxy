@@ -83,3 +83,33 @@ describe('a decision made now', () => {
     expect((await createAllowListResolver(['computer_run']).check(call('computer_run', {}), { sessionId: 's' })).decidedNow).toBe(true);
   });
 });
+
+describe('a plain allow is one call, not a session grant', () => {
+  it('asks again for the same tool after "allow" (one call only)', async () => {
+    let prompts = 0;
+    const resolver = createDeferredPermissionResolver({
+      prompt: async () => {
+        prompts += 1;
+        return { mode: 'allow' };
+      },
+    });
+    const ctx = { sessionId: 's' };
+    await resolver.check(call('computer_click', { app: 'LM Studio' }), ctx);
+    await resolver.check(call('computer_click', { app: 'LM Studio' }), ctx);
+    expect(prompts).toBe(2);
+  });
+
+  it('does not ask again for the same tool after "allow_session"', async () => {
+    let prompts = 0;
+    const resolver = createDeferredPermissionResolver({
+      prompt: async () => {
+        prompts += 1;
+        return { mode: 'allow_session' };
+      },
+    });
+    const ctx = { sessionId: 's' };
+    await resolver.check(call('computer_click', { app: 'LM Studio' }), ctx);
+    await resolver.check(call('computer_click', { app: 'Safari' }), ctx);
+    expect(prompts).toBe(1);
+  });
+});
