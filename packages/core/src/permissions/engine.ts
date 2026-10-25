@@ -44,6 +44,12 @@ export interface PolicyRule {
    * segment, `**` across segments, `?` one character.
    */
   readonly inputGlob?: Record<string, string>;
+  /**
+   * Field name to the exact value it must have; `null` stands for a field the
+   * call leaves out. What "Always allow" saves for a tool that narrows its
+   * grant to the same request (`PermissionRule.sessionScope`).
+   */
+  readonly inputEquals?: Readonly<Record<string, unknown>>;
   readonly reason?: string;
 }
 
@@ -52,6 +58,7 @@ const policyRuleSchema = z.object({
   inputMatches: z.record(z.string(), z.string()).optional(),
   inputPathPrefix: z.record(z.string(), z.string()).optional(),
   inputGlob: z.record(z.string(), z.string()).optional(),
+  inputEquals: z.record(z.string(), z.unknown()).optional(),
   reason: z.string().optional(),
 });
 
@@ -254,6 +261,9 @@ function sanitizeRule(rule: PolicyRule): PolicyRule {
   if (rule.inputMatches && Object.keys(rule.inputMatches).length > 0) {
     (out as { -readonly [K in keyof PolicyRule]: PolicyRule[K] }).inputMatches = { ...rule.inputMatches };
   }
+  if (rule.inputEquals && Object.keys(rule.inputEquals).length > 0) {
+    (out as { -readonly [K in keyof PolicyRule]: PolicyRule[K] }).inputEquals = { ...rule.inputEquals };
+  }
   if (rule.reason !== undefined) {
     (out as { -readonly [K in keyof PolicyRule]: PolicyRule[K] }).reason = rule.reason;
   }
@@ -297,6 +307,13 @@ function matchRule(rule: PolicyRule, call: PendingToolCall, intent: 'allow' | 'd
       if (!re.test(candidate)) return false;
     }
   }
+  if (rule.inputEquals) {
+    const input = call.input as Record<string, unknown> | null;
+    if (!input || typeof input !== 'object') return false;
+    for (const [k, expected] of Object.entries(rule.inputEquals)) {
+      if (!sameValue(input[k], expected)) return false;
+    }
+  }
   if (rule.inputPathPrefix) {
     const input = call.input as Record<string, unknown> | null;
     if (!input || typeof input !== 'object') return false;
@@ -319,6 +336,15 @@ function matchRule(rule: PolicyRule, call: PendingToolCall, intent: 'allow' | 'd
     }
   }
   return true;
+}
+
+/** Exact value match, a left-out field equal to `null`; unserializable input never matches. */
+function sameValue(actual: unknown, expected: unknown): boolean {
+  try {
+    return JSON.stringify(actual ?? null) === JSON.stringify(expected ?? null);
+  } catch {
+    return false;
+  }
 }
 
 /**

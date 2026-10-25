@@ -3,6 +3,7 @@ import type { CommandDef } from './command.js';
 import type { ModeDef } from './mode.js';
 import type { LLMProvider, ProviderDef } from './provider.js';
 import type { RequirementCheck, MoxxyRequirement } from './requirements.js';
+import type { StandingAllowRule } from './permission.js';
 import type { SessionInfo, SessionLike, SessionLogReader } from './session-like.js';
 import type { Skill } from './skill.js';
 import type { ToolDef } from './tool.js';
@@ -80,7 +81,7 @@ export interface RequirementsClientView {
 }
 
 export interface PermissionsClientView {
-  addAllow(rule: { readonly name: string; readonly reason?: string }): Promise<void>;
+  addAllow(rule: StandingAllowRule): Promise<void>;
 }
 
 export interface ClientSession extends SessionLike {

@@ -219,6 +219,20 @@ describe('client-views: protocol gating', () => {
     await expect(view.resume('run1', 'go')).rejects.toThrow(/not supported by this runner/);
   });
 
+  // An older runner drops `inputEquals` and would save the whole tool: never send it there.
+  it('permissions.addAllow sends an exact-values rule only to a v32+ runner', async () => {
+    const rule = { name: 'computer_request_access', inputEquals: { apps: ['Safari'], full_access: true } };
+    const current = recordingPeer();
+    const saved = makePermissionsView(ctxFor(current.peer, baseInfo, 32)).addAllow(rule);
+    current.reply(current.sent[0]!.id, {});
+    await saved;
+    expect(current.sent[0]?.params).toEqual(rule);
+
+    const older = recordingPeer();
+    await makePermissionsView(ctxFor(older.peer, baseInfo, 31)).addAllow(rule);
+    expect(older.sent).toEqual([]);
+  });
+
   it('workflows.run is ungated and forwards workflow.run', async () => {
     const { peer, sent, reply } = recordingPeer();
     const view = makeWorkflowsView(ctxFor(peer, baseInfo, 4));

@@ -193,6 +193,7 @@ export type {
   PendingToolCall,
   PermissionContext,
   PermissionResolver,
+  StandingAllowRule,
 } from './permission.js';
 
 export type {
@@ -452,7 +453,10 @@ export {
   createCallbackResolver,
   createAllowListResolver,
   createDeferredPermissionResolver,
+  createSessionGrants,
+  alwaysAllowRule,
   evaluateToolRule,
+  type SessionGrants,
   type CallbackResolverOptions,
   type PermissionPromptHandler,
   type DeferredPermissionResolver,

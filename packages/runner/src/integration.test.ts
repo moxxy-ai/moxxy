@@ -30,7 +30,7 @@ import {
   defineTranscriber,
   z,
 } from '@moxxy/sdk';
-import { HISTORY_PAGE_MAX_CHARS, assertDefined } from '@moxxy/sdk';
+import { HISTORY_PAGE_MAX_CHARS, asToolCallId, assertDefined } from '@moxxy/sdk';
 import type {
   AssistantMessageEvent,
   UserPromptAttachment,
@@ -391,6 +391,19 @@ describe('runner end-to-end', () => {
 
     expect(asked).toContain('echo');
     expect(remote.log.ofType('tool_result').length).toBeGreaterThan(0);
+  });
+
+  it('saves an "Always allow" rule that names exact input values, and it lets only that request through (v32)', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('hi')] }));
+    const remote = await attach(socketPath);
+    const rule = { name: 'computer_request_access', inputEquals: { apps: ['Safari'], full_access: true } };
+
+    await remote.permissions.addAllow(rule);
+
+    expect(session.permissions.policySnapshot.allow).toEqual([rule]);
+    const asking = (apps: string[]) => ({ callId: asToolCallId('c'), name: 'computer_request_access', input: { apps, full_access: true } });
+    expect(session.permissions.check(asking(['Safari']))?.mode).toBe('allow');
+    expect(session.permissions.check(asking(['Terminal']))).toBeNull();
   });
 
   it('proxies registry reads + action RPCs (mode switch, command run)', async () => {

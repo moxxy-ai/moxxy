@@ -194,7 +194,12 @@ import type {
  */
 /** v30: `ProviderInfo.starterModel` names the light model a new conversation starts on while no default is chosen (additive). */
 /** v31: `SessionInfo.scheduledWakeups` lists when the agent of an agent connection set itself to come back, pushed by `info.changed` (additive). */
-export const RUNNER_PROTOCOL_VERSION = 31;
+/**
+ * v32: `permission.addAllow` takes `inputEquals`, an "Always allow" saved for
+ * exactly one request (additive; a client never sends it to an older runner,
+ * which would drop it and save the whole tool).
+ */
+export const RUNNER_PROTOCOL_VERSION = 32;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -534,6 +539,7 @@ export interface ProviderSetActiveParams {
 export interface PermissionAddAllowParams {
   readonly name: string;
   readonly reason?: string;
+  readonly inputEquals?: Readonly<Record<string, unknown>>;
 }
 
 export interface CommandRunParams {
@@ -809,6 +815,7 @@ export const providerConfigureParamsSchema = z.object({
 export const permissionAddAllowParamsSchema = z.object({
   name: z.string(),
   reason: z.string().optional(),
+  inputEquals: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const commandRunParamsSchema = z.object({

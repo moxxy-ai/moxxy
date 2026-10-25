@@ -52,7 +52,7 @@ answer with `sessionScope` on its permission rule: the grant then covers
 only later calls with the same values under those input keys.
 `computer_request_access` does this, so allowing one access request for the
 session never lets a request for another app, or for full control, through
-unasked.
+unasked. The desktop, mobile, Telegram and Discord all keep to it.
 
 ```ts
 permission: {
@@ -63,10 +63,12 @@ permission: {
 
 ## Allow-always
 
-Choosing "allow always" in the TUI persists a rule to the policy file
-with `reason: "user chose allow always"`. The next call for the same
-tool short-circuits to silent allow. The same option exists in the
-Telegram channel's inline keyboard.
+Choosing "Always allow" in the desktop or mobile app saves a rule to the
+policy file (`~/.moxxy/permissions.json`), so later calls of the tool, also
+in later conversations, run without asking. For a tool that narrows its
+grant with `sessionScope`, the rule names the exact request
+(`inputEquals`): "Always allow" on full access to Safari lets that same
+request through later, while a request for Terminal still asks.
 
 ## Deny-by-default for headless runs
 

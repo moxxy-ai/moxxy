@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 
 import { restoreSessionEvents, seedSessionMeta } from '@moxxy/core';
 import {
+  alwaysAllowRule,
   denyByDefaultResolver,
   type ClientSession,
   type PermissionResolver,
@@ -81,9 +82,10 @@ export class MobileSessionHost {
           ...(ctx.toolDescription ? { description: ctx.toolDescription } : {}),
         },
       });
-      // "Always allow" must persist so the runner skips the prompt next time.
+      // "Always allow" must persist so the runner skips the prompt next time;
+      // for a tool that narrows its grant (app access), only for the same request.
       if (res.mode === 'allow_always') {
-        void this.session.permissions.addAllow({ name: call.name });
+        void this.session.permissions.addAllow(alwaysAllowRule(call, ctx));
       }
       return { mode: res.mode ?? 'deny' };
     },

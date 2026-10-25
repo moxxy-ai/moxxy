@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import type { BrowserWindow } from 'electron';
 
 import type { RemoteSession } from '@moxxy/runner';
-import { asTurnId, createDeferredPermissionResolver } from '@moxxy/sdk';
+import { alwaysAllowRule, asTurnId, createDeferredPermissionResolver } from '@moxxy/sdk';
 import type {
   DeferredPermissionResolver,
   PendingToolCall,
@@ -179,8 +179,8 @@ export class SessionDriver {
   /** The sheet that decides one call. "Allow once" (`allow`) and "Deny" decide
    *  only this call; "Allow for this session" is remembered by the deferred
    *  resolver for the tool, or only for the same request where the tool's rule
-   *  narrows it; "Always allow" is also persisted to the runner's policy so it
-   *  outlives the conversation. */
+   *  narrows it; "Always allow" is remembered the same way and also persisted
+   *  to the runner's policy so it outlives the conversation. */
   private createAsker(): DeferredPermissionResolver {
     return createDeferredPermissionResolver({
       name: 'desktop-ask',
@@ -204,14 +204,12 @@ export class SessionDriver {
       (channel, payload) => this.send(channel, payload),
       signal,
     ));
-    // "Always allow" must persist so the runner's permission engine
-    // skips the prompt on the next call, also in a later conversation.
+    // "Always allow" must persist so the runner's permission engine skips the
+    // prompt on the next call, also in a later conversation; for a tool that
+    // narrows its grant (app access), only for the same request.
     if (res.mode === 'allow_always') {
-      void this.session.permissions.addAllow({ name: call.name });
+      void this.session.permissions.addAllow(alwaysAllowRule(call, ctx));
     }
-    // A tool can narrow a session grant to the same request; the sheet then grants just that.
-    const scope = ctx.toolPermission?.sessionScope;
-    if (res.mode === 'allow_session' && scope) return { mode: res.mode, sessionScope: scope };
     // A sheet that vanished without an answer decided nothing: deny.
     return { mode: res.mode ?? 'deny' };
   }

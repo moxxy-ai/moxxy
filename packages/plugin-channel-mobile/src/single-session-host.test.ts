@@ -610,6 +610,24 @@ describe('MobileSessionHost', () => {
     await expect(verdict).resolves.toEqual({ mode: 'allow' });
   });
 
+  it('saves "Always allow" of a tool that narrows its grant as that exact request', async () => {
+    const bus = new FakeBus();
+    const { session, getPermissionResolver } = fakeSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+    host.wire();
+    const call = { name: 'computer_request_access', input: { apps: ['Safari'], reason: 'browse' } };
+    const verdict = getPermissionResolver().check(call, { sessionId: 's', toolPermission: { action: 'prompt', sessionScope: { inputKeys: ['apps', 'full_access'] } } });
+    const ask = bus.event('ask.request')[0];
+    assertDefined(ask, 'a permission ask was broadcast');
+    await bus.invoke('ask.respond', { requestId: ask.payload.requestId, response: { mode: 'allow_always' } });
+    await verdict;
+    expect(session.permissions.addAllow).toHaveBeenCalledWith({
+      name: 'computer_request_access',
+      inputEquals: { apps: ['Safari'], full_access: null },
+    });
+  });
+
   it('fails closed: a permission check after dispose() resolves to deny instead of hanging', async () => {
     const bus = new FakeBus();
     const { session, getPermissionResolver } = fakeSession();

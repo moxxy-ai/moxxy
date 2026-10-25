@@ -180,13 +180,14 @@ permissions:
       inputPathPrefix: { path: /srv/app }
 ```
 
-Three matchers, and the choice matters:
+Four matchers, and the choice matters:
 
 | Matcher | Semantics |
 |---|---|
 | `inputPathPrefix` | anchored, path-segment aware. `/srv/app` covers `/srv/app/x` but not `/srv/apple`, and `..` is normalised away first. |
 | `inputGlob` | anchored whole-value. `*` stays within a path segment, `**` crosses, `?` is one character. |
 | `inputMatches` | **unanchored** regex, the long-standing policy-file contract. |
+| `inputEquals` | exact value per field (`null` for a field the call leaves out). What "Always allow" saves for a tool that narrows its grant, e.g. `{ name: computer_request_access, inputEquals: { apps: [Safari], full_access: true } }`. |
 
 Prefer the first two when writing an organisation's policy. `{ Read: { path: '/etc' } }` as `inputMatches` reads like "under /etc" but means "contains /etc anywhere", which over-blocks as a deny and over-grants as an allow.
 

@@ -740,7 +740,7 @@ describe('SessionDriver questions', () => {
 });
 
 describe('SessionDriver permission answers through a real tool loop', () => {
-  type AskMode = 'allow' | 'allow_session' | 'deny';
+  type AskMode = 'allow' | 'allow_session' | 'allow_always' | 'deny';
 
   /** A conversation on the default tool loop with two tools that must ask. */
   async function serveTools(script: ConstructorParameters<typeof FakeProvider>[0]['script']): Promise<{ session: Session; remote: RemoteSession }> {
@@ -863,6 +863,26 @@ describe('SessionDriver permission answers through a real tool loop', () => {
 
     expect(await runAnswering(remote, sent, 'allow_session')).toEqual(['grant', 'grant']);
     expect(remote.log.ofType('tool_result').length).toBe(3);
+    driver.dispose();
+  });
+
+  it('"Always allow" of a tool that narrows it saves and covers only the same request', async () => {
+    const { session, remote } = await serveTools([
+      toolUseReply('grant', { app: 'Safari', reason: 'look' }),
+      toolUseReply('grant', { app: 'Safari', reason: 'look again' }),
+      toolUseReply('grant', { app: 'Terminal', reason: 'run' }),
+      textReply('done'),
+    ]);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-always-narrow');
+
+    expect(await runAnswering(remote, sent, 'allow_always')).toEqual(['grant', 'grant']);
+    expect(remote.log.ofType('tool_result').length).toBe(3);
+    await waitFor(() => session.permissions.policySnapshot.allow.length === 2);
+    expect(session.permissions.policySnapshot.allow).toEqual([
+      { name: 'grant', inputEquals: { app: 'Safari' } },
+      { name: 'grant', inputEquals: { app: 'Terminal' } },
+    ]);
     driver.dispose();
   });
 

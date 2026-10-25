@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createAllowListResolver, createDeferredPermissionResolver, evaluateToolRule } from './resolvers.js';
+import { alwaysAllowRule, createAllowListResolver, createDeferredPermissionResolver, createSessionGrants, evaluateToolRule } from './resolvers.js';
 import type { PendingToolCall, PermissionRule } from './permission.js';
 
 function call(name: string, input: unknown = {}): PendingToolCall {
@@ -111,5 +111,58 @@ describe('a plain allow is one call, not a session grant', () => {
     await resolver.check(call('computer_click', { app: 'LM Studio' }), ctx);
     await resolver.check(call('computer_click', { app: 'Safari' }), ctx);
     expect(prompts).toBe(1);
+  });
+});
+
+// computer_request_access grants an app by itself: an answer for Safari must not let Terminal through.
+describe('a tool that narrows its grant to the same request', () => {
+  const narrowed: PermissionRule = { action: 'prompt', sessionScope: { inputKeys: ['apps', 'full_access'] } };
+  const ctx = { sessionId: 's', toolPermission: narrowed };
+
+  it.each(['allow_session', 'allow_always'] as const)('remembers only that request after "%s", in this conversation', async (mode) => {
+    let prompts = 0;
+    const resolver = createDeferredPermissionResolver({
+      prompt: async () => {
+        prompts += 1;
+        return { mode };
+      },
+    });
+
+    await resolver.check(call('grant_access', { apps: ['Safari'], full_access: true, reason: 'a' }), ctx);
+    await resolver.check(call('grant_access', { apps: ['Safari'], full_access: true, reason: 'b' }), ctx);
+    await resolver.check(call('grant_access', { apps: ['Terminal'], full_access: true }), ctx);
+    await resolver.check(call('grant_access', { apps: ['Safari'] }), ctx);
+
+    expect(prompts).toBe(3);
+  });
+
+  it('is remembered the same way by a channel that keeps its own grants', () => {
+    const grants = createSessionGrants();
+    grants.remember(call('grant_access', { apps: ['Safari'], full_access: true }), { mode: 'allow_session' }, ctx);
+
+    expect(grants.covers(call('grant_access', { apps: ['Safari'], full_access: true }))).toBe(true);
+    expect(grants.covers(call('grant_access', { apps: ['Terminal'], full_access: true }))).toBe(false);
+  });
+
+  it('is saved for later conversations as that exact request, a left-out value as null', () => {
+    expect(alwaysAllowRule(call('grant_access', { apps: ['Safari'], reason: 'browse' }), ctx)).toEqual({
+      name: 'grant_access',
+      inputEquals: { apps: ['Safari'], full_access: null },
+    });
+  });
+
+  it('is saved as the whole tool for a tool that does not narrow its grant', () => {
+    expect(alwaysAllowRule(call('Write', { file_path: 'a.ts' }), { sessionId: 's' })).toEqual({ name: 'Write' });
+  });
+});
+
+describe('session grants of a channel', () => {
+  it('cover the whole tool after "allow_session" for a tool that does not narrow it, and nothing after "allow"', () => {
+    const grants = createSessionGrants();
+    grants.remember(call('computer_click', { app: 'Notes' }), { mode: 'allow' }, { sessionId: 's' });
+    expect(grants.covers(call('computer_click', { app: 'Notes' }))).toBe(false);
+
+    grants.remember(call('computer_click', { app: 'Notes' }), { mode: 'allow_session' }, { sessionId: 's' });
+    expect(grants.covers(call('computer_click', { app: 'Mail' }))).toBe(true);
   });
 });

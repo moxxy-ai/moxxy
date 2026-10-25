@@ -51,6 +51,17 @@ export interface PendingToolCall {
   readonly requestedAtSeq?: number;
 }
 
+/**
+ * A standing "allow" rule a channel saves to the person's permissions.json:
+ * the whole tool, or with `inputEquals` only calls whose inputs have exactly
+ * these values (`null` for a left-out one).
+ */
+export interface StandingAllowRule {
+  readonly name: string;
+  readonly reason?: string;
+  readonly inputEquals?: Readonly<Record<string, unknown>>;
+}
+
 export interface PermissionContext {
   readonly turnId?: string;
   readonly toolDescription?: string;

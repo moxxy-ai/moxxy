@@ -153,8 +153,8 @@ export async function handlePermissionAddAllow(
   ctx: HandlerContext,
   raw: unknown,
 ): Promise<Record<string, never>> {
-  const { name, reason } = permissionAddAllowParamsSchema.parse(raw);
-  await ctx.session.permissions.addAllow({ name, ...(reason ? { reason } : {}) });
+  const { name, reason, inputEquals } = permissionAddAllowParamsSchema.parse(raw);
+  await ctx.session.permissions.addAllow({ name, ...(reason ? { reason } : {}), ...(inputEquals ? { inputEquals } : {}) });
   return {};
 }
 
