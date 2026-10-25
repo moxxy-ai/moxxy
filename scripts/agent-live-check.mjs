@@ -34,7 +34,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const dist = (pkg, file = 'index.js') => pathToFileURL(path.join(repoRoot, 'packages', pkg, 'dist', file)).href;
 const cliBin = path.join(repoRoot, 'packages', 'cli', 'dist', 'bin.js');
 const { connectRemoteSession, isRunnerUp, platformSocket } = await import(dist('runner'));
-const { parseVersion } = await import(dist('agent-connection-kit'));
+const { AGENT_CLIS, agentCliTargetAt, findAgentCli, readCliVersion } = await import(dist('agent-connection-kit'));
 const claude = await import(dist('plugin-provider-claude-code'));
 const codex = await import(dist('plugin-provider-codex-agent'));
 const opencode = await import(dist('plugin-provider-acp'));
@@ -230,8 +230,10 @@ function expectTurn({ text, errors }, pattern, what) {
 async function checkAgent(agent) {
   const spec = AGENTS[agent];
   const status = await spec.signIn();
-  const printed = findTarget(spec.command) ? await runTarget(findTarget(spec.command), ['--version']) : undefined;
-  versions[agent] = `${parseVersion(`${printed?.stdout ?? ''}\n${printed?.stderr ?? ''}`) ?? 'not installed'} · ${spec.model}`;
+  // Found and started as the connection does: on Windows an npm shim is no program of its own.
+  const desc = AGENT_CLIS[spec.provider];
+  const file = findAgentCli(desc);
+  versions[agent] = `${(file ? await readCliVersion(agentCliTargetAt(desc, file)) : null) ?? 'not installed'} · ${spec.model}`;
   if (status.state !== 'signed-in') {
     record(agent, 'signed in', 'skip', `${short(status.message, 200)} — every check of ${agent} did not run`);
     return;

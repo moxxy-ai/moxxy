@@ -16,7 +16,12 @@ const KNOWN_NODE_CLIS = new Set<KnownNodeCli>(['moxxy', 'npm', 'pnpm', 'yarn']);
 type KnownNodeCli = 'moxxy' | 'npm' | 'pnpm' | 'yarn';
 
 export type ExecutableTarget =
-  | { readonly kind: 'direct'; readonly command: string }
+  | {
+      readonly kind: 'direct';
+      readonly command: string;
+      /** Environment the program needs, set over the caller's. */
+      readonly env?: Readonly<Record<string, string>>;
+    }
   | {
       readonly kind: 'node';
       readonly command: string;
@@ -155,7 +160,7 @@ export function spawnExecutableTarget(
   opts: SafeSpawnOptions = {},
 ): ChildProcess {
   const argv = target.kind === 'node' ? [target.entry, ...args] : [...args];
-  const targetEnv = target.kind === 'node' ? target.env : {};
+  const targetEnv = target.env ?? {};
   return spawn(target.command, argv, {
     ...opts,
     env: { ...process.env, ...opts.env, ...targetEnv },
@@ -170,7 +175,7 @@ export function execExecutableTargetSync(
   opts: SafeExecFileSyncOptions = {},
 ): void {
   const argv = target.kind === 'node' ? [target.entry, ...args] : [...args];
-  const targetEnv = target.kind === 'node' ? target.env : {};
+  const targetEnv = target.env ?? {};
   execFileSync(target.command, argv, {
     ...opts,
     env: { ...process.env, ...opts.env, ...targetEnv },

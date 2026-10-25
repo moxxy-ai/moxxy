@@ -11,7 +11,7 @@ moxxy sends no usage analytics, no crash reports, and no product metrics. There 
 | Host | Trigger | Carries | Turn it off |
 |---|---|---|---|
 | `registry.npmjs.org` | Starting the TUI | The installed CLI version, to compare against the published one. No identifiers, no usage data. Fire-and-forget; the result only warms a cache for the next start. | Skipped automatically for workspace/dev installs. Otherwise block the host, or run a surface other than the TUI. |
-| `registry.npmjs.org` | A long-lived host (the TUI, `moxxy serve`, the desktop's runner) with an agent connection installed: once at start, then every hour | The names of the agent CLIs' npm packages (`@anthropic-ai/claude-code`, `@openai/codex`, `opencode-ai`), to compare their newest version with the one installed. No identifiers, no usage data. | Remove the agent connection plugins you do not use, or block the host; the installed version is still read locally. |
+| `registry.npmjs.org` | A long-lived host (the TUI, `moxxy serve`, the desktop's runner) with an agent connection installed: once at start, then every hour | The names of the agent CLIs' npm packages (`@anthropic-ai/claude-code`, `@openai/codex`, `@opencode/cli`), to compare their newest version with the one installed. No identifiers, no usage data. | Remove the agent connection plugins you do not use, or block the host; the installed version is still read locally. |
 
 That is the complete list. Nothing else contacts anything until you give the agent work to do.
 

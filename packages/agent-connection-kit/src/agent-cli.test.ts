@@ -22,6 +22,7 @@ import {
   installInvocation,
   latestAgentVersion,
   runAgentCliAction,
+  updaterEnv,
   type AgentCliDescriptor,
 } from './agent-cli.js';
 
@@ -58,7 +59,7 @@ describe('the agent CLIs Moxxy knows', () => {
     expect([CLAUDE_CLI, CODEX_CLI, OPENCODE_CLI].map((d) => [d.command, d.npmPackage, d.minimumVersion, d.executableEnv])).toEqual([
       ['claude', '@anthropic-ai/claude-code', '2.1.296', 'CLAUDE_CODE_EXECUTABLE'],
       ['codex', '@openai/codex', '0.155.1', 'CODEX_EXECUTABLE'],
-      ['opencode', 'opencode-ai', '1.19.0', 'OPENCODE_EXECUTABLE'],
+      ['opencode', '@opencode/cli', '1.19.0', 'OPENCODE_EXECUTABLE'],
     ]);
   });
 
@@ -79,7 +80,7 @@ describe('the agent CLIs Moxxy knows', () => {
       command: expect.stringMatching(/\\WindowsPowerShell\\v1\.0\\powershell\.exe$/),
       args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://chatgpt.com/codex/install.ps1 | iex'],
     });
-    expect(installInvocation(OPENCODE_CLI, 'win32').args.at(-1)).toBe('npm install -g opencode-ai');
+    expect(installInvocation(OPENCODE_CLI, 'win32').args.at(-1)).toBe('npm install -g @opencode/cli');
   });
 });
 
@@ -156,14 +157,33 @@ describe('running a CLI found on Windows', () => {
   const npm = 'C:\\Users\\ada\\AppData\\Roaming\\npm';
   const win = { platform: 'win32' as const, exists: () => true, electron: false };
 
-  it('runs the script behind an npm shim with Node, since only a shell runs the shim', () => {
-    expect(agentCliTargetAt(CODEX_CLI, `${npm}\\codex.cmd`, win)).toEqual({
+  it("starts Codex's own codex.exe behind the npm shim, so Windows opens no console window for it", () => {
+    const codexPackage = `${npm}\\node_modules\\@openai\\codex`;
+    const exe = `${codexPackage}\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe`;
+    expect(agentCliTargetAt(CODEX_CLI, `${npm}\\codex.cmd`, { ...win, arch: 'x64', exists: (file) => file === exe })).toEqual({
+      kind: 'direct',
+      command: exe,
+      env: { CODEX_MANAGED_BY_NPM: '1', CODEX_MANAGED_PACKAGE_ROOT: codexPackage },
+    });
+  });
+
+  it('finds the codex.exe npm placed beside Codex, and the one for ARM', () => {
+    const exe = `${npm}\\node_modules\\@openai\\codex-win32-arm64\\vendor\\aarch64-pc-windows-msvc\\bin\\codex.exe`;
+    expect(agentCliTargetAt(CODEX_CLI, `${npm}\\codex.cmd`, { ...win, arch: 'arm64', exists: (file) => file === exe })).toMatchObject({
+      kind: 'direct',
+      command: exe,
+    });
+  });
+
+  it('runs the script behind an npm shim with Node when its program is not there, since only a shell runs the shim', () => {
+    const scriptsOnly = { ...win, exists: (file: string) => !file.endsWith('.exe') };
+    expect(agentCliTargetAt(CODEX_CLI, `${npm}\\codex.cmd`, scriptsOnly)).toEqual({
       kind: 'node',
       command: process.execPath,
       entry: `${npm}\\node_modules\\@openai\\codex\\bin\\codex.js`,
       env: {},
     });
-    expect(agentCliTargetAt(CLAUDE_CLI, `${npm}\\claude.cmd`, { ...win, electron: true })).toEqual({
+    expect(agentCliTargetAt(CLAUDE_CLI, `${npm}\\claude.cmd`, { ...scriptsOnly, electron: true })).toEqual({
       kind: 'node',
       command: process.execPath,
       entry: `${npm}\\node_modules\\@anthropic-ai\\claude-code\\cli.js`,
@@ -171,10 +191,19 @@ describe('running a CLI found on Windows', () => {
     });
   });
 
-  it("runs the program behind OpenCode's npm shim as it is", () => {
-    expect(agentCliTargetAt(OPENCODE_CLI, `${npm}\\opencode.cmd`, win)).toEqual({
+  it("runs the program behind OpenCode 1's npm shim as it is", () => {
+    const exe = `${npm}\\node_modules\\opencode-ai\\bin\\opencode.exe`;
+    expect(agentCliTargetAt(OPENCODE_CLI, `${npm}\\opencode.cmd`, { ...win, exists: (file) => file === exe })).toEqual({
       kind: 'direct',
       command: `${npm}\\node_modules\\opencode-ai\\bin\\opencode.exe`,
+    });
+  });
+
+  it('runs the program behind the npm shim of OpenCode 2, published as @opencode/cli', () => {
+    const exe = `${npm}\\node_modules\\@opencode\\cli\\bin\\opencode.exe`;
+    expect(agentCliTargetAt(OPENCODE_CLI, `${npm}\\opencode.cmd`, { ...win, exists: (file) => file === exe })).toEqual({
+      kind: 'direct',
+      command: exe,
     });
   });
 
@@ -346,6 +375,14 @@ describe('where a CLI came from', () => {
     expect(agentCliOrigin(CODEX_CLI, inside, { home: '/home/me', platform: 'linux', realpath: asIs })).toEqual({ origin: 'unknown' });
   });
 
+  it('asks npm about OpenCode 2, published as @opencode/cli, and knows its global npm install', () => {
+    const options = { home: 'C:\\Users\\me', platform: 'win32' as const, realpath: asIs };
+    const exe = 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@opencode\\cli\\bin\\opencode.exe';
+
+    expect(OPENCODE_CLI.npmPackage).toBe('@opencode/cli');
+    expect(agentCliOrigin(OPENCODE_CLI, exe, options)).toEqual({ origin: 'npm' });
+  });
+
   it('reads Windows paths the same way', () => {
     const options = { home: 'C:\\Users\\me', platform: 'win32' as const, realpath: asIs };
 
@@ -403,6 +440,64 @@ describe('installing and updating a CLI', () => {
 
     expect(result).toEqual({ ok: true, message: 'Updated to 0.162.1' });
     expect(existsSync(updated)).toBe(true);
+  });
+
+  describe("the PATH an agent's own update runs with", () => {
+    const saved = process.env.PATH;
+    afterEach(() => {
+      process.env.PATH = saved;
+    });
+
+    /** A Codex under the home whose `update` reports the first and last folder of its PATH. */
+    function pathReportingCodex(relative: string): string {
+      const report = [
+        "const entry = Object.entries(process.env).find(([key]) => key.toUpperCase() === 'PATH');",
+        "const dirs = (entry ? entry[1] : '').split(require('path').delimiter).filter(Boolean);",
+        "console.log(`first=${dirs[0]} last=${dirs[dirs.length - 1]}`);",
+      ].join('\n');
+      return cli(CODEX_CLI, relative, 'codex-cli 0.163.0', `if (args[0] === 'update') { ${report} }`);
+    }
+
+    it("puts the host's own folders last, so the agent's updater finds the npm that installed the agent, not the host's", async () => {
+      const hostNode = path.join(newHome(), 'host-node');
+      mkdirSync(hostNode, { recursive: true });
+      pathReportingCodex('.local/bin/codex');
+      process.env.PATH = [hostNode, saved].join(path.delimiter);
+
+      const result = await runAgentCliAction(CODEX_CLI, 'update', { home, pathEnv: '', hostPathDirs: [hostNode] });
+
+      expect(result.ok).toBe(true);
+      expect(result.message).not.toContain(`first=${hostNode} `);
+      expect(result.message).toContain(`last=${hostNode}`);
+    });
+
+    it("keeps them first for an agent installed in one of them, whose npm that is", async () => {
+      const hostNode = path.join(newHome(), 'host-node');
+      pathReportingCodex('host-node/codex');
+      process.env.PATH = [hostNode, saved].join(path.delimiter);
+
+      const result = await runAgentCliAction(CODEX_CLI, 'update', { home, pathEnv: hostNode, hostPathDirs: [hostNode] });
+
+      expect(result.ok).toBe(true);
+      expect(result.message).toContain(`first=${hostNode} `);
+    });
+  });
+
+  describe('the PATH it computes on each system', () => {
+    it('moves the host folders last on macOS and Linux, and leaves a PATH without them alone', () => {
+      const env = { PATH: '/app/node/bin:/opt/homebrew/bin:/usr/bin' };
+      expect(updaterEnv('/opt/homebrew/bin/opencode', ['/app/node/bin'], env, 'darwin')).toEqual({ PATH: '/opt/homebrew/bin:/usr/bin:/app/node/bin' });
+      expect(updaterEnv('/usr/local/bin/codex', ['/app/node/bin'], { PATH: '/usr/bin' }, 'linux')).toEqual({});
+      expect(updaterEnv('/app/node/bin/codex', ['/app/node/bin'], env, 'linux')).toEqual({});
+    });
+
+    it("keeps Windows' own name for the variable and compares folders as Windows does", () => {
+      const env = { Path: 'C:\\Moxxy\\node;C:\\Users\\me\\AppData\\Roaming\\npm;C:\\Program Files\\nodejs' };
+      expect(updaterEnv('C:\\Users\\me\\AppData\\Roaming\\npm\\opencode.cmd', ['c:\\moxxy\\NODE'], env, 'win32')).toEqual({
+        Path: 'C:\\Users\\me\\AppData\\Roaming\\npm;C:\\Program Files\\nodejs;C:\\Moxxy\\node',
+      });
+      expect(updaterEnv('C:\\Moxxy\\node\\codex.cmd', ['C:\\Moxxy\\node'], env, 'win32')).toEqual({});
+    });
   });
 
   describe.skipIf(process.platform === 'win32')('a copy that did not come from the vendor’s installer', () => {

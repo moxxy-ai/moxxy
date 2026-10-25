@@ -27,6 +27,8 @@ export interface AgentCliRunDeps {
   readonly agents?: Readonly<Record<string, AgentCliDescriptor>>;
   /** Where to look; defaults to where a runner looks, so the update reaches the copy it checked. */
   readonly search?: AgentCliSearch;
+  /** Folders the desktop put first on its own PATH (its Node); an update runs with them last. */
+  readonly hostPathDirs?: ReadonlyArray<string>;
 }
 
 /** The PATH a runner gets from {@link spawnPath}, with the same folders marked as a fallback. */
@@ -58,6 +60,7 @@ export async function runAgentCli(
     let fraction: number | undefined;
     const result = await runAgentCliAction(desc, action, {
       ...(deps.search ?? runnerSearch()),
+      hostPathDirs: deps.hostPathDirs ?? [],
       onProgress: (next) => {
         fraction = next;
       },

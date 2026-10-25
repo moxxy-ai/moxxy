@@ -153,6 +153,40 @@ describe('updating an agent CLI from the desktop', () => {
     expect(existsSync(upgraded)).toBe(true);
   });
 
+  describe("with the desktop's own Node first on its PATH", () => {
+    const saved = process.env.PATH;
+    afterEach(() => {
+      process.env.PATH = saved;
+    });
+
+    it('updates with that Node last, so the update reaches the npm that installed the agent', async () => {
+      const desktopNode = path.join(newHome(), 'desktop-node');
+      mkdirSync(desktopNode, { recursive: true });
+      writeFakeCli(
+        path.join(home ?? newHome(), '.opencode', 'bin', 'opencode'),
+        [
+          "if (args[0] === 'upgrade') {",
+          "  const entry = Object.entries(process.env).find(([key]) => key.toUpperCase() === 'PATH');",
+          "  const dirs = (entry ? entry[1] : '').split(require('path').delimiter).filter(Boolean);",
+          '  console.log(`last=${dirs[dirs.length - 1]}`);',
+          '}',
+        ].join('\n'),
+        { windowsEntry: OPENCODE.windowsShim.entry },
+      );
+      process.env.PATH = [desktopNode, saved].join(path.delimiter);
+
+      const result = await runAgentCli('opencode', 'update', {
+        runners: () => [runner()],
+        emit: () => undefined,
+        agents: { opencode: OPENCODE },
+        search: { home, pathEnv: '' },
+        hostPathDirs: [desktopNode],
+      });
+
+      expect(result).toEqual({ ok: true, message: `last=${desktopNode}` });
+    });
+  });
+
   describe('when it is told nothing of where to look', () => {
     const saved = { PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, NVM_DIR: process.env.NVM_DIR };
     afterEach(() => {

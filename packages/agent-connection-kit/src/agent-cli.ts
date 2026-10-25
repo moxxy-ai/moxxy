@@ -45,9 +45,23 @@ export interface AgentCliDescriptor {
   /**
    * What a Windows npm install's `.cmd` shim runs, relative to the shim's
    * folder: a Node script or a native program. Only a shell runs the shim
-   * itself, and Moxxy starts no shell.
+   * itself, and Moxxy starts no shell. `native` lists the programs a script
+   * entry would start, tried first: the script starts its program without
+   * hiding its window, so Windows would open a console for it.
    */
-  readonly windowsShim: { readonly entry: string; readonly runs: 'node' | 'native' };
+  readonly windowsShim: {
+    readonly entry: string;
+    readonly runs: 'node' | 'native';
+    readonly native?: (arch: string) => ReadonlyArray<WindowsNativeProgram>;
+  };
+}
+
+/** A native program behind a Windows npm shim. */
+export interface WindowsNativeProgram {
+  /** Relative to the shim's folder, `/`-separated. */
+  readonly path: string;
+  /** What the script that would start it sets, given the shim's folder. */
+  readonly env?: (shimDir: string) => Readonly<Record<string, string>>;
 }
 
 export const CLAUDE_CLI: AgentCliDescriptor = {
@@ -61,6 +75,28 @@ export const CLAUDE_CLI: AgentCliDescriptor = {
   installDirs: ['.local/bin'],
   windowsShim: { entry: 'node_modules/@anthropic-ai/claude-code/cli.js', runs: 'node' },
 };
+
+/** Codex's own program for each Windows CPU, as its codex.js picks it. */
+const CODEX_WINDOWS_BUILDS: Readonly<Record<string, { readonly pkg: string; readonly triple: string }>> = {
+  x64: { pkg: 'codex-win32-x64', triple: 'x86_64-pc-windows-msvc' },
+  arm64: { pkg: 'codex-win32-arm64', triple: 'aarch64-pc-windows-msvc' },
+};
+
+/** Where npm puts that program: inside Codex, beside it, or (older releases) in Codex's own `vendor`. */
+function codexWindowsPrograms(arch: string): ReadonlyArray<WindowsNativeProgram> {
+  const build = CODEX_WINDOWS_BUILDS[arch];
+  if (!build) return [];
+  const program = `vendor/${build.triple}/bin/codex.exe`;
+  const env = (shimDir: string) => ({
+    CODEX_MANAGED_BY_NPM: '1',
+    CODEX_MANAGED_PACKAGE_ROOT: path.win32.join(shimDir, 'node_modules', '@openai', 'codex'),
+  });
+  return [
+    `node_modules/@openai/codex/node_modules/@openai/${build.pkg}/${program}`,
+    `node_modules/@openai/${build.pkg}/${program}`,
+    `node_modules/@openai/codex/${program}`,
+  ].map((relative) => ({ path: relative, env }));
+}
 
 export const CODEX_CLI: AgentCliDescriptor = {
   name: 'Codex',
@@ -76,20 +112,25 @@ export const CODEX_CLI: AgentCliDescriptor = {
   installDirs: ['.local/bin'],
   // The installer otherwise offers to start Codex and to remove other installs.
   installEnv: { CODEX_NON_INTERACTIVE: '1' },
-  windowsShim: { entry: 'node_modules/@openai/codex/bin/codex.js', runs: 'node' },
+  windowsShim: { entry: 'node_modules/@openai/codex/bin/codex.js', runs: 'node', native: codexWindowsPrograms },
 };
 
 export const OPENCODE_CLI: AgentCliDescriptor = {
   name: 'OpenCode',
   command: 'opencode',
   executableEnv: 'OPENCODE_EXECUTABLE',
-  npmPackage: 'opencode-ai',
+  npmPackage: '@opencode/cli',
   minimumVersion: '1.19.0',
   updateArgs: ['upgrade'],
   // OpenCode's install script is POSIX only; on Windows it ships through npm.
-  install: { posix: 'curl -fsSL https://opencode.ai/install | bash', windows: 'npm install -g opencode-ai' },
+  install: { posix: 'curl -fsSL https://opencode.ai/install | bash', windows: 'npm install -g @opencode/cli' },
   installDirs: ['.opencode/bin'],
-  windowsShim: { entry: 'node_modules/opencode-ai/bin/opencode.exe', runs: 'native' },
+  // OpenCode 2 is published as @opencode/cli; OpenCode 1 as opencode-ai.
+  windowsShim: {
+    entry: 'node_modules/opencode-ai/bin/opencode.exe',
+    runs: 'native',
+    native: () => [{ path: 'node_modules/@opencode/cli/bin/opencode.exe' }],
+  },
 };
 
 /** The agent CLI behind each agent connection, by provider name. */
@@ -210,6 +251,8 @@ export interface AgentCliTargetOptions {
   readonly platform?: NodeJS.Platform;
   readonly exists?: (file: string) => boolean;
   readonly electron?: boolean;
+  /** The CPU whose native program to look for; defaults to this one's. */
+  readonly arch?: string;
 }
 
 const WINDOWS_NATIVE = new Set(['.exe', '.com']);
@@ -222,8 +265,15 @@ export function agentCliTargetAt(desc: AgentCliDescriptor, found: string, opts: 
   const extension = path.win32.extname(found).toLowerCase();
   if (WINDOWS_NATIVE.has(extension)) return { kind: 'direct', command: found };
   if (!WINDOWS_SHIMS.has(extension)) throw new Error(`Cannot run ${desc.name} from ${found}; install it again or point at ${desc.command}.exe.`);
-  const entry = path.win32.join(path.win32.dirname(found), ...desc.windowsShim.entry.split('/'));
-  if (!(opts.exists ?? existsSync)(entry)) throw new Error(`Cannot find ${entry} behind ${found}; reinstall ${desc.name}.`);
+  const dir = path.win32.dirname(found);
+  const at = (relative: string): string => path.win32.join(dir, ...relative.split('/'));
+  const exists = opts.exists ?? existsSync;
+  for (const program of desc.windowsShim.native?.(opts.arch ?? process.arch) ?? []) {
+    const command = at(program.path);
+    if (exists(command)) return program.env ? { kind: 'direct', command, env: program.env(dir) } : { kind: 'direct', command };
+  }
+  const entry = at(desc.windowsShim.entry);
+  if (!exists(entry)) throw new Error(`Cannot find ${entry} behind ${found}; reinstall ${desc.name}.`);
   if (desc.windowsShim.runs === 'native') return { kind: 'direct', command: entry };
   const electron = opts.electron ?? Boolean(process.versions.electron);
   return { kind: 'node', command: process.execPath, entry, env: electron ? { ELECTRON_RUN_AS_NODE: '1' } : {} };
@@ -342,6 +392,38 @@ export interface AgentCliActionOptions extends AgentCliSearch {
   /** How far it got, from a percentage it printed. */
   readonly onProgress?: (fraction: number) => void;
   readonly signal?: AbortSignal;
+  /**
+   * Folders the host put first on its PATH for itself (the desktop's own
+   * Node). An update of a CLI outside them runs with them last: the CLI's
+   * updater asks the npm on PATH how it was installed, and the host's npm
+   * does not know a CLI that another npm installed.
+   */
+  readonly hostPathDirs?: ReadonlyArray<string>;
+}
+
+/** This process's environment with `hostDirs` moved to the end of PATH, unless `file` lies in one of them. */
+export function updaterEnv(
+  file: string,
+  hostDirs: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): Readonly<Record<string, string>> {
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  const same = (a: string, b: string): boolean => {
+    const norm = (p: string) => paths.resolve(p);
+    return platform === 'win32' ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
+  };
+  const inside = (dir: string): boolean => {
+    const relative = paths.relative(dir, file);
+    return relative !== '' && !relative.startsWith('..') && !paths.isAbsolute(relative);
+  };
+  // Windows names the variable `Path`; setting a second `PATH` beside it leaves the child two.
+  const key = Object.keys(env).find((name) => (platform === 'win32' ? name.toUpperCase() === 'PATH' : name === 'PATH')) ?? 'PATH';
+  const dirs = (env[key] ?? '').split(paths.delimiter).filter(Boolean);
+  const own = hostDirs.filter((dir) => !inside(dir));
+  const isOwn = (dir: string): boolean => own.some((ownDir) => same(ownDir, dir));
+  if (!dirs.some(isOwn)) return {};
+  return { [key]: [...dirs.filter((dir) => !isOwn(dir)), ...dirs.filter(isOwn)].join(paths.delimiter) };
 }
 
 export interface AgentCliActionResult {
@@ -402,6 +484,7 @@ export async function runAgentCliAction(
         return { ok: false, message: err instanceof Error ? err.message : String(err) };
       }
       child = spawnExecutableTarget(target, desc.updateArgs, {
+        env: updaterEnv(found, opts.hostPathDirs ?? [], process.env, platform),
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: platform !== 'win32',
         windowsHide: true,

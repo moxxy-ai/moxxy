@@ -272,4 +272,29 @@ describe('spawnExecutableTarget', () => {
 
     expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual(args.slice(1));
   });
+
+  it("gives a native program the environment its target carries, over the caller's", () => {
+    const child = spawnExecutableTarget(
+      { kind: 'direct', command: process.execPath, env: { MOXXY_TARGET_ENV: 'from target' } },
+      ['-e', 'process.stdout.write(String(process.env.MOXXY_TARGET_ENV))'],
+      { stdio: ['ignore', 'pipe', 'pipe'], env: { MOXXY_TARGET_ENV: 'from caller' } },
+    );
+    let stdout = '';
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+
+    return new Promise<void>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', () => {
+        try {
+          expect(stdout).toBe('from target');
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  });
 });

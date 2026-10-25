@@ -86,7 +86,7 @@ real Claude Code, Codex or OpenCode. What is handled:
 - **Installers.** Claude's and Codex's installers run as `.ps1` scripts through
   Windows PowerShell by its full path (`installInvocation` in
   `packages/agent-connection-kit/src/agent-cli.ts`). OpenCode's install script
-  is POSIX only, so on Windows it installs with `npm install -g opencode-ai`.
+  is POSIX only, so on Windows it installs with `npm install -g @opencode/cli` (OpenCode 1 was `opencode-ai`).
 - **Finding the CLI.** `findAgentCli` looks on `PATH`, then in the folder the
   vendor's installer uses (`installDirs`, joined with `path.win32` on Windows).
 - **`.cmd` shims.** An npm install puts `claude.cmd` / `codex.cmd` /
@@ -107,8 +107,10 @@ real Claude Code, Codex or OpenCode. What is handled:
 
 Still open:
 
-- The vendors' `.ps1` installers and `codex update` / `claude update` /
-  `opencode upgrade` have not been run from Moxxy on Windows, nor has closing
+- The vendors' `.ps1` installers and `codex update` / `claude update` have
+  not been run from Moxxy on Windows (`opencode upgrade` has: it failed with
+  "Could not detect the installation method" until the update ran with the
+  desktop's own Node last on `PATH`), nor has closing
   a conversation been watched in Task Manager there.
 - Claude's process is started and ended by the Claude Agent SDK, not by
   Moxxy.

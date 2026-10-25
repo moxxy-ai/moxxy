@@ -25,7 +25,7 @@ export {
   type LiveSession,
 } from './session-pool.js';
 export { agentModeFor, type AgentMode } from './modes.js';
-export { compareVersions, parseVersion } from './cli-version.js';
+export { compareVersions, parseVersion, readCliVersion } from './cli-version.js';
 export {
   AGENT_CLIS,
   CLAUDE_CLI,
@@ -49,6 +49,7 @@ export {
   type AgentCliSource,
   type AgentCliOriginOptions,
   type AgentCliTargetOptions,
+  type WindowsNativeProgram,
   type LatestVersionOptions,
 } from './agent-cli.js';
 export { Inbox, untilStopped } from './inbox.js';

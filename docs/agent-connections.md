@@ -43,11 +43,11 @@ When no shell answers, the app adds the usual GUI folders (`/usr/local/bin`, `/o
 |---|---|---|---|
 | Claude Code | `curl -fsSL https://claude.ai/install.sh \| bash` (Windows: `irm https://claude.ai/install.ps1 \| iex`) | `claude update` | 2.1.296 |
 | Codex | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` (Windows: `irm https://chatgpt.com/codex/install.ps1 \| iex`) | `codex update` | 0.155.1 |
-| OpenCode | `curl -fsSL https://opencode.ai/install \| bash` (Windows: `npm install -g opencode-ai`) | `opencode upgrade` | 1.19.0 |
+| OpenCode | `curl -fsSL https://opencode.ai/install \| bash` (Windows: `npm install -g @opencode/cli`) | `opencode upgrade` | 1.19.0 |
 
 ## Versions and updates
 
-Moxxy checks every agent CLI when it starts and every hour after that: installed or not, signed in or not, and its version against the vendor's newest release on npm (`@anthropic-ai/claude-code`, `@openai/codex`, `opencode-ai`). The answer is kept in the session, so every surface says the same:
+Moxxy checks every agent CLI when it starts and every hour after that: installed or not, signed in or not, and its version against the vendor's newest release on npm (`@anthropic-ai/claude-code`, `@openai/codex`, `@opencode/cli`). The answer is kept in the session, so every surface says the same:
 
 - the desktop shows one line above the message box. An optional update can be closed and stays closed until the next version; a required one cannot;
 - the terminal UI shows the same line above the prompt;
@@ -63,7 +63,7 @@ A CLI older than the version Moxxy was checked against must be updated before th
 | Homebrew (`Caskroom` or `Cellar`) | `brew upgrade [--cask] <name>` with the Homebrew it belongs to; the agent's own command when that `brew` is not there |
 | Inside a macOS app (`*.app/Contents/`, e.g. the Codex in ChatGPT.app) | none: the app updates it, so Moxxy offers no **Update** and runs nothing |
 
-Moxxy never removes a copy, and the desktop never updates an agent during a turn.
+Moxxy never removes a copy, and the desktop never updates an agent during a turn. The desktop puts the Node it installed for you first on its own `PATH`; the agent's own update runs with that folder last, so an update that asks `npm` how the agent was installed (`opencode upgrade` does) reaches the npm of your terminal, the one that installed it. An agent that lives in the desktop's Node folder keeps it first.
 
 ## Who does what
 
@@ -125,7 +125,7 @@ Claude and Codex can leave work running after their turn: a helper agent that go
 
 The list of what runs now is also part of the session's info (`SessionInfo.backgroundWork`), held in memory: after a restart of the runner nothing shows as running that no longer runs. Stop on one work (`session.stopBackgroundWork`, runner protocol v29) stops a Claude task (`stopTask`), ends a Codex command (`thread/backgroundTerminals/terminate`) or interrupts a Codex subagent's own turn (`turn/interrupt`; Codex 0.163 reports that only as the subagent's turn ending `interrupted`, so that ends it), or aborts an OpenCode subagent's session. A stopped helper is recorded as stopped, not as failed. Nothing can be sent to a helper while it works. A command's output shows once it ends; there is no live tail yet.
 
-ACP reports none of OpenCode's background work, so Moxxy reads it from OpenCode's own HTTP API, which `opencode acp` serves beside ACP. Moxxy starts OpenCode with a port it picked (`--port`, on `127.0.0.1`) and a password only it knows (`OPENCODE_SERVER_PASSWORD`), reads OpenCode's event stream (`GET /event`) for the helpers' steps and ends, and stops one with `POST /session/{id}/abort`. The same stream shows a helper's steps while the turn waits for it, which ACP does not report either. When a background helper finishes, OpenCode answers its result by itself; Moxxy opens a turn for that ("Agent continued") and shows OpenCode's reply in it. A helper you stopped opens no such turn. Stop on a turn of the conversation makes OpenCode cancel its background helpers too; they are recorded as stopped.
+ACP reports none of OpenCode's background work, so Moxxy reads it from OpenCode's own HTTP API, which OpenCode 1's `opencode acp` serves beside ACP. OpenCode 2's `opencode acp` runs a private server with no port and refuses `--port`, so Moxxy starts it with `acp` alone (also when it cannot read the version) and lists none of its background helpers yet. For OpenCode 1, Moxxy starts OpenCode with a port it picked (`--port`, on `127.0.0.1`) and a password only it knows (`OPENCODE_SERVER_PASSWORD`), reads OpenCode's event stream (`GET /event`) for the helpers' steps and ends, and stops one with `POST /session/{id}/abort`. The same stream shows a helper's steps while the turn waits for it, which ACP does not report either. When a background helper finishes, OpenCode answers its result by itself; Moxxy opens a turn for that ("Agent continued") and shows OpenCode's reply in it. A helper you stopped opens no such turn. Stop on a turn of the conversation makes OpenCode cancel its background helpers too; they are recorded as stopped.
 
 The desktop shows all of it in the Agents pane of the work panel, and says above the message box what runs in the background. Every surface reads the same log and the same info, and a phone can stop work through the same command.
 

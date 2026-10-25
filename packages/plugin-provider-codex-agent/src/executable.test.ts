@@ -9,7 +9,23 @@ describe('starting the person Codex without a shell', () => {
     });
   });
 
-  it('runs the codex.js behind a Windows npm shim with Node', () => {
+  it('starts the codex.exe behind a Windows npm shim itself, so no console window opens for it', () => {
+    const codexPackage = 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex';
+    const exe = `${codexPackage}\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe`;
+    const target = codexTarget('codex', {
+      platform: 'win32',
+      arch: 'x64',
+      find: () => 'C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd',
+      exists: (file) => file === exe,
+    });
+    expect(target).toEqual({
+      kind: 'direct',
+      command: exe,
+      env: { CODEX_MANAGED_BY_NPM: '1', CODEX_MANAGED_PACKAGE_ROOT: codexPackage },
+    });
+  });
+
+  it('runs the codex.js behind a Windows npm shim with Node when its codex.exe is missing', () => {
     const target = codexTarget('codex', {
       platform: 'win32',
       find: () => 'C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd',

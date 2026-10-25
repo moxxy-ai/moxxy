@@ -44,7 +44,7 @@ function cli(command: 'claude' | 'codex' | 'opencode', relative: string, version
 const LATEST: Record<string, string> = {
   '@anthropic-ai/claude-code': '2.1.300',
   '@openai/codex': '0.162.1',
-  'opencode-ai': '1.19.2',
+  '@opencode/cli': '1.19.2',
 };
 
 function run(args: string[], over: Partial<AgentsDeps> = {}) {

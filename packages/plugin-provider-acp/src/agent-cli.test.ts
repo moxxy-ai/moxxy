@@ -50,7 +50,7 @@ describe.skipIf(process.platform === 'win32')('the opencode CLI', () => {
     mkdirSync(path.join(moxxyHome, 'cache'), { recursive: true });
     writeFileSync(
       path.join(moxxyHome, 'cache', 'agent-cli-latest.json'),
-      JSON.stringify({ 'opencode-ai': { version: '1.19.0', at: Date.now() } }),
+      JSON.stringify({ '@opencode/cli': { version: '1.19.0', at: Date.now() } }),
     );
     process.env.MOXXY_HOME = moxxyHome;
     const cli = opencodeProviderDef.agentCli;
@@ -66,7 +66,7 @@ describe.skipIf(process.platform === 'win32')('the opencode CLI', () => {
     installed('1.19.2', 'if [ "$1" = "auth" ]; then echo "● OpenCode Zen api"; exit 0; fi');
     const moxxyHome = path.join(home ?? '', 'moxxy');
     mkdirSync(path.join(moxxyHome, 'cache'), { recursive: true });
-    writeFileSync(path.join(moxxyHome, 'cache', 'agent-cli-latest.json'), JSON.stringify({ 'opencode-ai': { version: '1.19.2', at: Date.now() } }));
+    writeFileSync(path.join(moxxyHome, 'cache', 'agent-cli-latest.json'), JSON.stringify({ '@opencode/cli': { version: '1.19.2', at: Date.now() } }));
     process.env.MOXXY_HOME = moxxyHome;
     const cli = opencodeProviderDef.agentCli;
     assertDefined(cli, 'the provider checks its CLI');
