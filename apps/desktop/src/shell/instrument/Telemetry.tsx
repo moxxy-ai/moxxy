@@ -121,7 +121,7 @@ export function Telemetry({
         <span className="tele__cell" data-cell="agent">
           <span className="tele__v tele__v--text">
             {model}
-            {tuning.fast && <small> · fast</small>}
+            {tuning.fastInUse && <small> · fast</small>}
             {mode && <small> · {mode}</small>}
           </span>
         </span>

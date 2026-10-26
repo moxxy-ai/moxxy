@@ -88,6 +88,21 @@ describe('Telemetry model panel', () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.setFast', { workspaceId: 'ws', enabled: false }));
     __setApiOverride(null);
   });
+
+  it('does not mark a conversation fast when its model has no fast tier', () => {
+    __setApiOverride({ invoke: vi.fn(async () => {}), subscribe: () => () => {} } as unknown as MoxxyApi);
+    // Fast stays on from an earlier model, but Claude Code serves no fast tier.
+    const info = {
+      sessionId: 's1',
+      providers: [{ name: 'claude-code', models: [{ id: 'claude-sonnet-5-5', supportsReasoning: true }] }],
+      modes: [], activeProvider: 'claude-code', activeMode: 'default', activeModeBadge: null,
+      reasoningEffort: 'medium' as const, fast: true,
+    };
+    render(<Telemetry workspaceId="ws-claude" info={info} selectedModel="claude-sonnet-5-5" disabled={false} onPick={() => {}} />);
+    expect(screen.getByTestId('instrument-telemetry')).toHaveTextContent('claude-sonnet-5-5');
+    expect(screen.getByTestId('instrument-telemetry')).not.toHaveTextContent('fast');
+    __setApiOverride(null);
+  });
 });
 
 describe('Telemetry model name', () => {
