@@ -10,10 +10,12 @@ import type {
   AgentToolCall,
   AgentToolOutcome,
   AgentWorkEnd,
+  QuestionItem,
+  QuestionOutcome,
   Skill,
   ToolDef,
 } from '@moxxy/sdk';
-import { isContextWindowSize } from '@moxxy/sdk';
+import { QUESTION_CLOSED_AGENT_WENT_ON, QUESTION_CLOSED_NEW_MESSAGE, isContextWindowSize } from '@moxxy/sdk';
 import {
   Inbox,
   JsonRpcError,
@@ -59,6 +61,7 @@ import {
   shownCommand,
   toCodexInput,
   toUserInputAnswers,
+  type CodexAskedQuestions,
   type CodexToolCall,
 } from './translate.js';
 import { accountLimitFrom, failedOnUsageLimit } from './account-limit.js';
@@ -222,8 +225,25 @@ type Item =
   | { readonly kind: 'note'; readonly method: string; readonly params: unknown }
   | RequestItem
   | { readonly kind: 'moxxy-tool'; readonly call: AgentToolCall; readonly resolve: (outcome: AgentToolOutcome) => void }
+  | { readonly kind: 'answered'; readonly asked: AskedQuestion }
   | { readonly kind: 'stop' }
   | { readonly kind: 'ended' };
+
+/** A question Codex asked in a message, shown while it works. */
+interface AskedQuestion {
+  /** The message that asked it. */
+  readonly itemId: string;
+  readonly items: ReadonlyArray<QuestionItem>;
+  /** Closes it unanswered, with the reason as its note. */
+  readonly close: AbortController;
+  readonly outcome: Promise<QuestionOutcome>;
+  /** Answered or closed: `outcome` has settled. */
+  done?: boolean;
+  /** The answer as Codex reads it, once the person gave it. */
+  answer?: string;
+  /** Codex's turn could not take the answer; it goes in Codex's next message instead. */
+  refused?: boolean;
+}
 
 const MAX_STDERR = 2048;
 const DISMISSED = { kind: 'dismissed', reason: 'cancelled' } as const;
@@ -261,6 +281,8 @@ export class CodexAgentSession implements LiveSession {
   private current: ThreadSettings = { ...AUTO, model: '', serviceTier: null, collaboration: 'default', reviewer: 'user', summary: null };
   /** Why the person declined, for Codex's next message when its turn could not take it. */
   private pendingNotes: string[] = [];
+  /** The question Codex asked while it works, open until answered, closed, or its turn ends. */
+  private asked: AskedQuestion | undefined;
   /** The thread is new while the conversation may already have run: its first message carries the conversation so far. */
   private newThread: NewSessionReason | undefined;
   private goal: CodexGoal | undefined;
@@ -433,6 +455,9 @@ export class CodexAgentSession implements LiveSession {
       req.signal.removeEventListener('abort', onAbort);
       this.mcp.setHandler(idleToolsHandler(this.listed, this.offered, LENT_AS));
       this.inTurn = false;
+      // The turn is over: nothing is left to take an answer.
+      this.asked?.close.abort();
+      this.asked = undefined;
       this.dismissQueued();
       // What outlives the turn now runs in the background.
       this.reportWork();
@@ -638,6 +663,10 @@ export class CodexAgentSession implements LiveSession {
         yield* this.answer(item, req, translator);
         continue;
       }
+      if (item.kind === 'answered') {
+        await this.steerAnswer(translator);
+        continue;
+      }
       const params = (item.params ?? {}) as Record<string, unknown>;
       this.noteGoal(item.method, params);
       const change = this.noteSettings(item.method, params);
@@ -691,11 +720,19 @@ export class CodexAgentSession implements LiveSession {
           return;
         }
         if (turn.status === 'interrupted' || req.signal.aborted) return;
-        if (translator.questions.length > 0) {
-          const answer = await this.answerQuestions(translator, req);
-          if (answer === undefined) return;
-          await this.startTurn([{ type: 'text', text: answer, text_elements: [] }]);
-          continue;
+        if (this.asked) {
+          const asked = this.asked;
+          this.asked = undefined;
+          // Codex ended on the question (plan mode): it waits for the answer as its next message.
+          // It said more since: it went on without one.
+          const waits = translator.lastSaid(asked.itemId);
+          if (!waits) asked.close.abort(QUESTION_CLOSED_AGENT_WENT_ON);
+          const reply = replyTo(asked.items, await untilStopped(asked.outcome, req.signal, DISMISSED), waits);
+          if (reply !== undefined) {
+            await this.startTurn([{ type: 'text', text: reply, text_elements: [] }]);
+            continue;
+          }
+          if (waits) return;
         }
         if (mode === 'goal') {
           // An open goal: Codex starts its next turn by itself.
@@ -731,22 +768,57 @@ export class CodexAgentSession implements LiveSession {
       }
       yield* contextWindowOf(item.method, params, req.model || this.current.model);
       yield* translator.translate(item.method, params);
+      const question = translator.takeQuestions();
+      if (question) this.askWhileWorking(question, req);
+      await this.steerAnswer(translator);
     }
   }
 
-  /** Codex's plan-mode questions, asked in the Moxxy question card; the answers become its next message. */
-  private async answerQuestions(translator: TurnTranslator, req: AgentStepRequest): Promise<string | undefined> {
-    const items = fromAsyncQuestions(translator.questions);
-    translator.questions = [];
-    const outcome = await untilStopped(req.host.ask(items), req.signal, DISMISSED);
-    switch (outcome.kind) {
-      case 'answered':
-        return answersMessage(items, outcome.answers);
-      case 'unanswerable':
-        return NOBODY_TO_ASK;
-      case 'dismissed':
-        return undefined;
+  /**
+   * Show Codex's question at once and let Codex work on: Codex asks in a
+   * message and does not wait, so the answer goes into its running turn, or
+   * waits for its turn to end when it ended on the question.
+   */
+  private askWhileWorking(question: CodexAskedQuestions, req: AgentStepRequest): void {
+    // A newer question takes the place of one Codex went on past.
+    this.asked?.close.abort(QUESTION_CLOSED_AGENT_WENT_ON);
+    const items = fromAsyncQuestions(question.questions);
+    const close = new AbortController();
+    const asked: AskedQuestion = { itemId: question.itemId, items, close, outcome: req.host.ask(items, { signal: close.signal }) };
+    this.asked = asked;
+    void asked.outcome.then(
+      (outcome) => {
+        asked.done = true;
+        if (outcome.kind === 'answered') asked.answer = answersMessage(items, outcome.answers);
+        this.inbox.push({ kind: 'answered', asked });
+      },
+      () => {
+        asked.done = true;
+      },
+    );
+  }
+
+  /**
+   * The person's answer goes into Codex's running turn once Codex has gone on
+   * from the question; until then Codex may still end its turn on it, and the
+   * answer is its next message. A question closed unanswered is let go.
+   */
+  private async steerAnswer(translator: TurnTranslator): Promise<void> {
+    const asked = this.asked;
+    if (!asked?.done || asked.refused || this.activeTurn === undefined || !translator.movedOnFrom(asked.itemId)) return;
+    if (asked.answer === undefined) {
+      this.asked = undefined;
+      return;
     }
+    const turnId = this.activeTurn;
+    const input = [{ type: 'text', text: asked.answer, text_elements: [] }];
+    const steered = await this.client.request('turn/steer', { threadId: this.threadId, expectedTurnId: turnId, input }).then(
+      () => true,
+      () => false,
+    );
+    if (steered) {
+      if (this.asked === asked) this.asked = undefined;
+    } else asked.refused = true;
   }
 
   /** What Codex asked of Moxxy, answered with the turn's host. */
@@ -777,6 +849,8 @@ export class CodexAgentSession implements LiveSession {
         case 'item/tool/requestUserInput': {
           const items = fromUserInputQuestions(Array.isArray(p.questions) ? (p.questions as CodexUserInputQuestion[]) : []);
           const outcome = await untilStopped(req.host.ask(items), req.signal, DISMISSED);
+          // An empty answer lets Codex keep waiting. The new message needs its turn to release the session first.
+          if (outcome.kind === 'dismissed' && outcome.note === QUESTION_CLOSED_NEW_MESSAGE) await this.interrupt();
           item.resolve({ answers: outcome.kind === 'answered' ? toUserInputAnswers(items, outcome.answers) : {} });
           return;
         }
@@ -1171,4 +1245,14 @@ function commandEnd(item: { readonly status?: unknown; readonly exitCode?: unkno
 
 function sameWork(a: ReadonlyArray<AgentBackgroundWork>, b: ReadonlyArray<AgentBackgroundWork>): boolean {
   return a.length === b.length && a.every((work, i) => work.id === b[i]?.id && work.kind === b[i]?.kind && work.label === b[i]?.label);
+}
+
+/**
+ * Codex's next message after its turn ended with a question open: the answer,
+ * or, when Codex waits on the question and nobody can answer, that it picks
+ * itself. None when it was closed unanswered.
+ */
+function replyTo(items: ReadonlyArray<QuestionItem>, outcome: QuestionOutcome, waits: boolean): string | undefined {
+  if (outcome.kind === 'answered') return answersMessage(items, outcome.answers);
+  return outcome.kind === 'unanswerable' && waits ? NOBODY_TO_ASK : undefined;
 }

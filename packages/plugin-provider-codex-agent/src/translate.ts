@@ -16,6 +16,12 @@ import {
 
 const STILL_RUNNING = 'Still running in the background when Codex ended its turn.';
 
+/** Questions Codex asked in its message `itemId`. */
+export interface CodexAskedQuestions {
+  readonly itemId: string;
+  readonly questions: ReadonlyArray<CodexAsyncQuestion>;
+}
+
 /** A tool Codex runs itself, as Moxxy names it (`Bash` so Moxxy's shell rules and formatting apply). */
 export interface CodexToolCall {
   readonly name: string;
@@ -33,8 +39,12 @@ export class TurnTranslator {
   private readonly running = new Map<string, CodexToolCall>();
   /** Plan updates shown this turn; each is a call of its own. */
   private plans = 0;
-  /** Questions Codex asked in its message (plan mode), answered once its turn ends. */
-  questions: ReadonlyArray<CodexAsyncQuestion> = [];
+  /** Questions Codex just asked in a message, until the session takes them. */
+  private asked: CodexAskedQuestions | undefined;
+  /** The item Codex is on: the last one it started or finished. */
+  private latestItem: string | undefined;
+  /** Codex's last message so far. */
+  private latestMessage: string | undefined;
 
   /**
    * `cwd`: the project folder, which the paths of file diffs are shown relative to.
@@ -64,6 +74,23 @@ export class TurnTranslator {
     return { events, calls };
   }
 
+  /** The questions Codex just asked in a message (`delivery: 'async'`), handed out once. */
+  takeQuestions(): CodexAskedQuestions | undefined {
+    const asked = this.asked;
+    this.asked = undefined;
+    return asked;
+  }
+
+  /** Codex started or finished another item since `itemId`: it works on without waiting. */
+  movedOnFrom(itemId: string): boolean {
+    return this.latestItem !== undefined && this.latestItem !== itemId;
+  }
+
+  /** Message `itemId` is the last thing Codex said. */
+  lastSaid(itemId: string): boolean {
+    return this.latestMessage === itemId;
+  }
+
   /** The call shown for an item, for an approval that names only the item. */
   callOf(callId: string): CodexToolCall | undefined {
     return this.calls.get(callId);
@@ -77,6 +104,7 @@ export class TurnTranslator {
       case 'item/reasoning/summaryTextDelta':
         return typeof p.delta === 'string' && p.delta ? [{ type: 'reasoning_delta', delta: p.delta }] : [];
       case 'item/started': {
+        this.noteItem(p.item);
         const other = otherItem(p.item);
         const item = knownItem(p.item);
         // A search is shown once it ends: Codex knows its query only then.
@@ -87,6 +115,7 @@ export class TurnTranslator {
         return this.announce(id, call);
       }
       case 'item/completed': {
+        this.noteItem(p.item);
         const ended = (p.item as { id?: unknown } | undefined)?.id;
         if (typeof ended === 'string') this.running.delete(ended);
         const other = otherItem(p.item);
@@ -103,6 +132,11 @@ export class TurnTranslator {
       default:
         return [];
     }
+  }
+
+  private noteItem(item: unknown): void {
+    const id = (item as { id?: unknown } | undefined)?.id;
+    if (typeof id === 'string') this.latestItem = id;
   }
 
   /**
@@ -145,7 +179,8 @@ export class TurnTranslator {
   private completed(item: CodexItem): AgentStepEvent[] {
     switch (item.type) {
       case 'agentMessage':
-        if (item.delivery === 'async' && item.questions && item.questions.length > 0) this.questions = item.questions;
+        this.latestMessage = item.id;
+        if (item.delivery === 'async' && item.questions && item.questions.length > 0) this.asked = { itemId: item.id, questions: item.questions };
         return item.text ? [{ type: 'message', text: item.text, stopReason: item.phase === 'commentary' ? 'tool_use' : 'end_turn' }] : [];
       case 'plan':
         return [{ type: 'plan', text: item.text }];

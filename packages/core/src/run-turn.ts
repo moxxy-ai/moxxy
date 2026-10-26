@@ -65,6 +65,8 @@ export async function* runTurn(
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
     });
+    // The person wrote instead of answering: a turn still waiting on a question must not hold the conversation.
+    if (!opts.origin) await session.questions?.closeOnNewMessage(turnId);
 
     // Resolve provider + model AFTER the prompt is recorded so a
     // missing/misconfigured provider doesn't silently discard the user's
@@ -146,7 +148,12 @@ export async function* runTurn(
       ...(session.loopGuard ? { loopGuard: session.loopGuard } : {}),
       permissions: session.resolver,
       ...(session.approvalResolver ? { approval: session.approvalResolver } : {}),
-      ...(questions ? { ask: (items) => questions.ask({ turnId, questions: items, signal: effectiveSignal }) } : {}),
+      ...(questions
+        ? {
+            ask: (items, askOpts) =>
+              questions.ask({ turnId, questions: items, signal: askOpts?.signal ? AbortSignal.any([effectiveSignal, askOpts.signal]) : effectiveSignal }),
+          }
+        : {}),
       hooks: session.dispatcher,
       pluginHost: session.pluginHost,
       signal: effectiveSignal,

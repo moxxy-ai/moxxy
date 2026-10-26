@@ -334,6 +334,15 @@ and the first answer from any of them closes it everywhere. A chat with an
 open Question counts as waiting on the person in the sidebar and the
 instrument bar.
 
+An open Question stays visible when another turn becomes active; changing the
+active turn alone never hides it. Codex's asynchronous questions appear while
+it works. When it finishes after moving past the question, the card closes and
+the transcript says "Question closed: the agent went on without an answer."
+Writing a new message instead closes the earlier question, releases any turn
+blocked on it, and leaves "Question closed: you sent a new message instead."
+Stop closes the question with its turn. A final question still waits for an
+answer, which reaches Codex before its next step.
+
 The focus window shows the same card, after any approval, beside the mark and
 at the head of the Mini Chat (`focus/FocusAskCard.tsx`, read by
 `focus/useFocusAsk.ts`). There it is a group, not a dialog: it takes no focus

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { AGENT_NO_REPLY_TEXT, accountLimitOfEvent, isAgentNoReplyEvent, type MoxxyEvent, type TriggerOrigin } from '@moxxy/sdk';
-import { accountLimitText } from '@moxxy/chat-model';
+import { accountLimitText, questionClosedText } from '@moxxy/chat-model';
 import { Colors, Glyphs } from '../../theme.js';
 import { wrapLogicalLine } from '../prompt/BufferLines.js';
 import { blockGap } from './density.js';
@@ -133,6 +133,15 @@ export const EventLine: React.FC<{
         </Box>
       );
     case 'plugin_event': {
+      const closed = questionClosedText(event);
+      if (closed) {
+        return (
+          <Box marginTop={blockGap()}>
+            <ActivityDot state="neutral" />
+            <Text color={Colors.chrome} dimColor>{` ${closed}`}</Text>
+          </Box>
+        );
+      }
       if (isAgentNoReplyEvent(event)) {
         return (
           <Box marginTop={blockGap()}>

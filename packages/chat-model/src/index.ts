@@ -3,6 +3,7 @@ export * from './pair-events.js';
 export * from './agent-work.js';
 export { turnComputerUse } from './agent-computer.js';
 export * from './format.js';
+export * from './question-note.js';
 export * from './log.js';
 export * from './id.js';
 export * from './streaming-speech.js';

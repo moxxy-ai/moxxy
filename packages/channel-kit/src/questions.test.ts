@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Session } from '@moxxy/core';
-import { defineTool, z, type QuestionItem, type QuestionOutcome } from '@moxxy/sdk';
+import { QUESTION_CLOSED_AGENT_WENT_ON, asTurnId, defineTool, z, type QuestionItem, type QuestionOutcome } from '@moxxy/sdk';
 import { ChatQuestions, type QuestionUpdate } from './questions.js';
 
 const colour: QuestionItem = {
@@ -134,6 +134,30 @@ describe('ChatQuestions', () => {
 
     expect(updates.at(-1)?.kind).toBe('closed');
     expect(lastCard(updates).text).toContain('Answered: Red');
+  });
+
+  it('says on its closed card that a new message was sent instead of an answer', async () => {
+    const { session, updates } = setUp([colour]);
+    await settle();
+
+    await session.questions.closeOnNewMessage(asTurnId('t2'));
+
+    expect(updates.at(-1)?.kind).toBe('closed');
+    expect(lastCard(updates).text).toContain('✕ Closed: a new message was sent instead.');
+  });
+
+  it('says on its closed card that the agent went on without the answer', async () => {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    const updates: QuestionUpdate[] = [];
+    new ChatQuestions(() => session).attach((update) => updates.push(update));
+    const wentOn = new AbortController();
+    const asked = session.questions.ask({ turnId: asTurnId('t1'), questions: [colour], signal: wentOn.signal });
+    await settle();
+
+    wentOn.abort(QUESTION_CLOSED_AGENT_WENT_ON);
+    await asked;
+
+    expect(lastCard(updates).text).toContain('✕ Closed: the agent went on without an answer.');
   });
 
   it('turns away a click on a card whose question is gone', async () => {

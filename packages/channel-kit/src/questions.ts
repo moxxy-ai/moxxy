@@ -1,4 +1,6 @@
 import {
+  QUESTION_CLOSED_AGENT_WENT_ON,
+  QUESTION_CLOSED_NEW_MESSAGE,
   chooseOption,
   draftAnswers,
   emptyDraft,
@@ -203,7 +205,7 @@ function closedCard(question: OpenQuestion, outcome: QuestionOutcome): QuestionC
   const many = question.questions.length > 1;
   const head = question.questions.map((item, at) => `${many ? `${at + 1}. ` : ''}${asked(item)}`);
   if (outcome.kind !== 'answered') {
-    return { questionId: question.questionId, text: [...head, '', '✕ Closed: the turn stopped.'].join('\n'), rows: [] };
+    return { questionId: question.questionId, text: [...head, '', `✕ Closed: ${whyClosed(outcome)}`].join('\n'), rows: [] };
   }
   const chosen = question.questions.map((item, at) => {
     const answer = outcome.answers[item.id];
@@ -215,6 +217,12 @@ function closedCard(question: OpenQuestion, outcome: QuestionOutcome): QuestionC
   });
   const said = many ? ['✓ Answered:', ...chosen] : [`✓ Answered: ${chosen.join('')}`];
   return { questionId: question.questionId, text: [...head, '', ...said].join('\n'), rows: [] };
+}
+
+function whyClosed(outcome: QuestionOutcome): string {
+  if (outcome.kind === 'dismissed' && outcome.note === QUESTION_CLOSED_AGENT_WENT_ON) return 'the agent went on without an answer.';
+  if (outcome.kind === 'dismissed' && outcome.note === QUESTION_CLOSED_NEW_MESSAGE) return 'a new message was sent instead.';
+  return 'the turn stopped.';
 }
 
 function asked(item: QuestionItem): string {

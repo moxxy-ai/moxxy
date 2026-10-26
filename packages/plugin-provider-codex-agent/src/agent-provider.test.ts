@@ -9,6 +9,9 @@ import {
   AGENT_CONNECTION_PLUGIN_ID,
   AGENT_GOAL_SUBTYPE,
   QUESTION_ASKED,
+  QUESTION_CLOSED_AGENT_WENT_ON,
+  QUESTION_CLOSED_NEW_MESSAGE,
+  QUESTION_RESOLVED,
   autoApproveFromEvents,
   definePlugin,
   defineProvider,
@@ -876,6 +879,110 @@ describe('plan mode', () => {
       { type: 'text', text: 'Which colour should the button be?: Red\nWhat label?: Draw one', text_elements: [] },
     ]);
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'plan_completed' }));
+  });
+});
+
+describe('a question Codex asks while it works', () => {
+  const asksThenWorks = (after: (turn: Parameters<CodexScene>[0]) => Promise<void>): CodexScene => async (turn) => {
+    if (turn.text !== 'fix the page') return turn.say('ok');
+    turn.say('Should I keep the old header?', { delivery: 'async', questions: [{ title: 'Keep the old header?', options: ['Yes', 'No'] }] });
+    await turn.run('ls', 'index.html\n');
+    await after(turn);
+  };
+  const questionRecords = (session: Session) =>
+    session.log.ofType('plugin_event').filter((e) => e.subtype === QUESTION_ASKED || e.subtype === QUESTION_RESOLVED);
+
+  it('is shown at once and does not hold the turn: when Codex finishes without it, it closes as Codex went on', async () => {
+    const { codex, session } = connect(asksThenWorks(async (turn) => turn.say('Done, I kept the header.')));
+    session.questions.attachSurface();
+
+    const events = await collectTurn(session, 'fix the page');
+
+    expect(said(events)).toEqual(['Should I keep the old header?', 'Done, I kept the header.']);
+    expect(questionRecords(session).map((e) => [e.subtype, (e.payload as { note?: string }).note])).toEqual([
+      [QUESTION_ASKED, undefined],
+      [QUESTION_RESOLVED, QUESTION_CLOSED_AGENT_WENT_ON],
+    ]);
+    expect(codex.last.sent('turn/start')).toHaveLength(1);
+  });
+
+  it('takes an answer given while Codex works into its running turn', async () => {
+    const { codex, session } = connect(asksThenWorks(async (turn) => turn.say(`Got: ${await turn.steered()}`)));
+    session.questions.attachSurface();
+    session.log.subscribe((event) => {
+      if (event.type !== 'plugin_event' || event.subtype !== QUESTION_ASKED) return;
+      const { questionId, questions } = event.payload as { questionId: string; questions: ReadonlyArray<QuestionItem> };
+      const no = questions[0]?.options.find((o) => o.label === 'No');
+      void session.questions.answer(questionId, { [questions[0]?.id ?? '']: { selected: no ? [no.id] : [] } });
+    });
+
+    const events = await collectTurn(session, 'fix the page');
+
+    expect(said(events).at(-1)).toBe('Got: Keep the old header?: No');
+    expect(codex.last.sent('turn/start')).toHaveLength(1);
+  });
+
+  it('lets go of a question Codex ended its turn on when the person writes a new message instead', async () => {
+    const { session } = connect(async (turn) => {
+      if (turn.text === 'plan the button') turn.say('Which colour?', { delivery: 'async', questions: [{ title: 'Which colour?', options: ['Red', 'Blue'] }] });
+      else turn.say(`On it: ${turn.text}`);
+    });
+    session.questions.attachSurface();
+    const asked = new Promise<void>((resolve) =>
+      session.log.subscribe((event) => {
+        if (event.type === 'plugin_event' && event.subtype === QUESTION_ASKED) resolve();
+      }),
+    );
+
+    const first = collectTurn(session, 'plan the button');
+    await asked;
+    const second = await collectTurn(session, 'make it green');
+
+    expect(said(second)).toEqual(['On it: make it green']);
+    await first;
+    expect(questionRecords(session).at(-1)).toMatchObject({ subtype: QUESTION_RESOLVED, payload: { note: QUESTION_CLOSED_NEW_MESSAGE } });
+  });
+
+  it('interrupts a blocking user-input request when the person sends a new message instead', async () => {
+    const { codex, session } = connect(async (turn) => {
+      if (turn.text !== 'plan the colour') return turn.say(`On it: ${turn.text}`);
+      await turn.request('item/tool/requestUserInput', {
+        threadId: turn.threadId,
+        turnId: turn.id,
+        itemId: 'colour-question',
+        questions: [{ id: 'colour', header: 'Colour', question: 'Which colour?', options: [{ label: 'Green', description: 'Green background' }, { label: 'Blue', description: 'Blue background' }] }],
+      });
+      // A dismissed question is not an answer: Codex can keep waiting in its turn.
+      if (!turn.signal.aborted) await new Promise<void>((resolve) => turn.signal.addEventListener('abort', () => resolve(), { once: true }));
+    });
+    session.questions.attachSurface();
+    const asked = new Promise<void>((resolve) => {
+      session.log.subscribe((event) => {
+        if (event.type === 'plugin_event' && event.subtype === QUESTION_ASKED) resolve();
+      });
+    });
+
+    const first = collectTurn(session, 'plan the colour');
+    await asked;
+    const second = collectTurn(session, 'use green');
+    await vi.waitFor(() => expect(codex.last.sent('turn/interrupt')).toHaveLength(1));
+
+    expect(said(await second)).toEqual(['On it: use green']);
+    await first;
+    expect(questionRecords(session).at(-1)).toMatchObject({ subtype: QUESTION_RESOLVED, payload: { note: QUESTION_CLOSED_NEW_MESSAGE } });
+  });
+
+  it('closes when the person stops the turn', async () => {
+    const stop = new AbortController();
+    const { session } = connect(asksThenWorks((turn) => new Promise((resolve) => turn.signal.addEventListener('abort', resolve, { once: true }))));
+    session.questions.attachSurface();
+    session.log.subscribe((event) => {
+      if (event.type === 'plugin_event' && event.subtype === QUESTION_ASKED) stop.abort();
+    });
+
+    await collectTurn(session, 'fix the page', { signal: stop.signal });
+
+    expect(questionRecords(session).at(-1)).toMatchObject({ subtype: QUESTION_RESOLVED, payload: { dismissed: 'cancelled' } });
   });
 });
 

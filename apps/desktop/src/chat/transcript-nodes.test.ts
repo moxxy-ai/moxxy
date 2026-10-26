@@ -22,6 +22,15 @@ function event(
 }
 
 describe('visibleTranscriptNodes', () => {
+  it('keeps the reason an unanswered question closed, without showing raw question bookkeeping', () => {
+    const nodes = buildRenderNodes([
+      event('plugin_event', { pluginId: '@moxxy/question', subtype: 'question_asked', payload: { questionId: 'q1', questions: [] } }, 1),
+      event('plugin_event', { pluginId: '@moxxy/question', subtype: 'question_resolved', payload: { questionId: 'q1', dismissed: 'cancelled', note: 'agent-went-on' } }, 2),
+    ], []);
+
+    expect(visibleTranscriptNodes(nodes).map((node) => (node.kind === 'block' ? node.block.id : node.kind))).toEqual(['event-2']);
+  });
+
   it('removes event blocks that render no content before Virtuoso measures them', () => {
     const nodes = buildRenderNodes([
       event('user_prompt', { text: 'Please inspect this.' }, 1),

@@ -277,7 +277,7 @@ async function runRound(
       return outcome;
     },
     approve: (request) => approveAgentTool(ctx, request, iteration, (event) => events.push(event)),
-    ask: (questions) => (ctx.ask ? ctx.ask(questions) : Promise.resolve({ kind: 'unanswerable' as const })),
+    ask: (questions, opts) => (ctx.ask ? ctx.ask(questions, opts) : Promise.resolve({ kind: 'unanswerable' as const })),
   };
 
   const resumeSessionId = agentSessionFromEvents(ctx.log.ofType('plugin_event'), ctx.provider.name);

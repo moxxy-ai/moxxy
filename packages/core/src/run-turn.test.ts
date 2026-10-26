@@ -830,3 +830,62 @@ describe('runTurn with tools meant for one mode', () => {
     expect(seen['default']?.tools).toEqual(['Read']);
   });
 });
+
+describe('runTurn — a question left waiting when the person writes again', () => {
+  const colour = {
+    id: 'q1',
+    question: 'Which colour?',
+    options: [{ id: 'red', label: 'Red' }],
+    multiSelect: false,
+    allowOther: true,
+  };
+
+  /** A mode whose first turn asks and reports what came back; later turns just end. */
+  function sessionThatAsks(outcomes: unknown[]): Session {
+    const asker = defineMode({
+      name: 'asker',
+      run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+        if (ctx.log.ofType('user_prompt').length > 1) return;
+        outcomes.push(ctx.ask ? await ctx.ask([colour]) : 'no ask');
+      },
+    });
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({ name: 'asking-mode', version: '0.0.0', providers: [makeNoopProvider()], modes: [asker] }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('asker');
+    session.questions.attachSurface();
+    return session;
+  }
+
+  const openQuestions = (session: Session) =>
+    session.log.ofType('plugin_event').filter((e) => e.subtype === 'question_asked').length -
+    session.log.ofType('plugin_event').filter((e) => e.subtype === 'question_resolved').length;
+
+  it("closes the earlier turn's question, so that turn ends instead of holding the conversation", async () => {
+    const outcomes: unknown[] = [];
+    const session = sessionThatAsks(outcomes);
+    const first = collectTurn(session, 'fix the page');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(openQuestions(session)).toBe(1);
+
+    await collectTurn(session, 'did you build the new dist?');
+    await first;
+
+    expect(outcomes).toEqual([{ kind: 'dismissed', reason: 'cancelled', note: 'new-message' }]);
+    expect(openQuestions(session)).toBe(0);
+  });
+
+  it('leaves the question open for a turn the agent started by itself', async () => {
+    const outcomes: unknown[] = [];
+    const session = sessionThatAsks(outcomes);
+    void collectTurn(session, 'fix the page');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    await collectTurn(session, 'List files finished in the background', { origin: { kind: 'agent', name: 'List files finished in the background' } });
+
+    expect(outcomes).toEqual([]);
+    expect(openQuestions(session)).toBe(1);
+  });
+});

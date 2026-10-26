@@ -43,7 +43,7 @@ When no shell answers, the app adds the usual GUI folders (`/usr/local/bin`, `/o
 |---|---|---|---|
 | Claude Code | `curl -fsSL https://claude.ai/install.sh \| bash` (Windows: `irm https://claude.ai/install.ps1 \| iex`) | `claude update` | 2.1.296 |
 | Codex | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` (Windows: `irm https://chatgpt.com/codex/install.ps1 \| iex`) | `codex update` | 0.155.1 |
-| OpenCode | `curl -fsSL https://opencode.ai/install \| bash` (Windows: `npm install -g @opencode/cli`) | `opencode upgrade` | 1.19.0 |
+| OpenCode | `curl -fsSL https://opencode.ai/v2/install \| bash` (Windows: `npm install -g @opencode/cli`) | `opencode upgrade`; from OpenCode 1 to 2, `opencode upgrade --major` | 1.19.0 |
 
 ## Versions and updates
 
@@ -100,6 +100,10 @@ With auto-approve off, a Codex set up never to ask holds every command but a kno
 ## Questions
 
 When the agent asks you something (Claude's `AskUserQuestion`, Codex's questions in plan mode), Moxxy shows it exactly as the agent sent it, with its suggestions and room for your own answer. It is the same question card as `ask_user` on an API connection, so the desktop, the terminal UI, Telegram, Discord and the phone show the same one, and the first answer closes it everywhere.
+
+Codex asks in a message and does not stop to wait, so its question shows as soon as it asks. An answer you give while Codex works goes into its running turn. If Codex finishes without your answer, the question closes with a note that Codex went on. If Codex ends its turn on the question, as it does in plan mode, it waits for your answer and reads it as your next message.
+
+A question never holds the conversation: it stays on screen while it waits, and a new message from you closes it unanswered, so the new message runs.
 
 ## Modes
 

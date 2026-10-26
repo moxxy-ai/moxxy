@@ -1,7 +1,7 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { accountLimitOfEvent } from '@moxxy/sdk/agent-account-limit';
 import { AGENT_NO_REPLY_TEXT, isAgentNoReplyEvent } from '@moxxy/sdk/agent-no-reply';
-import { accountLimitText } from '@moxxy/chat-model';
+import { accountLimitText, questionClosedText } from '@moxxy/chat-model';
 import { UserBlock } from './UserBlock';
 import { TriggerBlock } from './TriggerBlock';
 import { ActionRow } from './ActionRow';
@@ -80,6 +80,14 @@ export function EventBlockView({
         </TraceEntry>
       );
     case 'plugin_event': {
+      const closed = questionClosedText(event);
+      if (closed) {
+        return (
+          <TraceEntry kind="system">
+            <SystemBlock text={closed} tone="info" />
+          </TraceEntry>
+        );
+      }
       // An agent's used-up account limit is said where the turn stopped, in place of its raw error.
       const limit = accountLimitOfEvent(event);
       if (limit && limit.limit.state === 'reached') {

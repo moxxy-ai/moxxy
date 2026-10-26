@@ -1,7 +1,7 @@
 import type { HostedTool, ToolDef } from './tool.js';
 import type { ReasoningReplayItem } from './events.js';
 import type { StopReason } from './provider-utils.js';
-import type { QuestionItem, QuestionOutcome } from './question.js';
+import type { QuestionAskOptions, QuestionItem, QuestionOutcome } from './question.js';
 import type { AgentAccountLimit } from './agent-account-limit.js';
 import type { Skill } from './skill.js';
 
@@ -575,7 +575,7 @@ export interface AgentStepHost {
    */
   approve(request: AgentApprovalRequest): Promise<AgentApprovalDecision>;
   /** Show the agent's Question in every Moxxy window of the conversation. */
-  ask(questions: ReadonlyArray<QuestionItem>): Promise<QuestionOutcome>;
+  ask(questions: ReadonlyArray<QuestionItem>, opts?: QuestionAskOptions): Promise<QuestionOutcome>;
 }
 
 export interface AgentToolCall {

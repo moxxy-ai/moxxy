@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asSessionId, asTurnId, openQuestionsFromEvents, questionRecord, type QuestionItem } from '@moxxy/sdk';
+import { QUESTION_CLOSED_AGENT_WENT_ON, asSessionId, asTurnId, openQuestionsFromEvents, questionRecord, type QuestionItem } from '@moxxy/sdk';
 import { EventLog } from '../events/log.js';
 import { SessionQuestionsImpl } from './session-questions.js';
 
@@ -115,6 +115,47 @@ describe('session questions', () => {
     const restarted = new SessionQuestionsImpl({ log: new EventLog(before.log.slice()), sessionId: asSessionId('s1') });
 
     await expect(restarted.answer(id, { q1: { selected: ['red'] } })).rejects.toThrow('This question is no longer open.');
+  });
+
+  it('closes a question with the reason its asker gave, and keeps the reason in the record', async () => {
+    const { questions, ask, open, records } = setup();
+    questions.attachSurface();
+    const wentOn = new AbortController();
+    const pending = ask(wentOn.signal);
+    await settle();
+
+    // The agent went on without the answer: nothing waits on the question any more.
+    wentOn.abort(QUESTION_CLOSED_AGENT_WENT_ON);
+
+    await expect(pending).resolves.toEqual({ kind: 'dismissed', reason: 'cancelled', note: 'agent-went-on' });
+    expect(open()).toEqual([]);
+    expect(records().at(-1)).toMatchObject({ kind: 'resolved', outcome: { kind: 'dismissed', note: 'agent-went-on' } });
+  });
+
+  it("closes a question an earlier turn still waits on when the person sends a new message, so that turn can end", async () => {
+    const { log, questions, ask, open, records } = setup();
+    questions.attachSurface();
+    const pending = ask();
+    await settle();
+
+    await questions.closeOnNewMessage(asTurnId('t2'));
+
+    await expect(pending).resolves.toEqual({ kind: 'dismissed', reason: 'cancelled', note: 'new-message' });
+    expect(open()).toEqual([]);
+    expect(records().at(-1)).toMatchObject({ kind: 'resolved', outcome: { note: 'new-message' } });
+    // The record belongs to the turn that asked, as every surface reads it.
+    expect(log.slice().at(-1)?.turnId).toBe('t1');
+  });
+
+  it("leaves the new message's own turn questions open", async () => {
+    const { questions, ask, open } = setup();
+    questions.attachSurface();
+    void ask();
+    await settle();
+
+    await questions.closeOnNewMessage(asTurnId('t1'));
+
+    expect(open()).toHaveLength(1);
   });
 
   it('counts surfaces: a detached surface no longer answers, and detaching twice changes nothing', async () => {

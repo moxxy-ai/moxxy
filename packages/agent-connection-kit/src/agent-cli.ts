@@ -32,6 +32,11 @@ export interface AgentCliDescriptor {
   readonly minimumVersion: string;
   /** Arguments to the CLI itself that update it, however it was installed. */
   readonly updateArgs: ReadonlyArray<string>;
+  /**
+   * Arguments that move the CLI to the vendor's next major release, for a
+   * vendor whose plain update stays within the installed one (OpenCode 1).
+   */
+  readonly majorUpdateArgs?: ReadonlyArray<string>;
   /** The vendor's installer, as a POSIX shell line and as a PowerShell line. */
   readonly install: { readonly posix: string; readonly windows: string };
   /**
@@ -122,8 +127,10 @@ export const OPENCODE_CLI: AgentCliDescriptor = {
   npmPackage: '@opencode/cli',
   minimumVersion: '1.19.0',
   updateArgs: ['upgrade'],
-  // OpenCode's install script is POSIX only; on Windows it ships through npm.
-  install: { posix: 'curl -fsSL https://opencode.ai/install | bash', windows: 'npm install -g @opencode/cli' },
+  // OpenCode 1's `upgrade` stays on 1; `--major` replaces it with OpenCode 2 the way it was installed.
+  majorUpdateArgs: ['upgrade', '--major'],
+  // OpenCode's install script is POSIX only; on Windows it ships through npm. `/install` still installs OpenCode 1.
+  install: { posix: 'curl -fsSL https://opencode.ai/v2/install | bash', windows: 'npm install -g @opencode/cli' },
   installDirs: ['.opencode/bin'],
   // OpenCode 2 is published as @opencode/cli; OpenCode 1 as opencode-ai.
   windowsShim: {
@@ -399,6 +406,8 @@ export interface AgentCliActionOptions extends AgentCliSearch {
    * does not know a CLI that another npm installed.
    */
   readonly hostPathDirs?: ReadonlyArray<string>;
+  /** The vendor's latest version of an npm package (default: the registry, cached). */
+  readonly latest?: (pkg: string) => Promise<string | null>;
 }
 
 /** This process's environment with `hostDirs` moved to the end of PATH, unless `file` lies in one of them. */
@@ -483,7 +492,7 @@ export async function runAgentCliAction(
       } catch (err) {
         return { ok: false, message: err instanceof Error ? err.message : String(err) };
       }
-      child = spawnExecutableTarget(target, desc.updateArgs, {
+      child = spawnExecutableTarget(target, await updateArgsFor(desc, target, opts), {
         env: updaterEnv(found, opts.hostPathDirs ?? [], process.env, platform),
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: platform !== 'win32',
@@ -492,6 +501,20 @@ export async function runAgentCliAction(
     }
   }
   return watch(child, opts);
+}
+
+/** The update that reaches the vendor's latest release: the major one when the installed CLI is a major release behind. */
+async function updateArgsFor(desc: AgentCliDescriptor, target: ExecutableTarget, opts: AgentCliActionOptions): Promise<ReadonlyArray<string>> {
+  if (!desc.majorUpdateArgs) return desc.updateArgs;
+  const [installed, latest] = await Promise.all([
+    readCliVersion(target),
+    (opts.latest ?? ((pkg: string) => latestAgentVersion(pkg)))(desc.npmPackage).catch(() => null),
+  ]);
+  return installed && latest && majorOf(installed) < majorOf(latest) ? desc.majorUpdateArgs : desc.updateArgs;
+}
+
+function majorOf(version: string): number {
+  return Number.parseInt(version, 10);
 }
 
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;

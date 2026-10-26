@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { asEventId, asSessionId, asTurnId, type MoxxyEvent } from '@moxxy/sdk';
+import { asEventId, asPluginId, asSessionId, asTurnId, type MoxxyEvent } from '@moxxy/sdk';
 import { EventLine, formatCompactionEvent, formatTriggerOrigin, formatUserPromptRows } from './EventLine.js';
+
+describe('EventLine for a question closed without an answer', () => {
+  it('keeps the reason the card closed in the conversation', () => {
+    const event: MoxxyEvent = {
+      id: asEventId('closed-question'),
+      seq: 1,
+      ts: 0,
+      type: 'plugin_event',
+      sessionId: asSessionId('s1'),
+      turnId: asTurnId('t1'),
+      source: 'system',
+      pluginId: asPluginId('@moxxy/question'),
+      subtype: 'question_resolved',
+      payload: { questionId: 'q1', dismissed: 'cancelled', note: 'agent-went-on' },
+    };
+
+    expect(EventLine({ event })).not.toBeNull();
+  });
+});
 
 describe('formatCompactionEvent', () => {
   it('renders a compact, readable compaction summary', () => {
