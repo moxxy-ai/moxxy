@@ -545,11 +545,17 @@ describe('installing and updating a CLI', () => {
   });
 
   describe('an OpenCode a major release behind', () => {
+    // This external CLI stand-in is a Node script on every OS. Native OpenCode
+    // .exe resolution is covered separately in "running a CLI found on Windows".
+    const testCli: AgentCliDescriptor = {
+      ...OPENCODE_CLI,
+      windowsShim: { entry: 'node_modules/opencode-test/cli.cjs', runs: 'node' },
+    };
     // OpenCode 1's `upgrade` stays on 1 ("skipped: 1.19.4 is already installed");
     // `upgrade --major` swaps the install for OpenCode 2 the way it was installed.
     const opencode = (version: string) =>
       cli(
-        OPENCODE_CLI,
+        testCli,
         '.opencode/bin/opencode',
         version,
         "if (args.join(' ') === 'upgrade --major') console.log('OpenCode 2 installed'); else console.log(`opencode upgrade skipped: ${args.join(' ')}`);",
@@ -559,7 +565,7 @@ describe('installing and updating a CLI', () => {
       newHome();
       opencode('1.19.4');
 
-      const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '', latest: async () => '2.1.4' });
+      const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: async () => '2.1.4' });
 
       expect(result).toEqual({ ok: true, message: 'OpenCode 2 installed' });
     });
@@ -568,7 +574,7 @@ describe('installing and updating a CLI', () => {
       newHome();
       opencode('2.0.28');
 
-      const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '', latest: async () => '2.1.4' });
+      const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: async () => '2.1.4' });
 
       expect(result).toEqual({ ok: true, message: 'opencode upgrade skipped: upgrade' });
     });
@@ -577,7 +583,7 @@ describe('installing and updating a CLI', () => {
       newHome();
       opencode('1.19.4');
 
-      const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '', latest: noRegistry });
+      const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: noRegistry });
 
       expect(result).toEqual({ ok: true, message: 'opencode upgrade skipped: upgrade' });
     });
