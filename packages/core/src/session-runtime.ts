@@ -63,7 +63,11 @@ export interface SessionRuntime {
   readonly resolver: PermissionResolver;
   readonly approvalResolver: ApprovalResolver | null;
   /** The conversation's Questions; a turn asks through them (`ModeContext.ask`). */
-  readonly questions?: { readonly ask: QuestionAsker };
+  readonly questions?: {
+    readonly ask: QuestionAsker;
+    /** Close the questions other turns still wait on: the person wrote again instead of answering. */
+    closeOnNewMessage(turnId: TurnId): Promise<unknown>;
+  };
   readonly elisionSettings: ElisionSettings | null;
   readonly lazyTools: boolean | undefined;
   readonly unfinishedStepCheck: boolean | undefined;

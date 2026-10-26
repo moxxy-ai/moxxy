@@ -42,10 +42,31 @@ export type QuestionAnswers = Readonly<Record<string, QuestionAnswer>>;
 
 export type QuestionOutcome =
   | { readonly kind: 'answered'; readonly answers: QuestionAnswers }
-  /** The turn waiting on it stopped before anyone answered. */
-  | { readonly kind: 'dismissed'; readonly reason: 'cancelled' }
+  /** Closed before anyone answered: the turn waiting on it stopped, or `note` says why else. */
+  | { readonly kind: 'dismissed'; readonly reason: 'cancelled'; readonly note?: QuestionCloseNote }
   /** No surface that can show a question is attached, so nobody will answer. */
   | { readonly kind: 'unanswerable' };
+
+/** The agent went on working without the answer, so nothing waits on it any more. */
+export const QUESTION_CLOSED_AGENT_WENT_ON = 'agent-went-on';
+/** The person sent a new message instead of answering. */
+export const QUESTION_CLOSED_NEW_MESSAGE = 'new-message';
+/** Why a question closed unanswered, when it was not the turn stopping. */
+export type QuestionCloseNote = typeof QUESTION_CLOSED_AGENT_WENT_ON | typeof QUESTION_CLOSED_NEW_MESSAGE;
+
+/** The close note `value` names, or undefined for anything else (an abort reason, a note a newer Moxxy wrote). */
+export function questionCloseNote(value: unknown): QuestionCloseNote | undefined {
+  return value === QUESTION_CLOSED_AGENT_WENT_ON || value === QUESTION_CLOSED_NEW_MESSAGE ? value : undefined;
+}
+
+/**
+ * How the asker of a question in a turn may close it before the turn ends:
+ * aborting `signal` closes it unanswered, with the abort reason as its note
+ * when that is a {@link QuestionCloseNote}.
+ */
+export interface QuestionAskOptions {
+  readonly signal?: AbortSignal;
+}
 
 /** Asks the person and waits: answered, stopped with the turn, or nobody attached to answer. */
 export type QuestionAsker = (request: {
@@ -87,7 +108,8 @@ export const questionAnswersSchema = z.record(questionAnswerSchema);
 const askedSchema = z.object({ questionId: z.string().min(1), questions: z.array(questionItemSchema).min(1) });
 const resolvedSchema = z.union([
   z.object({ questionId: z.string().min(1), answers: questionAnswersSchema }),
-  z.object({ questionId: z.string().min(1), dismissed: z.literal('cancelled') }),
+  // Any note is read, so a record a newer Moxxy wrote still closes its question here.
+  z.object({ questionId: z.string().min(1), dismissed: z.literal('cancelled'), note: z.string().optional() }),
 ]);
 
 export type QuestionRecord =
@@ -103,6 +125,10 @@ export type QuestionRecord =
       readonly outcome: Extract<QuestionOutcome, { kind: 'answered' | 'dismissed' }>;
     };
 
+function dismissedOutcome(note: QuestionCloseNote | undefined): Extract<QuestionOutcome, { kind: 'dismissed' }> {
+  return note ? { kind: 'dismissed', reason: 'cancelled', note } : { kind: 'dismissed', reason: 'cancelled' };
+}
+
 /** What a question record in the log says, or null when the event is not one. */
 export function questionRecord(event: MoxxyEvent): QuestionRecord | null {
   if (event.type !== 'plugin_event' || event.pluginId !== QUESTION_PLUGIN_ID) return null;
@@ -117,7 +143,7 @@ export function questionRecord(event: MoxxyEvent): QuestionRecord | null {
     const outcome =
       'answers' in parsed.data
         ? ({ kind: 'answered', answers: parsed.data.answers } as const)
-        : ({ kind: 'dismissed', reason: parsed.data.dismissed } as const);
+        : dismissedOutcome(questionCloseNote(parsed.data.note));
     return { kind: 'resolved', questionId: parsed.data.questionId, outcome };
   }
   return null;

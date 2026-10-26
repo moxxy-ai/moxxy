@@ -67,6 +67,7 @@ describe('the agent CLIs Moxxy knows', () => {
     expect(CLAUDE_CLI.updateArgs).toEqual(['update']);
     expect(CODEX_CLI.updateArgs).toEqual(['update']);
     expect(OPENCODE_CLI.updateArgs).toEqual(['upgrade']);
+    expect(OPENCODE_CLI.majorUpdateArgs).toEqual(['upgrade', '--major']);
   });
 
   it("installs each with the vendor's installer, on Windows through PowerShell", () => {
@@ -75,7 +76,7 @@ describe('the agent CLIs Moxxy knows', () => {
       args: ['-c', 'curl -fsSL https://claude.ai/install.sh | bash'],
     });
     expect(installInvocation(CODEX_CLI, 'linux').args[1]).toBe('curl -fsSL https://chatgpt.com/codex/install.sh | sh');
-    expect(installInvocation(OPENCODE_CLI, 'linux').args[1]).toBe('curl -fsSL https://opencode.ai/install | bash');
+    expect(installInvocation(OPENCODE_CLI, 'linux').args[1]).toBe('curl -fsSL https://opencode.ai/v2/install | bash');
     expect(installInvocation(CODEX_CLI, 'win32')).toEqual({
       command: expect.stringMatching(/\\WindowsPowerShell\\v1\.0\\powershell\.exe$/),
       args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://chatgpt.com/codex/install.ps1 | iex'],
@@ -540,6 +541,51 @@ describe('installing and updating a CLI', () => {
 
       expect(result).toEqual({ ok: false, message: `The Codex at ${inside} is part of ChatGPT.app and updates with it.` });
       expect(existsSync(updated)).toBe(false);
+    });
+  });
+
+  describe('an OpenCode a major release behind', () => {
+    // This external CLI stand-in is a Node script on every OS. Native OpenCode
+    // .exe resolution is covered separately in "running a CLI found on Windows".
+    const testCli: AgentCliDescriptor = {
+      ...OPENCODE_CLI,
+      windowsShim: { entry: 'node_modules/opencode-test/cli.cjs', runs: 'node' },
+    };
+    // OpenCode 1's `upgrade` stays on 1 ("skipped: 1.19.4 is already installed");
+    // `upgrade --major` swaps the install for OpenCode 2 the way it was installed.
+    const opencode = (version: string) =>
+      cli(
+        testCli,
+        '.opencode/bin/opencode',
+        version,
+        "if (args.join(' ') === 'upgrade --major') console.log('OpenCode 2 installed'); else console.log(`opencode upgrade skipped: ${args.join(' ')}`);",
+      );
+
+    it('moves to the next major release with OpenCode own command for it', async () => {
+      newHome();
+      opencode('1.19.4');
+
+      const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: async () => '2.1.4' });
+
+      expect(result).toEqual({ ok: true, message: 'OpenCode 2 installed' });
+    });
+
+    it('updates within its major release as before', async () => {
+      newHome();
+      opencode('2.0.28');
+
+      const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: async () => '2.1.4' });
+
+      expect(result).toEqual({ ok: true, message: 'opencode upgrade skipped: upgrade' });
+    });
+
+    it('updates as before when the latest release cannot be read', async () => {
+      newHome();
+      opencode('1.19.4');
+
+      const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: noRegistry });
+
+      expect(result).toEqual({ ok: true, message: 'opencode upgrade skipped: upgrade' });
     });
   });
 

@@ -2,14 +2,14 @@ import type { MoxxyEvent } from '@moxxy/sdk';
 import { openQuestionsFromEvents, type OpenQuestion } from '@moxxy/sdk/questions';
 
 /**
- * The open Question a chat shows: the latest one of the turn running now. A
- * question whose turn is not running was left behind by a runner that stopped
- * mid-question; nothing waits on it, so it is not offered for an answer.
+ * The open Question a chat shows while a turn runs: the latest one asked, of
+ * whichever turn asked it, so a question stays on screen for as long as it
+ * waits. With no turn running nothing waits on it (a runner stopped
+ * mid-question), so it is not offered for an answer.
  */
 export function pendingQuestion(events: ReadonlyArray<MoxxyEvent>, activeTurnId: string | null): OpenQuestion | null {
   if (activeTurnId === null) return null;
-  const open = openQuestionsOf(events).filter((question) => question.turnId === activeTurnId);
-  return open.at(-1) ?? null;
+  return openQuestionsOf(events).at(-1) ?? null;
 }
 
 // Read on every streamed chunk (the sidebar asks each chat what it is doing);

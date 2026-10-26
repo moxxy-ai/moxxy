@@ -3,8 +3,10 @@ import {
   QUESTION_ASKED,
   QUESTION_PLUGIN_ID,
   QUESTION_RESOLVED,
+  QUESTION_CLOSED_NEW_MESSAGE,
   openQuestionsFromEvents,
   questionAnswersProblem,
+  questionCloseNote,
   questionRecord,
   asTurnId,
   waitFor,
@@ -61,8 +63,10 @@ export class SessionQuestionsImpl implements SessionQuestions {
       await this.record(turnId, QUESTION_ASKED, { questionId, questions });
       const settled = await outcome;
       if (settled.status === 'ready') return settled.value;
-      if (this.isOpen(questionId)) await this.record(turnId, QUESTION_RESOLVED, { questionId, dismissed: 'cancelled' });
-      return { kind: 'dismissed', reason: 'cancelled' };
+      // The asker closed it for a reason of its own (the agent went on), or the turn stopped.
+      const note = questionCloseNote(signal.reason);
+      if (this.isOpen(questionId)) await this.record(turnId, QUESTION_RESOLVED, { questionId, dismissed: 'cancelled', ...(note ? { note } : {}) });
+      return note ? { kind: 'dismissed', reason: 'cancelled', note } : { kind: 'dismissed', reason: 'cancelled' };
     } finally {
       this.waiting.delete(questionId);
     }
@@ -92,6 +96,26 @@ export class SessionQuestionsImpl implements SessionQuestions {
     return Promise.all(
       left.map((question) =>
         this.record(asTurnId(question.turnId), QUESTION_RESOLVED, { questionId: question.questionId, dismissed: 'cancelled' }),
+      ),
+    );
+  }
+
+  /**
+   * The person sent a new message (turn `turnId`) instead of answering: close
+   * the questions other turns in this process still wait on, so those turns
+   * end and the new message is not left queued behind them.
+   */
+  closeOnNewMessage(turnId: TurnId): Promise<unknown> {
+    const waited = openQuestionsFromEvents(this.deps.log.ofType('plugin_event')).filter(
+      (question) => this.waiting.has(question.questionId) && question.turnId !== turnId,
+    );
+    return Promise.all(
+      waited.map((question) =>
+        this.record(asTurnId(question.turnId), QUESTION_RESOLVED, {
+          questionId: question.questionId,
+          dismissed: 'cancelled',
+          note: QUESTION_CLOSED_NEW_MESSAGE,
+        }),
       ),
     );
   }

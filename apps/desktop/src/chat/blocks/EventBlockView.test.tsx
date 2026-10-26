@@ -10,7 +10,7 @@ import { onAgentWorkFocus } from '@moxxy/client-core';
 import { AgentWorkLinkProvider } from '../agent-work-link';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { assertDefined } from '@moxxy/sdk';
+import { asPluginId, assertDefined } from '@moxxy/sdk';
 import { EventBlockView } from './EventBlockView';
 
 function userPrompt(extra: Partial<MoxxyEvent>): MoxxyEvent {
@@ -108,6 +108,30 @@ describe('EventBlockView — ambient trigger marker', () => {
     render(<EventBlockView event={userPrompt({})} />);
     expect(screen.getByTestId('block-user')).toBeTruthy();
     expect(screen.queryByTestId('block-trigger')).toBeNull();
+  });
+});
+
+describe('EventBlockView — a question closed without an answer', () => {
+  it.each([
+    ['agent-went-on', 'Question closed: the agent went on without an answer.'],
+    ['new-message', 'Question closed: you sent a new message instead.'],
+  ])('keeps the reason %s in the transcript', (note, text) => {
+    const event: MoxxyEvent = {
+      type: 'plugin_event',
+      id: 'closed-question' as MoxxyEvent['id'],
+      sessionId: 's1' as MoxxyEvent['sessionId'],
+      turnId: 't1' as MoxxyEvent['turnId'],
+      seq: 3,
+      ts: 0,
+      source: 'system',
+      pluginId: asPluginId('@moxxy/question'),
+      subtype: 'question_resolved',
+      payload: { questionId: 'q1', dismissed: 'cancelled', note },
+    };
+
+    render(<EventBlockView event={event} />);
+
+    expect(screen.getByRole('status').textContent).toBe(text);
   });
 });
 

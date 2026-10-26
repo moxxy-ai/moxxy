@@ -40,12 +40,17 @@ describe('the question a chat shows', () => {
     expect(pendingQuestion(events, 't1')?.questionId).toBe('a');
   });
 
-  it('is none once it was answered, or when its turn is not running (left over from a runner that stopped)', () => {
+  it('stays shown while another turn runs, so a question asked earlier never disappears while it waits', () => {
+    const asked = record(QUESTION_ASKED, { questionId: 'a', questions: [colour] }, 't1');
+
+    expect(pendingQuestion([asked], 't2')?.questionId).toBe('a');
+  });
+
+  it('is none once it was answered, or when no turn runs (left over from a runner that stopped)', () => {
     const asked = record(QUESTION_ASKED, { questionId: 'a', questions: [colour] }, 't1');
     const answered = record(QUESTION_RESOLVED, { questionId: 'a', answers: { q1: { selected: ['red'] } } });
 
     expect(pendingQuestion([asked, answered], 't1')).toBeNull();
     expect(pendingQuestion([asked], null)).toBeNull();
-    expect(pendingQuestion([asked], 't2')).toBeNull();
   });
 });
