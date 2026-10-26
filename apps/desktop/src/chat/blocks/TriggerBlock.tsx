@@ -33,8 +33,11 @@ export function TriggerBlock({
   const chip = (
     <>
       <Icon name={icon} size={13} />
-      <span>
-        {label} · <b>{origin.name}</b>
+      <span className="trigger__label">
+        {label} ·{' '}
+        <b className="trigger__name" title={origin.name}>
+          {origin.name}
+        </b>
       </span>
     </>
   );

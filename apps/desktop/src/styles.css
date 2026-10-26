@@ -3032,6 +3032,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: inline-flex;
   align-items: center;
   gap: var(--space-8);
+  max-width: 100%;
   padding: var(--space-4) var(--space-12);
   border: 1px solid var(--color-card-border);
   border-radius: var(--radius-pill);
@@ -3041,6 +3042,21 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   background: var(--color-surface);
 }
 .trigger__chip b { font-weight: 600; color: var(--color-text); }
+/* The chip is a pill: a name long enough to wrap (an agent's background work
+   can be named by a whole shell command) would turn it into an oval. One line,
+   cut with an ellipsis; the whole name is the title. */
+.trigger__label {
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+}
+.trigger__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trigger__chip > svg,
+.trigger__chip > .disclosure__chevron { flex-shrink: 0; }
 button.trigger__chip { text-align: left; cursor: pointer; }
 /* The Agents pane pointed here: mark it a moment so the eye finds it. */
 .trigger[data-flash='true'] .trigger__chip { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-soft); }
