@@ -52,7 +52,6 @@ Each row is a real fault, with the commit that fixed it.
 | An isolation scope of one folder level (`/work/*`) also allowed every nested file, and `dir/**` did not allow `dir` itself | the scope matcher only treated `/` as a separator; normalised Windows paths use the other one | `matchesGlob` in `packages/plugin-security/src/cap-check.ts` |
 | `Glob` found nothing for a pattern with a folder in it (`src/**/*.ts`) | the pattern was matched against a path with Windows separators | `packages/tools-builtin/src/glob.ts` |
 | The diff of a new, untracked file was empty in the desktop | git was handed the Windows `nul` device; git only reads `/dev/null` as "no file", on every platform | `packages/desktop-host/src/git.ts` |
-| `moxxy mobile` could not start or stop the Expo app | `spawn('npm')`, and a `SIGTERM` that never reaches npm's child | `packages/plugin-channel-mobile/src/expo-launcher.ts` |
 | Updating extensions failed for anyone with a linked plugin | `fs.cp` recreates a directory link as a symlink, which an ordinary account may not create; a junction needs no privilege | `copyTree` in `packages/desktop-host/src/component-update.ts` |
 | Running the tests wrote fixtures into the developer's real `~/.moxxy` and rewrote the vault key | tests moved `HOME`; Windows resolves the home from `USERPROFILE` | `tooling/vitest-preset/isolate.js` |
 | A security patch was rejected only on Windows checkouts | the audit hashed a patch file; `core.autocrlf` rewrote its line endings | removed with `650c2640` |

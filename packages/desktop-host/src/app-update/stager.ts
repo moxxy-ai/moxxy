@@ -390,8 +390,8 @@ interface BundlePayload {
  * Serializes ALL in-flight stage operations, keyed by `userDataDir`. The
  * activation step (`rmSync(finalRoot)` then `movePopulatedDir(incoming →
  * finalRoot)` then `setActiveVersion`) is NOT atomic across calls: two concurrent
- * `downloadAndStage` runs (a double-clicked Update button, a renderer retry, the
- * WS bridge racing a window) can interleave so one `rmSync`s the dir the other
+ * `downloadAndStage` runs (a double-clicked Update button, a renderer retry, two
+ * windows racing) can interleave so one `rmSync`s the dir the other
  * just renamed into (ENOENT/EEXIST on rename), or `setActiveVersion` lands the
  * loser's pointer over the winner's bytes — yielding a half-populated / wrong-
  * bytes bundle the boot gate then rejects. The IPC layer SHOULD also coalesce

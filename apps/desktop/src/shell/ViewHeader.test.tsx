@@ -3,7 +3,7 @@
  *
  * The header carries two pill groups — the LEFT view switcher
  * (Chat/Workflows/Collaborate/Apps) and, on Settings, the RIGHT tab group
- * (Providers/MCP/Skills/Vault/Mobile/…). When the window is narrow the inline
+ * (Providers/MCP/Skills/Vault/Voice/…). When the window is narrow the inline
  * row would clip tabs off-screen, so each group folds into a single compact
  * button + dropdown so every destination stays reachable.
  *
@@ -52,7 +52,7 @@ const TABS = [
   { id: 'mcp', label: 'MCP' },
   { id: 'skills', label: 'Skills' },
   { id: 'vault', label: 'Vault' },
-  { id: 'mobile', label: 'Mobile' },
+  { id: 'voice', label: 'Voice' },
 ] as const;
 
 beforeEach(() => {
@@ -108,8 +108,8 @@ describe('Segmented (collapsible)', () => {
       <Segmented items={TABS} value="providers" onChange={onChange} testIdPrefix="t-" collapsible />,
     );
     fireEvent.click(screen.getByTestId('t-collapsed'));
-    fireEvent.click(screen.getByTestId('t-mobile'));
-    expect(onChange).toHaveBeenCalledWith('mobile');
+    fireEvent.click(screen.getByTestId('t-voice'));
+    expect(onChange).toHaveBeenCalledWith('voice');
     // Menu closed after selection.
     expect(screen.getByTestId('t-collapsed').getAttribute('aria-expanded')).toBe('false');
   });
@@ -161,7 +161,7 @@ describe('Segmented (collapsible)', () => {
         value="providers"
         onChange={onChange}
         testIdPrefix="t-"
-        disabledIds={new Set(['mcp', 'mobile'])}
+        disabledIds={new Set(['mcp', 'voice'])}
         disabledReason="Session is still loading"
         collapsible
       />,
@@ -187,7 +187,7 @@ describe('Segmented (collapsible)', () => {
         value="providers"
         onChange={onChange}
         testIdPrefix="t-"
-        disabledIds={new Set(['mobile'])}
+        disabledIds={new Set(['voice'])}
         disabledReason="Session is still loading"
         collapsible
       />,
@@ -196,7 +196,7 @@ describe('Segmented (collapsible)', () => {
     const trigger = screen.getByTestId('t-collapsed');
     fireEvent.click(trigger);
 
-    const disabledItem = screen.getByTestId('t-mobile');
+    const disabledItem = screen.getByTestId('t-voice');
     expect(disabledItem.getAttribute('aria-disabled')).toBe('true');
     expect(disabledItem.hasAttribute('disabled')).toBe(true);
 

@@ -137,7 +137,6 @@ const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
       ['MOXXY_VAULT_PASSPHRASE', 'headless vault passphrase (alt to keychain)'],
       ['MOXXY_TELEGRAM_TOKEN', 'override the vault-stored Telegram token'],
       ['MOXXY_HTTP_TOKEN', 'bearer token for the HTTP channel'],
-      ['MOXXY_MOBILE_TOKEN | _HOST | _TUNNEL', 'mobile channel auth / bind host / tunnel'],
       ['MOXXY_SESSION_ID', 'sticky session id for `moxxy serve` (resume-if-present)'],
       ['MOXXY_RUNNER_SOCKET', "override the runner's unix-socket path"],
       ['(full list)', 'see the Environment variables table in the README'],

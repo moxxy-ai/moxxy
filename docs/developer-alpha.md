@@ -18,7 +18,7 @@ approvals, and resume the run without learning the runtime architecture.
 ## Still experimental
 
 - channel and background-service setup;
-- automations, voice, mobile, and agent-authored apps;
+- automations, voice, and agent-authored apps;
 - third-party extensions and non-default runtime blocks;
 - organization-wide enrollment and remote audit export;
 - packaged desktop self-update across every environment.

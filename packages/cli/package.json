@@ -77,7 +77,6 @@
     "@moxxy/isolator-worker": "workspace:*",
     "@moxxy/mode-default": "workspace:*",
     "@moxxy/mode-plan": "workspace:*",
-    "@moxxy/plugin-channel-mobile": "workspace:*",
     "@moxxy/plugin-cli": "workspace:*",
     "@moxxy/plugin-commands": "workspace:*",
     "@moxxy/plugin-embeddings-openai": "workspace:*",

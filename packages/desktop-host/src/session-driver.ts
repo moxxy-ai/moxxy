@@ -31,7 +31,6 @@ import type { IpcEvents, RunTurnVisibility } from '@moxxy/desktop-ipc-contract';
 import { openAsk, cancelAsksFor } from './ask-broker.js';
 import { buildAttachments } from './attachments.js';
 import { sendEvent } from './send-event.js';
-import { wsEventBus } from './event-bus.js';
 import { withComputerApprovalFocus } from './computer-approval-focus.js';
 
 interface ActiveTurn {
@@ -408,8 +407,5 @@ export class SessionDriver {
 
   private send<K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void {
     for (const win of this.windows) sendEvent(win, channel, payload);
-    // Mirror the tagged stream (runner.event / runner.turn.complete / ask.request)
-    // to any non-Electron transports. No-op when no WS bridge is attached.
-    wsEventBus.broadcast(channel, payload);
   }
 }

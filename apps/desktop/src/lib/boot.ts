@@ -4,8 +4,7 @@
  * `window.moxxy`; the platform capabilities are the Web implementations.
  *
  * This is the one place the renderer reaches for `window.moxxy` — the shared
- * `@moxxy/client-core` stays transport-agnostic, and a future mobile app boots
- * the same hooks with a WebSocket transport + Expo capabilities instead.
+ * `@moxxy/client-core` stays transport-agnostic.
  */
 
 import { configureTransport } from '@moxxy/client-core/transport';

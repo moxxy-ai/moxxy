@@ -99,7 +99,6 @@ jobs:
           pnpm --filter @moxxy/cli exec vitest run src/setup/scheduled-workflow-approval.test.ts
           pnpm --filter @moxxy/plugin-scheduler exec vitest run src/workflow-wait.test.ts
           pnpm --filter @moxxy/runner exec vitest run src/workflow-approvals.test.ts
-          pnpm --filter @moxxy/plugin-channel-mobile exec vitest run src/workflow-approvals.test.ts
       - run: pnpm --filter @moxxy/desktop run prepare:resources
       - name: Verify offline provider updates from real installer packages
         env:

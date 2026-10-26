@@ -25,7 +25,6 @@ export const DESTINATIONS: ReadonlyArray<Destination> = [
   { id: 'automations', label: 'Automations', icon: 'workflow' },
   { id: 'apps', label: 'Apps', icon: 'grid' },
   { id: 'channels', label: 'Channels', icon: 'broadcast' },
-  { id: 'mobile', label: 'Mobile', icon: 'smartphone' },
   { id: 'voice', label: 'Voice', icon: 'speaker' },
   { id: 'settings', label: 'Settings', icon: 'settings', chord: 'mod+,' },
 ];

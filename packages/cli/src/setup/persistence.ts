@@ -13,7 +13,7 @@ import { definePlugin } from '@moxxy/sdk';
  * with the real lastActivity timestamp when Session.close() fires.
  *
  * The store writes the session's single metadata record, stamped with its
- * originating channel, and every surface (TUI/desktop/mobile) derives its
+ * originating channel, and every surface (TUI/desktop) derives its
  * workspace list from those — there is no separate registry copy to keep in sync.
  */
 export function attachSessionPersistence(

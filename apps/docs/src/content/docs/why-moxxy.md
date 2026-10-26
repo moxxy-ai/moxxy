@@ -53,7 +53,7 @@ sources as authoritative.
 |---|---|---|---|---|
 | Language | TypeScript | TypeScript | TypeScript | Python |
 | GitHub stars (July 2026) | small, young project | ~381k | ~67k | ~208k |
-| Messaging channels | TUI, desktop, Telegram, HTTP, Slack, mobile | 23 (WhatsApp, Telegram, Slack, Discord, iMessage, …) | terminal-focused | Telegram, Discord, Slack, WhatsApp, Signal + more via one gateway |
+| Messaging channels | TUI, desktop, Telegram, HTTP, Slack | 23 (WhatsApp, Telegram, Slack, Discord, iMessage, …) | terminal-focused | Telegram, Discord, Slack, WhatsApp, Signal + more via one gateway |
 | Permission gating | every tool call, by default | allow-lists / pairing per channel | none by design (external containment) | approval hooks |
 | Sandboxing / isolation | opt-in capability isolators (inproc/worker/subprocess/wasm) | opt-in, off by default; main session runs on the host | delegated to containers/VMs | delegated to where you run it |
 | Swappable agent loop | yes — modes are plugins | no | no | no |

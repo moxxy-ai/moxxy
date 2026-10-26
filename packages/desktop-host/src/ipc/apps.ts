@@ -17,7 +17,6 @@ import { app, BrowserWindow } from 'electron';
 
 import type { AppInstallProgress, AppInstallStatus } from '@moxxy/desktop-ipc-contract';
 import { sendEvent } from '../send-event';
-import { wsEventBus } from '../event-bus';
 import { appStatus, installApp, uninstallApp } from '../apps/installer.js';
 import { APP_INSTALLERS } from '../apps/registry.js';
 import { handle, IpcError } from './shared';
@@ -35,7 +34,6 @@ function appsRoot(): string {
 function broadcastProgress(p: AppInstallProgress): void {
   const target = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
   if (target) sendEvent(target, 'apps.install.progress', p);
-  wsEventBus.broadcast('apps.install.progress', p);
 }
 
 /** Ids whose install is in flight — a re-entrant `apps.install` for the same

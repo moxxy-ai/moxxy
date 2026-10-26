@@ -5,16 +5,7 @@ const NO_FIX_PUBLISHED = '<0.0.0';
  * Advisories the audit tolerates. An entry holds only while upstream has
  * published no fix and the package is reached solely through the listed paths.
  */
-export const ACCEPTED_ADVISORIES = [
-  {
-    id: 'GHSA-86w9-cpqp-85rv',
-    module: 'node-forge',
-    paths: ['apps__mobile>expo>@expo/cli>node-forge'],
-    reason:
-      'RSA signature-verification flaw. @expo/cli only uses node-forge to read local Apple ' +
-      'signing certificates during `expo run:ios`; it verifies no signatures and never ships.',
-  },
-];
+export const ACCEPTED_ADVISORIES = [];
 
 function isAccepted(advisory, accepted) {
   const entry = accepted.find((candidate) => candidate.id === advisory.github_advisory_id);

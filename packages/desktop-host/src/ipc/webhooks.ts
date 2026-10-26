@@ -43,9 +43,6 @@ function loadWebhooks(): Promise<WebhooksModule> {
  * read drops the in-memory cache so a trigger created/updated out-of-process
  * (by a running runner) is reflected immediately.
  *
- * Host-only: these are deliberately NOT in REMOTE_ALLOWED_COMMANDS — a paired
- * phone can't toggle or delete inbound triggers.
- *
  * @param injectedStore Tests pass a temp-file store so they don't touch the
  *  real `~/.moxxy/webhooks.json`; production lazy-loads the default store.
  * @param desks The desk registry, used to resolve a trigger's `targetSessionId`

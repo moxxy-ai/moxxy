@@ -259,7 +259,7 @@ export interface ModeDef {
   readonly badge?: ModeBadge;
   /**
    * Marks a "special" mode — one the user does NOT pick from `/mode`. Set this
-   * and the mode is, uniformly across every surface (TUI, mobile, desktop):
+   * and the mode is, uniformly across every surface (TUI, desktop):
    *   - **hidden** from every mode list / picker (presence), and
    *   - **refused** by the normal mode-switch by name (execution) — it can only
    *     be entered through its own invocation (a slash command, a spawned
@@ -298,7 +298,7 @@ export interface ModeSpecial {
 
 /**
  * Whether a mode is user-selectable — i.e. NOT a {@link ModeDef.special} mode.
- * The single predicate every surface (TUI/mobile/desktop mode lists + the
+ * The single predicate every surface (TUI/desktop mode lists + the
  * by-name mode-switch) uses to filter/refuse special modes uniformly. The
  * parameter is intentionally loose (`{ special? }`) so it also applies to the
  * minimal `{ name }` rows the swap-UI registries expose — non-mode defs simply

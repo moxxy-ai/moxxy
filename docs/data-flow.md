@@ -45,7 +45,7 @@ Moxxy's side of it stays on the machine: the agent reaches Moxxy's tools over an
 | `registry.npmjs.org` | `moxxy plugins install` / `search` | The package spec being installed or the search query. |
 | `api.github.com` | Installing from a GitHub spec | The repository reference. |
 | Your OAuth provider | `moxxy login <provider>` | A standard OAuth 2.0 / PKCE or device-code exchange. |
-| `proxy.moxxy.ai`, or your own relay | Only when a tunnel provider is active (mobile pairing, the web surface) | Encrypted channel traffic. Not used unless you start a channel that needs a tunnel. |
+| `proxy.moxxy.ai`, or your own relay | Only when a tunnel provider is active (the web surface, webhooks) | Encrypted channel traffic. Not used unless you start a channel that needs a tunnel. |
 | Whatever a tool reaches | The agent calling `web_fetch`, `browser_*`, an MCP server, or a channel you started | Whatever that tool sends. Gated by the permission engine, and by the egress allow-list if configured. |
 
 ## What stays on the machine

@@ -2,7 +2,7 @@
  * The `proxy` tunnel provider — a native-Node replacement for the cloudflared/
  * ngrok subprocess providers.
  *
- * Several channels (the mobile bridge, the web preview, the webhooks listener)
+ * Several channels (the web preview, the webhooks listener)
  * can be exposed at once under ONE keypair-derived subdomain: a process-singleton
  * {@link ProxyHub} owns a single control connection per identity and a
  * `target → local port` map. Each `open({ port, host, label })` registers a

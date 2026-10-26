@@ -1,7 +1,7 @@
 /**
  * Appearance tab — the light / dark / system theme picker.
  *
- * Standalone (like About / Mobile): it doesn't read the runner-backed
+ * Standalone (like About): it doesn't read the runner-backed
  * settings slice. The segmented control writes through the shared theme
  * store in `lib/useTheme`, which (1) flips `data-theme` on <html>
  * synchronously so the change is instant, and (2) persists the pref via

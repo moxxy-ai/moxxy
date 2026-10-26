@@ -32,19 +32,17 @@ One thin SKILL.md per task; read only what the task needs. Frontmatter
 | add-an-embedder | New embeddings provider for memory/recall |
 | add-a-skill-builtin | New Markdown skill in moxxy's own skills-builtin |
 | add-a-slash-command | New /command on the chat surfaces |
-| add-an-ipc-command | New desktop IPC command (contract + validation + host + WS/mobile) |
+| add-an-ipc-command | New desktop IPC command (contract + validation + host) |
 | change-runner-protocol | Runner wire-protocol changes + RUNNER_PROTOCOL_VERSION bump rule |
 
 ## Verify / debug
 
 | Skill | Trigger |
 |---|---|
-| verify-desktop-packaged | Packaged-app smoke: electron-builder --dir + launch + WS-bridge check |
+| verify-desktop-packaged | Packaged-app smoke: electron-builder --dir + launch |
 | windows-parity | Keep a change working on Windows when you can only run macOS/Linux (processes, sockets, paths, packaging) |
-| verify-mobile | Expo PoC verification without a device (tests + export proof + pairing) |
 | debug-self-update | Tier-1 hot-update misbehavior via <userData>/app state files + boot-log |
 | debug-session-logs | Resume/desync/duplication issues in session JSONL + chat NDJSON |
-| debug-ws-bridge | WS bridge auth/origin/port/token failures (desktop + moxxy mobile) |
 
 ## Process
 

@@ -8,7 +8,7 @@ const accepted = [
   {
     id: 'GHSA-aaaa-bbbb-cccc',
     module: 'dev-only-lib',
-    paths: ['apps__mobile>tool>dev-only-lib'],
+    paths: ['apps__docs>tool>dev-only-lib'],
     reason: 'test fixture',
   },
 ];
@@ -18,7 +18,7 @@ function advisory(overrides = {}) {
     github_advisory_id: 'GHSA-aaaa-bbbb-cccc',
     module_name: 'dev-only-lib',
     patched_versions: '<0.0.0',
-    findings: [{ version: '1.0.0', paths: ['apps__mobile>tool>dev-only-lib'] }],
+    findings: [{ version: '1.0.0', paths: ['apps__docs>tool>dev-only-lib'] }],
     ...overrides,
   };
 }

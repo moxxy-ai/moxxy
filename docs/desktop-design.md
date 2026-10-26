@@ -4,7 +4,7 @@ The desktop app is being redrawn as a messenger. The conversation is the main
 thing on screen. Everything else is reachable but out of the way.
 
 This document is the contract for that redesign. It covers the desktop app
-only; the mobile app, the TUI and the web channel keep their own look.
+only; the TUI and the web channel keep their own look.
 
 ## Decisions
 
@@ -96,7 +96,7 @@ a click or the wheel shows the hold was the start of something else
 
 No view stands without the sidebar. A view with sections of its own
 (Automations, Channels, Extensions, Settings) lists them there; a view with
-none (Apps, Mobile) keeps the runs beside it, and picking a run
+none (Apps) keeps the runs beside it, and picking a run
 goes back to the conversation. `shell/views.ts` holds that rule. In any view
 other than the runs, the sidebar's head carries a back control. A place that
 needs a loaded session (Automations, Apps) is shown disabled, with
@@ -136,7 +136,7 @@ pane.
 | An agent's account limit | The limit an agent reports for the person's account, said in one sentence that names the agent, the window and when it resets: "Claude has used 94% of its weekly limit · resets Sat at 08:00". It sits under the effort and fast mode in the Model & usage window (the telemetry in the instrument bar opens it), dim while there is room, amber when nearly used up and red once it is, and leaves by itself when the window resets (`shell/instrument/Telemetry.tsx`, `chat/useAccountLimit.ts`). It is not a line above the message box: that line could not be closed and stood over every message for days. A turn that stopped on it ends with a "Limit" note in the conversation saying the same, in place of the agent's raw error. |
 | An agent's CLI | When the CLI behind the active agent connection is missing, older than Moxxy works with, or behind the vendor's latest, one quiet line above the message box says so in the words the terminal uses ("Codex 0.162.1 is out — you have 0.155.1"), with the fix after it (Install, Update). Amber for an update it can live without, red for one it cannot. The amber one can be closed, and stays closed until the vendor publishes another version (`dismissedAgentUpdates` in the desktop prefs); the red one cannot. While the fix runs the line shows what the installer prints (`chat/composer/AgentCliBar.tsx`, `chat/useAgentCliNotice.ts`, the words from `agentCliNotice` in `@moxxy/chat-model`). |
 | An agent's list of steps | One card per turn, drawn where the agent first wrote the list and updated in place each time it changes it: a "Steps" head with how many are done, then one row per step with a round mark (green tick done, accent dot in progress, empty ring waiting, struck through when dropped). The calls that changed the list never show as lines of their own; they sit under the card in the turn's activity (`chat/blocks/StepList.tsx`). |
-| Triggers, stops, errors | A note with a short label. A turn the agent opened by itself (Claude going on after its background helper finished) is the same note, "Agent continued" with what finished, on every surface: desktop, terminal and phone (`chat/blocks/trigger-meta.ts`). |
+| Triggers, stops, errors | A note with a short label. A turn the agent opened by itself (Claude going on after its background helper finished) is the same note, "Agent continued" with what finished, on every surface: desktop and terminal (`chat/blocks/trigger-meta.ts`). |
 
 Under a message sit its time and, for an answer, copy, read aloud and feedback.
 That line always takes its height and is shown for the message under the
@@ -182,7 +182,7 @@ activity or a helper's activity, one neutral note says "The agent finished
 without replying." The agent loop records it only after finishing, so live
 clients and reopened history show the same note. A stopped turn, an error or
 an exhausted account limit already explains the end and gets no extra note.
-The terminal, phone and messaging channels use the same wording; the note
+The terminal and messaging channels use the same wording; the note
 does not become an assistant message or get read aloud by a channel.
 
 A link the agent writes to a file on this computer (a `file://` URL or an
@@ -282,7 +282,7 @@ so no mode has a look of its own.
 | Outcome card | `chat/modes/ModeOutcomeCard.tsx` | What a mode hands back (a plan, a finished or paused goal, a research plan, a follow-up round) is a card with a title and its facts as chips, then the text. The signal tool call that precedes it is not drawn unless it failed. |
 | Plan answers | `chat/modes/plan-next.ts`, `chat/modes/plan-dismissals.ts` | The plan nothing has followed offers "Implement" and "Run as goal", the one it recommends filled, then "Rewrite" and "Dismiss". Each way on switches the session's mode first and then sends the prompt, so the prompt cannot run as another round of planning. A goal run starts from the default mode, which is where it hands back. "Rewrite" puts a field in place of the answers for what does not fit (Enter sends, Escape goes back) and sends it in plan mode. "Dismiss" puts the answers away and tags the plan "Dismissed"; the agent is not told, and the dismissal is kept in this window's storage because only the desktop draws plan answers. Only the person moves past a plan: the agent saying more after it in the same turn leaves the answers in place, so a second or third plan offers the same four. They are not offered while a turn runs, while a question waits, or on an older plan. |
 | Step note | `chat/modes/ModeNoteLine.tsx` | A phase of the run (goal started, research round, research complete) is one quiet line with a toned dot. |
-| Agents | `chat/blocks/SubagentGroupView.tsx` | A fan-out lists its agents as rows: a state light, what the agent is working on, its tool and token counts, and its state. A research agent is named by its question. Its one-line summary ("2 agents finished, 1 failed") is `subagentGroupHeader` from `@moxxy/chat-model`, so the terminal and the phone say the same words. |
+| Agents | `chat/blocks/SubagentGroupView.tsx` | A fan-out lists its agents as rows: a state light, what the agent is working on, its tool and token counts, and its state. A research agent is named by its question. Its one-line summary ("2 agents finished, 1 failed") is `subagentGroupHeader` from `@moxxy/chat-model`, so the terminal says the same words. |
 
 `chat/modes/mode-events.ts` reads the modes' own events out of the run's log
 and says which message is an outcome and which event is a note. The desktop
@@ -488,13 +488,13 @@ Empty, loading, search-without-results and read-error states are distinct.
 The full log is indexed into a disposable cache per chat that holds no
 attachment bytes; an attached file is copied there only when it is opened. Completed messages supply links; code and pages merely visited
 by browser tools do not. Repeated images and links appear once. Rebuilding
-the cache never rewrites the conversation. The phone has no new screen yet.
+the cache never rewrites the conversation.
 
 ### Agents
 
 Agents is the sixth pane, also found by name in ⌘K ("background work", "helpers"). It lists the times the agent set itself to come back ("Scheduled"), then the chat's helpers and the commands its agent left running, those that run now first (`shell/surfaces/agents`). It is drawn with the Media pane's pieces: the same header with its count, captions in the muted text colour, and rows with the icon on a 32 px tile, the name and one line under it. A state is a dot and a word (an accent dot running, green done, red failed), the way a run says its state. A scheduled wakeup says when the agent comes back and how soon ("Back at 22:59 · in 3 min", or "Next at" for one that repeats), read from Claude's own list of what it set (`SessionInfo.scheduledWakeups`, from its `Stop` hook); Moxxy cannot cancel one, so the row has no control, and the agent cancels it when asked in the chat. Picking one opens its mini chat: a helper's task in a bubble on the right, what it said and the tools it called in order, then its answer; for a command, once it ended, what it printed last (its line is the heading, and the agent's summary shows only when it says more). A running work has Stop; nothing here writes to the agent. Durations count up while something runs and do not animate otherwise. "Show in chat" scrolls the chat to the "Agent continued" entry the work opened, and marks it a moment.
 
-In the chat, "Agent continued" is one chip without a box under it (its prompt is its name). When it says which work ended, clicking it opens that work here; a turn the agent woke itself up for reads "Agent continued · Scheduled check-in". Above the message box, drawn as the steps bar is (the lead in the text colour, the rest muted, 18 px), one quiet line says what runs in the background ("In the background npm run dev") and another when the agent comes back by itself (a clock, "Back at 22:59 · in 3 min", what for, and how many more are set); each opens this pane. The running dot breathes in opacity the way the mark does and holds still under reduced motion. The pane does not open by itself. The phone has no screen for it yet.
+In the chat, "Agent continued" is one chip without a box under it (its prompt is its name). When it says which work ended, clicking it opens that work here; a turn the agent woke itself up for reads "Agent continued · Scheduled check-in". Above the message box, drawn as the steps bar is (the lead in the text colour, the rest muted, 18 px), one quiet line says what runs in the background ("In the background npm run dev") and another when the agent comes back by itself (a clock, "Back at 22:59 · in 3 min", what for, and how many more are set); each opens this pane. The running dot breathes in opacity the way the mark does and holds still under reduced motion. The pane does not open by itself.
 
 No control or note draws a text glyph or an emoji for an icon (✕, ⚠, ✓, ⛶, 📣): they come from the one icon set, `Icon` in `@moxxy/desktop-ui`, so their weight and size match the rest. The terminal, Telegram and Discord, which have no icons, keep their characters.
 
@@ -537,8 +537,8 @@ and `styles.css` disagree.
 
 The desktop has its own palette pair, `desktopTokens` and `desktopDarkTokens`,
 in `packages/design-tokens/src/desktop.ts`. The shared `tokens` and `darkTokens`
-in the same package are what the mobile app reads, and the redesign does not
-change them.
+in the same package are the framework-neutral default, and the redesign does
+not change them.
 
 Both desktop palettes keep the shared token shape, so every CSS variable the
 renderer already reads keeps resolving. `apps/desktop/src/styles.css` declares
@@ -564,8 +564,8 @@ above are reimplemented here in Moxxy's own components.
    composer.
 4. **Right panel** (done): the work panel is gone while closed and opens from
    the run's header.
-5. **Other views** (done): Settings, Extensions, Automations, Apps, Channels,
-   Mobile and onboarding share one kit, and the focus window wears
+5. **Other views** (done): Settings, Extensions, Automations, Apps, Channels
+   and onboarding share one kit, and the focus window wears
    the desktop palette.
 6. **Review pass** (done): voice and focus mode on the header, one tooltip
    layer that is never clipped, settings sections with icons, plan, goal and

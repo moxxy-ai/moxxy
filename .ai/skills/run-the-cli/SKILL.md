@@ -28,8 +28,7 @@ Notes:
 - Key resolution order: `moxxy.config.ts` → vault (`~/.moxxy/vault.json`,
   `MOXXY_VAULT_PASSPHRASE` unlocks headless) → `<PROVIDER>_API_KEY` env →
   interactive prompt (TTY only).
-- Daemon/channels: `moxxy serve` runs the bare runner (unix socket);
-  `moxxy mobile` serves the WS bridge + QR. Stale daemon after a protocol
+- Daemon/channels: `moxxy serve` runs the bare runner (unix socket). Stale daemon after a protocol
   bump self-heals on next attach (see change-runner-protocol skill).
 - `moxxy plugins new <name>` scaffolds a user-scope plugin under
   `~/.moxxy/plugins/`; `moxxy plugins reload` hot-loads it.

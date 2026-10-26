@@ -63,8 +63,8 @@ describe('generateRootCss', () => {
     // the desktop CSS. The accent is the commanded MULBERRY stop, deep enough to
     // carry a white label on paper (flat magenta cannot); ink and the panel greys
     // carry the palette's blue-green bias. If one of these changes here without
-    // styles.css following, the desktop and the mobile theme map have silently
-    // diverged from the design language.
+    // styles.css following, the desktop has silently diverged from the design
+    // language.
     expect(css).toContain('--color-primary: #d62a00;');
     expect(css).toContain('--color-on-primary: #ffffff;');
     expect(css).toContain('--color-text: #0b0f12;');
@@ -227,7 +227,7 @@ describe('forward token→CSS-var coverage', () => {
 
 /**
  * styles.css ↔ desktop tokens parity. The desktop has its own palette pair
- * (`./desktop.ts`); the shared `tokens` / `darkTokens` are what mobile reads.
+ * (`./desktop.ts`); the shared `tokens` / `darkTokens` are the neutral default.
  * These tests pin the two declarations of the palette together so an edit to
  * either side without the other fails loudly. Crucially they also enforce the
  * dark theme's completeness: ANY literal-color custom property declared in a

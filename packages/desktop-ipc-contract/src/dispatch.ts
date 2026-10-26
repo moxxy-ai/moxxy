@@ -9,11 +9,10 @@
  *   3. Classify any failure into a stable {@link MoxxyIpcErrorCode}.
  *
  * It returns a structured {@link IpcDispatchResult} instead of throwing the
- * Electron-specific string envelope — each transport (Electron `CommandBus`,
- * WebSocket `CommandBus`) serializes that result in its own native error shape.
- * Keeping this here, in the leaf contract package, is what lets the WebSocket
- * server reuse the exact same validate-and-classify policy without depending on
- * `@moxxy/desktop-host` (which pulls in Electron).
+ * Electron-specific string envelope — each transport's `CommandBus` serializes
+ * that result in its own native error shape. Keeping this here, in the leaf
+ * contract package, lets any transport reuse the exact same validate-and-classify
+ * policy without depending on `@moxxy/desktop-host` (which pulls in Electron).
  */
 
 import { validateIpcInput } from './validation.js';

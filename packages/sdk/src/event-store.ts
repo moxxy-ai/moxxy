@@ -19,6 +19,7 @@ export const SESSION_SOURCES = [
   'cli',
   'tui',
   'desktop',
+  // The mobile app was removed; kept so sessions it recorded still read back.
   'mobile',
   'slack',
   'telegram',
@@ -34,7 +35,7 @@ export type SessionSource = (typeof SESSION_SOURCES)[number];
 /**
  * The single per-session metadata record (the JSONL impl writes it to
  * `~/.moxxy/sessions/<id>.json`). ONE per session — the unit every surface
- * (TUI/desktop/mobile) lists, searches and caches; the conversation itself is
+ * (TUI/desktop) lists, searches and caches; the conversation itself is
  * the append-only event stream. Fields split by owner: the runner owns the
  * content fields (`firstPrompt`/`eventCount`/`lastActivity`/`provider`/`model`/
  * `startedAt`/`source`); the UI owns `title` (rename) and `groupId` (desk).

@@ -31,10 +31,6 @@ import { useChannelRunMode } from './useChannelRunMode';
  * ban-risk consent gate, and the page was as tall as the catalog. A channel is a
  * thing you configure once and then leave alone; it deserves a page, and the
  * column deserves to show which ones are actually running.
- *
- * Mobile is NOT here. Pairing this machine with a phone is a property of the
- * install rather than another chat surface to configure: no catalog entry, no
- * dedicated runner, no secrets. It sits at the foot of the rail beside Settings.
  */
 
 function channelNote(entry: ChannelEntry): string | null {

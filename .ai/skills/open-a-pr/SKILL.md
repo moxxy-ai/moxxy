@@ -39,7 +39,7 @@ EOF
 
 Conventions:
 - **Title:** conventional-commit style, matching history — `fix(desktop): ...`,
-  `feat(client): ...`, `chore(mobile): ...`, `docs(product): ...`,
+  `feat(client): ...`, `chore(desktop): ...`, `docs(product): ...`,
   `refactor(modes): ...`. Check `git log --oneline -20` for the house style.
 - **No AI attribution.** Never add `Co-Authored-By: Claude`, "Generated with
   Claude Code", or any robot footer to commits or PR bodies. The user is the

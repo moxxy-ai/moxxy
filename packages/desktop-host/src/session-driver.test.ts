@@ -597,7 +597,7 @@ describe('SessionDriver info-changed forwarding', () => {
 });
 
 describe('SessionDriver inline attachments', () => {
-  it('passes mobile inline attachments directly to the remote session turn', async () => {
+  it('passes inline attachments directly to the remote session turn', async () => {
     const inlineAttachments: ReadonlyArray<UserPromptAttachment> = [
       {
         kind: 'image',

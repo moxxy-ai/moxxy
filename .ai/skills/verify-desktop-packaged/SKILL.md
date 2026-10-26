@@ -1,6 +1,6 @@
 ---
 name: verify-desktop-packaged
-description: Build and smoke-test a packaged desktop app (electron-builder --dir + launch + WS-bridge check) — use to verify desktop changes survive packaging, not just dev mode.
+description: Build and smoke-test a packaged desktop app (electron-builder --dir + launch) — use to verify desktop changes survive packaging, not just dev mode.
 ---
 
 # Verify the desktop, packaged
@@ -22,13 +22,6 @@ Launch + smoke (macOS):
 ```sh
 "apps/desktop/release/mac-arm64/MoxxyAI Workspaces.app/Contents/MacOS/MoxxyAI Workspaces" &
 # boots clean = no MODULE_NOT_FOUND in the terminal, window renders past splash
-```
-
-WS-bridge smoke (the PR #126 verification):
-
-```sh
-MOXXY_WS_BRIDGE=1 "apps/desktop/release/mac-arm64/MoxxyAI Workspaces.app/Contents/MacOS/MoxxyAI Workspaces" &
-sleep 8 && lsof -nP -iTCP:8765 -sTCP:LISTEN    # bridge must be listening
 ```
 
 Gotchas:

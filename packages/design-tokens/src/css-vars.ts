@@ -6,7 +6,7 @@
  * of truth) — the parity test guards the mapping so a later switch is safe.
  *
  * The desktop projects its OWN palette pair (`./desktop.ts`). The generators
- * default to the shared pair mobile reads and take the desktop's as arguments.
+ * default to the shared pair and take the desktop's as arguments.
  *
  * TODO(design-tokens): cut apps/desktop over to {@link generateThemeCss} and
  * delete the duplicated `:root` / `[data-theme="dark"]` literals in styles.css.
@@ -145,8 +145,8 @@ export function generateRootCss(light: ThemeTokens = tokens): string {
 }
 
 /** Render a palette pair: `:root { … }` (light) followed by a
- *  `[data-theme="dark"] { … }` override block. Defaults to the shared pair
- *  mobile reads; the desktop passes its own (`./desktop.ts`). */
+ *  `[data-theme="dark"] { … }` override block. Defaults to the shared pair;
+ *  the desktop passes its own (`./desktop.ts`). */
 export function generateThemeCss(
   light: ThemeTokens = tokens,
   dark: ThemeTokens = darkTokens,

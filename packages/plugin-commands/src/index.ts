@@ -103,10 +103,9 @@ const helpCmd: CommandDef = {
   handler: ({ session, channel, args }) => {
     const s = session as SessionShape;
     // Guard the registry read the same way `/info` does: a flapping or
-    // partially-constructed `commands` registry (plugin host mid-reload, a
-    // RemoteSession over the WS bridge) must degrade to a benign message
-    // rather than throw — handlers must return `{kind:'error'}`/text, never
-    // crash an un-try/catch'd channel (the mobile host's runCommand path).
+    // partially-constructed `commands` registry (plugin host mid-reload) must
+    // degrade to a benign message rather than throw — handlers must return
+    // `{kind:'error'}`/text, never crash an un-try/catch'd channel.
     // `?? []` also collapses a registry whose `.list()` returns a non-array.
     const all = safe(() => s.commands.list());
     const registered: ReadonlyArray<CommandDef> = Array.isArray(all) ? all : [];

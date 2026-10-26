@@ -20,7 +20,6 @@ const DEFAULTS: DesktopPrefs = {
   clerkUserId: null,
   clerkDisplayName: null,
   signedInAt: null,
-  mobileGatewayEnabled: false,
   theme: 'system',
   voiceEngine: 'local',
   replySound: true,

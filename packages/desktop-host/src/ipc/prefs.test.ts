@@ -18,7 +18,6 @@ const BASE: DesktopPrefs = {
   clerkUserId: null,
   clerkDisplayName: null,
   signedInAt: null,
-  mobileGatewayEnabled: false,
   theme: 'system',
   focusMiniTextSize: null,
   version: 1,
@@ -30,7 +29,6 @@ vi.mock('../prefs', () => {
     clerkUserId: null,
     clerkDisplayName: null,
     signedInAt: null,
-    mobileGatewayEnabled: false,
     theme: 'system',
     focusMiniTextSize: null,
     version: 1,
@@ -80,9 +78,9 @@ describe('prefs IPC handlers', () => {
     const updateHandler = handlers.get('prefs.update');
     assertDefined(updateHandler, 'prefs.update handler');
     const next = (await updateHandler({
-      mobileGatewayEnabled: true,
+      replySound: false,
     })) as DesktopPrefs;
-    expect(next.mobileGatewayEnabled).toBe(true);
+    expect(next.replySound).toBe(false);
     expect(next.theme).toBe('system');
   });
 
