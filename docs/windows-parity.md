@@ -37,6 +37,7 @@ Each row is a real fault, with the commit that fixed it.
 
 | Fault | What macOS hid | Fix |
 |---|---|---|
+| Saving a theme timed out the Windows preferences test | importing the npm `electron` package in plain Node downloaded the absent binary; macOS already had it | check `process.versions.electron` before importing it; `prefs.node.test.ts` verifies real persistence without initializing that package |
 | The browser tools fell back to Playwright and failed on a fresh install | the browser bridge listened on a filesystem socket path; Windows can only listen on a named pipe | `30ed44d7` |
 | `moxxy serve` exited and the desktop reported "lost the runner" | a `.sock` path used as the runner address | `platformSocket()` in `packages/runner/src/socket-path.ts` |
 | A new integration test failed the first Windows gate | the fixture hard-coded a POSIX socket path | `ad53c188` |

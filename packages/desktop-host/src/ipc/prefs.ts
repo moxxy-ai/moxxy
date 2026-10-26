@@ -15,10 +15,10 @@ const THEME_VALUES: ReadonlyArray<ThemePreference> = ['light', 'dark', 'system']
 /** Mirror the persisted theme pref into Electron's `nativeTheme.themeSource`
  *  so window chrome AND the renderer's `prefers-color-scheme` track the
  *  user's choice (`system` = follow the OS). No-op outside Electron — the
- *  handlers also run under plain-node vitest, where the `electron` package
- *  resolves to a binary-path string with no `nativeTheme` export. */
+ *  handlers also run in Node, where importing the `electron` package may
+ *  download its binary instead of exposing `nativeTheme`. */
 async function syncNativeTheme(theme: ThemePreference): Promise<void> {
-  if (!THEME_VALUES.includes(theme)) return;
+  if (!process.versions.electron || !THEME_VALUES.includes(theme)) return;
   try {
     const electron = (await import('electron')) as Partial<typeof import('electron')>;
     if (electron.nativeTheme) electron.nativeTheme.themeSource = theme;
