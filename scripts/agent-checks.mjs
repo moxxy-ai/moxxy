@@ -63,6 +63,18 @@ export function taskRunsInBackground(tools) {
   return Object.hasOwn(task.parameters?.properties ?? {}, 'background');
 }
 
+/** Packages a CLI was published under before its current one: OpenCode 1 is `opencode-ai`, OpenCode 2 `@opencode/cli`. */
+const EARLIER_NPM_PACKAGES = { '@opencode/cli': { beforeMajor: 2, name: 'opencode-ai' } };
+
+/** What `npm install` takes for a CLI's newest or minimum version, from the package that version was published under. */
+export function npmInstallSpec(desc, install) {
+  if (install === 'latest') return `${desc.npmPackage}@latest`;
+  const earlier = EARLIER_NPM_PACKAGES[desc.npmPackage];
+  const major = Number(desc.minimumVersion.split('.')[0]);
+  const name = earlier && major < earlier.beforeMajor ? earlier.name : desc.npmPackage;
+  return `${name}@${desc.minimumVersion}`;
+}
+
 /** Exit 0 only when something was checked and all of it passed; a check left undone is never a success. */
 export function summarize(results) {
   const counts = { pass: 0, fail: 0, skip: 0, na: 0 };

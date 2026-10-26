@@ -4,7 +4,7 @@
  * connections expect? Checked with no account and no key, so it runs on CI:
  * each CLI starts in a home of its own, answers the handshake its connection
  * opens with, Codex's protocol kinds are compared with the fixture the
- * connection was written against, and OpenCode's HTTP API, which Moxxy reads
+ * connection was written against, and OpenCode 1's HTTP API, which Moxxy reads
  * background subagents from, must be behind Moxxy's password and offer them.
  * No model is called.
  *
@@ -22,7 +22,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { codexKindsFromGenerated, diffKinds, newestFixture, parseAgentArgs, renderReport, summarize, taskRunsInBackground } from './agent-checks.mjs';
+import { codexKindsFromGenerated, diffKinds, newestFixture, npmInstallSpec, parseAgentArgs, renderReport, summarize, taskRunsInBackground } from './agent-checks.mjs';
 import { findTarget, gitState, isolatedEnv, runTarget, startRpc } from './agent-cli-env.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -32,7 +32,7 @@ const { CLAUDE_AGENT_SDK_VERSION, ensureClaudeAgentSdk } = await import(dist('pl
 const { ACP_PROTOCOL_VERSION } = await import(dist('plugin-provider-acp', 'protocol.js'));
 const { CLIENT_CAPABILITIES } = await import(dist('plugin-provider-acp', 'acp-session.js'));
 const { OPENCODE_FREE_MODELS } = await import(dist('plugin-provider-acp', 'constants.js'));
-const { opencodeAcpLaunch } = await import(dist('plugin-provider-acp', 'executable.js'));
+const { opencodeAcpLaunch, opencodeServesApiBesideAcp } = await import(dist('plugin-provider-acp', 'executable.js'));
 
 const AGENTS = { claude: CLAUDE_CLI, codex: CODEX_CLI, opencode: OPENCODE_CLI };
 const root = mkdtempSync(path.join(tmpdir(), 'moxxy-agent-compat-'));
@@ -49,7 +49,7 @@ async function cliFor(agent, install) {
   const desc = AGENTS[agent];
   if (install === 'path') return { target: findTarget(desc.command) };
   const prefix = path.join(root, `${agent}-cli`);
-  const spec = `${desc.npmPackage}@${install === 'latest' ? 'latest' : desc.minimumVersion}`;
+  const spec = npmInstallSpec(desc, install);
   const npm = findTarget('npm');
   if (!npm) throw new Error('npm not found on PATH');
   const installed = await runTarget(npm, ['install', '--prefix', prefix, '--no-fund', '--no-audit', '--loglevel=error', spec]);
@@ -190,9 +190,11 @@ async function checkOpenCodeApi(api, home) {
   }
 }
 
-async function checkOpenCode(target, env, home) {
-  // Started as Moxxy starts it: its HTTP API on a port of Moxxy's, behind a password, background subagents on.
-  const launch = opencodeAcpLaunch({ port: await freePort(), password: randomBytes(24).toString('base64url'), inherited: {} });
+async function checkOpenCode(target, env, home, version) {
+  // Started as Moxxy starts it: OpenCode 1 with its HTTP API on a port of Moxxy's, behind a password;
+  // OpenCode 2 with no port, which it refuses. Background subagents on.
+  const server = opencodeServesApiBesideAcp(version) ? { port: await freePort(), password: randomBytes(24).toString('base64url') } : undefined;
+  const launch = opencodeAcpLaunch({ ...(server ? { server } : {}), inherited: {} });
   const rpc = startRpc(target, launch.args, { env: { ...env, ...launch.env }, cwd: home });
   try {
     const init = await rpc.request('initialize', { protocolVersion: ACP_PROTOCOL_VERSION, clientCapabilities: CLIENT_CAPABILITIES });
@@ -200,8 +202,9 @@ async function checkOpenCode(target, env, home) {
     const session = await rpc.request('session/new', { cwd: home, mcpServers: [] });
     if (typeof session.sessionId !== 'string') throw new Error('session/new answered without a sessionId');
     record('opencode', 'ACP handshake', 'pass', `ACP ${ACP_PROTOCOL_VERSION}: initialize and session/new answered`);
-    // OpenCode serves its HTTP API once it answered `initialize`.
-    await checkOpenCodeApi(launch.api, home);
+    // OpenCode 1 serves its HTTP API once it answered `initialize`; OpenCode 2 serves none beside ACP.
+    if (launch.api) await checkOpenCodeApi(launch.api, home);
+    else record('opencode', 'HTTP API', 'na', `OpenCode ${version} serves no HTTP API beside ACP, so Moxxy shows no background subagents`);
   } catch (error) {
     record('opencode', 'ACP handshake', 'fail', message(error));
   } finally {
@@ -230,7 +233,7 @@ async function checkAgent(agent, install) {
   if (!version) return;
   if (agent === 'claude') await checkClaude(target, env, home);
   if (agent === 'codex') await checkCodex(target, env, version);
-  if (agent === 'opencode') await checkOpenCode(target, env, home);
+  if (agent === 'opencode') await checkOpenCode(target, env, home, version);
 }
 
 async function main() {

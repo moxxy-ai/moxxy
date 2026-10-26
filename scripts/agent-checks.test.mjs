@@ -5,6 +5,7 @@ import {
   diffKinds,
   liveCheckBox,
   newestFixture,
+  npmInstallSpec,
   parseAgentArgs,
   renderReport,
   summarize,
@@ -148,4 +149,14 @@ test("reads from OpenCode's tool list whether its task tool can run a subagent i
   assert.equal(taskRunsInBackground(task({ description: {}, prompt: {} })), false);
   assert.equal(taskRunsInBackground([{ id: 'bash', parameters: { properties: {} } }]), undefined);
   assert.equal(taskRunsInBackground({ error: 'not a list' }), undefined);
+});
+
+test('installs the minimum version from the package it was published under, the newest from the current one', () => {
+  const opencode = { npmPackage: '@opencode/cli', minimumVersion: '1.19.0' };
+  const codex = { npmPackage: '@openai/codex', minimumVersion: '0.155.1' };
+
+  assert.equal(npmInstallSpec(opencode, 'minimum'), 'opencode-ai@1.19.0');
+  assert.equal(npmInstallSpec(opencode, 'latest'), '@opencode/cli@latest');
+  assert.equal(npmInstallSpec({ ...opencode, minimumVersion: '2.1.0' }, 'minimum'), '@opencode/cli@2.1.0');
+  assert.equal(npmInstallSpec(codex, 'minimum'), '@openai/codex@0.155.1');
 });
