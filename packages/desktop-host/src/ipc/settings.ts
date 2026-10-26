@@ -24,11 +24,11 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
     return readAdminProviderNames();
   });
   handle('settings.providerCatalog', async () => {
-    // Built-ins (bundled or seeded with the desktop) are always pickable.
-    // Admin-registered ones come from the unified config so the onboarding
-    // dropdown reflects whatever the user already added via `provider_add`
-    // (zai, openrouter, …).
-    const builtins = ['anthropic', 'openai', 'openai-codex', 'claude-code'];
+    // Built-ins (bundled or seeded with the desktop, or the agent connections
+    // provisioned on first sign-in) are always pickable. Admin-registered ones
+    // come from the unified config so the onboarding dropdown reflects whatever
+    // the user already added via `provider_add` (zai, openrouter, …).
+    const builtins = ['anthropic', 'openai', 'openai-codex', 'claude-code', 'codex-agent', 'opencode'];
     const { readAdminProviderNames } = await import('../provider-discovery');
     const admin = await readAdminProviderNames();
     const seen = new Set<string>();
@@ -75,6 +75,8 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
         // is the source of truth (the desktop never sees raw ModelDescriptors);
         // a provider supports it when ANY of its models advertises it.
         supportsReasoning: p.models.some((m) => m.supportsReasoning === true),
+        ...(p.agentName ? { agentName: p.agentName } : {}),
+        ...(p.agentCli ? { agentCli: p.agentCli } : {}),
         ...(detail
           ? {
               baseURL: detail.baseURL,

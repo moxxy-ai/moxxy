@@ -187,6 +187,17 @@ describe('projectMessagesFromLog tool_result stringify hardening', () => {
   it('passes a string output through verbatim', () => {
     expect(toolResultText(logWith('plain text'))).toBe('plain text');
   });
+
+  it('shows the model every image a result carries, after its text', () => {
+    const output = { forModel: 'Two windows', mediaType: 'image/png', base64: 'AAA', moreImages: [{ mediaType: 'image/jpeg', base64: 'BBB' }] };
+    const msgs = projectMessagesFromLog({ log: reader(logWith(output)) });
+
+    expect(msgs.find((m) => m.role === 'tool_result')?.content).toEqual([
+      { type: 'tool_result', toolUseId: 'c1', content: 'Two windows', isError: false },
+      { type: 'image', mediaType: 'image/png', data: 'AAA' },
+      { type: 'image', mediaType: 'image/jpeg', data: 'BBB' },
+    ]);
+  });
 });
 
 describe('skillsWithinReach', () => {

@@ -137,7 +137,7 @@ describe('createMessageHandler', () => {
     await handle(req({ id: 1 }));
     await handle(req({ id: 2 }));
     await handle(
-      req({ id: 3, modelKey: '/models/small/small-encoder.onnx', encoder: '/models/small/small-encoder.onnx' }),
+      req({ id: 3, modelKey: '/models/turbo/turbo-encoder.int8.onnx', encoder: '/models/turbo/turbo-encoder.int8.onnx' }),
     );
     expect(loads).toBe(1); // module loaded once
     expect(s.constructed).toBe(2); // one recognizer per distinct modelKey

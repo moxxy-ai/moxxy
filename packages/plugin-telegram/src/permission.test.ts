@@ -34,6 +34,25 @@ describe('TelegramPermissionResolver', () => {
     expect(decider).toHaveBeenCalledTimes(1);
   });
 
+  // Allowing Safari for the session must not let a later request for Terminal through.
+  it('remembers allow_session only for the same request when the tool narrows it', async () => {
+    const r = new TelegramPermissionResolver();
+    const decider = vi.fn(async () => {});
+    r.setDecider(decider);
+    const narrowed = { ...ctx, toolPermission: { action: 'prompt' as const, sessionScope: { inputKeys: ['apps'] } } };
+    const access = (apps: string[], id: string) => ({ callId: asToolCallId(id), name: 'computer_request_access', input: { apps } });
+
+    const first = r.check(access(['Safari'], 'a1'), narrowed);
+    r.resolvePending('a1', { mode: 'allow_session' });
+    await first;
+    await r.check(access(['Safari'], 'a2'), narrowed);
+    expect(decider).toHaveBeenCalledTimes(1);
+
+    void r.check(access(['Terminal'], 'a3'), narrowed);
+    await vi.waitFor(() => expect(decider).toHaveBeenCalledTimes(2));
+    r.abortAll();
+  });
+
   it('abortAll resolves pending checks as deny', async () => {
     const r = new TelegramPermissionResolver();
     r.setDecider(async () => {});

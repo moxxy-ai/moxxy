@@ -83,4 +83,31 @@ describe('ImagePreviewModal', () => {
       cursor: 'grab',
     });
   });
+
+  it('steps to the image before and after by button and arrow key, and says where it is', () => {
+    const onPrevious = vi.fn();
+    const onNext = vi.fn();
+    render(
+      <ImagePreviewModal
+        image={{ name: 'two.png', mediaType: 'image/png', base64: PNG_1x1 }}
+        onClose={vi.fn()}
+        position="2 of 3"
+        onPrevious={onPrevious}
+        onNext={onNext}
+      />,
+    );
+    expect(screen.getByText('2 of 3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous image' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next image' }));
+    fireEvent.keyDown(document, { key: 'ArrowLeft' });
+    fireEvent.keyDown(document, { key: 'ArrowRight' });
+    expect(onPrevious).toHaveBeenCalledTimes(2);
+    expect(onNext).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers no step where there is no image to step to', () => {
+    render(<ImagePreviewModal image={{ name: 'one.png', mediaType: 'image/png', base64: PNG_1x1 }} onClose={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Previous image' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Next image' })).toBeNull();
+  });
 });

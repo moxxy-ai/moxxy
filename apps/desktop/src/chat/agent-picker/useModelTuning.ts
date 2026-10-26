@@ -16,8 +16,12 @@ import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 
 export const EFFORT_LEVELS: ReadonlyArray<ReasoningEffort> = ['off', 'low', 'medium', 'high', 'xhigh'];
 
-/** The levels an effort menu offers: `default` only while it is the effort, since it cannot be asked for. */
-export function effortLevelsFor(effort: EffortLevel): ReadonlyArray<EffortLevel> {
+/**
+ * The levels an effort menu offers: `default` only while it is the effort, since it cannot be asked for.
+ * An agent connection always thinks, so it has no Off and starts from Low (the runner runs it at Low until one is set).
+ */
+export function effortLevelsFor(effort: EffortLevel, opts: { readonly agent?: boolean } = {}): ReadonlyArray<EffortLevel> {
+  if (opts.agent === true) return EFFORT_LEVELS.slice(1);
   return effort === 'default' ? ['off', 'default', ...EFFORT_LEVELS.slice(1)] : EFFORT_LEVELS;
 }
 
@@ -98,11 +102,16 @@ export interface ModelTuning {
   readonly setFast: (enabled: boolean) => Promise<void>;
 }
 
-/** What the model in use offers; an unknown model id (a custom or live one) offers what any of its provider's models do. */
+/**
+ * What the model in use offers: the one picked, else the one the runner runs a
+ * turn on. An unknown model id (a custom or live one) offers what any of its
+ * provider's models do.
+ */
 function offers(info: SessionInfo, model: string | null): { reasoning: boolean; fast: boolean } {
   const provider = info.providers.find((p) => p.name === info.activeProvider);
   const models = provider?.models ?? [];
-  const descriptor = model === null ? models[0] : models.find((m) => m.id === model);
+  const inUse = model ?? info.defaultModel ?? null;
+  const descriptor = inUse === null ? models[0] : models.find((m) => m.id === inUse);
   const candidates = descriptor ? [descriptor] : models;
   return {
     reasoning: candidates.some((m) => m.supportsReasoning === true),
@@ -166,9 +175,10 @@ export function useModelTuning(workspaceId: string, info: SessionInfo, model: st
 
   const offered = offers(info, model);
   const effort = pending.effort ?? reported.effort;
+  const agent = info.providers.some((p) => p.name === info.activeProvider && p.agentName !== undefined);
   return {
     effort,
-    effortLevels: effortLevelsFor(effort),
+    effortLevels: effortLevelsFor(effort, { agent }),
     fast: pending.fast ?? reported.fast,
     canSetEffort: offered.reasoning,
     canSetFast: offered.fast,

@@ -102,10 +102,16 @@ export type {
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
+  TranscriptionMode,
+  TranscriptionSettings,
+  TranscriptionSetup,
   SkillFile,
   ReasoningEffort,
   ModelDefaultsChange,
   StoredModelDefaults,
+  AgentCliAction,
+  AgentCliRunResult,
+  AgentCliProgress,
 } from './settings.js';
 
 // ---------- Desks ---------------------------------------------------------
@@ -119,6 +125,16 @@ export type {
   RunTurnVisibility,
   ActiveTurnSnapshot,
 } from './chat.js';
+export type {
+  ChatMediaFile,
+  ChatMediaImage,
+  ChatMediaImageChunk,
+  ChatMediaImageData,
+  ChatMediaItem,
+  ChatMediaLibrary,
+  ChatMediaLink,
+  ChatMediaOwner,
+} from './chat-media.js';
 
 // ---------- Focus window layout ------------------------------------------
 export {
@@ -163,6 +179,7 @@ export type {
 
 // ---------- Events the renderer subscribes to ------------------------------
 export type { IpcEvents } from './events.js';
+export type { AppNotice, AppNoticeTarget } from './notices.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 export type { IpcCommands, IpcCommandName, CollabRunSummary } from './commands.js';

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /**
  * Zod validation for the BlueBubbles socket.io `new-message` payload — a

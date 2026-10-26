@@ -73,7 +73,7 @@
     "@types/ws": "catalog:",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^5.0.3",
-    "electron": "^43.7.9",
+    "electron": "^43.8.1",
     "electron-builder": "^26.15.3",
     "electron-builder-squirrel-windows": "^26.17.0",
     "electron-vite": "^5.0.0",

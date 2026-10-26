@@ -87,8 +87,9 @@ export function useAskPrompt(ask: AskRequest | null): AskPrompt | null {
 function permissionPrompt(ask: AskRequest): AskPrompt {
   const tool = ask.tool;
   const name = tool ? tool.name : null;
+  const toolName = name ?? 'this tool';
   const command = tool ? toolCallText(tool.input) : '';
-  const decide = (mode: 'deny' | 'allow_session' | 'allow_always') => (): void =>
+  const decide = (mode: 'deny' | 'allow' | 'allow_session' | 'allow_always') => (): void =>
     askStore.respond(ask.requestId, { mode });
   return {
     requestId: ask.requestId,
@@ -100,10 +101,13 @@ function permissionPrompt(ask: AskRequest): AskPrompt {
     ...(tool && tool.description ? { prose: tool.description } : {}),
     ...(command ? { command } : {}),
     // The narrow answer leads. Enter approves nothing: focus rests on Deny.
+    // Labels stay short so all four fit the focus window's 468px toast without
+    // being cut; the title already names the tool, the hints spell out scope.
     actions: [
-      { id: 'allow', label: 'Allow once', tone: 'primary', onClick: decide('allow_session') },
-      { id: 'always', label: `Always allow ${name ?? 'this'}`, tone: 'neutral', onClick: decide('allow_always') },
-      { id: 'deny', label: 'Deny', tone: 'danger', onClick: decide('deny') },
+      { id: 'allow', label: 'Allow once', title: `Allow ${toolName} for this one call only`, tone: 'primary', onClick: decide('allow') },
+      { id: 'session', label: 'Allow for session', title: `Allow ${toolName} for the rest of this conversation`, tone: 'neutral', onClick: decide('allow_session') },
+      { id: 'always', label: 'Always allow', title: `Always allow ${toolName}, also in later conversations`, tone: 'neutral', onClick: decide('allow_always') },
+      { id: 'deny', label: 'Deny', title: 'Do not run this call', tone: 'danger', onClick: decide('deny') },
     ],
     focus: 'deny',
     keys: 'Esc denies',

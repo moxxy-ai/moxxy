@@ -1,5 +1,6 @@
 import { sx } from '@/styles/tokens';
 import { AskSheet } from '@/components/AskSheet';
+import { useQuestion } from '@moxxy/client-core';
 import { ChatComposer } from '@/components/ChatComposer';
 import { ChatDrawer } from '@/components/ChatDrawer';
 import { ChatHeader } from '@/components/ChatHeader';
@@ -71,7 +72,9 @@ function Chat() {
   // Where the floating composer sits above the bottom edge (a touch lower than
   // the full safe-area inset so it hugs the bottom).
   const composerBottom = keyboardHeight > 0 ? keyboardHeight : Math.max(6, safeArea.bottom - 16);
-  const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
+  const question = useQuestion(sessions.activeWorkspaceId);
+  const pendingActions =
+    permissions.pendingAsks.length + permissions.pendingPermissions.length + (question.question ? 1 : 0);
   const activeSessionRecord = sessions.sessions.find((item) => textOf(item.id) === sessions.activeWorkspaceId);
   const activeSessionTitle = textOf(activeSessionRecord?.name, textOf(session.session?.id, 'No active session'));
   const activeWorkspace = sessions.workspaces.find((w) => textOf(w.id) === textOf(activeSessionRecord?.workspaceId));
@@ -176,7 +179,7 @@ function Chat() {
 
         {showPendingActionsSheet ? (
           <View style={overlayStyle}>
-            <AskSheet asks={permissions.pendingAsks} permissions={permissions.pendingPermissions} maxHeight={screenHeight * 0.5} onAskResponse={permissions.respondAsk} onPermissionDecision={permissions.decidePermission} />
+            <AskSheet asks={permissions.pendingAsks} permissions={permissions.pendingPermissions} question={question} maxHeight={screenHeight * 0.5} onAskResponse={permissions.respondAsk} onPermissionDecision={permissions.decidePermission} />
           </View>
         ) : null}
         {/* Composer floats over the transcript so content scrolls under the

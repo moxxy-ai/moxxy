@@ -23,14 +23,10 @@ export function attachSessionPersistence(
 ): EventStoreSession | null {
   if (disabled) return null;
 
+  // No model yet: the file names the one a turn really ran on (from its
+  // provider_request). Stamping the first listed one (Fable for Claude) made a
+  // restarted runner take it as the conversation's last model.
   const providerName = session.providers.getActiveName() ?? undefined;
-  const modelId = (() => {
-    try {
-      return session.providers.getActive().models[0]?.id;
-    } catch {
-      return undefined;
-    }
-  })();
   // The floor guarantees an active store; guard defensively rather than throw.
   const store = session.eventStores.getActive();
   if (!store) return null;
@@ -38,7 +34,6 @@ export function attachSessionPersistence(
     sessionId: session.id,
     cwd,
     providerName,
-    modelId,
     source: sessionSource(),
   });
   const detach = handle.attach(session.log);

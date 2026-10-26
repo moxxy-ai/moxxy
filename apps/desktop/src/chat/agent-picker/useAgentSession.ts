@@ -13,6 +13,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { api, chatStore, useConnection } from '@moxxy/client-core';
+import { startingModel } from '@moxxy/sdk/starting-model';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 import { isSessionInfoReady } from '../../app-session-readiness';
 import {
@@ -160,8 +161,9 @@ export function useAgentSession(
     contextWindow?: number,
   ): Promise<void> => {
     if (modelOwner) {
-      // An owner's model always names one: a provider alone means its first.
-      const modelId = model ?? info?.providers.find((p) => p.name === provider)?.models[0]?.id;
+      // An owner's model always names one: a provider alone means the one a new conversation starts on.
+      const offered = info?.providers.find((p) => p.name === provider);
+      const modelId = model ?? (offered ? startingModel(offered) : undefined);
       if (modelId) await modelOwner.pick(provider, modelId);
       return;
     }

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { runStepShape, type RunStep } from '../contract/tools.js';
 
 /** The runs the moxxy team tries on an app before a release, so its lessons ship with the plugin. */

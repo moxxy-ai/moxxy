@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineTool } from './define.js';
 import type { MoxxyEvent, MoxxyEventOfType, MoxxyEventType } from './events.js';
 import { asEventId, asSessionId, asToolCallId, asTurnId, type TurnId } from './ids.js';

@@ -18,7 +18,7 @@ import { renderLogo } from '../logo.js';
 import { cancel, isCancel, note, password } from '@clack/prompts';
 import { colors } from '../colors.js';
 import type { ProviderAuthKind, SetupSelections } from '@moxxy/plugin-cli';
-import type { ProviderDef } from '@moxxy/sdk';
+import { startingModel, type ProviderDef } from '@moxxy/sdk';
 import { formatHelp } from './help-format.js';
 
 const HELP = formatHelp({
@@ -324,7 +324,8 @@ function providerDescription(def: ProviderDef): string | undefined {
     const service = def.auth.serviceName;
     return service ? `OAuth · ${service}` : 'OAuth sign-in';
   }
-  return def.models[0]?.id ? `default model: ${def.models[0].id}` : undefined;
+  const model = startingModel(def);
+  return model ? `default model: ${model}` : undefined;
 }
 
 function titleCase(s: string): string {

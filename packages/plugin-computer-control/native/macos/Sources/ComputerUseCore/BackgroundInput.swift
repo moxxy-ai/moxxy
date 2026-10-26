@@ -55,8 +55,10 @@ public enum WindowEvent {
         public let location: CGPoint
     }
 
-    /// A point no window covers, where the primer press lands.
-    public static let primer = CGPoint(x: -1, y: -1)
+    /// A point no window or screen covers, where the primer press lands. Not just past the corner:
+    /// macOS 27 holds a press there as a title-bar click and hands it to the app's view after the
+    /// gesture, as a stray click. This far out nothing takes it, and Chromium still counts it.
+    public static let primer = CGPoint(x: -10_000, y: -10_000)
     static let afterPrimer: TimeInterval = 0.1
 
     public static func stamp(_ step: MouseStep, to window: WindowAddress, group: Int64) -> Stamp {

@@ -3,6 +3,7 @@ import { Box } from 'ink';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { PermissionDialog } from '../components/PermissionDialog.js';
 import { ApprovalDialog } from '../components/ApprovalDialog.js';
+import { QuestionDialog } from '../components/QuestionDialog.js';
 import { ProviderConnectDialog } from '../components/ProviderConnectDialog.js';
 import { PluginSetupDialog } from '../components/PluginSetupDialog.js';
 import { InputBox } from '../components/InputBox.js';
@@ -13,12 +14,15 @@ import type { ExternalInsert } from '../components/prompt/external-insert.js';
 import type { QueuedMessage } from './use-turn-runner.js';
 import type { PendingApproval, PendingPermission, Picker } from './types.js';
 import type { VoicePhase } from './use-voice-input.js';
+import type { TuiQuestion } from './use-question.js';
 
 interface InteractiveZoneProps {
   session: Session;
   pendingPermission: PendingPermission | null;
   pendingPermissionDepth: number;
   pendingApproval: PendingApproval | null;
+  /** A Question the agent asked; shown once no approval is waiting. */
+  question: TuiQuestion | null;
   picker: Picker;
   /** Post-install / /setup plugin-configuration dialog target. */
   pluginSetup: {
@@ -55,7 +59,7 @@ interface InteractiveZoneProps {
 
 /**
  * The bottom-of-screen interactive slot. Mutually exclusive: at most
- * one of permission dialog, approval dialog, picker, or input box is
+ * one of permission dialog, approval dialog, question, picker, or input box is
  * rendered at a time. PromptInput's raw-mode stdin handler doesn't
  * react well to being mounted alongside dialogs that also useInput,
  * which is why the gating happens here at the boundary.
@@ -65,6 +69,7 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
   pendingPermission,
   pendingPermissionDepth,
   pendingApproval,
+  question,
   picker,
   pluginSetup,
   onPluginSetupFinish,
@@ -104,6 +109,17 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
       <ApprovalDialog
         request={pendingApproval.request}
         onDecide={(decision) => onApprovalDecide(decision)}
+      />
+    );
+  }
+  if (question) {
+    return (
+      <QuestionDialog
+        question={question.question}
+        flow={question.flow}
+        sending={question.sending}
+        error={question.error}
+        onKey={question.press}
       />
     );
   }

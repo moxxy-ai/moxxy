@@ -9,11 +9,17 @@
  *      the changed fields. OAuth rows get a login hint instead of a key form.
  */
 
-import { describe, expect, it, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
+import { assertDefined } from '@moxxy/sdk';
 import type { ProviderEntry } from '@moxxy/desktop-ipc-contract';
 import { ProvidersTab } from './ProvidersTab';
+
+// The agent rows follow installs through the IPC surface; a silent one for the rest.
+beforeEach(() => {
+  __setApiOverride({ invoke: async () => undefined, subscribe: () => () => undefined } as never);
+});
 
 afterEach(() => {
   __setApiOverride(null);
@@ -237,5 +243,109 @@ describe('ProvidersTab', () => {
     handlers.get('provider.login.done')?.({ loginId: 'settings-login', code: 0 });
 
     await waitFor(() => expect(onActivate).toHaveBeenCalledWith('openai-codex'));
+  });
+});
+
+describe('ProvidersTab — agent connections', () => {
+  const opencode = (agentCli: ProviderEntry['agentCli']): ProviderEntry => ({
+    name: 'opencode',
+    agentName: 'OpenCode',
+    ready: false,
+    enabled: true,
+    active: false,
+    authKind: 'oauth',
+    kind: 'builtin',
+    keyName: 'OPENCODE_API_KEY',
+    ...(agentCli ? { agentCli } : {}),
+  });
+  const missing = { state: 'missing', command: 'opencode', installed: null, latest: '1.19.2', minimum: '1.19.0', checkedAt: 1 } as const;
+
+  function host(): { calls: Array<[string, unknown]>; finish: (r: { ok: boolean; message: string }) => void; progress: (p: unknown) => void } {
+    const calls: Array<[string, unknown]> = [];
+    let finish: (r: { ok: boolean; message: string }) => void = () => undefined;
+    let progress: (p: unknown) => void = () => undefined;
+    __setApiOverride({
+      invoke: async (cmd: string, args: unknown) => {
+        calls.push([cmd, args]);
+        if (cmd === 'agents.run') return new Promise((resolve) => (finish = resolve));
+        return undefined;
+      },
+      subscribe: (event: string, fn: (p: unknown) => void) => {
+        if (event === 'agents.progress') progress = fn;
+        return () => undefined;
+      },
+    } as never);
+    return { calls, finish: (r) => finish(r), progress: (p) => act(() => progress(p)) };
+  }
+
+  it('installs a missing agent with a progress bar, by the agent’s name', async () => {
+    const h = host();
+    renderTab({ providers: [opencode(missing)] });
+
+    const row = screen.getByTestId('agent-row-opencode');
+    expect(row).toHaveTextContent('OpenCode');
+    expect(row).toHaveTextContent('Not installed');
+    fireEvent.click(screen.getByRole('button', { name: 'Install OpenCode' }));
+    await waitFor(() => expect(h.calls).toContainEqual(['agents.run', { provider: 'opencode', action: 'install' }]));
+    h.progress({ provider: 'opencode', action: 'install', line: '#### 40.0%', fraction: 0.4 });
+
+    const bar = screen.getByRole('progressbar', { name: 'Installing OpenCode' });
+    expect(bar).toHaveAttribute('aria-valuenow', '40');
+    await act(async () => h.finish({ ok: false, message: 'curl: (6) Could not resolve host' }));
+    expect(screen.getByTestId('agent-row-opencode')).toHaveTextContent('curl: (6) Could not resolve host');
+    expect(screen.getByRole('button', { name: 'Install OpenCode' })).toHaveTextContent('Try again');
+  });
+
+  it('checks for updates from the row menu', async () => {
+    const h = host();
+    renderTab({ providers: [opencode({ ...missing, state: 'current', installed: '1.19.2', signedIn: true, account: 'OpenCode Zen' })] });
+
+    expect(screen.getByTestId('agent-row-opencode')).toHaveTextContent('OpenCode Zen · OpenCode 1.19.2');
+    fireEvent.click(screen.getByRole('button', { name: 'More for OpenCode' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /check for updates/i }));
+
+    await waitFor(() => expect(h.calls).toContainEqual(['agents.check', undefined]));
+  });
+
+  it("says the agent's state beside its name, leaving the line under it to what it is doing", () => {
+    host();
+    renderTab({ providers: [opencode({ ...missing, state: 'update-available', installed: '1.19.0', latest: '1.19.2', signedIn: true, account: 'OpenCode Zen' })] });
+
+    const title = screen.getByTestId('agent-row-opencode').querySelector('[data-row-title]');
+    assertDefined(title, 'the row has a title line');
+    expect(title).toHaveTextContent('OpenCode');
+    expect(title).toHaveTextContent('Update available');
+    expect(title).not.toHaveTextContent('1.19.2 is out');
+  });
+
+  it('keeps other providers in the plain list', () => {
+    host();
+    renderTab({ providers: [anthropic, opencode(missing)] });
+
+    expect(screen.getByTestId('provider-row-anthropic')).toBeInTheDocument();
+    expect(screen.queryByTestId('provider-row-opencode')).toBeNull();
+  });
+
+  it('splits the agents from the providers Moxxy calls itself, each under its own heading', () => {
+    host();
+    renderTab({ providers: [anthropic, codex, opencode(missing)] });
+
+    const agents = screen.getByRole('region', { name: 'Coding agents' });
+    const models = screen.getByRole('region', { name: 'Model providers' });
+    expect(within(agents).getByTestId('agent-row-opencode')).toBeInTheDocument();
+    expect(within(agents).queryByTestId('provider-row-anthropic')).toBeNull();
+    expect(within(models).getByTestId('provider-row-anthropic')).toBeInTheDocument();
+    expect(within(models).getByTestId('provider-row-openai-codex')).toBeInTheDocument();
+    expect(agents).toHaveTextContent('1');
+    expect(models).toHaveTextContent('2');
+    expect(agents.compareDocumentPosition(models) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows no agents heading when no agent connection is known', () => {
+    host();
+    renderTab({ providers: [anthropic] });
+
+    expect(screen.queryByRole('region', { name: 'Coding agents' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Model providers' })).toBeInTheDocument();
   });
 });

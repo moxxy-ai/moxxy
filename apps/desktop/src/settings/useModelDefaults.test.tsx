@@ -12,7 +12,7 @@ const info = {
   readyProviders: ['anthropic', 'openai-codex'],
   providers: [
     { name: 'anthropic', models: [sonnet], enabled: true },
-    { name: 'openai-codex', models: [plain, luna], enabled: true },
+    { name: 'openai-codex', models: [plain, luna], starterModel: 'gpt-6-luna', enabled: true },
     { name: 'openai', models: [{ id: 'gpt-key' }], enabled: true },
   ],
 };
@@ -53,6 +53,12 @@ describe('useModelDefaults', () => {
     const { result } = await loaded();
 
     expect(result.current).toMatchObject({ provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'off', fast: false });
+  });
+
+  it("shows the provider's light starter model, the one a new conversation starts on, while no model is set for it", async () => {
+    const { result } = await loaded({ provider: 'openai-codex' });
+
+    expect(result.current).toMatchObject({ provider: 'openai-codex', model: 'gpt-6-luna' });
   });
 
   it('offers the models of the providers that are connected', async () => {

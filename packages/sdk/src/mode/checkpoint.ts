@@ -102,6 +102,12 @@ export interface TurnCheckpoint {
    */
   readonly gateOn?: 'end_turn' | 'idle';
   /**
+   * Also gate turns done by a vendor's agent (an agent connection). Off by
+   * default: the agent decides when its turn is done, as in its own tool, so
+   * Moxxy's end-of-turn reminders stay out of it.
+   */
+  readonly agentConnections?: boolean;
+  /**
    * A cheap test of whether this turn needs the checkpoint at all. When it
    * says no, the checkpoint is skipped without a trace — no lifecycle events —
    * so a check that rarely applies can sit on every turn without adding to

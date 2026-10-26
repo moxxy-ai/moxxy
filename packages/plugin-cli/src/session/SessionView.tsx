@@ -8,6 +8,10 @@ import {
 } from '@moxxy/sdk';
 import { ChatView } from '../components/ChatView.js';
 import { StatusLine } from '../components/StatusLine.js';
+import { AgentComputerLine } from '../components/AgentComputerLine.js';
+import { AccountLimitLine } from '../components/AccountLimitLine.js';
+import { AgentCliLine } from '../components/AgentCliLine.js';
+import { conversationAccountLimit, turnComputerUse } from '@moxxy/chat-model';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
@@ -21,10 +25,12 @@ import {
   resolveContextWindow,
 } from './helpers.js';
 import { useMcpStatus } from './use-mcp-status.js';
+import { useAgentCliNotice } from './use-agent-cli-notice.js';
 import { useEventStream } from './use-event-stream.js';
 import { useImageAttachments } from './use-image-attachments.js';
 import { useTurnRunner } from './use-turn-runner.js';
 import { usePermissionQueue } from './use-permission-queue.js';
+import { useQuestion } from './use-question.js';
 import { useGlobalHotkeys } from './use-global-hotkeys.js';
 import { useVoiceInput } from './use-voice-input.js';
 import { useReadAloud } from './use-read-aloud.js';
@@ -122,8 +128,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const pendingPermission = permissions.pendingPermission;
   const pendingApproval = permissions.pendingApproval;
+  const question = useQuestion(session, stream.events);
   const overlayOpen =
-    overlay != null || picker != null || pendingPermission != null || pendingApproval != null;
+    overlay != null ||
+    picker != null ||
+    pendingPermission != null ||
+    pendingApproval != null ||
+    question != null;
 
   useGlobalHotkeys({
     busy: turn.busy,
@@ -198,7 +209,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
   }, [session]);
 
   const providerName = session.providers.getActiveName() ?? '(none)';
-  const activeModel = resolveActiveModel(session, activeModelOverride, model);
+  const sessionInfo = session.getInfo();
+  const activeModel = resolveActiveModel(sessionInfo, activeModelOverride, model);
   const contextWindow = resolveContextWindow(session, activeModel);
   // Re-estimated every render (~30Hz while streaming), but the estimator is
   // incrementally cached per log: an unchanged log is a pure cache hit and an
@@ -206,7 +218,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const contextUsed = estimateContextTokens(session.log);
   const modeName = getModeName(session);
   const modeBadge = getModeBadge(session);
-  const sessionInfo = session.getInfo();
+  const agentName = sessionInfo.providers.find((p) => p.name === sessionInfo.activeProvider)?.agentName;
+  const agentComputer = turn.busy ? turnComputerUse(stream.events) : null;
+  const nowMs = Date.now();
+  const accountLimit = conversationAccountLimit(stream.events, sessionInfo.activeProvider, nowMs);
+  const agentCliNotice = useAgentCliNotice(session);
   const slashSuggestions = React.useMemo(
     () =>
       buildSlashSuggestions(session, {
@@ -448,7 +464,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
           overlay != null ||
           picker != null ||
           pendingPermission != null ||
-          pendingApproval != null
+          pendingApproval != null ||
+          question != null
         }
       />
       <OverlayOrNotice
@@ -462,11 +479,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
         {...(getChannels ? { getChannels } : {})}
         onClose={() => setOverlay(null)}
       />
+      {agentCliNotice ? <AgentCliLine notice={agentCliNotice} /> : null}
+      {accountLimit ? <AccountLimitLine limit={accountLimit} nowMs={nowMs} /> : null}
+      {agentComputer ? <AgentComputerLine use={agentComputer} agentName={agentName} /> : null}
       <InteractiveZone
         session={session}
         pendingPermission={pendingPermission}
         pendingPermissionDepth={Math.max(0, permissions.pendingPermissions.length - 1)}
         pendingApproval={pendingApproval}
+        question={question}
         picker={picker}
         pluginSetup={pluginSetup}
         onPluginSetupFinish={(values) => {

@@ -15,6 +15,13 @@ export const GEMINI_TTS_SYNTHESIZER_NAME = 'gemini-tts';
 export const GEMINI_TTS_MODEL = 'gemini-3.8-flash-lite-tts';
 export const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 export const GEMINI_TTS_API_KEY_NAME = 'GEMINI_API_KEY';
+/**
+ * How much text the read-aloud button sends in one request. The model takes
+ * 8,192 input tokens and returns at most 16,384 audio tokens (about 25 tokens a
+ * second, so roughly 11 minutes); 3,000 characters is about three minutes of
+ * speech, well inside both, so a whole answer usually goes in one request.
+ */
+export const GEMINI_TTS_READ_ALOUD_PART_CHARS = 3_000;
 
 const DEFAULT_VOICE = 'Fola';
 const VOICE_PAGE_SIZE = 1000;

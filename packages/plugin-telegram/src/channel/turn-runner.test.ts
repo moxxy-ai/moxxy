@@ -20,13 +20,15 @@ function recordingSession() {
 
 const typing = { start: () => undefined, stop: () => undefined } as never;
 
-function pumpWith(body: string) {
+function pumpWith(body: string, images: ReadonlyArray<{ mediaType: string; base64: string }> = [], order: string[] = []) {
   return {
     beginTurn: () => undefined,
     endTurn: () => undefined,
     scheduleEdit: () => undefined,
-    flush: async () => undefined,
-    renderState: { accept: () => ({ hasUpdate: false }), snapshot: () => ({ body }) },
+    flush: async (final: boolean) => {
+      if (final) order.push('reply');
+    },
+    renderState: { accept: () => ({ hasUpdate: false }), snapshot: () => ({ body }), images: () => images },
   } as never;
 }
 
@@ -80,5 +82,26 @@ describe('/voice decides whether a Telegram reply is spoken', () => {
     const spoken: string[] = [];
     await run({}, spoken);
     expect(spoken).toEqual([]);
+  });
+});
+
+describe('images tools returned in a Telegram turn', () => {
+  it('go out as photos after the reply', async () => {
+    const { session } = recordingSession();
+    const order: string[] = [];
+    const png = { mediaType: 'image/png', base64: Buffer.from('png').toString('base64') };
+    const bot = {
+      api: {
+        sendPhoto: async (chatId: number) => {
+          order.push(`photo to ${chatId}`);
+        },
+      },
+    } as never;
+    await runUserTurn(
+      { reply: async () => undefined } as unknown as Context,
+      { session, bot, framePump: pumpWith('Here it is.', [png], order), typing },
+      { chatId: 42, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t2') },
+    );
+    expect(order).toEqual(['reply', 'photo to 42']);
   });
 });

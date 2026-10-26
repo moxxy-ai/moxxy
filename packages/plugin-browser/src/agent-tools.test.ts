@@ -722,6 +722,82 @@ describe('consent per site, on every backend', () => {
     await sidecarClick.handler(sidecarClick.inputSchema.parse({ uid: '4', element: 'Udostępnij' }), ctx(log));
     expect(fake.received.at(-1)?.params).toMatchObject({ sites: ['canva.com'] });
   });
+
+  describe('a page on this computer the person allowed', () => {
+    /**
+     * An agent building an app serves it on this computer and wants to look at
+     * it. The browser opens such a page only after the person allows that exact
+     * address and port, through the same consent as any site.
+     */
+    const tools = (fake: Fake) => buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
+
+    it('asks for the page by its address and port before opening it', async () => {
+      const fake = fakeSidecar();
+      const navigate = byName(tools(fake), 'browser_navigate');
+
+      await expect(navigate.handler({ url: 'http://localhost:5173/' }, ctx())).rejects.toThrow(
+        /browser_allow_site with site "localhost:5173"/,
+      );
+      expect(fake.received).toHaveLength(0);
+    });
+
+    it('opens it once allowed, and only at that port', async () => {
+      const fake = fakeSidecar();
+      const navigate = byName(tools(fake), 'browser_navigate');
+      const log = memoryLog(approvedSite('localhost:5173'));
+
+      await navigate.handler({ url: 'http://localhost:5173/app' }, ctx(log));
+      expect(fake.received.at(-1)).toMatchObject({ method: 'goto', params: { url: 'http://localhost:5173/app', sites: ['localhost:5173'] } });
+      await expect(navigate.handler({ url: 'http://localhost:8080/' }, ctx(log))).rejects.toThrow(/"localhost:8080"/);
+      expect(fake.received).toHaveLength(1);
+    });
+
+    it('opens an allowed page in a new tab and in a sequence, too', async () => {
+      const fake = fakeSidecar();
+      const all = tools(fake);
+      const log = memoryLog(approvedSite('localhost:5173'));
+      const batch = byName(all, 'browser_batch');
+
+      await byName(all, 'browser_tabs').handler({ action: 'new', url: 'http://localhost:5173/' }, ctx(log));
+      await batch.handler(batch.inputSchema.parse({ element: 'aplikacja', steps: [{ kind: 'navigate', url: 'http://localhost:5173/x' }] }), ctx(log));
+      expect(fake.received.map((r) => r.method)).toEqual(['tabs', 'goto', 'snapshot']);
+      await expect(
+        byName(all, 'browser_tabs').handler({ action: 'new', url: 'http://localhost:3000/' }, ctx(log)),
+      ).rejects.toThrow(/"localhost:3000"/);
+      await expect(
+        batch.handler(batch.inputSchema.parse({ element: 'aplikacja', steps: [{ kind: 'navigate', url: 'http://localhost:3000/' }] }), ctx(log)),
+      ).rejects.toThrow(/"localhost:3000"/);
+      expect(fake.received).toHaveLength(3);
+    });
+
+    it('keeps every other private address closed, even in a new tab the person "allowed"', async () => {
+      const fake = fakeSidecar();
+      const tabsTool = byName(tools(fake), 'browser_tabs');
+      const log = memoryLog(approvedSite('192.168.1.10'));
+
+      await expect(tabsTool.handler({ action: 'new', url: 'http://192.168.1.10/' }, ctx(log))).rejects.toThrow(/private/);
+      await expect(tabsTool.handler({ action: 'new', url: 'http://169.254.169.254/' }, ctx())).rejects.toThrow(/private/);
+      expect(fake.received).toHaveLength(0);
+    });
+
+    it('asks for a page on this computer with its port', async () => {
+      const allow = byName(tools(fakeSidecar()), 'browser_allow_site');
+
+      await expect(
+        allow.handler(allow.inputSchema.parse({ site: 'http://localhost:5173/app', reason: 'Check the app I built' }), ctx()),
+      ).resolves.toEqual({ kind: 'browser_site', site: 'localhost:5173' });
+      await expect(allow.handler(allow.inputSchema.parse({ site: 'localhost', reason: 'x' }), ctx())).rejects.toThrow(
+        /with its port/,
+      );
+    });
+
+    it('tells the agent so in the tool descriptions', () => {
+      const all = tools(fakeSidecar());
+
+      expect(byName(all, 'browser_navigate').description).toMatch(/localhost:PORT/);
+      expect(byName(all, 'browser_allow_site').description).toMatch(/localhost:5173/);
+    });
+  });
 });
 
 describe('working by picture, and giving files, on every backend', () => {

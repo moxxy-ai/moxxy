@@ -26,15 +26,21 @@ describe('clampEditFrameMs (Discord edit rate limit ~5 edits/5s)', () => {
 interface Recorded {
   sends: string[];
   edits: string[];
+  /** Every payload sent with attachments: its file names. */
+  attachments: string[][];
   channel: SendableChannelLike;
 }
 
 function recordedChannel(): Recorded {
   const sends: string[] = [];
   const edits: string[] = [];
+  const attachments: string[][] = [];
   const channel: SendableChannelLike = {
     send: async (payload) => {
-      sends.push(typeof payload === 'string' ? payload : payload.content);
+      if (typeof payload !== 'string' && payload.files) {
+        attachments.push(payload.files.map((file) => (file as { name: string }).name));
+      }
+      sends.push(typeof payload === 'string' ? payload : (payload.content ?? ''));
       const message: SentMessageLike = {
         edit: async (content: string) => {
           edits.push(content);
@@ -43,7 +49,7 @@ function recordedChannel(): Recorded {
       return message;
     },
   };
-  return { sends, edits, channel };
+  return { sends, edits, attachments, channel };
 }
 
 /**
@@ -53,9 +59,14 @@ function recordedChannel(): Recorded {
  */
 function fakeSession(
   script: (emit: (e: Record<string, unknown>) => Promise<void>) => Promise<void>,
+  info: { activeProvider: string; providers: ReadonlyArray<{ name: string; agentName?: string }> } = {
+    activeProvider: 'anthropic',
+    providers: [],
+  },
 ): Session {
   const listeners = new Set<(e: MoxxyEvent) => void>();
   return {
+    getInfo: () => info,
     log: {
       subscribe(fn: (e: MoxxyEvent) => void) {
         listeners.add(fn);
@@ -119,6 +130,53 @@ describe('runDiscordTurn — send-once-then-edit streaming', () => {
     // Reassembling head + tails recovers the whole final text.
     const reassembled = [finalHead, ...sends.slice(1)].join('\n');
     expect(reassembled).toBe(long);
+  });
+
+  it('sends the images tools returned as attachments after the reply', async () => {
+    const { sends, attachments, channel } = recordedChannel();
+    const png = Buffer.from('png-bytes').toString('base64');
+    const session = fakeSession(async (emit) => {
+      await emit({ type: 'tool_call_requested', callId: 'i1', name: 'screenshot', input: {} });
+      await emit({
+        type: 'tool_result',
+        callId: 'i1',
+        ok: true,
+        output: { forModel: 'the screen', mediaType: 'image/png', base64: png, moreImages: [{ mediaType: 'image/jpeg', base64: 'AAAA' }] },
+      });
+      await emit({ type: 'assistant_message', content: 'Here is the screen.' });
+    });
+    await runDiscordTurn(
+      { session, channel, typing: new TypingIndicator(), editFrameMs: 10 },
+      { text: 'hi', controller: new AbortController(), turnId: asTurnId('turn-img') },
+    );
+    expect(attachments).toEqual([['image-1.png', 'image-2.jpg']]);
+    // The reply went out first, the images after it.
+    expect(sends[0]).toContain('Here is the screen.');
+    expect(sends[sends.length - 1]).toBe('');
+  });
+
+  it('names the agent of the session while it uses the computer, and stops saying so once the turn ends', async () => {
+    const { sends, edits, channel } = recordedChannel();
+    const session = fakeSession(
+      async (emit) => {
+        await emit({
+          type: 'tool_call_requested',
+          callId: 'u1',
+          name: 'mcp__computer-use__click',
+          input: { app: 'Arc' },
+          executedBy: 'provider',
+        });
+        await sleep(40);
+        await emit({ type: 'assistant_message', content: 'Clicked.' });
+      },
+      { activeProvider: 'codex-agent', providers: [{ name: 'codex-agent', agentName: 'Codex' }] },
+    );
+    await runDiscordTurn(
+      { session, channel, typing: new TypingIndicator(), editFrameMs: 10 },
+      { text: 'hi', controller: new AbortController(), turnId: asTurnId('turn-cu') },
+    );
+    expect(sends[0]).toContain('Codex is using your computer · Arc');
+    expect(edits[edits.length - 1]).not.toContain('using your computer');
   });
 
   it('posts a placeholder when the turn rendered nothing', async () => {

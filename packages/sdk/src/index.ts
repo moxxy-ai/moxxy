@@ -137,9 +137,40 @@ export type {
 export {
   AUTO_APPROVE_PLUGIN_ID,
   AUTO_APPROVE_SUBTYPE,
+  AUTO_APPROVE_RESTORED_SUBTYPE,
+  autoApproveFromAgent,
   autoApproveFromEvents,
+  autoApproveRecorded,
   autoApproveSwitch,
 } from './auto-approve.js';
+
+export {
+  QUESTION_PLUGIN_ID,
+  QUESTION_ASKED,
+  QUESTION_RESOLVED,
+  questionOptionSchema,
+  questionItemSchema,
+  questionAnswerSchema,
+  questionAnswersSchema,
+  questionRecord,
+  openQuestionsFromEvents,
+  questionAnswersProblem,
+  describeQuestionAnswers,
+  questionAnswerDisplay,
+} from './question.js';
+export type {
+  QuestionOption,
+  QuestionItem,
+  QuestionAnswer,
+  QuestionAnswers,
+  QuestionOutcome,
+  QuestionRecord,
+  OpenQuestion,
+  QuestionAsker,
+  SessionQuestions,
+} from './question.js';
+export { emptyDraft, chooseOption, typeOwnAnswer, draftAnswers } from './question-draft.js';
+export type { QuestionDraft } from './question-draft.js';
 
 export type {
   ClientSession,
@@ -162,6 +193,7 @@ export type {
   PendingToolCall,
   PermissionContext,
   PermissionResolver,
+  StandingAllowRule,
 } from './permission.js';
 
 export type {
@@ -221,7 +253,69 @@ export type {
   ProviderOAuthResult,
   ProviderOAuthStatus,
   ProviderAuthDescriptor,
+  AgentCliState,
+  AgentCliOrigin,
+  AgentCliReport,
+  ProviderAgentCli,
 } from './provider.js';
+export type {
+  AgentStepRequest,
+  AgentStepHost,
+  AgentTurnStart,
+  AgentActivity,
+  AgentBackgroundWork,
+  AgentScheduledWakeup,
+  AgentWorkEnd,
+  AgentStepEvent,
+  AgentGoalStatus,
+  AgentOwnModes,
+  AgentToolCall,
+  AgentToolOutcome,
+  AgentApprovalRequest,
+  AgentApprovalDecision,
+} from './provider.js';
+export { startingModel } from './starting-model.js';
+export {
+  ACCOUNT_LIMIT_NEAR_PERCENT,
+  AGENT_ACCOUNT_LIMIT_SUBTYPE,
+  accountLimitInForce,
+  accountLimitOfEvent,
+  recordedAccountLimit,
+  sameAccountLimit,
+  withKnownReset,
+  type AgentAccountLimit,
+  type RecordedAccountLimit,
+} from './agent-account-limit.js';
+export {
+  AGENT_CONTEXT_WINDOW_SUBTYPE,
+  contextWindowOfEvent,
+  isContextWindowSize,
+  recordedContextWindows,
+  withRecordedContextWindows,
+  type RecordedContextWindow,
+} from './agent-context-window.js';
+export { AGENT_NO_REPLY_SUBTYPE, AGENT_NO_REPLY_TEXT, isAgentNoReplyEvent } from './agent-no-reply.js';
+export {
+  AGENT_BACKGROUND_WORK_ENDED_SUBTYPE,
+  AGENT_BACKGROUND_WORK_SUBTYPE,
+  AGENT_WORK_OUTPUT_LIMIT,
+  SUBAGENT_MESSAGE_SUBTYPE,
+  agentActivityRecord,
+  isAgentWorkEvent,
+  isSubagentEvent,
+  type AgentActivityRecord,
+  type SubagentNames,
+} from './agent-work.js';
+export { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from './agent-step.js';
+export {
+  conversationTurns,
+  EARLIER_CONVERSATION_CHARS,
+  renderEarlierConversation,
+  renderMissedTurns,
+  searchConversation,
+  type ConversationMatch,
+  type ConversationTurn,
+} from './conversation-history.js';
 export {
   encodeLoginAuthUrl,
   decodeLoginAuthUrl,
@@ -236,18 +330,36 @@ export type {
   DiffHunk,
   DiffRow,
   FileDiffDisplay,
+  AnsweredQuestion,
+  QuestionAnswerDisplay,
+  ListedStep,
+  StepListDisplay,
+  StepStatus,
   ToolDisplay,
   ToolDisplayResult,
+  ToolImage,
 } from './tool-display.js';
 export {
   isToolDisplayResult,
   isToolDisplay,
   isFileDiffDisplay,
+  isQuestionAnswerDisplay,
+  isStepListDisplay,
+  stepStatusOf,
+  stepsFromTodos,
+  stepListOutput,
+  stepListProgress,
+  questionAnswerLines,
   fileDiffSummary,
   fileDiffVerb,
   diffGutterNo,
   toDiffRows,
+  toolImagesOf,
+  imageToolOutput,
 } from './tool-display.js';
+export { fileDiffFromText, fileDiffFromPatch, parseUnifiedDiff, diffPathIn, type PatchHunk } from './file-diff.js';
+export { agentComputerUseOf, type AgentComputerUse } from './agent-computer-use.js';
+export { toolOutputForModel, type ToolOutputForModel, type ToolImageBlock } from './tool-output.js';
 export type {
   ViewNode,
   ViewAction,
@@ -341,7 +453,10 @@ export {
   createCallbackResolver,
   createAllowListResolver,
   createDeferredPermissionResolver,
+  createSessionGrants,
+  alwaysAllowRule,
   evaluateToolRule,
+  type SessionGrants,
   type CallbackResolverOptions,
   type PermissionPromptHandler,
   type DeferredPermissionResolver,
@@ -663,5 +778,5 @@ export {
   type InstallTarget,
 } from './install-hints.js';
 
-export { z } from 'zod';
+export { z } from 'zod/v3';
 export { workflowApprovalItemSchema, workflowApprovalItemsSchema } from './workflow-approval.js';

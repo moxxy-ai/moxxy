@@ -95,6 +95,7 @@ and pairing. Telegram and Discord are the reference adapters:
 | A message written in the desktop shows on the messenger with its reply | `ForeignTurnMirror` + `MirrorTarget` (last chat, else the paired owner) |
 | The bot's own model (`<channel>_model` vault key, also set from Channels → Setup) | `runModelCommand`, `modelSuggestions`, `resolveChannelModel`, `savedChannelModel` |
 | `/auto-approve` shared with the desktop's chat with the bot | `AutoApproveSwitch` |
+| Questions the agent asks (`ask_user`): a card with answer buttons and a plain reply as an answer of your own, closed everywhere by the first answer | `ChatQuestions` (attach on start, detach on stop; the bot draws each `QuestionUpdate`, routes `QUESTION_BUTTON_PREFIX` clicks to `press` and a non-command reply to `typed` before its busy guard) |
 | `/new`, `/clear`, `/exit` from registered commands | `applySessionAction` |
 | Telling the model where it replies (send files, ask choices in chat) | `channelTurnContext({ service, sendTool, delivery, uploadLimit })` |
 | Files the agent sends from any session (`<channel>_send_message`) | `readLocalFiles` |

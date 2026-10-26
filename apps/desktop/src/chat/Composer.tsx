@@ -41,6 +41,12 @@ import { useAttachmentImagePreviews } from './image-preview/useAttachmentImagePr
 import type { ImagePreviewItem } from './image-preview/types';
 import { DEFAULT_MODE, modeMeta } from './modes/mode-meta';
 import { useActiveMode } from './modes/useActiveMode';
+import { TurnStepsBar } from './composer/TurnStepsBar';
+import { AgentCliBar } from './composer/AgentCliBar';
+import { BackgroundWorkBar } from './composer/BackgroundWorkBar';
+import { useBackgroundWorkBar } from './composer/useBackgroundWorkBar';
+import type { AgentCliNoticeView } from './useAgentCliNotice';
+import type { StepListDisplay } from '@moxxy/sdk/tool-display';
 
 /** Past this height the composer textarea stops growing and scrolls
  *  internally (≈ 8 lines at the composer's font/line metrics). */
@@ -55,6 +61,10 @@ interface ComposerProps {
   /** Runner is compacting the context — lock the composer entirely. */
   readonly compacting: boolean;
   readonly activeTurnId: string | null;
+  /** The agent's list of steps in the running turn, said above the field. */
+  readonly turnSteps?: StepListDisplay | null;
+  /** The active agent's CLI needs installing or updating. */
+  readonly agentCli?: AgentCliNoticeView | null;
   readonly workspaceId: string;
   /** While a voice conversation is open the rail owns the microphone, so the
    *  composer hides its dictation button and the menu entry that would start a
@@ -95,6 +105,8 @@ export function Composer({
   sending,
   compacting,
   activeTurnId,
+  turnSteps = null,
+  agentCli = null,
   workspaceId,
   voiceModeActive = false,
   onOpenVoiceCall,
@@ -152,6 +164,7 @@ export function Composer({
   const canSubmit =
     ready && !compacting && (draft.trim().length > 0 || attachments.length > 0);
   const queued = useQueuedTurns(workspaceId);
+  const backgroundWork = useBackgroundWorkBar(workspaceId);
   // Auto-approve ("yolo") for this workspace — mirrored to the runner-side
   // driver so tool calls skip the approval sheet. Goal mode turns it on.
   const autoApprove = useSyncExternalStore(chatStore.subscribe, () =>
@@ -329,6 +342,9 @@ export function Composer({
         send();
       }}
     >
+      {agentCli ? <AgentCliBar notice={agentCli} /> : null}
+      {turnSteps ? <TurnStepsBar steps={turnSteps} /> : null}
+      {backgroundWork ? <BackgroundWorkBar bar={backgroundWork} /> : null}
       <div className="cmdbar__card">
         <ComposerStatus
           mode={mode}

@@ -14,6 +14,13 @@ export const posixFileModes = !isWindows;
 /** `/bin/sh` and the usual POSIX tools exist, and a `#!` script can be run as a program. */
 export const posixShell = !isWindows;
 
+/**
+ * Time for a test that starts many processes, such as real `git` calls. Each
+ * process start is many times slower on a Windows CI runner, enough to pass
+ * the usual 10 s there while the same test takes under a second elsewhere.
+ */
+export const manyProcessesTimeout = isWindows ? 60_000 : 10_000;
+
 /** Symlinks can be created. Windows needs Developer Mode or an elevated shell. */
 export const canSymlink = probeSymlink();
 

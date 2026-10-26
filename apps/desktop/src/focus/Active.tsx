@@ -245,7 +245,7 @@ export function Active({
       }}
     >
       {chrome}
-      {ask && <FocusAskCard prompt={ask} variant="toast" />}
+      {ask && <FocusAskCard ask={ask} variant="toast" />}
     </div>
   );
 }

@@ -1,11 +1,14 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useActionCatalog, useChat } from '@moxxy/client-core';
+import { useTurnSteps } from './useTurnSteps';
+import { useAgentCliNotice } from './useAgentCliNotice';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
 import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
-import { useActiveAsk } from '@moxxy/client-core';
+import { QuestionSheet } from './QuestionSheet';
+import { useActiveAsk, useQuestion } from '@moxxy/client-core';
 import { Header, type WorkPanelControl } from './chat-surface/Header';
 import { useAgentSession, type ModelOwner } from './agent-picker/useAgentSession';
 import type { RunState } from '../shell/InstrumentBar';
@@ -25,8 +28,10 @@ import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
 import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
+import { useVoiceMicrophonePulse } from '../voice-call/useVoiceMicrophoneShortcut';
 import { useComputerControl } from '../computer-control/useComputerControl';
 import { ComputerControlStrip } from '../computer-control/ComputerControlStrip';
+import { useAgentComputer } from '../computer-control/useAgentComputer';
 import { usesComputer } from '../computer-control/panel-model';
 import { useComputerPreview } from '../computer-control/useComputerPreview';
 import { ComputerPreviewPip } from '../computer-control/ComputerPreviewPip';
@@ -111,9 +116,13 @@ export function ChatSurface({
   workPanel,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
+  const turnSteps = useTurnSteps(chat.events, chat.activeTurnId !== null);
   const actionCatalog = useActionCatalog(workspaceId);
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
+  const question = useQuestion(workspaceId);
+  // The run waits on the person: an approval it is blocked on, or a Question it asked.
+  const waitingOnPerson = activeAsk !== null || question.question !== null;
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
   const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && usesComputer(actionCatalog.tools)
     ? {workspaceId,sessionId:phase.sessionId,turnId:chat.activeTurnId} : null);
@@ -124,7 +133,7 @@ export function ChatSurface({
     workspaceId,
     ready,
     chat,
-    inputRequired: activeAsk !== null,
+    inputRequired: waitingOnPerson,
   });
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -133,13 +142,14 @@ export function ChatSurface({
   abortTurnPulse.use(() => {
     if (chat.activeTurnId !== null || chat.sending) void chat.abort();
   });
+  useVoiceMicrophonePulse(voiceCall);
   const imagePreview = useImagePreview();
   // A finished plan offers to be carried out; never while a turn runs or one waits on the person.
   const sendPrompt = useCallback((prompt: string): void => void chat.send(prompt), [chat.send]);
   const planNext = usePlanNext({
     workspaceId,
     ready,
-    busy: chat.sending || chat.activeTurnId !== null || chat.compacting || activeAsk !== null,
+    busy: chat.sending || chat.activeTurnId !== null || chat.compacting || waitingOnPerson,
     onSend: sendPrompt,
   });
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
@@ -149,11 +159,16 @@ export function ChatSurface({
   // and the composer's mode menu both read it; two independent hooks meant two
   // round-trips per refresh and two chances to disagree about the active model.
   const agent = useAgentSession(workspaceId, !ready || chat.activeTurnId !== null || chat.sending, modelOwner);
+  // The active agent's account limit, recorded in the conversation, until it resets.
+  const agentCli = useAgentCliNotice(agent.info);
+  const activeAgentName = agent.info?.providers.find((p) => p.name === agent.info?.activeProvider)?.agentName;
+  // An agent connection's agent using the computer with its own tools: Moxxy can only stop its turn.
+  const agentComputer = useAgentComputer(chat.events, chat.activeTurnId !== null, activeAgentName);
   const activeSessionName =
     activeDesk?.sessions.find((sn) => sn.id === activeDesk.activeSessionId)?.name ?? null;
   // The run's state, as the bar reports it. `awaiting` outranks `running`
   // because a blocked run is the one thing the supervisor has to act on.
-  const runState: RunState = activeAsk
+  const runState: RunState = waitingOnPerson
     ? 'awaiting'
     : chat.activeTurnId !== null || chat.sending
       ? 'running'
@@ -200,7 +215,7 @@ export function ChatSurface({
     disabled: !ready || chat.compacting || chat.activeTurnId !== null || chat.sending,
     onToggle: voiceCall.active ? voiceCall.close : voiceCall.open,
   };
-  const dock = useChatDock(docked, activeAsk !== null);
+  const dock = useChatDock(docked, waitingOnPerson);
   // Files dropped anywhere on the chat go to the composer, which stages them.
   const drop = useFileDropZone();
   const mainClass = dock.minimized
@@ -274,6 +289,7 @@ export function ChatSurface({
         {notice}
         {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)}
           previewHidden={preview.hidden} onShowPreview={preview.show} />}
+        {!computer.view && agentComputer && <ComputerControlStrip view={agentComputer} busy={false} error={null} onCommand={() => void chat.abort()} />}
         {preview.view && <ComputerPreviewPip view={preview.view} target={computer.view?.target ?? null} cursor={computer.cursor} onHide={preview.hide} videoCanvas={preview.videoCanvas} />}
         {chat.isEmpty ? (
           <EmptyState ready={ready} />
@@ -298,7 +314,11 @@ export function ChatSurface({
       {/* Tucked away, the composer stays mounted so a half-typed message and a
        *  running voice call survive; `contents` keeps the column's own layout. */}
       <div hidden={dock.minimized} style={{ display: dock.minimized ? 'none' : 'contents' }}>
-        {activeAsk && <AskSheet ask={activeAsk} />}
+        {activeAsk ? (
+          <AskSheet ask={activeAsk} />
+        ) : (
+          question.question && <QuestionSheet key={question.question.questionId} question={question} />
+        )}
         {voiceCall.active && (
           <div className="voice-rail-shell">
             <VoicePresenceRail
@@ -328,6 +348,8 @@ export function ChatSurface({
           sending={chat.sending}
           compacting={chat.compacting}
           activeTurnId={chat.activeTurnId}
+          turnSteps={turnSteps}
+          agentCli={agentCli}
           workspaceId={workspaceId}
           onOpenVoiceCall={voiceCall.open}
           onSend={(p, atts) => void chat.send(p, atts)}

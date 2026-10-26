@@ -573,7 +573,7 @@ function AgentHeader({ agent }: { readonly agent?: { name: string; role: string;
         {agent.name} <span className="mono" style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>· {agent.role} · {agent.status}</span>
       </div>
       {agent.subtask && <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', marginTop: 2 }}>{agent.subtask}</div>}
-      {agent.summary && <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-green)', marginTop: 2 }}>✓ {agent.summary}</div>}
+      {agent.summary && <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, fontSize: 'var(--type-row)', color: 'var(--color-green)', marginTop: 2 }}><Icon name="check" size={12} style={{ flexShrink: 0, alignSelf: 'center' }} />{agent.summary}</div>}
     </div>
   );
 }
@@ -949,7 +949,16 @@ function MessageCard({ m }: { readonly m: CollabMsgView }): JSX.Element {
           title={m.to === 'all' ? 'broadcast to the whole team' : `direct message to ${m.to}`}
           aria-label={m.to === 'all' ? 'broadcast to the whole team' : `direct message to ${m.to}`}
         >
-          <span aria-hidden>{m.to === 'all' ? '📣 all' : `→ ${m.to}`}</span>
+          <span aria-hidden style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            {m.to === 'all' ? (
+              <>
+                <Icon name="broadcast" size={11} />
+                all
+              </>
+            ) : (
+              `→ ${m.to}`
+            )}
+          </span>
         </span>
         {kind && (
           <span style={{ fontSize: 'var(--type-label)', fontWeight: 700, color: '#fff', background: kind.color, borderRadius: 'var(--radius-pill)', padding: '1px 6px' }}>

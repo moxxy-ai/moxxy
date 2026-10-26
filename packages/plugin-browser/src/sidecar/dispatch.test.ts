@@ -114,6 +114,39 @@ describe('sidecar dispatch goto SSRF guard', () => {
   // real Chromium in parity.chromium.test.ts.
 });
 
+describe('sidecar dispatch goto to a page on this computer', () => {
+  /** A browser host that only records what reached it. */
+  const recordingState = (): { state: SidecarState; reached: string[] } => {
+    const reached: string[] = [];
+    const browser = {
+      host: { noteAgentTurn: () => {} },
+      call: async (method: string, params: Record<string, unknown>) => {
+        reached.push(`${method} ${String(params.url)}`);
+        return { ok: true, result: {} };
+      },
+    };
+    const { handle } = makeFakeHandle();
+    return { state: { handle, pendingInstallNotice: null, browser: browser as never }, reached };
+  };
+
+  it('opens the address and port the person allowed', async () => {
+    const { state, reached } = recordingState();
+    const reply = await dispatch(state, req('goto', { url: 'http://localhost:5173/', sites: ['localhost:5173'] }));
+    expect(reply.ok).toBe(true);
+    expect(reached).toEqual(['goto http://localhost:5173/']);
+    expect(state.localSites).toEqual(['localhost:5173']);
+  });
+
+  it('refuses any other local page, and every local page for a call that carries no grants', async () => {
+    const { state, reached } = recordingState();
+    const other = (await dispatch(state, req('goto', { url: 'http://localhost:8080/', sites: ['localhost:5173'] }))) as Err;
+    const session = (await dispatch(state, gotoReq('http://localhost:5173/'))) as Err;
+    expect(other.error.message).toMatch(/loopback/);
+    expect(session.error.message).toMatch(/loopback/);
+    expect(reached).toEqual([]);
+  });
+});
+
 describe('sidecar dispatch removed screencast methods', () => {
   // The CDP screencast push path was orphaned by the PR #205 polling revert and
   // deleted. Its former methods must now fall through to the default branch and

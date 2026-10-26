@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { isFileDiffResult, type ToolCallBlockData } from '@moxxy/chat-model';
+import { isFileDiffResult, questionAnswerOf, toolImagesResultOf, type ToolCallBlockData } from '@moxxy/chat-model';
 import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
 import { ActivityRow } from '../ActivityRow';
 import { iconForTool, statusOf, toolActivityLabel } from '../SkillGroupView';
 import { useToolIcon } from '../ToolIconContext';
 import { preStyle, pretty } from './block-shared';
+import { AnsweredQuestionBlock } from './AnsweredQuestionBlock';
 import { FileDiffBlock } from './FileDiffBlock';
+import { ToolImages } from './ToolImages';
 
 export function ToolBlock({ name, input, outcome }: {
   readonly name: string;
@@ -18,8 +20,12 @@ export function ToolBlock({ name, input, outcome }: {
     const display = (outcome.output as { display: FileDiffDisplay }).display;
     if (isFileDiffDisplay(display)) return <FileDiffBlock display={display} />;
   }
+  const answered = questionAnswerOf(outcome);
+  if (answered) return <AnsweredQuestionBlock display={answered} />;
   const status = statusOf(outcome);
-  const output = outcome?.type === 'tool_result' ? outcome.output : undefined;
+  const shown = toolImagesResultOf(outcome);
+  // The images' text stands for them in the body; the pixels show as thumbnails.
+  const output = shown ? shown.text || undefined : outcome?.type === 'tool_result' ? outcome.output : undefined;
   const error = outcome === null ? undefined : outcome.type === 'denied' ? outcome.reason : outcome.error?.message;
   return (
     <div className="activity-block" data-testid="block-tool" data-status={status}>
@@ -31,6 +37,7 @@ export function ToolBlock({ name, input, outcome }: {
         open={open}
         onToggle={() => setOpen((value) => !value)}
       />
+      {shown ? <ToolImages images={shown.images} tool={name} /> : null}
       {open ? (
         <div className="activity-detail-row__body activity-detail-row__body--root">
           <pre style={preStyle}>{pretty(input)}</pre>

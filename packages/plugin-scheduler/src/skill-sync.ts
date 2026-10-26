@@ -1,5 +1,5 @@
 import type { Skill, SkillRegistry } from '@moxxy/sdk';
-import { isValidCron, isValidTimeZone } from './cron.js';
+import { isValidCron, isValidTimeZone } from '@moxxy/sdk/cron';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
 
 /**

@@ -13,3 +13,6 @@ export const abortTurnPulse = createPulse();
 
 /** ⌘L puts the caret in the composer. */
 export const focusComposerPulse = createPulse();
+
+/** ⌘D mutes or unmutes the microphone of the running Voice Mode call. */
+export const voiceMicrophonePulse = createPulse();

@@ -67,7 +67,8 @@ export function registerChatHandlers(
   });
 }
 
-async function isReadableSession(workspaceId: string, desks: DeskStore): Promise<boolean> {
+/** Whether this desktop may read the session's log: one of its chats, a catalog bot's, or the startup one. */
+export async function isReadableSession(workspaceId: string, desks: DeskStore): Promise<boolean> {
   if (workspaceId === UNBOUND_ID) return true;
   // A channel bot's conversation (its sticky session) stays readable while the
   // bot is down — but only for catalog channels, never a guessed id.

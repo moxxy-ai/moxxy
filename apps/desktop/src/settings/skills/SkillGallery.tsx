@@ -9,6 +9,7 @@ import { Button, Icon } from '@moxxy/desktop-ui';
 import type { useSettings } from '@moxxy/client-core';
 import { TabHeader } from '../TabHeader';
 import { EmptyState, SearchBox } from '../settings-primitives';
+import { skillDisplayName } from './skill-name';
 
 export function SkillGallery({
   skills,
@@ -26,7 +27,7 @@ export function SkillGallery({
   const shown = q
     ? skills.filter(
         (sk) =>
-          sk.name.toLowerCase().includes(q) || (sk.description?.toLowerCase().includes(q) ?? false),
+          skillDisplayName(sk.name).toLowerCase().includes(q) || (sk.description?.toLowerCase().includes(q) ?? false),
       )
     : skills;
   return (
@@ -131,7 +132,7 @@ export function SkillGallery({
                     textOverflow: 'ellipsis',
                   }}
                 >
-                  {skill.name.replace(/\.md$/, '')}
+                  {skillDisplayName(skill.name)}
                 </span>
                 <Icon
                   name="chevron-right"
@@ -144,14 +145,20 @@ export function SkillGallery({
                   margin: 0,
                   fontSize: 'var(--type-row)',
                   lineHeight: 1.5,
-                  color: skill.description ? 'var(--color-text-muted)' : 'var(--color-text-dim)',
+                  color: skill.problem
+                    ? 'var(--color-red-text)'
+                    : skill.description
+                      ? 'var(--color-text-muted)'
+                      : 'var(--color-text-dim)',
                   display: '-webkit-box',
                   WebkitLineClamp: 3,
                   WebkitBoxOrient: 'vertical',
                   overflow: 'hidden',
                 }}
               >
-                {skill.description ?? 'No description.'}
+                {skill.problem
+                  ? `Agent can't load this skill — ${skill.problem}`
+                  : (skill.description ?? 'No description.')}
               </p>
             </button>
           ))}

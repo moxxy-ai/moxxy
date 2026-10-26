@@ -12,6 +12,7 @@
  * back via callbacks.
  */
 
+import { skillDisplayName } from './skill-name';
 import { Button, Icon, IconButton } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '@/chat/MarkdownBody';
 import { LoadingHero } from './heroes';
@@ -70,7 +71,7 @@ export function SkillEditor({
             color: 'var(--color-text)',
           }}
         >
-          {name}
+          {skillDisplayName(name)}
         </span>
         {dirty && (
           <span

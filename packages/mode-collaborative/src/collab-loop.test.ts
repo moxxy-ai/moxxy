@@ -12,6 +12,7 @@ import { resolveCollabConfig } from './config.js';
 import type { Supervisor } from './peer-supervisor.js';
 import { git } from './worktrees.js';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
+import { manyProcessesTimeout } from '@moxxy/vitest-preset/platform';
 
 const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const cleanups: Array<() => void> = [];
@@ -150,7 +151,7 @@ function partiallyFailingSupervisor(hub: CollaborationHub, failingId: string): S
   };
 }
 
-describe('collaborative coordinator (end-to-end, fake agents + real git)', () => {
+describe('collaborative coordinator (end-to-end, fake agents + real git)', { timeout: manyProcessesTimeout }, () => {
   it('runs architect → roster → parallel implementers → merge → synthesize', async () => {
     const repo = await initRepo();
     const { ctx, events } = fakeCtx();

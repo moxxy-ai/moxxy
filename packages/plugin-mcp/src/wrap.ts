@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineTool, type ToolDef } from '@moxxy/sdk';
 import {
   defaultToolNamePrefix,

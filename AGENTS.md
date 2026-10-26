@@ -53,7 +53,10 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/isolator-subprocess        subprocess Isolator (kernel-enforced process boundary)
 @moxxy/isolator-wasm              WebAssembly Isolator (zero ambient authority; experimental)
 @moxxy/plugin-provider-openai-codex  ChatGPT OAuth provider (Responses API)
-@moxxy/plugin-provider-claude-code  Claude Pro/Max OAuth provider (Messages API, bearer token)
+@moxxy/plugin-provider-claude-code  "Claude Agent" connection: Claude Code does each turn through the Claude Agent SDK (installed into ~/.moxxy on first use) on the Claude Pro/Max sign-in
+@moxxy/plugin-provider-codex-agent  "ChatGPT — Codex agent" connection: Codex does each turn through `codex app-server` (the person's installed Codex CLI) on the ChatGPT sign-in
+@moxxy/plugin-provider-acp        agent connections over the Agent Client Protocol; first entry "OpenCode agent" (`opencode`): OpenCode does each turn through `opencode acp` with the person's own OpenCode setup and models
+@moxxy/agent-connection-kit       shared parts of agent connections (vendor agent does the turn via `agentStep`): Moxxy tools MCP server, line JSON-RPC client, live agent session pool, mode mapping, CLI version/update checks, turn inbox, one-off transcript
 @moxxy/plugin-provider-admin      register OpenAI-compatible providers at runtime
 @moxxy/plugin-oauth               generic OAuth 2.0 + PKCE / device-code
 @moxxy/plugin-stt-whisper         Whisper transcriber (voice in); `-codex` variant reuses ChatGPT creds
@@ -168,6 +171,7 @@ requirement automatically.
 ### Don't
 
 - **Don't add a dependency without justification.** The framework is intended to be light. Built-ins use only Node stdlib + `zod` + `ulid` + `jiti`. Plugin authors can add their own — but core/SDK stays minimal.
+- **Don't import bare `'zod'`.** The catalog is zod 4, but Moxxy's schemas are zod 3 ones: import from `'zod/v3'` or use `z` from `@moxxy/sdk`. `zodToJsonSchema` reads zod 3 internals, so a zod 4 schema reaches the model with no fields. Lint enforces it (`no-restricted-imports` in `eslint.config.js`).
 - **Don't import from `@moxxy/core` inside `@moxxy/sdk` or any plugin that contributes to the loop runtime** (loops, compactors, providers without UI). Channels are the exception.
 - **Don't mutate the event log.** Append-only. Compaction adds a `compaction` event with `replacedRange`; selectors honor it. Selectors must stay pure folds.
 - **Don't introduce features that need importing a plugin from core.** Use lifecycle hooks, or pass services via closure (see `buildSynthesizeSkillPlugin(session)` for the pattern).
@@ -194,6 +198,17 @@ So: **branch off `development`, PR back into `development`. Never target `main`.
 
 > **Why this can never conflict (the old failure, fixed):** advancing `main` is a tree **copy**, not a merge — `commit-tree` makes a commit whose tree is development's and whose parent is `origin/main`, so there is no merge-base, no 3-way, no hunks to reconcile. Conflict-freedom is a property of git's object model, not of any workflow firing. The previous design squash-merged a `development → main` PR and leaned on a `sync-back.yml` (`on: push: main`) to repair the ancestry a squash breaks — but GitHub never fires workflows for `GITHUB_TOKEN` pushes, so the sync-back never ran, `main` drifted out of ancestry, and every `dev → main` PR re-conflicted. There is **no `development → main` PR, no squash-merge, and no sync-back** anymore.
 
+## Agent connections: live check before merging
+
+Claude Code, Codex and OpenCode are other companies' programs, updated on their own schedule, and CI cannot hold anyone's sign-in. So two checks split the work:
+
+- **CI, no sign-in** — `.github/workflows/agent-cli-compat.yml` runs every day and on PRs that touch a connection: the newest and the minimum CLIs from npm must answer their connection's handshake, Codex's protocol kinds must match the fixture, and OpenCode, started as Moxxy starts it, must keep its HTTP API behind Moxxy's password and offer background subagents. It calls no model. Locally: `pnpm test:agents:compat`.
+- **This machine, real conversations** — `pnpm test:agents:live` (one agent: `--agent claude|codex|opencode`). It runs this repo's connection code against the CLIs you are signed in with: a reply, a file change, a Moxxy tool, a follow-up, Stop during a running command, a resumed conversation after a restart, and background work that Moxxy lists and stops: a command Claude or Codex left running, a subagent OpenCode left working (OpenCode has no background commands). It uses a little of each account; the report lands in `.live-reports/`.
+
+**Before merging into `development`, run `pnpm test:agents:live` on the exact code being merged, and before every release.** Put the report's commit, the CLI versions and every result in the PR or the hand-off. An agent that could not be checked (not installed, not signed in) is reported as **not checked** — never as passing — and a `FAIL` blocks the merge until it is fixed or the owner accepts it in writing.
+
+Every PR into `development` carries the box "I ran `pnpm test:agents:live` on this PR's latest commit" from `.github/pull_request_template.md`. An agent opening a PR with its own `--body` copies that line in, unticked; whoever ran the check ticks it. Until then the `Agent live check confirmed` check (`.github/workflows/agent-live-confirmed.yml`) is red. It is a reminder, not a lock: branch protection does not require it, so Merge stays possible and the release workflow, which pushes without a PR, never meets it. Dependabot PRs skip it.
+
 ## Releasing (changesets)
 
 Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every feature PR (→ `development`) must include a changeset — CI (the `Changeset present` job) fails it without one.** A change that releases nothing (docs / CI / tests) still needs one: add an empty changeset with `pnpm changeset --empty`. (There is no separate release PR — the daily Release workflow versions and ships whatever changesets merged to `development` that day.)
@@ -216,6 +231,8 @@ pnpm -r typecheck         # typecheck every package
 pnpm -r test              # run every test suite
 pnpm --filter <pkg> test  # run a single package's tests
 pnpm check:deps           # enforce architectural invariants
+pnpm test:agents:compat   # agent CLIs still speak what the connections expect (no sign-in)
+pnpm test:agents:live     # real turns through Claude Code / Codex / OpenCode — before merging
 
 # Try the CLI:
 node packages/cli/dist/bin.js --help

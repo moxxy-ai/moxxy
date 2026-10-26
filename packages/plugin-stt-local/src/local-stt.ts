@@ -2,12 +2,12 @@
  * The `local-whisper` Transcriber: fully local, on-device speech-to-text.
  *
  * On the first transcription for a model it downloads + verifies that model's
- * Whisper export (once, via @moxxy/model-fetch), then decodes the inbound audio
+ * Whisper files (once, via @moxxy/model-fetch), then decodes the inbound audio
  * to Float32 mono @ 16 kHz IN-PROCESS (raw PCM / WAV) or via ffmpeg (compressed
  * containers) and hands the samples to the sherpa sidecar ({@link HostClient}).
  * No key, no network at transcription time.
  *
- * Every collaborator is injectable (`ensureModelImpl`, `hostFactory`, `log`,
+ * Every collaborator is injectable (`ensureModelFilesImpl`, `hostFactory`, `log`,
  * `modelsDir`, `fetchImpl`, `spawnImpl`) so the whole flow is unit-testable
  * without the native addon, a real download, or ffmpeg.
  */
@@ -22,18 +22,25 @@ import {
   type Transcriber,
   type TranscriptionResult,
 } from '@moxxy/sdk';
-import { moxxyPath } from '@moxxy/sdk/server';
 import {
-  ensureModel,
-  type EnsureModelProgress,
-  type EnsureModelResult,
+  ensureModelFiles,
+  type EnsureModelFilesResult,
   type FetchLike,
+  type ModelFilesProgress,
 } from '@moxxy/model-fetch';
 
 import { TARGET_SAMPLE_RATE } from './audio.js';
 import { decodeToMono16k } from './decode.js';
 import { HostClient, type HostClientLike } from './host-client.js';
-import { DEFAULT_MODEL_ID, requireModel, type WhisperModelEntry } from './models.js';
+import {
+  DEFAULT_MODEL_ID,
+  defaultModelsDir,
+  modelBytes,
+  modelDir,
+  modelFiles,
+  requireModel,
+  type WhisperModelEntry,
+} from './models.js';
 import { resolveSherpaLibDir, sherpaEnv, sherpaPlatformPackage } from './platform.js';
 
 /** The single registered transcriber name. */
@@ -49,7 +56,7 @@ export interface WhisperModelPaths {
 }
 
 export interface LocalWhisperOptions {
-  /** Model id: `tiny` | `base` | `small`. Default `base` (`small` for Polish). */
+  /** Model id. The only one is `turbo`, also the default. */
   readonly model?: string;
   /** Default Whisper language tag (BCP-47-ish, e.g. `en`, `pl`). Per-call
    *  `TranscribeOptions.language` overrides it; omit to let Whisper auto-detect. */
@@ -63,9 +70,9 @@ export interface LocalWhisperOptions {
   /** Absolute path to the built sidecar entry. Default: `sidecar.js` beside
    *  this module (i.e. `dist/sidecar.js` in a published build). */
   readonly sidecarPath?: string;
-  /** Injected model-ensure (tests). Defaults to @moxxy/model-fetch `ensureModel`. */
-  readonly ensureModelImpl?: typeof ensureModel;
-  /** Injected `fetch`, threaded into `ensureModel` (tests). */
+  /** Injected model download (tests). Defaults to @moxxy/model-fetch `ensureModelFiles`. */
+  readonly ensureModelFilesImpl?: typeof ensureModelFiles;
+  /** Injected `fetch`, threaded into the model download (tests). */
   readonly fetchImpl?: FetchLike;
   /** Injected sidecar host factory (tests). Defaults to a real {@link HostClient}. */
   readonly hostFactory?: () => HostClientLike;
@@ -94,7 +101,7 @@ export class LocalWhisperTranscriber implements Transcriber {
   private readonly modelsDir: string;
   private readonly provider: string;
   private readonly sidecarPath: string | undefined;
-  private readonly ensureModelImpl: typeof ensureModel;
+  private readonly ensureModelFilesImpl: typeof ensureModelFiles;
   private readonly fetchImpl: FetchLike | undefined;
   private readonly hostFactory: () => HostClientLike;
   private readonly spawnImpl: typeof spawn | undefined;
@@ -102,7 +109,7 @@ export class LocalWhisperTranscriber implements Transcriber {
 
   private host: HostClientLike | null = null;
   /** In-flight model download promise — de-dupes concurrent first-use. */
-  private ensuring: Promise<EnsureModelResult> | null = null;
+  private ensuring: Promise<EnsureModelFilesResult> | null = null;
 
   constructor(opts: LocalWhisperOptions = {}) {
     // Validate the configured model up front so a bad config fails clearly at
@@ -113,10 +120,10 @@ export class LocalWhisperTranscriber implements Transcriber {
       opts.numThreads && Number.isInteger(opts.numThreads) && opts.numThreads > 0
         ? opts.numThreads
         : DEFAULT_NUM_THREADS;
-    this.modelsDir = opts.modelsDir ?? moxxyPath('models', 'stt');
+    this.modelsDir = opts.modelsDir ?? defaultModelsDir();
     this.provider = opts.provider ?? 'cpu';
     this.sidecarPath = opts.sidecarPath;
-    this.ensureModelImpl = opts.ensureModelImpl ?? ensureModel;
+    this.ensureModelFilesImpl = opts.ensureModelFilesImpl ?? ensureModelFiles;
     this.fetchImpl = opts.fetchImpl;
     this.hostFactory = opts.hostFactory ?? (() => this.defaultHost());
     this.spawnImpl = opts.spawnImpl;
@@ -184,14 +191,13 @@ export class LocalWhisperTranscriber implements Transcriber {
     return this.host;
   }
 
-  /** Resolve on-disk paths for the model, downloading + extracting it once. */
+  /** Resolve on-disk paths for the model, downloading its files once. */
   private async ensureModelFiles(signal?: AbortSignal): Promise<WhisperModelPaths> {
-    const dir = path.join(this.modelsDir, this.model.id);
+    const dir = modelDir(this.model, this.modelsDir);
     let inflight = this.ensuring;
     if (!inflight) {
-      inflight = this.ensureModelImpl({
-        url: this.model.url,
-        sha256: this.model.sha256,
+      inflight = this.ensureModelFilesImpl({
+        files: modelFiles(this.model),
         dir,
         ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}),
         ...(signal ? { signal } : {}),
@@ -204,41 +210,29 @@ export class LocalWhisperTranscriber implements Transcriber {
       });
     }
     await inflight;
-    const root = path.join(dir, this.model.archiveRootDir);
     return {
-      encoder: path.join(root, this.model.encoderFile),
-      decoder: path.join(root, this.model.decoderFile),
-      tokens: path.join(root, this.model.tokensFile),
+      encoder: path.join(dir, this.model.encoder.name),
+      decoder: path.join(dir, this.model.decoder.name),
+      tokens: path.join(dir, this.model.tokens.name),
     };
   }
 
   /** A progress callback that logs a single start line then ~every-10% ticks,
-   *  and an extraction line — but stays silent when the model is already
-   *  present (ensureModel emits only `done`). */
-  private makeProgressLogger(): (p: EnsureModelProgress) => void {
+   *  but stays silent when the model is already present (nothing to fetch). */
+  private makeProgressLogger(): (p: ModelFilesProgress) => void {
     let started = false;
-    let extracting = false;
     let lastPct = -1;
     return (p) => {
-      if (p.phase === 'downloading') {
-        if (!started) {
-          started = true;
-          this.log(
-            `stt-local: first use — downloading Whisper ${this.model.id} (~${this.model.approxMb} MB) to ${this.modelsDir}, one-time`,
-          );
-        }
-        if (p.totalBytes > 0) {
-          const pct = Math.floor((p.receivedBytes / p.totalBytes) * 100);
-          if (pct >= lastPct + 10) {
-            lastPct = pct - (pct % 10);
-            this.log(`stt-local: downloading ${this.model.id} … ${lastPct}%`);
-          }
-        }
-      } else if (p.phase === 'extracting' && !extracting) {
-        extracting = true;
-        this.log(`stt-local: extracting ${this.model.id} …`);
-      } else if (p.phase === 'done' && started) {
-        this.log(`stt-local: ${this.model.id} ready.`);
+      const pct = p.totalBytes > 0 ? Math.floor((p.receivedBytes / p.totalBytes) * 100) : 0;
+      if (!started) {
+        if (pct >= 100) return;
+        started = true;
+        const mb = Math.round(modelBytes(this.model) / 1_000_000);
+        this.log(`stt-local: first use — downloading Whisper ${this.model.id} (~${mb} MB) to ${this.modelsDir}, one-time`);
+      }
+      if (pct >= lastPct + 10) {
+        lastPct = pct - (pct % 10);
+        this.log(lastPct >= 100 ? `stt-local: ${this.model.id} ready.` : `stt-local: downloading ${this.model.id} … ${lastPct}%`);
       }
     };
   }

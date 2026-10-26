@@ -40,6 +40,11 @@ describe('skillFrontmatterSchema', () => {
   it('rejects empty description', () => {
     expect(() => skillFrontmatterSchema.parse({ name: 'x', description: '' })).toThrow();
   });
+
+  it('accepts a description up to 1024 chars, the Agent Skills limit third-party skills are written to', () => {
+    expect(skillFrontmatterSchema.parse({ name: 'x', description: 'd'.repeat(1024) }).description).toHaveLength(1024);
+    expect(() => skillFrontmatterSchema.parse({ name: 'x', description: 'd'.repeat(1025) })).toThrow();
+  });
 });
 
 describe('pluginManifestSchema', () => {

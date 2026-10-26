@@ -22,51 +22,7 @@ import {
   toolResultStubbed,
   type ElisionState,
 } from '../elision-state.js';
-import { isToolDisplayResult } from '../tool-display.js';
-
-/**
- * Stringify an arbitrary tool output for the model-facing tool_result text.
- * `tool_result.output` is `unknown` and comes straight from whatever a tool
- * returned, so it can be circular or contain a BigInt — either of which makes
- * `JSON.stringify` THROW. Because projection runs on every request over the
- * append-only log, an unguarded throw here permanently wedges the session
- * (every subsequent re-projection re-throws). Mirrors the try/catch guard the
- * sibling sizing paths (`safeJsonLen`, `toolResultBytes`) already use.
- */
-function safeStringifyOutput(output: unknown): string {
-  if (typeof output === 'string') return output;
-  try {
-    return JSON.stringify(output ?? '');
-  } catch {
-    try {
-      return String(output ?? '');
-    } catch {
-      return '[unserializable tool output]';
-    }
-  }
-}
-
-/**
- * An image ContentBlock extracted from an image-shaped tool output. A tool can
- * return either `{ mediaType, base64 }` (the desktop screenshot/clipboard shape)
- * or the provider-native `{ type:'image', mediaType, data }` — both normalize to
- * the same provider `image` block so the model SEES the pixels instead of a
- * stringified blob of base64.
- */
-function imageBlockFromOutput(output: unknown): Extract<ContentBlock, { type: 'image' }> | null {
-  if (typeof output !== 'object' || output === null) return null;
-  const o = output as { type?: unknown; mediaType?: unknown; base64?: unknown; data?: unknown };
-  if (typeof o.mediaType !== 'string') return null;
-  // `{ mediaType, base64 }` (raw shape) or `{ type:'image', mediaType, data }`.
-  const data =
-    typeof o.base64 === 'string'
-      ? o.base64
-      : o.type === 'image' && typeof o.data === 'string'
-        ? o.data
-        : null;
-  if (data === null) return null;
-  return { type: 'image', mediaType: o.mediaType, data };
-}
+import { toolOutputForModel, type ToolImageBlock } from '../tool-output.js';
 
 /** Appended to the system prompt while elision is active (see projection). */
 export const ELISION_SYSTEM_NOTE =
@@ -524,10 +480,10 @@ export function projectMessages(
         // Stub bulky old tool output to a recall-able marker (decision shared
         // with estimateContextTokens via toolResultStubbed).
         let text: string;
-        // An image-shaped output (a screenshot/clipboard grab) is carried as a
-        // provider `image` block so the model SEES the pixels — only when the
+        // An image-shaped output (a screenshot/clipboard grab) is carried as
+        // provider `image` blocks so the model SEES the pixels — only when the
         // result isn't stubbed (elided) or an error and the call succeeded.
-        let image: Extract<ContentBlock, { type: 'image' }> | null = null;
+        let images: ReadonlyArray<ToolImageBlock> = [];
         // A `recall({ attachment })` result: the original image/document goes
         // beside it, from the prompt that carried it, while the budget allows.
         let restored: ContentBlock | null = null;
@@ -536,10 +492,6 @@ export function projectMessages(
           text = toolResultStubText(e, el);
         } else if (e.error) {
           text = `[error:${e.error.kind}] ${e.error.message}`;
-        } else if (isToolDisplayResult(e.output)) {
-          // Rich result (e.g. a file diff): the model only needs the short
-          // `forModel` summary — the structured `display` is for channels.
-          text = e.output.forModel;
         } else if (restoredAtt) {
           const description = (e.output as { forModel?: unknown }).forModel;
           text = typeof description === 'string' ? description : '[attachment restored — see below]';
@@ -550,20 +502,15 @@ export function projectMessages(
               ' [It could not be shown again: newer attachments already fill what one request may carry.' +
               ' Ask the person to attach it again if you need it now.]';
           }
-        } else if (e.ok && (image = imageBlockFromOutput(e.output))) {
-          // Short marker satisfies the tool_use→tool_result pairing; the image
-          // block (appended below) carries the actual pixels.
-          const description = (e.output as { forModel?: unknown }).forModel;
-          text = typeof description === 'string'
-            ? description
-            : '[image returned by tool — see attached image]';
         } else {
-          text = safeStringifyOutput(e.output);
+          const forModel = toolOutputForModel(e.output);
+          text = forModel.text;
+          if (e.ok) images = forModel.images;
         }
         const content: ContentBlock[] = [
           { type: 'tool_result', toolUseId: e.callId, content: text, isError: !e.ok },
+          ...images,
         ];
-        if (image) content.push(image);
         if (restored) content.push(restored);
         messages.push({ role: 'tool_result', content });
         recordStable(e.seq);

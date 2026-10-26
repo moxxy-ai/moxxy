@@ -39,3 +39,8 @@ export function createFakeSession(opts: FakeSessionOptions): Session {
   for (const plugin of opts.plugins ?? []) session.pluginHost.registerStatic(plugin);
   return session;
 }
+
+/** One more provider on the session, to switch the conversation to it and back (`session.providers.setActive`). */
+export function addFakeProvider(session: Session, provider: LLMProvider): void {
+  session.providers.register(defineProvider({ name: provider.name, models: [...provider.models], createClient: () => provider }), provider);
+}

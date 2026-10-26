@@ -10,6 +10,8 @@ import type { DesksOverview } from './desks.js';
 import type { ChannelRuntimeStatus } from './channels.js';
 import type { RunTurnVisibility } from './chat.js';
 import type { BrowserControlState, BrowserCursor, BrowserTabInfo } from './browser.js';
+import type { AgentCliProgress, TranscriptionSettings } from './settings.js';
+import type { AppNotice } from './notices.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -81,6 +83,8 @@ export interface IpcEvents {
     /** Omitted by legacy senders and therefore treated as foreground. */
     visibility?: RunTurnVisibility;
   };
+  /** A line from an agent CLI's installer or updater (`agents.run`). */
+  'agents.progress': AgentCliProgress;
   /** A running interactive provider login (`provider.login.start`) needs a
    *  pasted answer — the out-of-band token or `code#state` claude-code's flow
    *  asks for. The renderer renders an input (masked when `mask`) and replies
@@ -155,4 +159,10 @@ export interface IpcEvents {
   /** The coordinator's liveness/task changed (started / ended / crashed) — the
    *  panel reflects it without polling `collab.active`. */
   'collab.status': { running: boolean; task?: string };
+  /** Where speech is transcribed, or how far getting Local ready has come,
+   *  changed — sent through the model download, so every window shows the same
+   *  progress wherever the person is in the app. */
+  'voice.transcription.changed': TranscriptionSettings;
+  /** The host finished, or failed at, work that ran in the background. */
+  'app.notice': AppNotice;
 }

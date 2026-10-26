@@ -1,6 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- test doubles cast loosely */
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { assertDefined, denyByDefaultResolver, type ClientSession } from '@moxxy/sdk';
+import {
+  assertDefined,
+  defineTool,
+  denyByDefaultResolver,
+  openQuestionsFromEvents,
+  z,
+  type ClientSession,
+  type QuestionOutcome,
+} from '@moxxy/sdk';
+import { Session } from '@moxxy/core';
 import type { CommandBus, EventSink } from '@moxxy/desktop-ipc-contract/bus';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -601,6 +610,24 @@ describe('MobileSessionHost', () => {
     await expect(verdict).resolves.toEqual({ mode: 'allow' });
   });
 
+  it('saves "Always allow" of a tool that narrows its grant as that exact request', async () => {
+    const bus = new FakeBus();
+    const { session, getPermissionResolver } = fakeSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+    host.wire();
+    const call = { name: 'computer_request_access', input: { apps: ['Safari'], reason: 'browse' } };
+    const verdict = getPermissionResolver().check(call, { sessionId: 's', toolPermission: { action: 'prompt', sessionScope: { inputKeys: ['apps', 'full_access'] } } });
+    const ask = bus.event('ask.request')[0];
+    assertDefined(ask, 'a permission ask was broadcast');
+    await bus.invoke('ask.respond', { requestId: ask.payload.requestId, response: { mode: 'allow_always' } });
+    await verdict;
+    expect(session.permissions.addAllow).toHaveBeenCalledWith({
+      name: 'computer_request_access',
+      inputEquals: { apps: ['Safari'], full_access: null },
+    });
+  });
+
   it('fails closed: a permission check after dispose() resolves to deny instead of hanging', async () => {
     const bus = new FakeBus();
     const { session, getPermissionResolver } = fakeSession();
@@ -780,5 +807,63 @@ describe('MobileSessionHost Computer Use', () => {
 
     host.dispose();
     expect(control.listeners.size).toBe(0);
+  });
+});
+
+describe('MobileSessionHost — Questions', () => {
+  function askingSession() {
+    const session = new Session({ cwd: os.tmpdir(), silent: true });
+    session.tools.register(
+      defineTool({
+        name: 'asks',
+        description: 'Asks the person.',
+        inputSchema: z.object({}),
+        handler: async (_input, ctx) =>
+          ctx.ask
+            ? ctx.ask([{ id: 'q1', question: 'Which colour?', options: [{ id: 'red', label: 'Red' }], multiSelect: false, allowOther: true }])
+            : 'no ask',
+      }),
+    );
+    return session;
+  }
+
+  it('lets the phone answer a Question the agent asked, through the same command the desktop uses', async () => {
+    const bus = new FakeBus();
+    const session = askingSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+    host.wire();
+    const asked = session.tools.execute('asks', {}, new AbortController().signal, { turnId: 't1' }) as Promise<QuestionOutcome>;
+    await new Promise((resolve) => setImmediate(resolve));
+    const [open] = openQuestionsFromEvents(session.log.slice());
+    if (!open) throw new Error('expected an open question');
+
+    await bus.invoke('session.answerQuestion', { workspaceId: session.id, questionId: open.questionId, answers: { q1: { selected: ['red'] } } });
+
+    await expect(asked).resolves.toEqual({ kind: 'answered', answers: { q1: { selected: ['red'] } } });
+    host.dispose();
+  });
+
+  it("lets the phone stop the agent's background work through the same command the desktop uses", async () => {
+    const bus = new FakeBus();
+    const session = askingSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+
+    // This conversation's model runs nothing in the background.
+    await expect(bus.invoke('session.stopBackgroundWork', { workspaceId: session.id, workId: 'b1' })).resolves.toBe(false);
+    host.dispose();
+  });
+
+  it('shows Questions only while wired: after dispose, tools hear nobody will answer', async () => {
+    const session = askingSession();
+    const host = new MobileSessionHost(new FakeBus(), session);
+    host.register();
+    host.wire();
+    expect(session.questions.surfaceCount).toBe(1);
+
+    host.dispose();
+
+    expect(session.questions.surfaceCount).toBe(0);
   });
 });

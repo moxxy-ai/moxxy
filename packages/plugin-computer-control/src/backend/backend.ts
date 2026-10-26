@@ -1,5 +1,5 @@
 import { defineTool, zodToJsonSchema, type LifecycleHooks, type SurfaceDef, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { FILE_PANEL_NOTE, withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from '../contract/outcome.js';
@@ -14,7 +14,7 @@ import { wrapUntrusted } from '../contract/untrusted.js';
 import { controlStateSchemaFor } from '../helper/protocol.js';
 import { HelperError, HelperTransport } from '../helper/transport.js';
 import {
-  accessFromLog, accessGrantSchema, approvedThroughRun, categorize, checkAccess, checkKeys, defaultTier, maxTier, requiredTier,
+  ACCESS_PERMISSION, REQUEST_ACCESS_TOOL, accessFromLog, accessGrantSchema, approvedThroughRun, categorize, checkAccess, checkKeys, defaultTier, maxTier, requiredTier,
   type AccessGrant, type AccessTier, type AppGrant,
   type AccessState,
 } from './access.js';
@@ -146,7 +146,7 @@ export class ComputerBackend {
       return defineTool({
         name, description, inputSchema: input,
         inputJsonSchema: zodToJsonSchema(input),
-        permission: { action: 'prompt' }, refusalEndsTurn: COMPUTER_REFUSAL, icon: 'workspace',
+        permission: name === REQUEST_ACCESS_TOOL ? ACCESS_PERMISSION : { action: 'prompt' }, refusalEndsTurn: COMPUTER_REFUSAL, icon: 'workspace',
         ...(LOOKING.has(name) ? { liveState: true } : {}),
         ...(ENTRY.has(name) ? { alwaysLoaded: true } : {}),
         // Only a run of steps leaves the machine: it asks Jev where each element is.
@@ -188,6 +188,8 @@ export class ComputerBackend {
     computer_request_access: async (input, ctx) => {
       const { result } = await this.call(ctx, 'resolve_apps', { names: input.apps }, resolveAppsResultSchema);
       const elevated = new Set((input.full_access ?? []).map((name) => name.toLowerCase()));
+      // A level the person approved earlier in the conversation stays: asking again never takes it back.
+      const held = new Map((await this.access(ctx)).apps.map((app) => [app.id, app.tier]));
       const granted = new Map<string, AppGrant>();
       const unresolved: AccessGrant['unresolved'] = [];
       const asked = this.asked.get(ctx.sessionId) ?? new Map<string, string>();
@@ -197,8 +199,8 @@ export class ComputerBackend {
         if (app.status === 'not_found') { unresolved.push({ app: app.request, reason: 'not_found' }); continue; }
         if (app.status === 'ambiguous') { unresolved.push({ app: app.request, reason: 'ambiguous', candidates: app.candidates }); continue; }
         const tier: AccessTier = elevated.has(app.request.toLowerCase()) ? 'full' : defaultTier(categorize(app));
-        const previous = granted.get(app.id);
-        granted.set(app.id, { id: app.id, name: app.name, tier: previous ? maxTier(previous.tier, tier) : tier });
+        const previous = [granted.get(app.id)?.tier, held.get(app.id)].filter((known): known is AccessTier => known !== undefined);
+        granted.set(app.id, { id: app.id, name: app.name, tier: maxTier(tier, ...previous) });
       }
       return accessGrantSchema.parse({
         kind: 'computer_access', granted: [...granted.values()], unresolved,

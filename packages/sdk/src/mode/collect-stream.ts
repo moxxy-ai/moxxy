@@ -22,7 +22,7 @@ export interface CollectedToolUse {
 }
 
 /** Sum two usage frames so multi-`message_end` responses don't undercount. */
-function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   const cacheRead =
     a.cacheReadTokens !== undefined || b.cacheReadTokens !== undefined
       ? (a.cacheReadTokens ?? 0) + (b.cacheReadTokens ?? 0)

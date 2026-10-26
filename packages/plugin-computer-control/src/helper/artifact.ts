@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { constants, existsSync, readFileSync } from 'node:fs';
 import { lstat, open, rename, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 const manifestSchema = (protocolVersion: number) => z.object({
   protocolVersion: z.literal(protocolVersion),

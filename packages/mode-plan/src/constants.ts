@@ -23,3 +23,10 @@ Completion rule:
 export const PLAN_COMPLETION_NUDGE =
   `Return the final plan through the \`${PLAN_COMPLETE_TOOL}\` tool now. ` +
   'Do not answer with another prose draft.';
+
+/** For an agent with its own plan mode that wrote its plan as a message instead of handing it over. */
+export const AGENT_PLAN_HAND_OFF_NUDGE =
+  'You wrote your plan as a message. In plan mode a finished plan goes to the person through your own plan hand-off ' +
+  '(the tool or block your plan mode presents a plan with for approval, such as ExitPlanMode), so they can implement it, ' +
+  'have it rewritten or dismiss it. If that message was your plan, hand it over that way now without writing it out again. ' +
+  'If it was an answer or a question for the person, end your turn without saying more.';

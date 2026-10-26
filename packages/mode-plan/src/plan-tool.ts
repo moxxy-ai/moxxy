@@ -1,5 +1,5 @@
 import { defineTool } from '@moxxy/sdk';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { PLAN_COMPLETE_TOOL } from './constants.js';
 

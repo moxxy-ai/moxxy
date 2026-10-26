@@ -8,6 +8,9 @@ vi.mock('@moxxy/config', () => ({
   setCategoryDefault: (...a: unknown[]) => setCategoryDefault(...a),
 }));
 
+import { Session } from '@moxxy/core';
+import { ChatQuestions, type QuestionUpdate } from '@moxxy/channel-kit';
+import { defineTool, z, type QuestionOutcome } from '@moxxy/sdk';
 import { handleCallback, type CallbackState, type CallbackCallbacks } from './callback-handler.js';
 
 /**
@@ -47,6 +50,7 @@ const makeState = (over: Partial<CallbackState> = {}): { state: CallbackState; r
     permissionResolver: { resolvePending } as never,
     approvalResolver: { getPending: () => undefined, resolvePending: vi.fn() } as never,
     pairing: { isAuthorized: () => true },
+    questions: new ChatQuestions(() => null),
     ...over,
   };
   return { state, resolvePending };
@@ -94,6 +98,39 @@ describe('handleCallback — pairing gate (A46)', () => {
       expect(getPending).not.toHaveBeenCalled();
       expect(answerCallbackQuery).toHaveBeenCalledTimes(1);
     }
+  });
+});
+
+describe('handleCallback — a Question button', () => {
+  it('answers the Question with the clicked answer and stops the button spinner', async () => {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.tools.register(
+      defineTool({
+        name: 'asks',
+        description: 'Asks the person.',
+        inputSchema: z.object({}),
+        handler: async (_input, ctx) =>
+          ctx.ask
+            ? ctx.ask([{ id: 'q1', question: 'Which colour?', options: [{ id: 'red', label: 'Red' }], multiSelect: false, allowOther: false }])
+            : 'no ask',
+      }),
+    );
+    const questions = new ChatQuestions(() => session);
+    const updates: QuestionUpdate[] = [];
+    questions.attach((update) => updates.push(update));
+    const asked = session.tools.execute('asks', {}, new AbortController().signal, { turnId: 't1' }) as Promise<QuestionOutcome>;
+    await new Promise((resolve) => setImmediate(resolve));
+    const shown = updates[0];
+    if (!shown || shown.kind !== 'show') throw new Error('expected the card');
+    const red = shown.card.rows.flat()[0];
+    if (!red) throw new Error('expected the Red button');
+    const { ctx, answerCallbackQuery } = fakeCtx({ chatId: 42, data: red.data });
+    const { state } = makeState({ questions });
+
+    await handleCallback(ctx, state, cb);
+
+    await expect(asked).resolves.toEqual({ kind: 'answered', answers: { q1: { selected: ['red'] } } });
+    expect(answerCallbackQuery).toHaveBeenCalledTimes(1);
   });
 });
 

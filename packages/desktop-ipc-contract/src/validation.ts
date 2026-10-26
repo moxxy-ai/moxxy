@@ -9,7 +9,7 @@
  * already-defended-in-depth commands are intentionally absent.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
@@ -72,6 +72,10 @@ const vaultKeyName = z
   .refine((s) => !s.includes('..'), 'vault key name may not contain ".."');
 
 const optionalWorkspace = z.string().min(1).max(256).optional();
+
+const chatMediaItemArgs = z
+  .object({ workspaceId: z.string().min(1).max(256), id: z.string().min(1).max(200) })
+  .strict();
 /** Mirrors the runner's per-side cap for a recorded exchange. */
 const MAX_VOICE_EXCHANGE_TEXT = 100_000;
 /** ~30 MB of base64 — generous for a voice clip, bounded so a renderer
@@ -191,6 +195,12 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }).strict(),
   'voice.useLocalPiper': z.undefined(),
   'voice.getSettings': z.undefined(),
+  // Switching transcription spawns the CLI to install a fixed package and
+  // restarts runners; the renderer supplies nothing.
+  'voice.getTranscription': z.undefined(),
+  'voice.useLocalTranscription': z.undefined(),
+  'voice.cancelLocalTranscription': z.undefined(),
+  'voice.useCloudTranscription': z.undefined(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
   // GPT-Live spends the host's ChatGPT OAuth credential: the renderer supplies
   // only its WebRTC offer; instructions, model and history stay host-owned.
@@ -257,8 +267,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       language: speechLanguage.optional(),
       rate: speechRate.optional(),
       voice: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/).optional(),
+      cache: z.boolean().optional(),
     })
     .strict(),
+  'session.readAloudPlan': z.object({ workspaceId: optionalWorkspace }).strict().optional(),
   'session.cancelSynthesis': z.object({
     workspaceId: optionalWorkspace,
     requestId: z.string().min(1).max(64).regex(/^[A-Za-z0-9-]+$/),
@@ -414,6 +426,23 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
+  'session.stopBackgroundWork': z.object({ workspaceId: optionalWorkspace, workId: z.string().min(1).max(256) }),
+  // An answer is the person's choice plus their own words: bounded like ask.respond's text.
+  'session.answerQuestion': z
+    .object({
+      workspaceId: optionalWorkspace,
+      questionId: z.string().min(1).max(128),
+      answers: z.record(
+        z.string().min(1).max(64),
+        z
+          .object({
+            selected: z.array(z.string().min(1).max(128)).max(32),
+            other: z.string().max(10_000).optional(),
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
   'workspace.listDir': z.object({
     workspaceId: z.string().min(1).max(256),
     path: z.string().max(4096).optional(),
@@ -436,6 +465,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: z.string().min(1).max(256),
     path: z.string().min(1).max(4096),
   }),
+  // Runs the vendor's installer or the agent's own update on this computer:
+  // only a known action, and a connection name that cannot carry shell text.
+  'agents.run': z.object({ provider: providerName, action: z.enum(['install', 'update']) }),
+  'agents.check': z.object({ workspaceId: optionalWorkspace }).optional(),
   'settings.fetchProviderModels': z.object({ provider: providerName }),
   // Session config mutation — pin the effort to the known enum so a renderer
   // can't push an arbitrary string through to the runner / provider request.
@@ -539,7 +572,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       voiceEngine: z.enum(['local', 'gpt-live']).optional(),
       replySound: z.boolean().optional(),
       systemNotifications: z.boolean().optional(),
+      inAppToasts: z.boolean().optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
+      dismissedAgentUpdates: z.record(providerName, z.string().min(1).max(64)).optional(),
     })
     .strict(),
   // Mobile-gateway control. Both no-arg variants pin the payload to "nothing"
@@ -564,6 +599,11 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       offset: z.number().int().nonnegative(),
     })
     .strict(),
+  // The media library names an item by the id the host gave it, never a path.
+  'chat.media': z.object({ workspaceId: z.string().min(1).max(256) }).strict(),
+  'chat.mediaThumbnail': chatMediaItemArgs,
+  'chat.readMediaImage': chatMediaItemArgs.extend({ offset: z.number().int().nonnegative() }).strict(),
+  'chat.openMediaFile': chatMediaItemArgs,
   // Collaboration control. All three touch the on-disk collab store
   // (~/.moxxy/collab/{active.lock,runs}) — a filesystem-touching surface — so
   // each gets the boundary check the module header promises:

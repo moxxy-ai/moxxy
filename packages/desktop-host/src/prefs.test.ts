@@ -59,6 +59,16 @@ describe('readPrefs', () => {
     expect(readPrefs().systemNotifications).toBe(false);
   });
 
+  it('has in-app toasts on until they are switched off, also for a file written before they existed', () => {
+    expect(readPrefs().inAppToasts).toBe(true);
+
+    writePrefsFile({ systemNotifications: false });
+    expect(readPrefs().inAppToasts).toBe(true);
+
+    writePrefsFile({ inAppToasts: false });
+    expect(readPrefs().inAppToasts).toBe(false);
+  });
+
   it('returns defaults for a malformed file (never throws)', () => {
     mkdirSync(path.dirname(prefsPath()), { recursive: true });
     writeFileSync(prefsPath(), '{not json');

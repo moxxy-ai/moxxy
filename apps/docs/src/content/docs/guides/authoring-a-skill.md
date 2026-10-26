@@ -12,12 +12,17 @@ Skills are **prompt-only** — they never contain executable code. They are just
 | `<plugin>/skills/<slug>.md` | Bundled with a plugin |
 | `@moxxy/skills-builtin` | Framework default |
 
+A skill can also be a folder, `<slug>/SKILL.md`, with reference files next to it — the layout
+`npx skills` and Claude Code use. Moxxy does not read `.agents/skills/` or `~/.claude/skills/`:
+copy such a folder into `~/.moxxy/skills/` to use it. A file whose frontmatter fails the
+limits below is skipped by the agent; the desktop Skills view lists it with the reason.
+
 ## Frontmatter
 
 ```yaml
 ---
-name: <kebab-case slug, lowercase letters/numbers/hyphens, <=60 chars>
-description: <one sentence, <=120 chars — the router shows this to the model>
+name: <kebab-case slug, lowercase letters/numbers/hyphens, aim for <=60 chars, hard limit 120>
+description: <one sentence, aim for <=120 chars, hard limit 1024 — the router shows this to the model>
 triggers: [<2-5 short phrases the user might say>]
 allowed-tools: [<tool names the model needs>]
 ---

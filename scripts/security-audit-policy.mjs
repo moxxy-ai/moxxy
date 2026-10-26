@@ -14,28 +14,6 @@ export const ACCEPTED_ADVISORIES = [
       'RSA signature-verification flaw. @expo/cli only uses node-forge to read local Apple ' +
       'signing certificates during `expo run:ios`; it verifies no signatures and never ships.',
   },
-  {
-    id: 'GHSA-vfj7-8cjw-p6xm',
-    module: 'braces',
-    paths: ['apps__mobile>expo>@expo/metro>metro-file-map>micromatch>braces'],
-    reason:
-      'Stack exhaustion on deeply nested brace patterns. Metro (the mobile dev bundler) only expands ' +
-      'the glob patterns of its own and the project config while it runs on a developer machine; ' +
-      'it takes no outside patterns and never ships.',
-  },
-  {
-    id: 'GHSA-hp3w-g68c-fv3c',
-    module: 'sprintf-js',
-    paths: [
-      'apps__mobile>react-native>@react-native/community-cli-plugin>@react-native-community/cli>@react-native-community/cli-config>cosmiconfig>js-yaml>argparse>sprintf-js',
-      'apps__desktop>electron-builder>app-builder-lib>@electron/get>global-agent>roarr>sprintf-js',
-    ],
-    reason:
-      'Denial of service through a huge precision in a format string. Both users format only their ' +
-      'own fixed strings (argparse its help text in the React Native CLI, roarr its log lines while ' +
-      '@electron/get downloads Electron on the build machine); neither takes a format string from ' +
-      'outside, and neither ships.',
-  },
 ];
 
 function isAccepted(advisory, accepted) {

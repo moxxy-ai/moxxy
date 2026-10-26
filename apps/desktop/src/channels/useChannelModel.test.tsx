@@ -4,7 +4,7 @@ import { __setApiOverride } from '@moxxy/client-core';
 import { useChannelModel } from './useChannelModel';
 
 const providers = [
-  { name: 'openai-codex', models: [{ id: 'gpt-5.6-luna' }, { id: 'gpt-5.6-terra' }] },
+  { name: 'openai-codex', models: [{ id: 'gpt-5.6-luna' }, { id: 'gpt-5.6-terra' }], starterModel: 'gpt-5.6-terra' },
   { name: 'anthropic', models: [{ id: 'claude-sonnet-5-5' }] },
 ];
 
@@ -56,14 +56,14 @@ describe('useChannelModel', () => {
     expect(hook.result.current.picking).toBe(false);
   });
 
-  it('picking a provider without a model uses its first model', async () => {
+  it('picking a provider without a model uses the light model a new conversation starts on', async () => {
     const { hook, setModel } = setup();
     act(() => hook.result.current.openPicker());
     await waitFor(() => expect(hook.result.current.providers).toHaveLength(2));
 
     await act(async () => hook.result.current.pick('openai-codex', null));
 
-    expect(setModel).toHaveBeenCalledWith('discord', 'openai-codex::gpt-5.6-luna');
+    expect(setModel).toHaveBeenCalledWith('discord', 'openai-codex::gpt-5.6-terra');
   });
 
   it('"use default" clears the channel model', async () => {

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 export const computerControlStateSchema = z.enum([
   'idle', 'background', 'foreground', 'waiting_for_focus',

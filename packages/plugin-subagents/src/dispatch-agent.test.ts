@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineTool, type SubagentResult, type SubagentSpawner, type ToolContext } from '@moxxy/sdk';
 import { FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';

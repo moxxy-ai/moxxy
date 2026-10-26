@@ -13,26 +13,27 @@ const IN_WIDGET: AppPresence = { focused: 'widget', widgetOpen: true };
 
 /** Chat `a` is the active one and is on screen in the main window, unless a case says otherwise. */
 const plan = (over: Partial<Parameters<typeof planAttention>[0]>): ReturnType<typeof planAttention> =>
-  planAttention({ calls: [], mainChatId: 'a', activeId: 'a', presence: IN_MAIN, sound: true, banners: true, ...over });
+  planAttention({ calls: [], mainChatId: 'a', activeId: 'a', presence: IN_MAIN, sound: true, banners: true, toasts: true, ...over });
 
 describe('planAttention', () => {
   it('does nothing for the chat being read in the main window', () => {
-    expect(plan({ calls: [answered('a'), asked('a')] })).toEqual({ ring: false, banners: [] });
+    expect(plan({ calls: [answered('a'), asked('a')] })).toEqual({ ring: false, banners: [], toasts: [] });
   });
 
-  it('rings for another chat, with no banner while the app has the keyboard', () => {
-    expect(plan({ calls: [answered('b')] })).toEqual({ ring: true, banners: [] });
-    expect(plan({ calls: [asked('b')] })).toEqual({ ring: true, banners: [] });
+  it('rings and shows a toast for another chat, with no banner while the main window has the keyboard', () => {
+    expect(plan({ calls: [answered('b')] })).toEqual({ ring: true, banners: [], toasts: [answered('b')] });
+    expect(plan({ calls: [asked('b')] })).toEqual({ ring: true, banners: [], toasts: [asked('b')] });
   });
 
   it('rings for the active chat when the main window shows another view', () => {
-    expect(plan({ calls: [answered('a')], mainChatId: null })).toEqual({ ring: true, banners: [] });
+    expect(plan({ calls: [answered('a')], mainChatId: null })).toEqual({ ring: true, banners: [], toasts: [answered('a')] });
   });
 
   it('rings and shows a banner for every chat once the app is in the background', () => {
     expect(plan({ calls: [answered('a'), asked('b')], presence: AWAY })).toEqual({
       ring: true,
       banners: [answered('a'), asked('b')],
+      toasts: [],
     });
   });
 
@@ -40,27 +41,34 @@ describe('planAttention', () => {
     expect(plan({ calls: [answered('a'), answered('b')], mainChatId: null, presence: WIDGET_BESIDE_WORK })).toEqual({
       ring: true,
       banners: [answered('b')],
+      toasts: [],
     });
   });
 
   it('does nothing for the chat being read in the Mini Chat', () => {
-    expect(plan({ calls: [answered('a')], mainChatId: null, presence: IN_WIDGET })).toEqual({ ring: false, banners: [] });
-    expect(plan({ calls: [answered('b')], mainChatId: null, presence: IN_WIDGET })).toEqual({ ring: true, banners: [] });
+    expect(plan({ calls: [answered('a')], mainChatId: null, presence: IN_WIDGET })).toEqual({ ring: false, banners: [], toasts: [] });
+    // The toasts live in the main window, which is not the one in front.
+    expect(plan({ calls: [answered('b')], mainChatId: null, presence: IN_WIDGET })).toEqual({ ring: true, banners: [], toasts: [] });
   });
 
   it('treats another window of the app as the app in front, reading no chat', () => {
     expect(plan({ calls: [answered('a')], presence: { focused: 'other', widgetOpen: false } })).toEqual({
       ring: true,
       banners: [],
+      toasts: [],
     });
   });
 
   it('keeps each switch to its own channel', () => {
-    expect(plan({ calls: [answered('b')], presence: AWAY, sound: false })).toEqual({ ring: false, banners: [answered('b')] });
-    expect(plan({ calls: [answered('b')], presence: AWAY, banners: false })).toEqual({ ring: true, banners: [] });
+    expect(plan({ calls: [answered('b')], presence: AWAY, sound: false })).toEqual({ ring: false, banners: [answered('b')], toasts: [] });
+    expect(plan({ calls: [answered('b')], presence: AWAY, banners: false })).toEqual({ ring: true, banners: [], toasts: [] });
+    // A toast has its own switch: the other two leave it alone.
+    expect(plan({ calls: [answered('b')], sound: false, banners: false })).toEqual({ ring: false, banners: [], toasts: [answered('b')] });
+    expect(plan({ calls: [answered('b')], toasts: false })).toEqual({ ring: true, banners: [], toasts: [] });
   });
 
   it('plans nothing without a call', () => {
-    expect(plan({ presence: AWAY })).toEqual({ ring: false, banners: [] });
+    expect(plan({ presence: AWAY })).toEqual({ ring: false, banners: [], toasts: [] });
+    expect(plan({})).toEqual({ ring: false, banners: [], toasts: [] });
   });
 });

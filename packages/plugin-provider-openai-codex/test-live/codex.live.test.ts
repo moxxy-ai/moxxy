@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { Session } from '@moxxy/core';
 import { defineTool, type MoxxyEvent } from '@moxxy/sdk';
 import { errorsOf, finalText, liveSession, liveTurn, openLiveCodex } from './live-session.js';

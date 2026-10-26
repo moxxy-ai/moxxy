@@ -3,6 +3,7 @@ export {
   handleProviderSetActive,
   handleProviderSetEnabled,
   handleProviderRefreshReady,
+  handleProviderCheckAgents,
   handleProviderConfigure,
 } from './provider-handlers.js';
 export {
@@ -41,6 +42,7 @@ export {
   handleSessionReadAttachment,
   handleSessionRecordExchange,
   handleSessionSetAutoApprove,
+  handleSessionStopBackgroundWork,
   handlePermissionAddAllow,
   handleCommandRun,
 } from './session-handlers.js';

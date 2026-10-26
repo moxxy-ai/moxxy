@@ -30,6 +30,13 @@ export interface PermissionRule {
     }>;
   };
   readonly reason?: string;
+  /**
+   * How far an "allow for this session" answer reaches for this tool: only
+   * later calls with the same values under these input keys. For a tool whose
+   * approval grants something by itself (access to an app), where a grant of
+   * the whole tool would let every later, wider request through unasked.
+   */
+  readonly sessionScope?: { readonly inputKeys: ReadonlyArray<string> };
 }
 
 export interface PendingToolCall {
@@ -44,9 +51,32 @@ export interface PendingToolCall {
   readonly requestedAtSeq?: number;
 }
 
+/**
+ * A standing "allow" rule a channel saves to the person's permissions.json:
+ * the whole tool, or with `inputEquals` only calls whose inputs have exactly
+ * these values (`null` for a left-out one).
+ */
+export interface StandingAllowRule {
+  readonly name: string;
+  readonly reason?: string;
+  readonly inputEquals?: Readonly<Record<string, unknown>>;
+}
+
 export interface PermissionContext {
   readonly turnId?: string;
   readonly toolDescription?: string;
+  /**
+   * The rule declared by the tool this turn offers under the call's name. A
+   * mode may offer tools the session registry does not hold (plan mode's
+   * `plan_complete`), so the resolver needs it from the call site.
+   */
+  readonly toolPermission?: PermissionRule;
+  /**
+   * The person answers even while auto-approve is on (standing rules still
+   * decide first): the agent's own setting would have asked them, and they
+   * never chose auto-approve for it.
+   */
+  readonly askPerson?: boolean;
   readonly skillContext?: string;
   readonly sessionId: string;
 }

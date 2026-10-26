@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Modal } from '@moxxy/desktop-ui';
-import { useContextUsage, type TokenSummary } from '@moxxy/client-core';
+import { chatStore, useContextUsage, type TokenSummary } from '@moxxy/client-core';
+import { accountLimitText } from '@moxxy/chat-model';
 import type { SessionInfo } from '../../chat/agent-picker/types';
 import { ProviderModelGrid } from '../../chat/agent-picker/ProviderModelGrid';
 import { ModelTuning } from '../../chat/agent-picker/ModelTuning';
 import { useModelTuning } from '../../chat/agent-picker/useModelTuning';
 import { UsagePanel } from '../../chat/composer/UsagePanel';
+import { useAccountLimit } from '../../chat/useAccountLimit';
 import { ContextMeter, contextLevel } from './ContextMeter';
 
 /**
@@ -56,6 +58,9 @@ export function Telemetry({
   // The model picked here, else the one the runner says a turn will run on.
   const running = selectedModel ?? info.defaultModel ?? null;
   const tuning = useModelTuning(workspaceId, info, running);
+  // Read without loading: the conversation's own surface loads its history.
+  const events = useSyncExternalStore(chatStore.subscribe, () => chatStore.getChat(workspaceId).events);
+  const accountLimit = useAccountLimit(events, info.activeProvider);
   // A runner too old to name that model is shown by its provider.
   const model = running ?? info.activeProvider ?? 'model';
   const mode = info.activeMode ?? null;
@@ -135,6 +140,7 @@ export function Telemetry({
                 Model
               </h3>
               <ProviderModelGrid
+                workspaceId={workspaceId}
                 providers={info.providers}
                 activeProvider={info.activeProvider}
                 activeModel={selectedModel}
@@ -144,6 +150,11 @@ export function Telemetry({
                 }}
               />
               <ModelTuning tuning={tuning} />
+              {accountLimit ? (
+                <p className="account-limit" data-testid="model-account-limit" data-state={accountLimit.limit.limit.state}>
+                  {accountLimitText(accountLimit.limit, accountLimit.nowMs)}
+                </p>
+              ) : null}
             </section>
             <UsagePanel usage={usage} workspaceId={workspaceId} />
           </div>

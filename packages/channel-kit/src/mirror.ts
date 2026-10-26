@@ -24,12 +24,14 @@ export class MirrorTarget<Target> {
 }
 
 export interface ForeignTurnMirrorOptions<Target> {
-  readonly turns: Pick<TurnCoordinator, 'mirrorPrompt' | 'mirrorText'>;
+  readonly turns: Pick<TurnCoordinator, 'mirrorPrompt' | 'mirrorText' | 'mirrorAgentTurn' | 'mirrorHelperAnswer' | 'mirrorNoReply'>;
   readonly target: MirrorTarget<Target>;
   /** Deliver one mirrored message (the channel splits it to its size cap). */
   readonly post: (target: Target, text: string) => Promise<void>;
   /** How the channel labels a prompt written in the app. */
   readonly formatPrompt: (prompt: string) => string;
+  /** How the channel says the agent took up a turn by itself ("check later finished in the background"). */
+  readonly formatAgentTurn: (name: string) => string;
   /** Each mirrored reply, e.g. for a call to say it aloud. */
   readonly onReply?: (text: string) => void;
   readonly onError?: (err: unknown) => void;
@@ -37,7 +39,8 @@ export interface ForeignTurnMirrorOptions<Target> {
 
 /**
  * Shows on a messenger the turns another surface ran on the bot's session —
- * the prompt written in the app, then its reply — in order, one at a time.
+ * the prompt written in the app, then its reply — and the turns the agent of
+ * an agent connection took up by itself, in order, one at a time.
  * The coordinator skips the channel's own turns by turnId (invariant #8).
  */
 export class ForeignTurnMirror<Target> {
@@ -46,10 +49,11 @@ export class ForeignTurnMirror<Target> {
   constructor(private readonly opts: ForeignTurnMirrorOptions<Target>) {}
 
   accept(event: MoxxyEvent): void {
+    const agentTurn = this.opts.turns.mirrorAgentTurn(event);
     const prompt = this.opts.turns.mirrorPrompt(event);
-    const reply = this.opts.turns.mirrorText(event);
+    const reply = this.opts.turns.mirrorText(event) ?? this.opts.turns.mirrorHelperAnswer(event);
     if (reply != null) this.opts.onReply?.(reply);
-    const text = prompt != null ? this.opts.formatPrompt(prompt) : reply;
+    const text = agentTurn != null ? this.opts.formatAgentTurn(agentTurn) : prompt != null ? this.opts.formatPrompt(prompt) : (reply ?? this.opts.turns.mirrorNoReply(event));
     if (text == null) return;
     this.queue = this.queue
       .then(async () => {

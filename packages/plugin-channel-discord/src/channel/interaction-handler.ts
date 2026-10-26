@@ -6,7 +6,7 @@ import type { AllowListStore } from './allow-list-store.js';
 import type { ChannelLogger } from './discord-like.js';
 import type { AwaitingApprovalText } from './message-handler.js';
 import type { PairingHandler } from './pairing-handler.js';
-import type { ModelSuggestion } from '@moxxy/channel-kit';
+import { QUESTION_BUTTON_PREFIX, type ChatQuestions, type ModelSuggestion } from '@moxxy/channel-kit';
 import { APP_COMMAND_ARG_OPTION, runSlash } from './slash-handler.js';
 
 /**
@@ -36,6 +36,8 @@ export interface InteractionLike {
   /** Buttons only: edit the prompt message (used to clear the button row).
    *  NB: this ACKS the interaction — any later message must use followUp. */
   update?(payload: { components: ReadonlyArray<unknown> }): Promise<unknown>;
+  /** Buttons only: ack the click without touching the message (a Question card edits itself). */
+  deferUpdate?(): Promise<unknown>;
   /** Post-ack follow-up message (valid only after update/reply succeeded). */
   followUp?(payload: { content: string; ephemeral?: boolean }): Promise<unknown>;
   /** Autocomplete only: answer with up to 25 choices. */
@@ -52,6 +54,8 @@ export interface InteractionDeps {
   readonly allowList: AllowListStore;
   readonly permissionResolver: DiscordPermissionResolver;
   readonly approvalResolver: DiscordApprovalResolver;
+  /** The conversation's open Questions, answered by their buttons. */
+  readonly questions: Pick<ChatQuestions, 'press'>;
   readonly logger?: ChannelLogger;
 }
 
@@ -132,6 +136,13 @@ async function handleButton(
   cb: InteractionCallbacks,
 ): Promise<void> {
   const data = interaction.customId ?? '';
+  if (data.startsWith(QUESTION_BUTTON_PREFIX)) {
+    // A click must always be acked or Discord shows "interaction failed".
+    if (interaction.deferUpdate) await interaction.deferUpdate();
+    else await safeReply(interaction, 'Got it.', deps.logger);
+    await deps.questions.press(data);
+    return;
+  }
   if (data.startsWith('perm:')) {
     const parts = data.split(':');
     if (parts.length !== 3 || !parts[1] || !parts[2]) return;

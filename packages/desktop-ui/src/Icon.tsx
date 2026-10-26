@@ -31,6 +31,7 @@ export type IconName =
   | 'edit'
   | 'rotate'
   | 'mic'
+  | 'mic-off'
   | 'check'
   | 'x'
   | 'sliders'
@@ -51,11 +52,15 @@ export type IconName =
   | 'phone-down'
   | 'monitor'
   | 'file'
+  | 'image'
+  | 'link'
   | 'diff'
   | 'grid'
   | 'broadcast'
   | 'maximize'
-  | 'minimize';
+  | 'minimize'
+  | 'clock'
+  | 'alert';
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   readonly name: IconName;
@@ -84,6 +89,19 @@ export function Icon({ name, size = 18, ...rest }: IconProps): JSX.Element {
 }
 
 const paths: Record<IconName, JSX.Element> = {
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 1.8" />
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M10.3 4.3 3.2 17a2 2 0 0 0 1.7 3h14.2a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9.5v4" />
+      <path d="M12 16.8h.01" />
+    </>
+  ),
   grid: (
     <>
       <rect x="3.5" y="3.5" width="7" height="7" rx="1.4" />
@@ -218,6 +236,17 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <rect x="9" y="2" width="6" height="12" rx="3" />
       <path d="M5 11a7 7 0 0 0 14 0" />
+      <path d="M12 18v3" />
+    </>
+  ),
+  // The mic, cut through: the strokes stop short of the slash.
+  'mic-off': (
+    <>
+      <path d="M3 3l18 18" />
+      <path d="M15 10V5a3 3 0 0 0-5.7-1.3" />
+      <path d="M9 9v2a3 3 0 0 0 5.1 2.1" />
+      <path d="M18.9 13.2A7 7 0 0 0 19 11" />
+      <path d="M5 11a7 7 0 0 0 11.9 5" />
       <path d="M12 18v3" />
     </>
   ),
@@ -360,6 +389,19 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
       <path d="M14 3v5h5" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
     </>
   ),
   diff: (

@@ -1,3 +1,4 @@
+import { createSessionGrants } from '@moxxy/sdk';
 import type { PendingToolCall, PermissionContext, PermissionDecision, PermissionResolver } from '@moxxy/sdk';
 
 export interface PendingPermission {
@@ -16,7 +17,8 @@ export interface PendingPermission {
 export class TelegramPermissionResolver implements PermissionResolver {
   readonly name = 'telegram';
   private readonly pending = new Map<string, PendingPermission>();
-  private readonly sessionAllows = new Set<string>();
+  // Same rules as the desktop: a tool that narrows its grant is remembered per request.
+  private readonly grants = createSessionGrants();
   private deciderFn:
     | ((call: PendingToolCall, ctx: PermissionContext) => Promise<void>)
     | null = null;
@@ -26,7 +28,7 @@ export class TelegramPermissionResolver implements PermissionResolver {
   }
 
   async check(call: PendingToolCall, ctx: PermissionContext): Promise<PermissionDecision> {
-    if (this.sessionAllows.has(call.name)) {
+    if (this.grants.covers(call)) {
       return { mode: 'allow_session', reason: 'allow_session previously granted' };
     }
     if (!this.deciderFn) {
@@ -40,7 +42,7 @@ export class TelegramPermissionResolver implements PermissionResolver {
         resolve({ mode: 'deny', reason: err instanceof Error ? err.message : String(err) });
       });
     });
-    if (decision.mode === 'allow_session') this.sessionAllows.add(call.name);
+    if (decision.mode === 'allow_session') this.grants.remember(call, decision, ctx);
     return decision;
   }
 

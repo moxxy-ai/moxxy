@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** Per-package settings in the `plugins.packages` install/enable ledger. */
 export const pluginSettingsSchema = z

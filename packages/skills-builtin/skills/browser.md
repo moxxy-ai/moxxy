@@ -164,6 +164,11 @@ action on a site nobody allowed comes back refused with the site to ask for:
 call the tool, then repeat the step. Reading a page never needs it. Only if the
 user declines, do not act on that site; say what you would have done.
 
+A page on this computer — an app you are building and serving, say on
+`localhost:5173` — opens only once the user allowed that exact address and
+port: ask with `browser_allow_site` and site `localhost:5173`. Each port is
+asked for on its own. Other private addresses never open.
+
 ## Doing several things at once
 
 `browser_batch` runs a sequence of uid actions and reads the page **once**, at

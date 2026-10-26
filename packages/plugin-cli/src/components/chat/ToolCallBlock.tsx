@@ -1,8 +1,14 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { isFileDiffDisplay, type FileDiffDisplay, type ToolCallRequestedEvent, type ToolResultEvent } from '@moxxy/sdk';
+import {
+  isFileDiffDisplay,
+  questionAnswerLines,
+  type FileDiffDisplay,
+  type ToolCallRequestedEvent,
+  type ToolResultEvent,
+} from '@moxxy/sdk';
 import { Colors } from '../../theme.js';
-import { formatToolActivity, isFileDiffResult, oneLine, stringify, truncate } from '@moxxy/chat-model';
+import { formatToolActivity, isFileDiffResult, oneLine, questionAnswerOf, stringify, toolImagesLabel, toolImagesResultOf, truncate } from '@moxxy/chat-model';
 import { FileDiffView } from './FileDiffView.js';
 import { ActivityDot } from './ActivityDot.js';
 
@@ -25,6 +31,24 @@ export const ToolCallBlock: React.FC<{
         </Box>
       );
     }
+  }
+  // An answered Question keeps what the person chose in the transcript.
+  const answered = questionAnswerOf(outcome);
+  if (answered) {
+    return (
+      <Box flexDirection="column" marginTop={nested ? 0 : 1} paddingLeft={nested ? 0 : 2}>
+        <Box>
+          {nested ? <Text dimColor>└ </Text> : null}
+          <ActivityDot state="success" />
+          <Text dimColor> You answered</Text>
+        </Box>
+        {questionAnswerLines(answered).map((line, at) => (
+          <Box key={at} marginLeft={nested ? 4 : 2}>
+            <Text>{line}</Text>
+          </Box>
+        ))}
+      </Box>
+    );
   }
   const status: 'pending' | 'ok' | 'err' =
     outcome === null
@@ -78,7 +102,10 @@ const OutcomeText: React.FC<{
       </Text>
     );
   }
-  const preview = oneLine(stringify(outcome.output));
+  const shown = toolImagesResultOf(outcome);
+  const preview = shown
+    ? [toolImagesLabel(shown.images), ...(shown.text ? [oneLine(shown.text)] : [])].join(' · ')
+    : oneLine(stringify(outcome.output));
   const maxWidth = Math.max(24, Math.min(108, process.stdout.columns ?? 80) - 12);
   return <Text dimColor>{`Result · ${truncate(preview, maxWidth)}`}</Text>;
 };

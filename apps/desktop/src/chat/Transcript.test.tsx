@@ -191,6 +191,35 @@ describe('Transcript stick-to-bottom wiring', () => {
     const t3 = toolRequest('tool-3', 'call-3');
     const tail = assistantMessage('tail', 'done');
     const { rerender } = render(
+      <Transcript events={[t2, t3, tail]} extensions={[]} streamingText="" workspaceId="s1" sending />,
+    );
+    const before = captured.props?.firstItemIndex ?? 0;
+
+    rerender(
+      <Transcript
+        events={[
+          userPrompt('older-user', 'older'),
+          assistantMessage('older-assistant', 'older answer'),
+          toolRequest('tool-1', 'call-1'),
+          t2,
+          t3,
+          tail,
+        ]}
+        extensions={[]}
+        streamingText=""
+        workspaceId="s1"
+        sending
+      />,
+    );
+
+    expect(captured.props?.firstItemIndex).toBe(before - 2);
+  });
+
+  it('anchors pagination when an older page folds the head tool group into its turn’s work', () => {
+    const t2 = toolRequest('tool-2', 'call-2');
+    const t3 = toolRequest('tool-3', 'call-3');
+    const tail = assistantMessage('tail', 'done');
+    const { rerender } = render(
       <Transcript events={[t2, t3, tail]} extensions={[]} streamingText="" workspaceId="s1" />,
     );
     const before = captured.props?.firstItemIndex ?? 0;
@@ -211,7 +240,7 @@ describe('Transcript stick-to-bottom wiring', () => {
       />,
     );
 
-    expect(captured.props?.firstItemIndex).toBe(before - 2);
+    expect(captured.props?.firstItemIndex).toBe(before - 1);
   });
 
   it('resets pagination anchoring when switching sessions', () => {

@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { removeDir } from '@moxxy/vitest-preset/fs';
-import { buildMemoryDoctorCheck, buildPluginDoctorChecks, buildVoiceDoctorCheck } from './doctor.js';
+import { buildAgentCliDoctorChecks, buildMemoryDoctorCheck, buildPluginDoctorChecks, buildVoiceDoctorCheck } from './doctor.js';
 
 function transcribers(active: string | null, registered: string[] = []) {
   return {
@@ -55,5 +55,53 @@ describe('buildMemoryDoctorCheck', () => {
       vi.unstubAllEnvs();
       await removeDir(home);
     }
+  });
+});
+
+describe('buildAgentCliDoctorChecks', () => {
+  const codex = (state: 'missing' | 'update-required' | 'update-available' | 'current' | 'unknown', installed: string | null) => ({
+    provider: 'codex-agent',
+    agentName: 'Codex',
+    command: 'codex',
+    report: { state, command: 'codex', installed, latest: '0.162.1', minimum: '0.155.1', checkedAt: 1 },
+  });
+
+  it("says where each agent connection's CLI stands, and the command that fixes it", () => {
+    expect(buildAgentCliDoctorChecks([codex('current', '0.162.1')], new Set())).toEqual([
+      { id: 'agent:codex-agent', status: 'ok', message: 'Codex 0.162.1, the latest' },
+    ]);
+    expect(buildAgentCliDoctorChecks([codex('update-available', '0.155.1')], new Set())).toEqual([
+      { id: 'agent:codex-agent', status: 'warn', message: 'Codex 0.155.1; 0.162.1 is out — moxxy agents update codex' },
+    ]);
+    expect(buildAgentCliDoctorChecks([codex('unknown', null)], new Set())).toEqual([
+      { id: 'agent:codex-agent', status: 'warn', message: 'Codex is installed, but its version could not be read' },
+    ]);
+  });
+
+  it('fails only for the connection Moxxy is set to use', () => {
+    expect(buildAgentCliDoctorChecks([codex('missing', null)], new Set())).toEqual([
+      { id: 'agent:codex-agent', status: 'ok', message: 'Codex is not installed — moxxy agents install codex to use it' },
+    ]);
+    expect(buildAgentCliDoctorChecks([codex('missing', null)], new Set(['codex-agent']))[0]?.status).toBe('fail');
+    expect(buildAgentCliDoctorChecks([codex('update-required', '0.150.0')], new Set(['codex-agent']))).toEqual([
+      {
+        id: 'agent:codex-agent',
+        status: 'fail',
+        message: 'Codex 0.150.0 is older than 0.155.1, the oldest Moxxy works with — moxxy agents update codex',
+      },
+    ]);
+    expect(buildAgentCliDoctorChecks([codex('update-required', '0.150.0')], new Set())[0]?.status).toBe('warn');
+  });
+
+  it('names the file it checked and where it came from', () => {
+    const at = (path: string, origin: 'homebrew' | 'app') => ({ ...codex('update-required', '0.150.0'), report: { ...codex('update-required', '0.150.0').report, path, origin } });
+    const inside = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex';
+
+    expect(buildAgentCliDoctorChecks([at('/opt/homebrew/bin/codex', 'homebrew')], new Set())[0]?.message).toBe(
+      'Codex 0.150.0 at /opt/homebrew/bin/codex (Homebrew) is older than 0.155.1, the oldest Moxxy works with — moxxy agents update codex',
+    );
+    expect(buildAgentCliDoctorChecks([at(inside, 'app')], new Set())[0]?.message).toBe(
+      `Codex 0.150.0 at ${inside} is older than 0.155.1, the oldest Moxxy works with — it is part of ChatGPT.app, which updates it`,
+    );
   });
 });

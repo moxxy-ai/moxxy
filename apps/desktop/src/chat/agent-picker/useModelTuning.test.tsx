@@ -61,6 +61,12 @@ describe('useModelTuning', () => {
     expect(result.current).toMatchObject({ canSetEffort: true, canSetFast: false });
   });
 
+  it('offers what the model the runner starts on has while the conversation picked none', () => {
+    installApi();
+    const { result } = renderHook(() => useModelTuning('ws', infoWith({ defaultModel: 'plain' }), null));
+    expect(result.current).toMatchObject({ canSetEffort: true, canSetFast: false });
+  });
+
   it("gives a new runner the person's last choice", async () => {
     const invoke = installApi();
     const first = renderHook(() => useModelTuning('ws', infoWith(), 'gpt-6-luna'));
@@ -154,6 +160,17 @@ describe('useModelTuning', () => {
     installApi();
     const { result } = renderHook(() => useModelTuning('ws', infoWith({ reasoningEffort: 'low' }), 'gpt-6-luna'));
     expect(result.current.effortLevels).toEqual(['off', 'low', 'medium', 'high', 'xhigh']);
+  });
+
+  it('offers an agent connection no Off: the agent always thinks, from Low up', () => {
+    installApi();
+    const agent = infoWith({
+      providers: [{ name: 'codex-agent', agentName: 'Codex', models: [luna] }],
+      activeProvider: 'codex-agent',
+      reasoningEffort: 'low',
+    });
+    const { result } = renderHook(() => useModelTuning('ws', agent, 'gpt-6-luna'));
+    expect(result.current.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh']);
   });
 
   it('says why a switch did not happen and keeps the old value', async () => {

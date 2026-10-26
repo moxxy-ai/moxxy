@@ -1,4 +1,5 @@
 import { z, type EventLogReader } from '@moxxy/sdk';
+import { localSiteOf } from './ssrf-guard.js';
 
 /**
  * Consent per site for the desktop's browser: the person allows a site once
@@ -23,6 +24,10 @@ const ADDRESS = /^(\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:.]+\])$/i;
  * leading `www.` or `*.` dropped. Null for anything that is not an http(s)
  * page, and for a lone label such as `com` — allowing that would allow a whole
  * top-level domain.
+ *
+ * A page on this computer is the exception: its site keeps the port
+ * (`localhost:5173`), so the person allows one local server, not all of them.
+ * A bare local host with no port names no site.
  */
 export function siteOf(input: string): string | null {
   const raw = input.trim();
@@ -34,6 +39,8 @@ export function siteOf(input: string): string | null {
     return null;
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  const local = localSiteOf(url.href);
+  if (local) return SCHEME.test(raw) ? local : bareLocalSite(raw, url);
   const host = url.hostname
     .toLowerCase()
     .replace(/\.$/, '')
@@ -43,11 +50,23 @@ export function siteOf(input: string): string | null {
   return host;
 }
 
-/** Whether `url` is on one of `sites` — the site itself or one of its subdomains; an address only exactly. */
+/**
+ * A bare local host names a site only with the port written out: `https://` drops
+ * an explicit `:443` and `http://` an explicit `:80`, so whichever kept one says it.
+ */
+function bareLocalSite(raw: string, url: URL): string | null {
+  const port = url.port || new URL(`http://${raw}`).port;
+  return port ? `${url.hostname.toLowerCase()}:${port}` : null;
+}
+
+/**
+ * Whether `url` is on one of `sites` — the site itself or one of its
+ * subdomains; an address, or a page on this computer, only exactly.
+ */
 export function siteAllows(sites: readonly string[], url: string): boolean {
   const site = siteOf(url);
   if (!site) return false;
-  if (ADDRESS.test(site)) return sites.includes(site);
+  if (ADDRESS.test(site) || localSiteOf(`http://${site}`)) return sites.includes(site);
   return sites.some((allowed) => site === allowed || site.endsWith(`.${allowed}`));
 }
 
@@ -57,9 +76,7 @@ export function siteAllows(sites: readonly string[], url: string): boolean {
  * developer diagnostics need no site approval on it.
  */
 export function isLocalDevSite(url: string): boolean {
-  const site = siteOf(url);
-  if (!site) return false;
-  return site === 'localhost' || site.endsWith('.localhost') || /^127(\.\d{1,3}){3}$/.test(site) || site === '[::1]';
+  return localSiteOf(url) !== null;
 }
 
 /** The sites approved in this conversation, in the order they were allowed. */

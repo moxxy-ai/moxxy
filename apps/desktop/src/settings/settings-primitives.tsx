@@ -95,17 +95,55 @@ export function CardList({ children }: { readonly children: React.ReactNode }): 
   );
 }
 
+/** One kind of row inside a section: a small heading with its count and a line
+ *  saying what sets this kind apart, over its own card list. */
+export function CardGroup({
+  id,
+  title,
+  count,
+  description,
+  children,
+}: {
+  readonly id: string;
+  readonly title: string;
+  readonly count: number;
+  readonly description: string;
+  readonly children: React.ReactNode;
+}): JSX.Element {
+  const headingId = `${id}-title`;
+  return (
+    <section className="card-group" aria-labelledby={headingId} data-testid={id}>
+      <header className="card-group__head">
+        <h3 id={headingId} className="card-group__title">
+          {title}
+        </h3>
+        <span className="card-group__count" aria-hidden="true">
+          {count}
+        </span>
+        <p className="card-group__description">{description}</p>
+      </header>
+      <CardList>{children}</CardList>
+    </section>
+  );
+}
+
 export function Row({
   tile,
   title,
   subtitle,
   trailing,
+  below,
+  badges,
   testId,
 }: {
   readonly tile: React.ReactNode;
   readonly title: string;
   readonly subtitle?: string;
   readonly trailing?: React.ReactNode;
+  /** Under the subtitle, e.g. a progress bar. */
+  readonly below?: React.ReactNode;
+  /** Beside the title, e.g. state chips, so the subtitle keeps the row's width. */
+  readonly badges?: React.ReactNode;
   readonly testId?: string;
 }): JSX.Element {
   return (
@@ -123,21 +161,25 @@ export function Row({
     >
       {tile}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 'var(--type-ui)',
-            fontWeight: 600,
-            color: 'var(--color-text)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {title}
+        <div data-row-title style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span
+            style={{
+              fontSize: 'var(--type-ui)',
+              fontWeight: 600,
+              color: 'var(--color-text)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {title}
+          </span>
+          {badges}
         </div>
         {subtitle && (
           <div style={{ marginTop: 2, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>{subtitle}</div>
         )}
+        {below}
       </div>
       {trailing}
     </li>

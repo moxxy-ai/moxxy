@@ -92,9 +92,50 @@
   gap: 2px;
 }
 
-.voice-rail-copy { margin-left: var(--space-6); }
-
 .voice-rail-busy { margin-left: var(--space-6); }
+
+/* The microphone, beside the state, on or off: round and small like the
+   capsule around it, in the accent while it listens and cut in red while it
+   is off, so the state reads at rest whatever Moxxy is doing. It stays where
+   it is as the card opens, and flipping it changes it in place. It comes
+   with no motion: it follows Cmd+D, and a keyboard toggle must read at once. */
+.voice-rail-mic {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  margin-left: var(--space-6);
+  padding: 0;
+  border: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary-soft);
+  color: var(--color-primary-strong);
+  cursor: pointer;
+  transition: background-color var(--motion-shift) ease, transform var(--motion-press) var(--ease-out);
+}
+.voice-rail-mic--off {
+  background: var(--color-red-soft);
+  color: var(--color-red);
+}
+/* Small to look at, not to hit. It reaches further to its sides: the capsule
+   hugs its state, so "Listening" turning into "Microphone off" moves the
+   button about 19px, and a second click in the same place still lands. */
+.voice-rail-mic::after {
+  content: '';
+  position: absolute;
+  inset: -6px -14px;
+}
+.voice-rail-mic:active { transform: scale(0.94); }
+@media (hover: hover) and (pointer: fine) {
+  .voice-rail-mic:hover {
+    background: color-mix(in srgb, var(--color-primary) 18%, var(--color-primary-soft));
+  }
+  .voice-rail-mic--off:hover {
+    background: color-mix(in srgb, var(--color-red) 18%, var(--color-red-soft));
+  }
+}
 
 .voice-rail-mark {
   position: relative;
@@ -140,6 +181,7 @@
 .voice-rail-copy {
   min-width: 0;
   max-width: 24ch;
+  margin-left: var(--space-6);
   display: flex;
 }
 
@@ -271,34 +313,6 @@
   justify-self: end;
 }
 
-/* Round, like the composer's own controls. Each is an icon whose tooltip says
-   the state it is in; off, it goes quiet. */
-.voice-rail-control {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-pill);
-  display: inline-grid;
-  place-items: center;
-  background: var(--color-primary-soft);
-  color: var(--color-primary-strong);
-  cursor: pointer;
-  transition: background-color var(--motion-shift) ease, color var(--motion-shift) ease,
-    transform var(--motion-press) var(--ease-out);
-}
-.voice-rail-control.is-off {
-  background: transparent;
-  color: var(--color-text-dim);
-}
-.voice-rail-control:active { transform: scale(0.94); }
-@media (hover: hover) and (pointer: fine) {
-  .voice-rail-control.is-off:hover {
-    background: var(--color-input-soft);
-    color: var(--color-text);
-  }
-}
-
 /* Ending the call is the one way out, so it is the one control with a word. */
 .voice-rail-end {
   height: var(--frame-control);
@@ -321,7 +335,7 @@
 .voice-rail-end:hover { background: color-mix(in srgb, var(--color-red-text) 18%, var(--color-red-soft)); }
 .voice-rail-end:active { transform: scale(0.97); }
 .voice-rail-end:focus-visible,
-.voice-rail-control:focus-visible,
+.voice-rail-mic:focus-visible,
 .voice-rail-action:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
 /* ---- narrow windows -----------------------------------------------------
@@ -381,10 +395,10 @@
   .voice-rail-halo { transform: none; transition: none; }
   .voice-rail-operation-dots i { animation: none; }
   .voice-rail { animation: none; }
-  .voice-rail-control,
+  .voice-rail-mic,
   .voice-rail-end,
   .voice-rail-action { transition: none; }
-  .voice-rail-control:active,
+  .voice-rail-mic:active,
   .voice-rail-end:active,
   .voice-rail-action:active:not(:disabled) { transform: none; }
 }

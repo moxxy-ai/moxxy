@@ -139,6 +139,28 @@ describe('computer_request_access', () => {
     const output = await requestAccess(tools, { apps: ['Safari'], reason: 'Fill a form', full_access: ['Safari'] }) as { granted: unknown[] };
     expect(output.granted).toEqual([{ id: 'com.apple.Safari', name: 'Safari', tier: 'full' }]);
   });
+
+  // Approving it grants access by itself: "allow for this session" may cover the same request, never a wider one.
+  it('narrows a session grant to the same apps and levels, so a new app or full control asks again', () => {
+    const { tools } = backend();
+    expect(tools.get(REQUEST_ACCESS_TOOL)?.permission).toEqual({
+      action: 'prompt',
+      sessionScope: { inputKeys: ['apps', 'full_access', 'clipboard_read', 'clipboard_write', 'system_key_combos'] },
+    });
+    expect(tools.get('computer_click')?.permission).toEqual({ action: 'prompt' });
+  });
+
+  // Asking again without full_access is the model repeating itself, not the person taking control back.
+  it('keeps the level the person already approved when the app is asked for again', async () => {
+    const { tools } = backend();
+    await requestAccess(tools, { apps: ['Safari'], reason: 'Fill a form', full_access: ['Safari'] });
+    const again = await requestAccess(tools, { apps: ['Safari', 'Terminal'], reason: 'Fill a form' }) as { granted: unknown[] };
+    expect(again.granted).toEqual([
+      { id: 'com.apple.Safari', name: 'Safari', tier: 'full' },
+      { id: 'com.apple.Terminal', name: 'Terminal', tier: 'click' },
+    ]);
+    expect(forModel(await run(tools, 'computer_get_app_state', { app: 'Safari' }))).toContain('App: Safari');
+  });
 });
 
 describe('an app asked for under another name', () => {

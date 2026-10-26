@@ -25,3 +25,6 @@ packages/plugin-computer-control/native/build/
 packages/plugin-computer-control/native/macos/.build/
 packages/plugin-computer-control/bin/
 packages/plugin-computer-control/native/linux/build/
+
+# Reports of the local live agent check (scripts/agent-live-check.mjs)
+.live-reports/

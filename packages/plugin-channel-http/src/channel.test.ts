@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Server } from 'node:http';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   Session,
   autoAllowResolver,

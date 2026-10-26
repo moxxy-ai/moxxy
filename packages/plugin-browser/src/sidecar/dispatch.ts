@@ -3,7 +3,7 @@
  * one-to-one with the wire-format methods documented in `sidecar.ts`.
  */
 
-import { assertPublicUrl } from '../ssrf-guard.js';
+import { assertReachableUrl } from '../ssrf-guard.js';
 import { importPlaywright, launchWithAutoInstall } from './install.js';
 import type { HostReply } from '../page/host.js';
 import { SidecarBrowser } from './sidecar-browser.js';
@@ -65,7 +65,9 @@ async function ensurePlaywright(
   const pw = await importPlaywright();
   const which = opts.browser ?? 'chromium';
   const browserType = pw[which];
-  const { handle, installNotice } = await launchWithAutoInstall(browserType, which, opts.headless ?? true, state.profile);
+  const { handle, installNotice } = await launchWithAutoInstall(browserType, which, opts.headless ?? true, state.profile, () =>
+    state.localSites ?? [],
+  );
   state.handle = handle;
   if (installNotice) state.pendingInstallNotice = installNotice;
   return state.handle;
@@ -101,6 +103,7 @@ async function dispatchInner(state: SidecarState, req: Req, signal?: AbortSignal
   if (state.browser && typeof params.turn_id === 'string' && params.turn_id) {
     state.browser.host.noteAgentTurn(params.turn_id);
   }
+  if (Array.isArray(params.sites)) state.localSites = params.sites.filter((site): site is string => typeof site === 'string');
   // The surface's region capture and wheel share a name with the agent's
   // picture and scroll; their parameters tell them apart.
   const surfaceCall =
@@ -123,12 +126,14 @@ async function dispatchInner(state: SidecarState, req: Req, signal?: AbortSignal
       // JSON-RPC, so re-check here rather than trust the caller to have
       // validated. Blocks file:// / javascript: schemes AND loopback/private/
       // link-local (incl. 169.254.169.254 metadata)/CGNAT targets, resolving
-      // hostnames. Runs BEFORE ensurePlaywright so a blocked URL never
-      // launches (or auto-installs) a browser.
+      // hostnames — except a page on this computer at an address and port this
+      // call carries as allowed. Runs BEFORE ensurePlaywright so a blocked URL
+      // never launches (or auto-installs) a browser.
       try {
         // fail-closed: the browser resolves names with Chromium's own resolver,
         // so a name node:dns can't vet must not pass through un-checked.
-        await assertPublicUrl(url, 'goto', { failClosed: true });
+        const localSites = Array.isArray(params.sites) ? (state.localSites ?? []) : [];
+        await assertReachableUrl(url, 'goto', { failClosed: true, localSites });
       } catch (err) {
         return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
       }

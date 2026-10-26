@@ -5,7 +5,7 @@
  * failure says Moxxy still works and offers another try. It can be dismissed.
  */
 
-import { Button } from '@moxxy/desktop-ui';
+import { Button, Icon } from '@moxxy/desktop-ui';
 import { useUpdateBanner, type UpdateBannerView } from './useUpdateBanner';
 
 export function UpdateBannerView({ error, actionLabel, onUpdate, onGetManually, onDismiss }: UpdateBannerView): JSX.Element {
@@ -21,7 +21,7 @@ export function UpdateBannerView({ error, actionLabel, onUpdate, onGetManually, 
         </Button>
       )}
       <button type="button" aria-label="Dismiss" className="update-banner__dismiss" onClick={onDismiss}>
-        ✕
+        <Icon name="x" size={14} />
       </button>
     </div>
   );

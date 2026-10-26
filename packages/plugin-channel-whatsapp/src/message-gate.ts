@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { normalizeJid } from './keys.js';
 import type { WaInboundMessage } from './socket.js';
 
