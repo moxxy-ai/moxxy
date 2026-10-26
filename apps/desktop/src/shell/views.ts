@@ -14,7 +14,6 @@
 export type View =
   | 'chat'
   | 'extensions'
-  | 'collaborate'
   | 'automations'
   | 'apps'
   | 'channels'

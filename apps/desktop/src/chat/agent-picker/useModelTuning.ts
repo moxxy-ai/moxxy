@@ -96,6 +96,8 @@ export interface ModelTuning {
   readonly canSetEffort: boolean;
   /** The provider serves the model in use on a faster tier. */
   readonly canSetFast: boolean;
+  /** Turns really run on the faster tier: fast is on and the model in use has one. */
+  readonly fastInUse: boolean;
   readonly busy: boolean;
   readonly error: string | null;
   readonly setEffort: (effort: EffortLevel) => Promise<void>;
@@ -175,13 +177,15 @@ export function useModelTuning(workspaceId: string, info: SessionInfo, model: st
 
   const offered = offers(info, model);
   const effort = pending.effort ?? reported.effort;
+  const fast = pending.fast ?? reported.fast;
   const agent = info.providers.some((p) => p.name === info.activeProvider && p.agentName !== undefined);
   return {
     effort,
     effortLevels: effortLevelsFor(effort, { agent }),
-    fast: pending.fast ?? reported.fast,
+    fast,
     canSetEffort: offered.reasoning,
     canSetFast: offered.fast,
+    fastInUse: fast && offered.fast,
     busy: inFlight > 0,
     error,
     // `default` cannot be asked for: the menu shows it only as the effort the runner reported.

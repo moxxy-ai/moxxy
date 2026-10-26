@@ -31,7 +31,6 @@ import type { SectionTarget } from './shell/navigation/places';
 import { Workbench } from './shell/Workbench';
 import { useWorkbench } from './shell/useWorkbench';
 import { showsRuns } from './shell/views';
-import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { AutomationsPanel } from './automations/AutomationsPanel';
 import { AutomationsIndex } from './automations/AutomationsIndex';
@@ -423,11 +422,6 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
             onToggleFull={bench.toggleFull}
           />
         </>
-      )}
-      {view === 'collaborate' && (
-        <main className="field">
-          <CollaboratePanel workspaceId={activeWorkspaceId} />
-        </main>
       )}
       {view === 'settings' && (
         <main className="field">

@@ -19,7 +19,7 @@ of what moxxy needs to run and where each piece comes from.
 | Local transcription (Whisper turbo) | the model (~1 GB: three int8 files from Hugging Face, pinned to a revision and checked against their size and sha256), saved to `~/.moxxy/models/stt/turbo` | downloaded once, after the person agrees, when Local is first chosen in Settings → Voice → Transcription |
 | Adding or updating plugins from npm, the in-app "Update CLI", `npx` MCP servers | Node + npm (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/node` on first launch | in the installer |
 | Scripts the agent writes and runs (data, charts, documents, web pages) | Python + pip with a set of common packages (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/python` on first launch | in the installer |
-| Cloning a repository, the developer and collaborative modes, the agent's own `git` commands | Git (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/git` on first launch | in the installer |
+| Cloning a repository, developer mode, the agent's own `git` commands | Git (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/git` on first launch | in the installer |
 
 A first launch therefore needs no download: the agent, its plugins, offline
 voice with its voices, Node, Python and Git are all on disk. A freshly installed

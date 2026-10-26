@@ -40,7 +40,6 @@ export interface Place {
 const DESTINATION_FINDS: Readonly<Record<DestinationId, { readonly label?: string; readonly keywords: ReadonlyArray<string> }>> = {
   chat: { keywords: ['chat', 'chats', 'conversation', 'conversations', 'sessions', 'messages', 'workspaces'] },
   extensions: { keywords: ['plugins', 'add-ons', 'integrations'] },
-  collaborate: { keywords: ['agents', 'team', 'multi-agent'] },
   automations: { keywords: ['automation', 'automate'] },
   apps: { keywords: ['gallery'] },
   channels: { keywords: ['bots', 'messengers'] },

@@ -604,34 +604,6 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'chat.mediaThumbnail': chatMediaItemArgs,
   'chat.readMediaImage': chatMediaItemArgs.extend({ offset: z.number().int().nonnegative() }).strict(),
   'chat.openMediaFile': chatMediaItemArgs,
-  // Collaboration control. All three touch the on-disk collab store
-  // (~/.moxxy/collab/{active.lock,runs}) — a filesystem-touching surface — so
-  // each gets the boundary check the module header promises:
-  //   - active: no-arg → pin the payload to "nothing" so no args smuggle across;
-  //   - history: a positive, bounded page size (matching the handler's 200
-  //     ceiling) so a hostile renderer can't push a non-integer/NaN/huge window;
-  //   - end: an optional, bounded workspace slug (the target runner to abort).
-  'collab.active': z.undefined(),
-  'collab.history': z.object({ limit: z.number().int().positive().max(200) }).partial().optional(),
-  // start: an optional workspace slug (whose cwd the coordinator works in) + a
-  // bounded goal string. snapshot: no-arg. command: a slug-like command name +
-  // bounded args (step-in). respondApproval: a known requestId + strict decision.
-  'collab.start': z
-    .object({ workspaceId: optionalWorkspace, goal: z.string().min(1).max(32_768) })
-    .strict(),
-  'collab.snapshot': z.undefined(),
-  'collab.command': z
-    .object({ name: z.string().min(1).max(64), args: z.string().max(32_768) })
-    .strict(),
-  'collab.respondApproval': z
-    .object({
-      requestId: z.string().min(1).max(128),
-      decision: z
-        .object({ optionId: z.string().max(128), text: z.string().max(10_000).optional() })
-        .strict(),
-    })
-    .strict(),
-  'collab.end': z.object({ workspaceId: optionalWorkspace }).partial().optional(),
   // Vault writes are security-sensitive: lock the key name to a safe slug
   // (letters/digits + . _ / - , no traversal) and bound the secret size.
   'settings.vaultSet': z.object({

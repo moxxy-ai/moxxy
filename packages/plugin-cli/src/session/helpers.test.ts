@@ -36,25 +36,12 @@ describe('buildSlashSuggestions', () => {
     ]);
   });
 
-  it('keeps collaboration behind one TUI entry point', () => {
-    const collabSession = {
-      commands: {
-        listForChannel: () => [
-          { name: 'collab_say', description: 'Message an agent' },
-          { name: 'collab_direct', description: 'Direct the team' },
-          { name: 'collab_pause', description: 'Pause the team' },
-          { name: 'collab_resume', description: 'Resume the team' },
-        ],
-      },
-    } as unknown as ClientSession;
-
-    const suggestions = buildSlashSuggestions(collabSession, {
+  it('offers no /collab command, since collaborative mode was removed', () => {
+    const suggestions = buildSlashSuggestions(session, {
       canSwitchRuns: true,
       canManageExtensions: true,
     });
-    const names = suggestions.map((command) => command.name);
-    expect(names.filter((name) => name === 'collab')).toHaveLength(1);
-    expect(names.filter((name) => name.startsWith('collab_'))).toEqual([]);
+    expect(suggestions.map((command) => command.name)).not.toContain('collab');
   });
 });
 

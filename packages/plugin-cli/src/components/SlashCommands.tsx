@@ -66,11 +66,6 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
     argumentHint: '<objective>',
   },
   {
-    name: 'collab',
-    description: 'Open Collaborate — start or rejoin a reviewed agent team',
-    argumentHint: '[goal | command]',
-  },
-  {
     name: 'speak',
     description: 'Read replies aloud via the active TTS voice — bare speaks the last reply, on/off auto-speaks, stop halts',
     argumentHint: '[on|off|stop]',

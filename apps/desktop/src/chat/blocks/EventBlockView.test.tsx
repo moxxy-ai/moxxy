@@ -56,6 +56,16 @@ describe('EventBlockView — a turn the agent took up after its background work'
     expect(screen.getByTestId('block-trigger').querySelector('button')).toBeNull();
     expect(screen.getAllByText(/Claude went on/)).toHaveLength(1);
   });
+
+  it('keeps a long work name to one line and gives the whole of it on hover', () => {
+    const command = `cd "/Users/me/project" && ${'gh pr view 675 --json body && '.repeat(12)}echo done finished in the background`;
+    render(<EventBlockView event={userPrompt({ text: command, origin: { kind: 'agent', name: command } })} />);
+
+    const name = screen.getByText(command);
+    // One line: the chip is a pill, so a wrapped name turns it into an oval.
+    expect(name).toHaveClass('trigger__name');
+    expect(name).toHaveAttribute('title', command);
+  });
 });
 
 describe('EventBlockView — ambient trigger marker', () => {

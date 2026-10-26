@@ -4,7 +4,7 @@ import { ModelTuning } from './ModelTuning';
 import type { ModelTuning as Tuning } from './useModelTuning';
 
 const tuning = (over: Partial<Tuning> = {}): Tuning => ({
-  effort: 'medium', effortLevels: ['off', 'low', 'medium', 'high', 'xhigh'], fast: false, canSetEffort: true, canSetFast: true, busy: false, error: null,
+  effort: 'medium', effortLevels: ['off', 'low', 'medium', 'high', 'xhigh'], fast: false, canSetEffort: true, canSetFast: true, fastInUse: false, busy: false, error: null,
   setEffort: vi.fn(async () => {}), setFast: vi.fn(async () => {}), ...over,
 });
 

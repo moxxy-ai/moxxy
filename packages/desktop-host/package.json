@@ -32,7 +32,6 @@
     "@moxxy/core": "workspace:*",
     "@moxxy/desktop-app-sdk": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
-    "@moxxy/mode-collaborative": "workspace:*",
     "@moxxy/model-fetch": "workspace:*",
     "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-computer-control": "workspace:*",

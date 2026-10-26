@@ -294,10 +294,6 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   resume: async () => (await import('./commands/resume.js')).runResumeCommand,
   service: async () => (await import('./commands/service.js')).runServiceCommand,
   serve: async () => (await import('./commands/serve.js')).runServeCommand,
-  // Internal: a collaboration peer runner spawned by `collaborative` mode.
-  agent: async () => (await import('./commands/agent.js')).runAgentCommand,
-  // The dedicated collaboration coordinator runner (spawned by the collaborate UI).
-  collab: async () => (await import('./commands/collab.js')).runCollabCommand,
   sessions: async () => (await import('./commands/sessions.js')).runSessionsCommand,
   runs: async () => (await import('./commands/sessions.js')).runSessionsCommand,
   security: async () => (await import('./commands/security.js')).runSecurityCommand,

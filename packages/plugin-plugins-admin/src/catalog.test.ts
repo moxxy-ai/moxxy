@@ -98,6 +98,7 @@ describe('findCatalogEntryForContribution', () => {
   it('maps a mode contribution to its providing package', async () => {
     const { findCatalogEntryForContribution } = await import('./catalog.js');
     expect(findCatalogEntryForContribution('mode', 'goal')?.packageName).toBe('@moxxy/mode-goal');
+    expect(findCatalogEntryForContribution('mode', 'collaborative')).toBeUndefined();
     expect(findCatalogEntryForContribution('mode', 'research')?.packageName).toBe(
       '@moxxy/mode-deep-research',
     );

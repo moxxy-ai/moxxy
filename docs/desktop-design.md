@@ -96,10 +96,10 @@ a click or the wheel shows the hold was the start of something else
 
 No view stands without the sidebar. A view with sections of its own
 (Automations, Channels, Extensions, Settings) lists them there; a view with
-none (Apps, Collaborate, Mobile) keeps the runs beside it, and picking a run
+none (Apps, Mobile) keeps the runs beside it, and picking a run
 goes back to the conversation. `shell/views.ts` holds that rule. In any view
 other than the runs, the sidebar's head carries a back control. A place that
-needs a loaded session (Collaborate, Automations, Apps) is shown disabled, with
+needs a loaded session (Automations, Apps) is shown disabled, with
 the reason, while the session loads.
 
 First run is the one screen with no sidebar, because there is nothing to move
@@ -556,7 +556,7 @@ above are reimplemented here in Moxxy's own components.
 4. **Right panel** (done): the work panel is gone while closed and opens from
    the run's header.
 5. **Other views** (done): Settings, Extensions, Automations, Apps, Channels,
-   Mobile, Collaborate and onboarding share one kit, and the focus window wears
+   Mobile and onboarding share one kit, and the focus window wears
    the desktop palette.
 6. **Review pass** (done): voice and focus mode on the header, one tooltip
    layer that is never clipped, settings sections with icons, plan, goal and

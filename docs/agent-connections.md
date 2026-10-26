@@ -111,7 +111,6 @@ Every Moxxy mode works on an agent connection. Where the agent has its own versi
 | Plan | The agent's own plan mode (Claude `plan` permission mode, Codex plan collaboration mode, OpenCode `mode=plan`). The finished plan is the same plan card as on an API connection, with Implement, Run as goal, Rewrite and Dismiss. Claude's plan comes from `ExitPlanMode`, or from its plan file when it only rewrote that file; an agent that writes its plan as a plain message is asked once to hand it over. |
 | Goal | Claude and Codex: the agent's own goal (Claude `/goal`, Codex thread goals). Moxxy shows the goal and its status and does not nudge. OpenCode, which has no goal of its own: Moxxy's goal loop, which sends follow-ups until OpenCode calls `goal_complete` or `goal_abandon`. Stop ends the run and keeps the goal; your next message resumes it. |
 | Research | Every sub-question runs in its own agent session; the summary is a turn of the parent session. |
-| Collaborative | Every peer is its own Moxxy process with its own agent session; coordination tools go over MCP. |
 
 A turn the agent starts by itself (a helper it left working finished) opens its own entry in the conversation, "agent continued", on every surface. It does so also when the conversation went to another connection and came back while the work ran. On the desktop that entry opens the work that ended in the Agents pane. Work the person stopped opens no such turn on Codex; Claude decides for itself whether to answer a stopped task.
 

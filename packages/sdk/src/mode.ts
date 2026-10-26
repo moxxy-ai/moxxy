@@ -265,8 +265,7 @@ export interface ModeDef {
    *     be entered through its own invocation (a slash command, a spawned
    *     agent's `MOXXY_MODE`, …) via the raw registry `setActive`.
    * The mode stays registered + runnable; it's just never *offered* or
-   * name-switched. Extensible: any number of special modes (collaborative today,
-   * more later) opt in the same way. See {@link isSelectableMode}.
+   * name-switched. Extensible: any number of special modes opt in the same way. See {@link isSelectableMode}.
    */
   readonly special?: ModeSpecial;
   /**
@@ -290,9 +289,9 @@ export interface ModeDef {
 /** Descriptor for a {@link ModeDef.special} mode — see that field. */
 export interface ModeSpecial {
   /**
-   * Human-facing entry point that enters this mode, e.g. `'collab'` (the
-   * `/collab` command). Surfaced when the user tries to pick/switch it ("entered
-   * via /collab") so the UI can point at the right action.
+   * Human-facing entry point that enters this mode, e.g. `'goal'` (the
+   * `/goal` command). Surfaced when the user tries to pick/switch it ("entered
+   * via /goal") so the UI can point at the right action.
    */
   readonly invokedBy?: string;
 }
