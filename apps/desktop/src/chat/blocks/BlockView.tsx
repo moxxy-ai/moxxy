@@ -4,7 +4,6 @@ import { EventBlockView } from './EventBlockView';
 import { ToolBlock } from './ToolBlock';
 import { SubagentView } from './SubagentView';
 import { SubagentGroupView } from './SubagentGroupView';
-import { CollaborationCard } from './CollaborationCard';
 import { StepListView } from './StepList';
 import type { ImagePreviewItem } from '../image-preview/types';
 import { LiveToolGroupView } from '../ToolGroupView';
@@ -63,8 +62,6 @@ export function BlockView({
           <LiveToolGroupView block={block} />
         </TraceEntry>
       );
-    case 'collab':
-      return <CollaborationCard block={block} />;
     case 'step-list':
       return (
         <TraceEntry kind="tool">

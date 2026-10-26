@@ -158,7 +158,7 @@ async function renderModelPicker(ctx: Context, model: Pick<TelegramModel, 'choic
 }
 
 async function renderModePicker(ctx: Context, session: Session): Promise<void> {
-  // Special modes (e.g. collaborative, entered via /collab) are hidden from the
+  // Special modes are hidden from the
   // picker the same way they are in the TUI. See ModeDef.special.
   const modes = session.modes.list().filter(isSelectableMode);
   if (modes.length === 0) {

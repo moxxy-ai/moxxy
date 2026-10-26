@@ -5,8 +5,6 @@ import type { MoxxyConfig } from '@moxxy/config';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
-import { collaborativeModePlugin } from '@moxxy/mode-collaborative';
-import { collabPlugin } from '@moxxy/plugin-collab';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
 import { segmentsCompactorPlugin } from '@moxxy/compactor-segments';
 import { stablePrefixCacheStrategyPlugin } from '@moxxy/cache-strategy-stable-prefix';
@@ -102,11 +100,6 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // plugin-computer-control / plugin-channel-http / plugin-usage-stats are
     // NOT bundled — they install on demand from npm (INSTALLABLE_PLUGIN_CATALOG;
     // /goal & /mode offer the install at point of use) and load via discovery.
-    // Agentic collaborative: a team of separate agent processes (architect +
-    // implementers) work in parallel git worktrees (or sequentially without
-    // git), coordinated via the @moxxy/plugin-collab hub.
-    { name: '@moxxy/mode-collaborative', plugin: collaborativeModePlugin },
-    { name: '@moxxy/plugin-collab', plugin: collabPlugin },
     { name: '@moxxy/compactor-summarize', plugin: summarizeCompactorPlugin },
     // Sub-session compaction, the default. Records each finished turn as one
     // outcome summary and folds old records into chapters, so a session's

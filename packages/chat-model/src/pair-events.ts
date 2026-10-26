@@ -12,8 +12,6 @@ import {
 } from '@moxxy/sdk/tool-display';
 import type {
   Block,
-  CollabAgentView,
-  CollaborationBlock,
   LiveToolBlockData,
   LiveToolCall,
   SkillScopeBlock,
@@ -26,7 +24,6 @@ import { oneLine, subagentState } from './format.js';
 import { isAgentWorkEvent } from './agent-work.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
-const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
 
 /**
  * Tools whose results carry a `file-diff` display. They render as their own
@@ -182,196 +179,6 @@ function addToGroup(block: SubagentBlock, e: PluginEvent, root: Block[], groupRe
   root.push(group);
 }
 
-function collabUpsertAgent(
-  block: CollaborationBlock,
-  id: string,
-  patch: Partial<CollabAgentView>,
-): void {
-  let a = block.agents.find((x) => x.id === id);
-  if (!a) {
-    a = { id, name: id, role: 'implementer', status: 'pending', subtask: null, summary: null };
-    block.agents.push(a);
-  }
-  Object.assign(a, patch);
-}
-
-function newCollabBlock(id: string, atMs: number, task = ''): CollaborationBlock {
-  return {
-    kind: 'collab',
-    id,
-    task,
-    parallel: false,
-    fallbackReason: null,
-    startedAtMs: atMs,
-    completedAtMs: null,
-    agents: [],
-    messages: [],
-    tasks: [],
-    contracts: [],
-    conflicts: [],
-    control: null,
-    summary: null,
-    doneCount: null,
-    totalCount: null,
-  };
-}
-
-/**
- * Fold a `collab_*` plugin_event (from the collaborative coordinator) into the
- * open {@link CollaborationBlock}. One block per run (opened on collab_started);
- * subsequent events mutate it in place — roster, agent statuses, the message
- * bus, the task board, contracts, human control, and the outcome.
- */
-function handleCollabEvent(
-  e: PluginEvent,
-  ref: { current: CollaborationBlock | null },
-  root: Block[],
-): void {
-  const p = (e.payload ?? {}) as Record<string, unknown>;
-  const atMs = new Date(e.ts).getTime();
-  if (e.subtype === 'collab_started') {
-    const block = newCollabBlock(e.id, atMs, String(p.task ?? ''));
-    block.parallel = Boolean(p.parallel);
-    ref.current = block;
-    root.push(block);
-    return;
-  }
-  // Only collab_started opens a run. Stray events with no open block — e.g. a
-  // `collab_blocked` from a refused start (its assistant_message carries the
-  // reason) — never create an empty block.
-  const block = ref.current;
-  if (!block) return;
-  switch (e.subtype) {
-    case 'collab_fallback_sequential':
-      block.fallbackReason = String(p.reason ?? '');
-      break;
-    case 'collab_roster_proposed':
-    case 'collab_roster_confirmed': {
-      const roster = Array.isArray(p.roster) ? (p.roster as Array<Record<string, unknown>>) : [];
-      for (const r of roster) {
-        if (typeof r.id === 'string') {
-          collabUpsertAgent(block, r.id, {
-            name: String(r.name ?? r.id),
-            role: String(r.role ?? 'implementer'),
-            subtask: typeof r.subtask === 'string' ? r.subtask : null,
-          });
-        }
-      }
-      break;
-    }
-    case 'collab_agent_spawned':
-      if (typeof p.id === 'string') {
-        collabUpsertAgent(block, p.id, { role: String(p.role ?? 'implementer'), status: 'working' });
-      }
-      break;
-    case 'collab_agent_status':
-      if (typeof p.agentId === 'string') {
-        collabUpsertAgent(block, p.agentId, { status: String(p.status ?? 'working') });
-      }
-      break;
-    case 'collab_agent_done':
-      if (typeof p.agentId === 'string') {
-        collabUpsertAgent(block, p.agentId, {
-          status: 'done',
-          summary: typeof p.summary === 'string' ? p.summary : null,
-        });
-      }
-      break;
-    case 'collab_message': {
-      const m = (p.message ?? {}) as Record<string, unknown>;
-      if (typeof m.id === 'string') {
-        block.messages.push({
-          id: m.id,
-          from: String(m.from ?? '?'),
-          to: String(m.to ?? 'all'),
-          ...(typeof m.subject === 'string' ? { subject: m.subject } : {}),
-          body: String(m.body ?? ''),
-          atMs: typeof m.ts === 'number' ? m.ts : atMs,
-        });
-      }
-      break;
-    }
-    case 'collab_board_update': {
-      const item = (p.item ?? {}) as Record<string, unknown>;
-      if (typeof item.id === 'string') {
-        const existing = block.tasks.find((x) => x.id === item.id);
-        const owner = typeof item.owner === 'string' ? item.owner : null;
-        const paths = Array.isArray(item.paths) ? item.paths.filter((x): x is string => typeof x === 'string') : undefined;
-        const detail = typeof item.detail === 'string' ? item.detail : undefined;
-        if (!existing) {
-          block.tasks.push({
-            id: item.id,
-            title: String(item.title ?? ''),
-            status: String(item.status ?? 'open'),
-            owner,
-            ...(paths && paths.length > 0 ? { paths } : {}),
-            ...(detail ? { detail } : {}),
-          });
-        } else {
-          existing.title = String(item.title ?? existing.title);
-          existing.status = String(item.status ?? existing.status);
-          existing.owner = owner ?? existing.owner;
-          if (paths && paths.length > 0) existing.paths = paths;
-          if (detail) existing.detail = detail;
-        }
-      }
-      break;
-    }
-    case 'collab_contract_published':
-    case 'collab_contract_change_proposed':
-    case 'collab_contract_changed': {
-      const c = (p.contract ?? {}) as Record<string, unknown>;
-      if (typeof c.id === 'string') {
-        const existing = block.contracts.find((x) => x.id === c.id);
-        if (!existing) {
-          block.contracts.push({
-            id: c.id,
-            title: String(c.title ?? ''),
-            owner: String(c.owner ?? ''),
-            status: String(c.status ?? 'published'),
-            version: typeof c.version === 'number' ? c.version : 1,
-          });
-        } else {
-          existing.title = String(c.title ?? existing.title);
-          existing.owner = String(c.owner ?? existing.owner);
-          existing.status = String(c.status ?? existing.status);
-          existing.version = typeof c.version === 'number' ? c.version : existing.version;
-        }
-      }
-      break;
-    }
-    case 'collab_control': {
-      const ctrl = (p.control ?? {}) as Record<string, unknown>;
-      block.control = {
-        paused: Boolean(ctrl.paused),
-        ...(typeof ctrl.directive === 'string' ? { directive: ctrl.directive } : {}),
-      };
-      break;
-    }
-    case 'collab_conflict':
-      block.conflicts.push({
-        agentId: typeof p.agentId === 'string' ? p.agentId : '?',
-        files: Array.isArray(p.files) ? p.files.filter((f): f is string => typeof f === 'string') : [],
-      });
-      break;
-    case 'collab_completed':
-      block.completedAtMs = atMs;
-      // Prefer the runner-stamped counts; when absent or malformed (object /
-      // string from a buggy/old coordinator), derive from the folded roster so
-      // the summary line shows a real fraction instead of `null/null`.
-      block.doneCount = Array.isArray(p.done)
-        ? p.done.length
-        : typeof p.done === 'number'
-          ? p.done
-          : block.agents.filter((a) => a.status === 'done').length;
-      block.totalCount = typeof p.total === 'number' ? p.total : block.agents.length;
-      break;
-    default:
-      // collab_merge and any future subtypes: no folded view needed
-      break;
-  }
-}
-
 /**
  * Map of tool name → compact presentation metadata. Tool registries
  * declare this at definePlugin time; the channel hands a snapshot to
@@ -433,9 +240,6 @@ export interface FoldState {
   // Open subagent group, if any. Consecutive `subagent_started` events accrete
   // into it; any non-subagent block (or a turn/scope boundary) closes the run.
   readonly subagentGroup: { current: SubagentGroupBlock | null };
-  // Open collaborative-run block, if any. Opened on collab_started; collab_*
-  // events mutate it in place; reset at the turn boundary.
-  readonly collab: { current: CollaborationBlock | null };
   // This turn's list of steps, once an agent call returned one; later changes join it.
   openSteps: StepListBlock | null;
 }
@@ -455,7 +259,6 @@ export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MA
     subagents: new Map<string, SubagentBlock>(),
     backgroundSubagents: new Map<string, SubagentBlock>(),
     subagentGroup: { current: null },
-    collab: { current: null },
     openSteps: null,
   };
 }
@@ -562,7 +365,6 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
       s.backgroundSubagents.set(id, agent);
     }
     s.subagents.clear();
-    s.collab.current = null;
     if (s.openSteps) s.openSteps.closed = true;
     s.openSteps = null;
     s.root.push({ kind: 'event', id: e.id, event: e });
@@ -701,19 +503,12 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
   // doesn't drown the main chat. The SubagentSpawner emits them as
   // plugin_event with pluginId='@moxxy/subagents'.
   if (e.type === 'plugin_event' && e.pluginId === SUBAGENT_PLUGIN_ID) {
-    // Seal any open live aggregate first: a subagent/collab block pushes to
+    // Seal any open live aggregate first: a subagent block pushes to
     // `root`, so a still-open live block above it would keep accreting later
     // compact calls and render chronologically out of order (above the agents
     // it actually followed). The verbose-tool path does the same.
     closeOpenLive();
     handleSubagentEvent(e, s.subagents, s.backgroundSubagents, s.root, s.subagentGroup);
-    return;
-  }
-  // Collaborative-run events fold into one team-level block (roster, bus,
-  // board, contracts, control, outcome) instead of N generic event rows.
-  if (e.type === 'plugin_event' && e.pluginId === COLLAB_PLUGIN_ID) {
-    closeOpenLive();
-    handleCollabEvent(e, s.collab, s.root);
     return;
   }
   pushBlock({ kind: 'event', id: e.id, event: e });
@@ -1004,7 +799,6 @@ export function isSettled(block: Block): boolean {
   if (block.kind === 'tool-call') return block.outcome !== null;
   if (block.kind === 'subagent') return subagentState(block) !== 'running';
   if (block.kind === 'subagent-group') return block.agents.every(isSettled);
-  if (block.kind === 'collab') return block.completedAtMs !== null;
   if (block.kind === 'skill-scope') {
     return block.closed && block.children.every(isSettled);
   }
@@ -1068,30 +862,6 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
       if (!blocksEquivalent(aChild, bChild)) return false;
     }
     return true;
-  }
-  if (a.kind === 'collab' && b.kind === 'collab') {
-    // Cheap change signals — be conservative (re-render on any team change).
-    // The status/version joins fold in the rendered content fields
-    // (title/detail/owner/subtask) too, so in-place edits that keep array
-    // lengths and statuses constant (collab_board_update / contract_changed
-    // mutating an existing item) still force a repaint.
-    return (
-      a.completedAtMs === b.completedAtMs &&
-      a.fallbackReason === b.fallbackReason &&
-      a.agents.length === b.agents.length &&
-      a.messages.length === b.messages.length &&
-      a.tasks.length === b.tasks.length &&
-      a.contracts.length === b.contracts.length &&
-      a.conflicts.length === b.conflicts.length &&
-      a.control?.paused === b.control?.paused &&
-      a.control?.directive === b.control?.directive &&
-      a.agents.map((x) => `${x.status}|${x.subtask ?? ''}`).join(',') ===
-        b.agents.map((x) => `${x.status}|${x.subtask ?? ''}`).join(',') &&
-      a.tasks.map((x) => `${x.status}|${x.title}|${x.detail ?? ''}|${x.owner ?? ''}`).join(',') ===
-        b.tasks.map((x) => `${x.status}|${x.title}|${x.detail ?? ''}|${x.owner ?? ''}`).join(',') &&
-      a.contracts.map((x) => `${x.status}|${x.version}|${x.title}|${x.owner}`).join(',') ===
-        b.contracts.map((x) => `${x.status}|${x.version}|${x.title}|${x.owner}`).join(',')
-    );
   }
   if (a.kind === 'step-list' && b.kind === 'step-list') {
     if (a.closed !== b.closed || a.calls.length !== b.calls.length) return false;

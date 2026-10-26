@@ -22,7 +22,6 @@ export const DESTINATIONS: ReadonlyArray<Destination> = [
   // "Runs" is the product's name for what it shows.
   { id: 'chat', label: 'Runs', icon: 'chat', chord: 'mod+1' },
   { id: 'extensions', label: 'Extensions', icon: 'plug', chord: 'mod+2' },
-  { id: 'collaborate', label: 'Collaborate', icon: 'agent' },
   { id: 'automations', label: 'Automations', icon: 'workflow' },
   { id: 'apps', label: 'Apps', icon: 'grid' },
   { id: 'channels', label: 'Channels', icon: 'broadcast' },
@@ -32,7 +31,7 @@ export const DESTINATIONS: ReadonlyArray<Destination> = [
 ];
 
 /** Views that read the runner session and cannot render while it loads. */
-const RUNNER_LOCKED: ReadonlySet<DestinationId> = new Set(['collaborate', 'apps', 'automations']);
+const RUNNER_LOCKED: ReadonlySet<DestinationId> = new Set(['apps', 'automations']);
 
 export const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
 

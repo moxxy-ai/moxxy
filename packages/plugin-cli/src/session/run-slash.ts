@@ -32,13 +32,6 @@ export interface SlashDeps {
    * session).
    */
   canSwitchSession?: boolean;
-  /**
-   * Re-point the TUI onto the dedicated collaboration coordinator (spawning a
-   * fresh `moxxy collab` runner, or attaching to a live one). Powers `/collab`.
-   * Absent on transports that can't re-bootstrap in place (same gate as
-   * {@link canSwitchSession}) — `/collab` then degrades to a notice.
-   */
-  requestCollab?: (goal?: string) => void;
   /** Open the plugin-setup dialog (SessionView owns the state). */
   openPluginSetup?: (target: {
     packageName: string;
@@ -177,8 +170,6 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       return;
     case 'goal':
       return startGoal(deps, args);
-    case 'collab':
-      return startCollab(deps, args);
     case 'auto-approve':
     case 'yolo':
       deps.setYolo((y) => {
@@ -201,7 +192,6 @@ function runRegisteredCommand(
   name: string,
   args: string,
   deps: SlashDeps,
-  textOverride?: string,
 ): boolean {
   const registered = deps.session.commands.get(name);
   if (!registered) return false;
@@ -215,7 +205,7 @@ function runRegisteredCommand(
         session: deps.session,
       });
       if (result.kind === 'text') {
-        deps.setSystemNotice(textOverride ?? result.text);
+        deps.setSystemNotice(result.text);
       } else if (result.kind === 'session-action') {
         deps.performSessionAction(result.action, result.notice);
       } else if (result.kind === 'error') {
@@ -656,103 +646,9 @@ function startGoal(deps: SlashDeps, arg: string): void {
   if (objective) deps.submitPrompt(objective);
 }
 
-/**
- * `/collab <goal>` — the agentic-collaborative entry point. Collaboration is a
- * SEPARATE feature: rather than taking over the current chat session (flipping
- * its mode + flooding its thread with the team's activity), it re-points the TUI
- * onto a DEDICATED coordinator runner (`moxxy collab`) with its own session.
- * `/collab <goal>` spawns a fresh coordinator and auto-submits the goal — an
- * architect designs the plan + proposes a roster (the usual review/launch/cancel
- * approval), then the team runs and its live status renders as the `◆ collab`
- * block. Bare `/collab` attaches to a running collaboration to view it. Human
- * controls are namespaced under this one entry point (`/collab say`, `direct`,
- * `pause`, `resume`); the legacy registered commands remain available to older
- * clients. Return to the original chat with `/runs` while the team keeps going.
- */
-function startCollab(deps: SlashDeps, arg: string): void {
-  const input = arg.trim();
-  const [head = '', ...tail] = input.split(/\s+/);
-  const action = head.toLowerCase();
-  const actionArgs = tail.join(' ');
-
-  if (action === 'help') {
-    deps.setSystemNotice(collabEntryHelp());
-    return;
-  }
-  if (action === 'say') {
-    if (!actionArgs.includes(' ')) {
-      deps.setSystemNotice('usage: /collab say <agent|all> <message>');
-      return;
-    }
-    return runCollabControl(deps, 'collab_say', actionArgs);
-  }
-  if (action === 'direct') {
-    if (!actionArgs) {
-      deps.setSystemNotice('usage: /collab direct <message>');
-      return;
-    }
-    return runCollabControl(deps, 'collab_direct', actionArgs);
-  }
-  if (action === 'pause') {
-    return runCollabControl(
-      deps,
-      'collab_pause',
-      '',
-      'Team paused. Use /collab resume to continue.',
-    );
-  }
-  if (action === 'resume') {
-    return runCollabControl(deps, 'collab_resume', '');
-  }
-
-  const objective = action === 'start' ? actionArgs : input;
-  // The coordinator runner needs the collaborative mode package on disk —
-  // when it isn't loaded here it won't be there either. Offer the install.
-  if (!deps.session.modes.list().some((m) => m.name === 'collaborative')) {
-    if (offerModeInstall(deps, 'collaborative', objective ? `/collab ${objective}` : '/collab')) {
-      return;
-    }
-  }
-  if (!deps.requestCollab) {
-    deps.setSystemNotice(
-      'collaboration runs on its own runner and needs an in-place session switch, which isn’t available here (attached to an external `moxxy serve`). Start it from the desktop Collaborate panel instead.',
-    );
-    return;
-  }
-  deps.setSystemNotice(null);
-  deps.requestCollab(objective || undefined);
-}
-
-function runCollabControl(
-  deps: SlashDeps,
-  command: 'collab_say' | 'collab_direct' | 'collab_pause' | 'collab_resume',
-  args: string,
-  textOverride?: string,
-): void {
-  if (runRegisteredCommand(command, args, deps, textOverride)) return;
-  deps.setSystemNotice(
-    'collaboration controls are unavailable in this session — open /collab from a local TUI',
-  );
-}
-
-function collabEntryHelp(): string {
-  return [
-    'Collaborate',
-    'Open a dedicated, reviewed agent team without filling your regular chat.',
-    '',
-    '/collab <goal>                    start a team',
-    '/collab                           open or rejoin the team view',
-    '/collab say <agent|all> <message> message the team',
-    '/collab direct <message>          change its direction',
-    '/collab pause | resume            control execution',
-    '',
-    'The architect proposes the roster before work begins. Use /runs to return here.',
-  ].join('\n');
-}
-
 export function openModePicker(deps: SlashDeps, arg = ''): void {
   const all = deps.session.modes.list();
-  // Special modes (e.g. the collaborative system, entered via /collab) are never
+  // Special modes are never
   // listed or name-switched here — see ModeDef.special / isSelectableMode.
   const modes = all.filter(isSelectableMode);
   if (modes.length === 0) {

@@ -400,7 +400,8 @@ describe('isRenderedEvent plugin registry seam', () => {
 
   it('renders the seeded first-party plugin ids and rejects unknown ones', () => {
     expect(isRenderedEvent(pluginEvent('@moxxy/subagents'))).toBe(true);
-    expect(isRenderedEvent(pluginEvent('@moxxy/mode-collaborative'))).toBe(true);
+    // Collaborative mode was removed: events left in old runs stay hidden.
+    expect(isRenderedEvent(pluginEvent('@moxxy/mode-collaborative'))).toBe(false);
     expect(isRenderedEvent(pluginEvent('@moxxy/something-else'))).toBe(false);
   });
 

@@ -319,7 +319,6 @@ const RENDERED_EVENT_TYPES: ReadonlySet<MoxxyEvent['type']> = new Set([
 ]);
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
-const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
 
 /**
  * Plugin ids whose `plugin_event`s are transcript-worthy. Seeded with the two
@@ -328,7 +327,7 @@ const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
  * open-for-extension seam, matching the rest of the registry-driven codebase).
  */
 // Question records stay in the chat so its open Question can be read from it.
-const renderablePluginIds = new Set<string>([SUBAGENT_PLUGIN_ID, COLLAB_PLUGIN_ID, QUESTION_PLUGIN_ID]);
+const renderablePluginIds = new Set<string>([SUBAGENT_PLUGIN_ID, QUESTION_PLUGIN_ID]);
 
 /** Opt a plugin's `plugin_event`s into the rendered transcript. Idempotent. */
 export function registerRenderablePlugin(pluginId: string): void {

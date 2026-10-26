@@ -32,7 +32,6 @@ import {
 } from './pair-events.js';
 import { subagentState } from './format.js';
 import type {
-  CollaborationBlock,
   LiveToolBlockData,
   SkillScopeBlock,
   StepListBlock,
@@ -126,16 +125,6 @@ const subagentEvent = (subtype: string, payload: Record<string, unknown>): Plugi
   type: 'plugin_event',
   source: 'plugin',
   pluginId: asPluginId(SUBAGENT_PLUGIN_ID),
-  subtype,
-  payload,
-});
-
-const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
-const collabEvent = (subtype: string, payload: Record<string, unknown>): PluginEvent => ({
-  ...base(),
-  type: 'plugin_event',
-  source: 'plugin',
-  pluginId: asPluginId(COLLAB_PLUGIN_ID),
   subtype,
   payload,
 });
@@ -773,7 +762,7 @@ describe('pairToolEvents — file-edit tools', () => {
   });
 });
 
-describe('pairToolEvents — open live aggregate sealed by a subagent/collab start', () => {
+describe('pairToolEvents — open live aggregate sealed by a subagent start', () => {
   const asLiveBlock = (b: unknown): LiveToolBlockData => {
     const block = b as LiveToolBlockData;
     expect(block.kind).toBe('live-tools');
@@ -805,20 +794,6 @@ describe('pairToolEvents — open live aggregate sealed by a subagent/collab sta
     expect(second.calls.map((c) => c.request.callId)).toEqual(['r2']);
   });
 
-  it('seals the open live block when a collab run starts mid-aggregation', () => {
-    const blocks = pairToolEvents(
-      [
-        toolRequest('r1', 'read', { file_path: '/a.ts' }),
-        toolResult('r1'),
-        collabEvent('collab_started', { task: 'build', parallel: false }),
-        toolRequest('r2', 'read', { file_path: '/b.ts' }),
-        toolResult('r2'),
-      ],
-      compactMap,
-    );
-    expect(blocks.map((b) => b.kind)).toEqual(['live-tools', 'collab', 'live-tools']);
-    expect(asLiveBlock(blocks[0]).closed).toBe(true);
-  });
 });
 
 describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
@@ -889,44 +864,7 @@ describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
   });
 });
 
-describe('blocksEquivalent — collab content edits + subagent stopReason', () => {
-  const foldCollab = (events: MoxxyEvent[]): CollaborationBlock =>
-    pairToolEvents(events).find((b) => b.kind === 'collab') as CollaborationBlock;
-
-  it('re-renders when a task title/detail edit preserves status + array length', () => {
-    const start = collabEvent('collab_started', { task: 'x', parallel: false });
-    const open = collabEvent('collab_board_update', {
-      item: { id: 't1', title: 'old', status: 'claimed', owner: 'a', detail: 'before' },
-    });
-    const edited = collabEvent('collab_board_update', {
-      item: { id: 't1', title: 'new', status: 'claimed', owner: 'a', detail: 'after' },
-    });
-    const a = foldCollab([start, open]);
-    const b = foldCollab([start, open, edited]);
-    expect(a.tasks).toHaveLength(1);
-    expect(b.tasks).toHaveLength(1);
-    const aTask0 = a.tasks[0];
-    const bTask0 = b.tasks[0];
-    assertDefined(aTask0, 'block a has a first task');
-    assertDefined(bTask0, 'block b has a first task');
-    expect(aTask0.status).toBe(bTask0.status); // status unchanged
-    // Content changed though — comparator must NOT skip the re-render.
-    expect(blocksEquivalent(a, b)).toBe(false);
-  });
-
-  it('re-renders when a contract title/owner edit preserves status + version', () => {
-    const start = collabEvent('collab_started', { task: 'x', parallel: false });
-    const open = collabEvent('collab_contract_published', {
-      contract: { id: 'c1', title: 'old', owner: 'a', status: 'published', version: 1 },
-    });
-    const edited = collabEvent('collab_contract_changed', {
-      contract: { id: 'c1', title: 'new', owner: 'b', status: 'published', version: 1 },
-    });
-    const a = foldCollab([start, open]);
-    const b = foldCollab([start, open, edited]);
-    expect(blocksEquivalent(a, b)).toBe(false);
-  });
-
+describe('blocksEquivalent — subagent stopReason', () => {
   it('subagent: differs when only stopReason changes', () => {
     const a = asSubagent(
       pairToolEvents([
@@ -940,27 +878,6 @@ describe('blocksEquivalent — collab content edits + subagent stopReason', () =
     expect(a.completedAtMs).toBe(b.completedAtMs);
     expect(a.stopReason).not.toBe(b.stopReason);
     expect(blocksEquivalent(a, b)).toBe(false);
-  });
-});
-
-describe('pairToolEvents — collab_completed malformed counts fall back to roster', () => {
-  it('derives done/total from the roster when payload counts are malformed', () => {
-    const blocks = pairToolEvents([
-      collabEvent('collab_started', { task: 'x', parallel: false }),
-      collabEvent('collab_roster_confirmed', {
-        roster: [
-          { id: 'a', name: 'A' },
-          { id: 'b', name: 'B' },
-        ],
-      }),
-      collabEvent('collab_agent_done', { agentId: 'a', summary: 'ok' }),
-      // Buggy coordinator emits non-array/non-number counts.
-      collabEvent('collab_completed', { done: { weird: true }, total: 'two' }),
-    ]);
-    const collab = blocks.find((b) => b.kind === 'collab') as CollaborationBlock;
-    // Derived: 1 of 2 agents done — meaningful, not null/null.
-    expect(collab.doneCount).toBe(1);
-    expect(collab.totalCount).toBe(2);
   });
 });
 

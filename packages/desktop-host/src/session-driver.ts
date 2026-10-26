@@ -333,18 +333,6 @@ export class SessionDriver {
     else if (this.otherTurns.has(turnId)) void this.session.abortTurn(turnId).catch(() => undefined);
   }
 
-  /** Abort every in-flight turn in this workspace without disposing the driver.
-   *  Used by the "End the collaboration" action: the coordinator turn aborts,
-   *  its finally tears the team down + archives, and the workspace stays usable. */
-  abortActiveTurns(): number {
-    let n = 0;
-    for (const turn of this.turns.values()) {
-      turn.controller.abort();
-      n += 1;
-    }
-    return n;
-  }
-
   /** Toggle auto-approve. When on, tool calls run without opening the
    *  renderer's approval sheet — for the whole conversation when the runner
    *  shares the switch, for this driver only on an older runner. */

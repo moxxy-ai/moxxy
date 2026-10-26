@@ -6,7 +6,6 @@ import { LiveToolBlock } from './LiveToolBlock.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
 import { SubagentScopeView } from './SubagentScopeView.js';
 import { SubagentGroupView } from './SubagentGroupView.js';
-import { CollabScopeView } from './CollabScopeView.js';
 import { StepListView } from './StepListView.js';
 import { ShimmerText } from './ShimmerText.js';
 import { ActivityDot, type ActivityDotState } from './ActivityDot.js';
@@ -67,9 +66,6 @@ export const BlockLine: React.FC<BlockLineProps> = memo(
     }
     if (block.kind === 'live-tools') {
       return <LiveToolBlock block={block} expanded={expandToolOutputs} nested={nested} />;
-    }
-    if (block.kind === 'collab') {
-      return <CollabScopeView scope={block} />;
     }
     if (block.kind === 'step-list') {
       return <StepListView block={block} />;

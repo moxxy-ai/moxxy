@@ -280,9 +280,8 @@ export function Composer({
     submit();
   };
 
-  // The "+" menu. Mode joins as a submenu once session.info is ready
-  // (collaboration modes are filtered out by the hook) and locks while a turn
-  // is in flight.
+  // The "+" menu. Mode joins as a submenu once session.info is ready and locks
+  // while a turn is in flight.
   const overflowItems: OverflowMenuItem[] = [
     // Attach leads: it is the one reached for most often.
     { icon: 'attach', label: 'Attach file', onClick: () => void onAttach() },

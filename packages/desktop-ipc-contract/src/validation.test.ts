@@ -4,6 +4,9 @@ import { REMOTE_ALLOWED_COMMANDS } from './index.js';
 import type { IpcCommandName } from './index.js';
 
 describe('IPC payload validation', () => {
+  it('has no collaboration commands, since collaborative mode was removed', () => {
+    expect(Object.keys(ipcInputSchemas).filter((name) => name.startsWith('collab.'))).toEqual([]);
+  });
   it('requires exact workspace, session and turn for Computer Use human commands', () => {
     const command = 'computer.control' as IpcCommandName;
     const args = {workspaceId:'workspace',sessionId:'session',turnId:'turn',command:'stop'};

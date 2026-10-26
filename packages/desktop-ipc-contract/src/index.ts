@@ -182,7 +182,7 @@ export type { IpcEvents } from './events.js';
 export type { AppNotice, AppNoticeTarget } from './notices.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
-export type { IpcCommands, IpcCommandName, CollabRunSummary } from './commands.js';
+export type { IpcCommands, IpcCommandName } from './commands.js';
 
 // ---------- The remote / mobile trust surface -----------------------------
 export { REMOTE_ALLOWED_COMMANDS } from './remote.js';
