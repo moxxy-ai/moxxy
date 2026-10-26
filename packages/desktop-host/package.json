@@ -45,7 +45,7 @@
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "@moxxy/workspace-registry": "workspace:*",
-    "officeparser": "~8.1.0",
+    "officeparser": "~8.2.0",
     "pdfjs-dist": "6.4.299",
     "yaml": "^2.9.1"
   },
