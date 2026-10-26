@@ -8,8 +8,7 @@
  * `qrcode` package cannot inject executable markup into the privileged renderer
  * DOM.
  *
- * Shared by the Mobile gateway pairing UI (settings/MobileTab) and the Channels
- * panel's per-channel connect step (apps/ChannelsPanel).
+ * Used by the Channels panel's per-channel connect step (apps/ChannelsPanel).
  */
 
 import { useEffect, useState } from 'react';

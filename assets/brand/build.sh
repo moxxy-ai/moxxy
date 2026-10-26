@@ -31,7 +31,3 @@ ship moxxy-mark-template-blink-22.png apps/desktop/public/trayBlinkTemplate.png
 ship moxxy-mark-template-blink-44.png apps/desktop/public/trayBlinkTemplate@2x.png
 ship moxxy-mark-eyeless-256.png       apps/desktop/public/moxxy-mark-eyeless.png
 ship moxxy-mark-eyes.json             apps/desktop/src/components/moxxy-mark-eyes.json
-# Mobile: the in-app mark and the opaque app icon (iOS rejects alpha).
-ship moxxy-mark-512.png          apps/mobile/assets/moxxy-mark.png
-ship moxxy-icon-square-1024.png  apps/mobile/assets/icon.png
-ship moxxy-icon-square-1024.png  apps/mobile/ios/MoxxyMobileGateway/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png

@@ -33,7 +33,6 @@ What the baseline turns on:
 | `plugins.installPolicy: registry-only` | Only packages the signed index vouches for |
 | `config.allowExecutable: false` | A project's `moxxy.config.ts` is never executed |
 | `audit.enabled` | Hash-chained trail under `~/.moxxy/audit/` |
-| `channels.mobile.bindHost: 127.0.0.1` | Loopback, not the office LAN |
 
 Everything under `locked:` is stripped from the user, project, and explicit layers before merging, and the attempt is reported. Everything **not** locked is either site-specific or carries no security weight.
 

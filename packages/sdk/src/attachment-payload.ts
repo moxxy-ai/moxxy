@@ -2,7 +2,7 @@ import type { MoxxyEvent, UserPromptAttachment } from './events.js';
 
 /**
  * Attachment bytes travel two very different roads. The model needs them in
- * full; a client that only DRAWS the conversation (desktop, mobile, a channel
+ * full; a client that only DRAWS the conversation (desktop, a channel
  * bot) does not, and pushing a scanned 30 MB PDF through the client link on
  * every reconnect is what once wedged a chat in a reconnect loop. So the runner
  * sends clients {@link eventForClient} — large payloads swapped for their size —

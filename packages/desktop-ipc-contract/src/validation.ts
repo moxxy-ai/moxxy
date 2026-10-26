@@ -89,15 +89,15 @@ const speechLanguage = z
 /** Piper's supported range. The conversational planner uses a much narrower
  *  band, but every renderer/remote caller is still bounded at the IPC edge. */
 const speechRate = z.number().finite().min(0.5).max(2);
-/** ~9 MB of payload per inline attachment (the mobile app caps picks at 8 MB
- *  raw; base64 inflates ×4/3). Bounded so a hostile client can't OOM the host. */
+/** ~9 MB of payload per inline attachment (an 8 MB file, as base64 inflates
+ *  ×4/3). Bounded so a hostile client can't OOM the host. */
 const MAX_INLINE_ATTACHMENT_CONTENT = 12_000_000;
 /** Aggregate ceiling across ALL inline-attachment entries on one runTurn so the
  *  per-entry cap × 8 entries can't sum to ~96 MB of base64 (~72 MB decoded) that
  *  the host must buffer + decode at once. Bounds the single-call blast radius;
  *  the per-CONNECTION budget across N concurrent bearer-holding peers is a
  *  cross-package gateway concern (see deferred). 24 MB ≈ ~18 MB decoded — two
- *  full 9 MB picks, which is the practical mobile ceiling. */
+ *  full 9 MB files. */
 const MAX_INLINE_ATTACHMENTS_TOTAL = 24_000_000;
 /** Strict base64 shape (optional `=` padding). Shared between the transcribe
  *  guard and the inline-attachment guard so a non-base64 string never reaches a
@@ -113,7 +113,7 @@ const base64 = z.string().max(MAX_AUDIO_BASE64).regex(BASE64_RE, 'must be base64
 
 /** Inline-attachment kinds whose `content` is base64-encoded BYTES (vs. the
  *  text kinds `stdin`/`file`, which carry inline UTF-8). For these the renderer-
- *  /remote-supplied `content` is decoded host-side (mobile path) or handed to a
+ *  /remote-supplied `content` is decoded host-side or handed to a
  *  provider as image/document/audio data (`project-messages.ts`), so a malformed
  *  base64 string would decode to garbage — reject it at the boundary, one hop
  *  before any decoder, exactly as `session.transcribe` does for `audioBase64`. */
@@ -316,7 +316,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       )
       .max(64)
       .optional(),
-    // Inline attachments cross the wire as payload (remote/mobile clients) —
+    // Inline attachments cross the wire as payload —
     // bound the entry count, the per-entry content size, AND (below) the sum of
     // all entries so 8 × the per-entry cap can't force ~72 MB of transient decode.
     inlineAttachments: z
@@ -567,7 +567,6 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       clerkUserId: z.string().max(256).nullable().optional(),
       clerkDisplayName: z.string().max(256).nullable().optional(),
       signedInAt: z.number().nullable().optional(),
-      mobileGatewayEnabled: z.boolean().optional(),
       theme: z.enum(['light', 'dark', 'system']).optional(),
       voiceEngine: z.enum(['local', 'gpt-live']).optional(),
       replySound: z.boolean().optional(),
@@ -577,11 +576,6 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       dismissedAgentUpdates: z.record(providerName, z.string().min(1).max(64)).optional(),
     })
     .strict(),
-  // Mobile-gateway control. Both no-arg variants pin the payload to "nothing"
-  // so a hostile caller can't smuggle args; setEnabled is a strict boolean.
-  'mobileGateway.status': z.undefined(),
-  'mobileGateway.rotateToken': z.undefined(),
-  'mobileGateway.setEnabled': z.object({ enabled: z.boolean() }).strict(),
   // `before` is a session-log `seq` cursor; the page is RAW events. Both the
   // connected runner and host-side startup reader cap at the runner's
   // MAX_HISTORY_PAGE_LIMIT (2000), so bind the renderer to that ceiling.

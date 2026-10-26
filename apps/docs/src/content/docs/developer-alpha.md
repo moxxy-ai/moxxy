@@ -18,7 +18,7 @@ resume the run without learning the runtime architecture.
 
 ## Experimental
 
-Channels, background services, automations, voice, mobile,
+Channels, background services, automations, voice,
 agent-authored apps, third-party runtime blocks, and governed fleet operations
 are experimental. They live behind advanced CLI commands or the desktop's
 **More** menu.

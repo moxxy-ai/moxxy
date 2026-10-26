@@ -5,12 +5,8 @@
  * Runner/session events keep their existing, battle-tested delivery path
  * (`SessionDriver`'s window set, `bindWindow`, `sendEvent`) untouched. Host-level
  * events that are not emitted by a runner (for example `desks.changed` from an IPC
- * mutation) use {@link broadcastHostEvent}, so Electron windows and remote WS
- * clients observe the same state changes in realtime.
- *
- * Keeping this as a small additive bus avoids routing the old runner stream
- * through a new path while still letting mobile-originated host mutations refresh
- * the desktop renderer immediately.
+ * mutation) use {@link broadcastHostEvent}, so every Electron window observes the
+ * same state changes in realtime.
  */
 
 import type { IpcEvents } from '@moxxy/desktop-ipc-contract';
@@ -33,8 +29,8 @@ export class EventBus implements EventSink {
       try {
         sink.broadcast(channel, payload);
       } catch {
-        // A misbehaving sink (e.g. a dropped WS connection mid-send) must not
-        // break the others or the Electron path that already delivered.
+        // A misbehaving sink (e.g. a window closed mid-send) must not break
+        // the others.
       }
     }
   }
@@ -46,17 +42,10 @@ export class EventBus implements EventSink {
  */
 export const desktopEventBus = new EventBus();
 
-/**
- * The WebSocket bridge registers its `WebSocketCommandBus` as a sink at startup;
- * with no bridge running this has zero sinks and `broadcast` is free.
- */
-export const wsEventBus = new EventBus();
-
-/** Broadcast a host-level event to every local and remote surface. */
+/** Broadcast a host-level event to every desktop window. */
 export function broadcastHostEvent<K extends keyof IpcEvents>(
   channel: K,
   payload: IpcEvents[K],
 ): void {
   desktopEventBus.broadcast(channel, payload);
-  wsEventBus.broadcast(channel, payload);
 }

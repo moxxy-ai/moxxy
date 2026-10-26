@@ -5,7 +5,6 @@
  * here, but that coupling now lives in each platform's boot shim, which calls
  * {@link configureTransport} once at startup —
  *   - desktop: `configureTransport(window.moxxy)` (the Electron preload bridge)
- *   - mobile:  `configureTransport(makeWsApi(url, token))` (the WebSocket client)
  *
  * The {@link api} alias preserves the original call shape (`api()`), so every
  * store/hook call-site is unchanged.

@@ -15,7 +15,7 @@ describe('the sidebar a view shows', () => {
   });
 
   it('keeps the runs beside a view that has no list of its own', () => {
-    for (const view of ['chat', 'apps', 'mobile'] as const) {
+    for (const view of ['chat', 'apps'] as const) {
       expect(showsRuns(view), view).toBe(true);
     }
   });

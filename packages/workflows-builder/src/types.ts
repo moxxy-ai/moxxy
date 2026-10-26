@@ -6,7 +6,7 @@
  * {@link BuilderEdge}s so a renderer can draw them without re-deriving topology.
  *
  * This module is pure data — no React, no DOM, no node built-ins — so it
- * import-cleanly under both the Electron renderer and the Expo (Hermes) bundle.
+ * imports cleanly in the Electron renderer.
  */
 
 import { assertDefined } from './assert.js';

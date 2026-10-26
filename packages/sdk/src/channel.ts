@@ -241,7 +241,7 @@ export interface ChannelConnectStep {
   /**
    * Presentation of the channel's runtime connect value:
    * - `qr`: render a QR of the value plus the value itself (e.g. scan/open a
-   *   `t.me/<bot>` link, or a mobile pairing URL).
+   *   `t.me/<bot>` link).
    * - `url`: show the value as a copyable URL the user pastes elsewhere
    *   (Slack's Events Request URL).
    * - `instructions`: static `steps`, no runtime value.

@@ -54,9 +54,15 @@ describe('searchPlaces', () => {
     ['webhook', { destination: 'automations', section: 'webhooks' }],
     ['cron', { destination: 'automations', section: 'schedules' }],
     ['workflow', { destination: 'automations', section: 'workflows' }],
-    ['phone', { destination: 'mobile' }],
   ])('takes "%s" to where that option is', (query, target) => {
     expect(first(query)).toEqual(target);
+  });
+
+  it('has no place for pairing a phone, since the mobile app was removed', () => {
+    for (const query of ['mobile', 'phone', 'pairing']) {
+      const targets = searchPlaces(STATIC_PLACES, query).map((place) => place.target);
+      expect(targets, query).not.toContainEqual({ destination: 'mobile' });
+    }
   });
 
   it('lists only the places themselves until something is typed', () => {

@@ -7,7 +7,6 @@
  * DOM-free package cannot), they read the capability from this registry, which
  * each platform populates at boot:
  *   - desktop: `configurePlatform(webPlatform)` (Web APIs, in @moxxy/client-platform-web)
- *   - mobile:  `configurePlatform({})` for the PoC, or Expo-backed impls later
  *
  * Every capability is OPTIONAL: when one is absent the consuming hook degrades
  * to the same "unsupported" branch it always had (no mic, no read-aloud, no

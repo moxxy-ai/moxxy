@@ -39,10 +39,9 @@ a model retry; terminating its runner cancels work, and historical records remai
 visible. Uncertain actions are not replayed after restart.
 
 Desktop IPC uses explicit workspace IDs. Runner protocol 13 exposes list, decide,
-revoke and cancel; older runners receive an update-required message. The paired
-mobile bridge supports the same commands for its own served workspace only.
+revoke and cancel; older runners receive an update-required message.
 
 Verification includes real disk journals, competing processes, a real file-writing
-DAG, actual runner reconnection and an authenticated WebSocket bridge. Windows
+DAG and actual runner reconnection. Windows
 NTFS and installed-resource tests run in the installer CI. These checks do not
 replace the user-facing cron/modal acceptance runs or security dependency audit.

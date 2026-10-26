@@ -436,7 +436,8 @@ function titleFromFirstPrompt(firstPrompt: string | null): string | null {
 const CHANNEL_SOURCES: ReadonlySet<string> = new Set(['slack', 'telegram', 'signal', 'whatsapp', 'discord', 'imessage']);
 
 /** Which sidecars surface as sessions. App-created (desktop/mobile) sessions
- *  show even when brand-new/empty; cli/tui sidecars must have a real first
+ *  show even when brand-new/empty (`mobile` is kept so conversations started
+ *  from the removed mobile app stay listed); cli/tui sidecars must have a real first
  *  prompt and a live cwd (else they're noise / point at a deleted folder). */
 function shouldShow(listing: SessionMeta): boolean {
   if (listing.source && CHANNEL_SOURCES.has(listing.source)) return false;

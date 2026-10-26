@@ -9,7 +9,6 @@ import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
 import { segmentsCompactorPlugin } from '@moxxy/compactor-segments';
 import { stablePrefixCacheStrategyPlugin } from '@moxxy/cache-strategy-stable-prefix';
 import { cliPlugin } from '@moxxy/plugin-cli';
-import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import type { VaultStore } from '@moxxy/plugin-vault';
@@ -119,7 +118,6 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // discovery: web serves its own dist/public next to its module, browser
     // resolves its own dist/sidecar.js, terminal carries node-pty as its own
     // optional dep (piped-shell fallback without it).
-    { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
     // plugin-telegram / plugin-channel-slack are NOT bundled — install on
     // demand (`moxxy <channel>` prints the install hint when absent) or ride
     // the desktop plugins-seed; the desktop ChannelSupervisor spawns them on

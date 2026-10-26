@@ -30,7 +30,7 @@ import type { RunnerPool } from './runner-pool';
 import { SessionDriver } from './session-driver';
 import type { DeskStore } from './desks';
 import { sendEvent } from './send-event';
-import { desktopEventBus, wsEventBus } from './event-bus';
+import { desktopEventBus } from './event-bus';
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import {
   drivers,
@@ -71,7 +71,6 @@ import { registerChatHandlers } from './ipc/chat';
 import { registerChatMediaHandlers, watchChatMediaCleanup } from './ipc/chat-media';
 import { ChatMediaStore } from './chat-media/store';
 import { electronFingerprint, electronThumbnail } from './chat-media/electron-images';
-import { registerMobileGatewayHandlers, type MobileGatewayController } from './ipc/mobile-gateway';
 import { registerChannelsHandlers } from './ipc/channels';
 import { electronFiles, registerFilesHandlers } from './ipc/files';
 import { registerVoiceHandlers, type VoiceHandlerDependencies } from './ipc/voice';
@@ -111,9 +110,6 @@ export function registerIpcHandlers(
   desks: DeskStore,
   opts: {
     readonly update?: UpdateConfig;
-    /** Bridge-lifecycle surface for the mobile-gateway commands; the Electron
-     *  main injects it. Omitted ⇒ the commands report `not-supported`. */
-    readonly mobileGateway?: MobileGatewayController;
     readonly voice?: Pick<VoiceHandlerDependencies, 'setRealtimeCaptureActive'>;
     /** The main-process browser. Omitted ⇒ the `browser.*` commands are absent
      *  and the pane reports the browser as unavailable rather than erroring. */
@@ -159,7 +155,6 @@ export function registerIpcHandlers(
     registerVaultHandlers();
     registerChatHandlers(pool, desks);
     registerChatMediaHandlers(desks, chatMediaStore(), electronFiles);
-    registerMobileGatewayHandlers(opts.mobileGateway ?? null);
     registerChannelsHandlers({
       attachChat: async (sessionId, socketPath) => void (await pool.attach(sessionId, socketPath)),
       activateProvider: providerActivator(pool),
@@ -198,10 +193,6 @@ export function bindWindow(
   });
   const send = <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void => {
     sendEvent(window, channel, payload);
-    // Mirror `connection.changed` to non-Electron transports — but only from
-    // the PRIMARY binding, so a secondary surface (focus widget) doesn't emit a
-    // duplicate WS copy of the same workspace phase. No-op without a WS bridge.
-    if (claimGlobal) wsEventBus.broadcast(channel, payload);
   };
 
   // Maintain one SessionDriver per workspace for the lifetime of its

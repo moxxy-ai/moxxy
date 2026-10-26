@@ -166,12 +166,6 @@ const BUNDLED_WORKSPACE_DEPS = [
   '@moxxy/plugin-stt-whisper-codex',
   '@moxxy/desktop-ipc-contract',
   '@moxxy/desktop-host',
-  '@moxxy/ipc-server-ws',
-  // The main imports the mobile-channel's pure pairing-URL helpers
-  // (`@moxxy/plugin-channel-mobile/pairing`, only `node:os`) to build the QR /
-  // connectUrl for the mobile gateway. Bundling the subpath inlines just those
-  // helpers — the heavy tunnel-provider package is never pulled in.
-  '@moxxy/plugin-channel-mobile',
 ];
 
 /**
@@ -194,8 +188,8 @@ const BUNDLED_THIRD_PARTY_DEPS = ['zod', 'openai', 'electron-updater'];
  * `commonjsRequire`, which Rollup can't inline) and let it resolve (or
  * gracefully fail) at runtime.
  *
- * `bufferutil` / `utf-8-validate` are `ws`'s optional native accelerators
- * (`ws` rides in via the bundled `@moxxy/ipc-server-ws`). `ws` requires them
+ * `bufferutil` / `utf-8-validate` are `ws`'s optional native accelerators,
+ * should `ws` ride in through a bundled dependency. `ws` requires them
  * inside try/catch and falls back to its JS implementations, so leaving them
  * external-and-absent in the packaged app is safe and intended.
  *

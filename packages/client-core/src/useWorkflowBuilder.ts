@@ -13,12 +13,11 @@ import { api } from './transport.js';
 import { toErrorMessage } from './errors.js';
 
 /**
- * The transport-neutral builder hook shared by the desktop canvas and the
- * mobile editor. It owns the canvas reducer, loads a saved workflow's YAML via
+ * The transport-neutral builder hook behind the desktop canvas. It owns the canvas reducer, loads a saved workflow's YAML via
  * `workflows.getRun`, debounces a live `workflows.validateDraft` on every edit
  * (mapping issues back onto nodes), and persists via `workflows.save`. It is
  * DOM-free: it reaches the host only through the injected {@link api} transport,
- * so the same hook drives the Electron preload bridge and the mobile WS bridge.
+ * so it does not depend on the Electron preload bridge directly.
  */
 
 export interface UseWorkflowBuilder {

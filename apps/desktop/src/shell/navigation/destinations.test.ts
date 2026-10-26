@@ -9,7 +9,6 @@ const EVERY_VIEW: Record<View, true> = {
   automations: true,
   apps: true,
   channels: true,
-  mobile: true,
   settings: true,
 };
 
@@ -27,7 +26,6 @@ describe('destinations', () => {
       'Automations',
       'Apps',
       'Channels',
-      'Mobile',
       'Voice',
       'Settings',
     ]);

@@ -24,7 +24,6 @@ import type {
 } from './workflows.js';
 import type { ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
 import type { WebhookSummary, WebhookDeleteResult } from './webhooks.js';
-import type { MobileGatewayStatus } from './mobile.js';
 import type { ChannelEntry, ChannelRunMode, ChannelRuntimeStatus } from './channels.js';
 import type {
   ProviderEntry,
@@ -340,7 +339,7 @@ export interface IpcCommands {
   /** Cancel an in-flight generated speech request for interruption/barge-in. */
   'session.cancelSynthesis': (args: { workspaceId?: string; requestId: string }) => Promise<void>;
   /** True when the desktop's optional on-device Piper synthesizer package is
-   *  complete on disk. Host-only: remote clients must not inspect plugins. */
+   *  complete on disk. */
   'voice.isLocalPiperInstalled': () => Promise<boolean>;
   /** Install, enable and select the fixed first-party Local Piper package, then
    *  restart desktop runners. Accepts no renderer-controlled package spec. */
@@ -672,9 +671,7 @@ export interface IpcCommands {
   // Webhooks
   /** List every persisted webhook trigger. The host reads the shared webhooks
    *  store directly so it also sees triggers the agent's `webhook_*` tools
-   *  created; verification secrets are redacted before crossing the boundary.
-   *  Host-only (NOT remote-allowed) — managing inbound triggers is a desktop
-   *  operation, like the apps gallery. */
+   *  created; verification secrets are redacted before crossing the boundary. */
   'webhooks.list': () => Promise<ReadonlyArray<WebhookSummary>>;
   /** Pause/resume an existing webhook trigger without rewriting its prompt. */
   'webhooks.setEnabled': (args: { id: string; enabled: boolean }) => Promise<WebhookSummary | null>;
@@ -686,9 +683,6 @@ export interface IpcCommands {
   'webhooks.setTargetSession': (args: { id: string; sessionId: string | null }) => Promise<WebhookSummary | null>;
 
   // ---- Communication channels (Slack / Telegram on dedicated runners) --
-  // Host-only (run a local subprocess + read/write the vault): deliberately NOT
-  // in REMOTE_ALLOWED_COMMANDS, so a paired phone can't start a channel or save
-  // its secrets.
   /** Every runnable channel with its descriptor (config fields, webhook-url
    *  affordance) + live status (configured / running / requestUrl). */
   'channels.list': () => Promise<ReadonlyArray<ChannelEntry>>;
@@ -725,9 +719,6 @@ export interface IpcCommands {
   }) => Promise<ChannelRuntimeStatus>;
 
   // ---- Desktop apps gallery (install lifecycle) ------------------------
-  // All host-only (native pickers + filesystem + a network download). They are
-  // deliberately NOT in REMOTE_ALLOWED_COMMANDS — a paired phone can't trigger
-  // a desktop download or read/write local files.
   /** Current install state of an app's local assets. */
   'apps.status': (args: { appId: string }) => Promise<AppInstallStatus>;
   /** Download + install an app's local assets (e.g. the anonymizer's NER
@@ -773,8 +764,6 @@ export interface IpcCommands {
   // Focus-mode window control (from the floating widget back to main).
   // Returned by focus-window geometry calls so the renderer can keep any
   // collapsed reply preview on the inward-facing side of the tile.
-  // Local desktop IPC only: deliberately excluded from REMOTE_ALLOWED_COMMANDS.
-  // See remote.test.ts.
   // Exported inline in the command map to keep the boundary compact.
   /** Toggle focus mode from trusted local desktop UI. This follows the same
    *  main-process controller path as the app menu, tray menu, and global
@@ -797,9 +786,7 @@ export interface IpcCommands {
     /** Keep character chrome fixed while transient content grows above it. */
     verticalAnchor?: FocusVerticalAnchor;
   }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
-  /** Move the focus window by a renderer-measured pointer delta. This stays
-   *  local-only because remote/mobile clients must not be able to move the
-   *  user's desktop window. */
+  /** Move the focus window by a renderer-measured pointer delta. */
   'focus.moveBy': (args: {
     dx: number;
     dy: number;
@@ -890,23 +877,6 @@ export interface IpcCommands {
   'settings.readSkill': (args: { name: string }) => Promise<string>;
   'settings.writeSkill': (args: { name: string; body: string }) => Promise<void>;
   'settings.deleteSkill': (args: { name: string }) => Promise<void>;
-
-  // ---- Mobile gateway (WebSocket bridge) --------------------------------
-  // These CONTROL the bridge, so they are host-only. The WS bus is
-  // deny-by-default (see REMOTE_ALLOWED_COMMANDS) and these are NOT on the
-  // allow-list — a remote (WS) client must never be able to toggle the gateway
-  // or read/rotate the pairing token over the very transport the token guards.
-  /** Current gateway status (enabled, advertised host+port, connectUrl/QR
-   *  payload, token, connected-client count). */
-  'mobileGateway.status': () => Promise<MobileGatewayStatus>;
-  /** Start (true) or stop (false) the gateway and persist the preference so it
-   *  survives a restart. Starting binds the bridge on the LAN-advertised
-   *  interface so a phone can reach it. Returns the resulting status. */
-  'mobileGateway.setEnabled': (args: { enabled: boolean }) => Promise<MobileGatewayStatus>;
-  /** Rotate the pairing token — invalidates the old QR and terminates every
-   *  currently-connected client. Returns the status with the new token /
-   *  connectUrl. No-op (returns disabled status) when the gateway is off. */
-  'mobileGateway.rotateToken': () => Promise<MobileGatewayStatus>;
 }
 
 /** Names of every command, derived. */

@@ -36,6 +36,5 @@ Full workflow: **`.claude/agents/channel-author.md`**. Repo-specific rules:
   table in channel-author.md; `plugin-telegram` and `plugin-channel-discord`
   are the reference adapters.
 
-Reference impls: `plugin-channel-http` (auth + allow-list),
-`plugin-channel-mobile` (WS bridge + QR pairing), `plugin-telegram` (TOFU
-pairing). Register in `builtins.ts`; gate + changeset.
+Reference impls: `plugin-channel-http` (auth + allow-list), `plugin-telegram`
+(TOFU pairing). Register in `builtins.ts`; gate + changeset.

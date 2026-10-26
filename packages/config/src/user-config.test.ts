@@ -185,7 +185,7 @@ describe('applyInitConfig', () => {
 
 describe('setProviderEnabled', () => {
   it('serializes two concurrent toggles so neither update is lost', async () => {
-    // Two rapid cross-client toggles (e.g. desktop + mobile hitting the same
+    // Two rapid cross-client toggles (e.g. desktop + TUI hitting the same
     // runner) each read-merge-write config.yaml on DIFFERENT providers. Without
     // the config writer's mutex the second read would see the pre-first-write
     // snapshot and clobber the first provider's flag (last-writer-wins). The

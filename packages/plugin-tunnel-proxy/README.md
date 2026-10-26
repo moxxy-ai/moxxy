@@ -32,7 +32,5 @@ coupling point with the private relay repo (see its `PROTOCOL.md`).
 ## Security
 
 End-to-end encryption against a malicious relay is **not** in this provider — it
-is a dumb byte pipe. For the mobile path, the phone and a local E2E shim run the
-`@moxxy/e2e` handshake *inside* the tunnel; this provider just carries the
-ciphertext. The browser-preview path has no in-tunnel E2E and relies on the
-relay's wildcard TLS (same posture as cloudflared/ngrok, but self-owned).
+is a dumb byte pipe. The browser-preview path has no in-tunnel E2E and relies on
+the relay's wildcard TLS (same posture as cloudflared/ngrok, but self-owned).

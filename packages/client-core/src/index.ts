@@ -1,7 +1,7 @@
 /**
  * Public surface of the transport-agnostic client layer. The desktop renderer
- * and the Expo app both consume this barrel; each injects its own transport
- * (`./transport`) and platform capabilities (`./platform`) at boot.
+ * consumes this barrel and injects its transport (`./transport`) and platform
+ * capabilities (`./platform`) at boot.
  */
 
 // Transport + platform injection seams.
@@ -55,7 +55,6 @@ export * from './useOnboarding.js';
 export * from './useContextUsage.js';
 export * from './useAppUpdate.js';
 export * from './useUpdateActivity.js';
-export * from './useMobileGateway.js';
 export * from './useVoiceRecorder.js';
 export * from './useReadAloud.js';
 export * from './useStreamingVoiceMode.js';

@@ -1,6 +1,6 @@
 /**
- * A swappable way to expose a locally-bound surface (the web channel, the mobile
- * bridge, the webhooks listener) to the user over the public internet — so an
+ * A swappable way to expose a locally-bound surface (the web channel, the
+ * webhooks listener) to the user over the public internet — so an
  * agent on Telegram/TUI can hand the user a URL they can open. One provider is
  * active per session (registered via plugins, like every other block); core
  * seeds a `localhost` no-op provider so `getActive()` is non-null.
@@ -23,7 +23,7 @@ export interface TunnelOpenOptions {
 }
 
 export interface TunnelHandle {
-  /** The publicly reachable base URL (e.g. https://abc123.proxy.moxxy.ai/mobile). */
+  /** The publicly reachable base URL (e.g. https://abc123.proxy.moxxy.ai/web). */
   readonly url: string;
   /** Tear the tunnel down (deregister the target / close the connection). */
   close(): Promise<void>;

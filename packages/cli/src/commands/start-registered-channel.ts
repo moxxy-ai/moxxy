@@ -96,8 +96,7 @@ export async function startRegisteredChannel(
  * always wins — we only fill in what is unset.
  *
  * A declared `sessionSource` is stamped whether or not the channel runs
- * dedicated: a NON-dedicated channel that self-hosts the runner (e.g. `mobile`)
- * still owns its session and wants the right origin recorded, so its empty
+ * dedicated: a NON-dedicated channel that self-hosts the runner still owns its session and wants the right origin recorded, so its empty
  * pre-first-prompt session isn't dropped by the runner's tui/desktop heuristic.
  */
 export function applyDedicatedRunnerEnv(

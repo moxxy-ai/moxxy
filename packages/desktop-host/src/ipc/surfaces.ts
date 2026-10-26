@@ -5,8 +5,7 @@
  * alongside the agent's tools. These handlers just relay the renderer's
  * `surface.*` calls to the workspace's {@link RemoteSession}; the runner streams
  * each frame back as a `surface.data` notification, which {@link SessionDriver}
- * forwards to the renderer as the `surface.data` IPC event. Nothing here is on
- * the mobile WS allow-list — a shell/browser over a tunnel is out of scope.
+ * forwards to the renderer as the `surface.data` IPC event.
  */
 
 import type { RunnerPool } from '../runner-pool';

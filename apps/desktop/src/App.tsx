@@ -37,7 +37,6 @@ import { AutomationsIndex } from './automations/AutomationsIndex';
 import { ChannelsIndex, ChannelsSurface } from './channels/ChannelsSurface';
 import { SettingsIndex } from './settings/SettingsPanel';
 import { AppsPanel } from './apps/AppsPanel';
-import { MobilePanel } from './mobile/MobilePanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { UpdateFlow } from './update/UpdateFlow';
 import { runnerState } from './update/update-screen-model';
@@ -447,14 +446,6 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
           main process), so it is never runner-locked. It owns its pane: a
           channel's chat is a full chat surface, its setup a field page. */}
       {view === 'channels' && <ChannelsSurface selected={channelId} />}
-      {/* Mobile pairing is a property of the INSTALL, not another chat surface to
-          configure, so it has its own place rather than a row in the channel
-          catalog. Like Channels it never depends on the runner session. */}
-      {view === 'mobile' && (
-        <main className="field">
-          <MobilePanel />
-        </main>
-      )}
       {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
       {paletteOpen && (
         <ShellPalette workspaceId={activeWorkspaceId} onClose={() => setPaletteOpen(false)} />

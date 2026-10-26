@@ -2,8 +2,7 @@
  * Live workspace sync. The per-session metadata files (`~/.moxxy/sessions/
  * <id>.json`) are the single source of truth; a runner PROCESS updates its own
  * file as a conversation progresses (first prompt → title, etc.). This watcher
- * pushes a debounced `desks.changed` to every surface (desktop windows + mobile
- * over the WS bridge) whenever a change actually affects the sidebar — so a
+ * pushes a debounced `desks.changed` to every desktop window whenever a change actually affects the sidebar — so a
  * title/first-prompt/new-session/deletion shows live, not just on the next CRUD.
  *
  * Best-effort: if the directory can't be watched the app simply falls back to

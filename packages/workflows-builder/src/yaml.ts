@@ -2,8 +2,8 @@
  * A tiny, dependency-free YAML codec scoped to the workflow artifact shape.
  *
  * Why hand-rolled instead of the `yaml` package: this model must bundle clean
- * under React Native (Hermes), and `yaml` reaches for `node:process` in its log
- * path, which Metro would have to shim. The workflow document is a bounded,
+ * in the renderer, and `yaml` reaches for `node:process` in its log path, which
+ * the bundler would have to shim. The workflow document is a bounded,
  * well-known shape (a map with scalars, string lists, nested string-keyed maps,
  * and `|`-style block scalars for prompts), so a focused emitter/parser is both
  * safe and small. Authoritative validation still happens server-side via
@@ -133,7 +133,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  * feeds this codec a possibly hand-authored / invalid draft, so a pathological
  * document (a few thousand nested maps/sequences, or a huge file) must surface a
  * catchable Error the UI can show as a validation banner — never an uncatchable
- * RangeError that crashes the renderer / mobile JS thread.
+ * RangeError that crashes the renderer.
  */
 const MAX_INPUT_BYTES = 2_000_000;
 const MAX_LINES = 100_000;

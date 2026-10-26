@@ -75,9 +75,9 @@ describe('useShellNavigation', () => {
       useShellNavigation({ sessionLoading: false, onShowShortcuts: noop, onOpenPalette: noop, onSection }),
     );
 
-    act(() => result.current.open({ destination: 'mobile' }));
+    act(() => result.current.open({ destination: 'channels' }));
 
     expect(onSection).not.toHaveBeenCalled();
-    expect(result.current.view).toBe('mobile');
+    expect(result.current.view).toBe('channels');
   });
 });

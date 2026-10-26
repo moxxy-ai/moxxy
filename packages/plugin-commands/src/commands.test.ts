@@ -42,9 +42,9 @@ describe('@moxxy/plugin-commands', () => {
   });
 
   // Worst-case: a registry getter throws (plugin host mid-reload, a
-  // partially-constructed RemoteSession over the WS bridge). The handler must
-  // still return a {kind:'text'} block — never throw — so an un-try/catch'd
-  // channel (e.g. the mobile host's runCommand dispatcher) can't crash.
+  // partially-constructed RemoteSession). The handler must still return a
+  // {kind:'text'} block — never throw — so an un-try/catch'd channel can't
+  // crash.
   it('/info degrades to "?" instead of throwing when a registry getter throws', async () => {
     const boom = () => {
       throw new Error('registry mid-reload');

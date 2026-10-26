@@ -41,7 +41,7 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** Every palette that ships: the shared pair (mobile) and the desktop pair. */
+/** Every palette that ships: the shared pair and the desktop pair. */
 const THEMES: ReadonlyArray<readonly [string, ThemeTokens]> = [
   ['light', tokens],
   ['dark', darkTokens],

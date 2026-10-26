@@ -43,7 +43,6 @@ const DESTINATION_FINDS: Readonly<Record<DestinationId, { readonly label?: strin
   automations: { keywords: ['automation', 'automate'] },
   apps: { keywords: ['gallery'] },
   channels: { keywords: ['bots', 'messengers'] },
-  mobile: { keywords: ['phone', 'pairing', 'qr code', 'ios', 'android', 'gateway'] },
   // A call on the run, not a view: its row says what picking it does.
   voice: { label: 'Start a voice call', keywords: ['talk', 'speak'] },
   settings: { keywords: ['options', 'configuration', 'config'] },

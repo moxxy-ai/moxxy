@@ -265,21 +265,13 @@ network:
 | `MOXXY_HTTP_TOKEN` | Sets the bearer token for the HTTP channel. |
 | `MOXXY_WEB_TOKEN` | Sets the authentication token for the web surface. |
 | `MOXXY_NO_WEB_SURFACE=1` | Prevents `moxxy serve` from starting the web surface. |
-| `MOXXY_MOBILE_TOKEN` | Sets the bearer token for the mobile WebSocket bridge. |
-| `MOXXY_MOBILE_HOST` | Sets the mobile channel bind host. The default is `127.0.0.1`; `0.0.0.0` exposes it to the LAN. |
-| `MOXXY_MOBILE_TUNNEL` | Selects `localhost` (no tunnel) or `proxy` (the self-hosted encrypted relay) for the mobile channel tunnel. |
 | `MOXXY_VOICE_AUDIO_DEVICE` | Selects the audio capture device for TUI voice input. |
 | `MOXXY_MCP_STDERR=inherit` | Surfaces MCP server stderr. It is ignored by default. |
 
-### Desktop and bridge
+### Desktop
 
 | Variable | Effect |
 |---|---|
-| `MOXXY_WS_BRIDGE=1` | Enables the desktop WebSocket IPC bridge for remote clients. |
-| `MOXXY_WS_PORT` | Overrides the desktop bridge port. |
-| `MOXXY_WS_HOST` | Overrides the desktop bridge bind host. |
-| `MOXXY_WS_TOKEN` | Sets the desktop bridge authentication token. A token is generated when omitted. |
-| `MOXXY_WS_ALLOW_QUERY_TOKEN=1` | Accepts the legacy `?t=` query token. Native clients use a protocol bearer and this option is off by default. |
 | `MOXXY_CLI_ENTRY` | Sets the CLI entry that the desktop app uses to spawn runners. |
 | `MOXXY_CHATS_DIR` | Overrides the desktop NDJSON chat-log directory. The default is `~/.moxxy/chats`. |
 | `MOXXY_UPDATE_URL` | Overrides the desktop self-update manifest URL. |

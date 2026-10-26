@@ -4,7 +4,6 @@ import type { AskRequest } from './ask.js';
 import type { ConnectionPhase } from './connection.js';
 import type { AppSetupState, AppUpdatePlan, AppUpdateProgress } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
-import type { MobileGatewayStatus } from './mobile.js';
 import type { AppInstallProgress } from './apps.js';
 import type { DesksOverview } from './desks.js';
 import type { ChannelRuntimeStatus } from './channels.js';
@@ -57,10 +56,6 @@ export interface IpcEvents {
    *  routes it by `host`/`path`. Links that arrive before the renderer is
    *  listening are buffered and pulled via `deepLink:drain` on mount. */
   'deepLink:received': DeepLinkPayload;
-  /** The mobile gateway's status changed (enabled/disabled, token rotated, a
-   *  client connected/left) — the Settings → Mobile tab re-renders the QR +
-   *  client count from this without polling. */
-  'mobileGateway.changed': MobileGatewayStatus;
   /** The runner's registry snapshot changed (provider/mode/MCP/workflow
    *  mutations — including ones made by TOOLS inside a turn, e.g.
    *  provider_add). The renderer re-emits {@link SESSION_INFO_REFRESH_EVENT}

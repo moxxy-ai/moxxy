@@ -60,14 +60,14 @@ describe('applyDedicatedRunnerEnv', () => {
     expect(process.env.MOXXY_SESSION_SOURCE).toBeUndefined();
   });
 
-  it('stamps a declared sessionSource even when not dedicated (mobile)', () => {
-    const dedicated = applyDedicatedRunnerEnv('mobile', argv(), { sessionSource: 'mobile' });
+  it('stamps a declared sessionSource even when not dedicated', () => {
+    const dedicated = applyDedicatedRunnerEnv('web', argv(), { sessionSource: 'desktop' });
     // Non-dedicated: no runner socket / sticky session id are minted...
     expect(dedicated).toBe(false);
     expect(process.env.MOXXY_RUNNER_SOCKET).toBeUndefined();
     expect(process.env.MOXXY_SESSION_ID).toBeUndefined();
     // ...but the declared source is stamped so the runner records the right origin.
-    expect(process.env.MOXXY_SESSION_SOURCE).toBe('mobile');
+    expect(process.env.MOXXY_SESSION_SOURCE).toBe('desktop');
   });
 
   it('opts in via the --dedicated flag even when not declared', () => {

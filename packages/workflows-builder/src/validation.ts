@@ -4,8 +4,7 @@
  * `string[]` issues into a per-node bucket the inspector highlights.
  *
  * The transport is injected (not imported) so this module stays DOM-free and
- * platform-neutral: the desktop passes `window.moxxy.invoke`, the mobile app
- * passes its frame-bridge `invokeFrame`-wrapped invoker. Each issue line the
+ * platform-neutral: the desktop passes `window.moxxy.invoke`. Each issue line the
  * host returns is scanned for a `step "<id>"` mention; matches bucket under
  * that node id, everything else falls into {@link WORKFLOW_ERROR_KEY}.
  */

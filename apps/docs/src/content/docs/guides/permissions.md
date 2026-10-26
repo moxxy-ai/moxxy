@@ -41,8 +41,7 @@ The TUI's resolver wraps the file policy with an interactive prompt:
 file-allowed → silent allow; file-denied → silent deny; otherwise →
 "allow once / allow always / deny once / deny always" picker.
 
-The desktop app asks with a sheet (also shown in the focus window and on
-the phone): **Allow once** runs this one call and asks again next time;
+The desktop app asks with a sheet (also shown in the focus window): **Allow once** runs this one call and asks again next time;
 **Allow for session** lets the tool run without asking for the rest of the
 conversation (a new conversation, `/new`, forgets it); **Always allow**
 persists a rule, as below; **Deny** refuses this call only.
@@ -52,7 +51,7 @@ answer with `sessionScope` on its permission rule: the grant then covers
 only later calls with the same values under those input keys.
 `computer_request_access` does this, so allowing one access request for the
 session never lets a request for another app, or for full control, through
-unasked. The desktop, mobile, Telegram and Discord all keep to it.
+unasked. The desktop, Telegram and Discord all keep to it.
 
 ```ts
 permission: {
@@ -63,7 +62,7 @@ permission: {
 
 ## Allow-always
 
-Choosing "Always allow" in the desktop or mobile app saves a rule to the
+Choosing "Always allow" in the desktop app saves a rule to the
 policy file (`~/.moxxy/permissions.json`), so later calls of the tool, also
 in later conversations, run without asking. For a tool that narrows its
 grant with `sessionScope`, the rule names the exact request

@@ -5,7 +5,6 @@
 '@moxxy/cli': patch
 '@moxxy/desktop-host': patch
 '@moxxy/desktop': patch
-'@moxxy/plugin-channel-mobile': patch
 '@moxxy/plugin-telegram': patch
 '@moxxy/plugin-channel-discord': patch
 ---

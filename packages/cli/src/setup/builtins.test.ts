@@ -48,6 +48,8 @@ describe('builtin plugin requirement inventory', () => {
     // Collaborative mode was removed: neither its mode nor its hub ships.
     expect(built.entries.map((entry) => entry.name)).not.toContain('@moxxy/mode-collaborative');
     expect(built.entries.map((entry) => entry.name)).not.toContain('@moxxy/plugin-collab');
+    // The mobile app was removed, and with it the channel that paired a phone.
+    expect(built.entries.map((entry) => entry.name)).not.toContain('@moxxy/plugin-channel-mobile');
     // memory(+consolidate, merged into one plugin) is no longer a builtin
     // entry — the slim wave's last unbundle.
     // stt-whisper-codex is no longer a builtin entry (slim wave) — its
