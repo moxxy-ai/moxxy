@@ -39,11 +39,12 @@ afterEach(async () => {
   host = undefined;
 });
 
+// Closing a real Chromium outlasts the default 10 s on a loaded Windows runner, as in the other Chromium suites.
 afterAll(async () => {
   await closeChromium();
   server.closeAllConnections();
   await new Promise<void>((done) => server.close(() => done()));
-});
+}, 30_000);
 
 async function page() {
   tab = await openChromiumTab();
