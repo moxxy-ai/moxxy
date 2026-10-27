@@ -217,3 +217,37 @@ describe("OpenCode's subagents", () => {
   });
 });
 
+
+// OpenCode 2 names the tool `subagent` and answers a background start in prose (2.1.4, recorded).
+describe("OpenCode 2's subagents", () => {
+  const input = { agent: 'general', description: 'Run delayed shell command', prompt: 'Run sleep 8, then reply DONE.', background: true };
+  const launched = (t: AcpTurnTranslator) => {
+    t.update({ sessionUpdate: 'tool_call', toolCallId: 'call_1', title: 'subagent', kind: 'think', status: 'pending', rawInput: {} });
+    return t.update({ sessionUpdate: 'tool_call_update', toolCallId: 'call_1', status: 'in_progress', kind: 'think', title: 'subagent', rawInput: input });
+  };
+
+  it('show a subagent call as a subagent of the agent it names', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+
+    expect(launched(t)).toEqual([
+      { type: 'subagent_started', id: 'call_1', label: 'Run delayed shell command', agentType: 'general', prompt: 'Run sleep 8, then reply DONE.', toolsUnseen: true },
+    ]);
+  });
+
+  // OpenCode 2's `acp` reports neither what it does next nor its end, and cannot stop it: nothing would ever close it.
+  it('close a subagent OpenCode 2 started in the background, saying it works on there', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    launched(t);
+    const output = 'The subagent is working in the background (sessionID: ses_child). You will be notified automatically when it finishes.';
+
+    expect(
+      t.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call_1',
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: output } }],
+        rawOutput: { metadata: { sessionID: 'ses_child', status: 'running', truncated: false } },
+      }),
+    ).toEqual([{ type: 'subagent_completed', id: 'call_1', text: 'Started in the background. OpenCode 2 does not report what it does there or when it ends.' }]);
+  });
+});

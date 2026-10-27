@@ -34,7 +34,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const dist = (pkg, file = 'index.js') => pathToFileURL(path.join(repoRoot, 'packages', pkg, 'dist', file)).href;
 const cliBin = path.join(repoRoot, 'packages', 'cli', 'dist', 'bin.js');
 const { connectRemoteSession, isRunnerUp, platformSocket } = await import(dist('runner'));
-const { AGENT_CLIS, agentCliTargetAt, findAgentCli, readCliVersion } = await import(dist('agent-connection-kit'));
+const { AGENT_CLIS, agentCliTargetAt, compareVersions, findAgentCli, readCliVersion } = await import(dist('agent-connection-kit'));
 const claude = await import(dist('plugin-provider-claude-code'));
 const codex = await import(dist('plugin-provider-codex-agent'));
 const opencode = await import(dist('plugin-provider-acp'));
@@ -42,6 +42,7 @@ const opencode = await import(dist('plugin-provider-acp'));
 const TURN_LIMIT_MS = 5 * 60_000;
 const STOP_LIMIT_MS = 30_000;
 const OWN_RULES_ALLOW_CHANGES = "OpenCode's own rules let it change files in the project without asking";
+const OPENCODE_2_BACKGROUND_UNSEEN = "OpenCode 2's acp neither reports its background subagents nor can stop them";
 
 const AGENTS = {
   claude: {
@@ -70,10 +71,12 @@ const AGENTS = {
     model: process.env.MOXXY_LIVE_OPENCODE_MODEL?.trim() || opencode.OPENCODE_DEFAULT_MODEL,
     signIn: async () => opencode.checkOpenCode(),
     asksBeforeChange: false,
-    // OpenCode runs no command in the background; its background work is a subagent (`task` with `background: true`).
+    // OpenCode runs no command in the background; its background work is a subagent (`task` in OpenCode 1, `subagent` in 2, with `background: true`).
     backgroundKind: 'agent',
+    // OpenCode 1 serves the HTTP API that reports and stops them beside `acp`; OpenCode 2 does not.
+    backgroundUnseen: (version) => (version !== null && compareVersions(version, '2.0.0-0') >= 0 ? OPENCODE_2_BACKGROUND_UNSEEN : undefined),
     background: (command) =>
-      `Use your task tool with background set to true to start one general subagent. Its task: run this exact shell command with bash and wait for it to finish: ${command}. Then reply with DONE. Do not wait for the subagent and do not check on it. Reply with exactly BG STARTED.`,
+      `Use your subagent tool (named task or subagent) with background set to true to start one general subagent. Its task: run this exact shell command with bash and wait for it to finish: ${command}. Then reply with DONE. Do not wait for the subagent and do not check on it. Reply with exactly BG STARTED.`,
   },
 };
 
@@ -233,7 +236,8 @@ async function checkAgent(agent) {
   // Found and started as the connection does: on Windows an npm shim is no program of its own.
   const desc = AGENT_CLIS[spec.provider];
   const file = findAgentCli(desc);
-  versions[agent] = `${(file ? await readCliVersion(agentCliTargetAt(desc, file)) : null) ?? 'not installed'} · ${spec.model}`;
+  const version = file ? await readCliVersion(agentCliTargetAt(desc, file)) : null;
+  versions[agent] = `${version ?? 'not installed'} · ${spec.model}`;
   if (status.state !== 'signed-in') {
     record(agent, 'signed in', 'skip', `${short(status.message, 200)} — every check of ${agent} did not run`);
     return;
@@ -328,7 +332,10 @@ async function checkAgent(agent) {
       return `recalled ${word} after moxxy serve restarted`;
     });
 
-    if (spec.background) {
+    const backgroundUnseen = spec.backgroundUnseen?.(version);
+    if (backgroundUnseen) {
+      record(agent, 'background work', 'na', backgroundUnseen);
+    } else if (spec.background) {
       await step(agent, 'background work', async () => {
         const marker = `moxxy-live-bg-${process.pid}-${agent}`;
         const command = `node -e "setTimeout(()=>{},300000)" ${marker}`;
