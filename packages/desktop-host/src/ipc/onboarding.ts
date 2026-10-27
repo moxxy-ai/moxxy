@@ -16,7 +16,7 @@ import { installMoxxyCli, probeNode } from '../installer';
 import { installManagedNode } from '../node-manager';
 import { bundledRuntimesReady } from '../seed-runtimes';
 import { assertSafeExternalUrl } from '../security';
-import { handle } from './shared';
+import { getInProcessPlugins, handle } from './shared';
 
 export function registerOnboardingHandlers(pool: RunnerPool): void {
   // ---- Onboarding ----------------------------------------------------------
@@ -48,7 +48,7 @@ export function registerOnboardingHandlers(pool: RunnerPool): void {
     await shell.openExternal(url);
   });
   handle('onboarding.saveProviderKey', async ({ provider, secret }) => {
-    await saveProviderKey(provider, secret);
+    await saveProviderKey(provider, secret, getInProcessPlugins().vault);
     // Best-effort early activation for a BUNDLED (OAuth) provider — an unbundled
     // API-key provider isn't registered yet (it's installed by
     // provisionProvider below), so tolerate its "not registered" rejection

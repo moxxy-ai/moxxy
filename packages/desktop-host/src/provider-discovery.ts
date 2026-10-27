@@ -8,11 +8,9 @@
  * own `/v1/models` endpoint with the auth header from the user's
  * vault.
  *
- * The vault is encrypted; we don't have its KDF here, so we shell out
- * to `moxxy vault get <ENV>` and capture stdout. The CLI is the only
- * thing that knows how to decrypt; this keeps the desktop honest
- * about the vault boundary (never reads plaintext from disk
- * directly).
+ * The key is read through the vault the caller passes (the desktop's
+ * in-process vault, shared with the runner), which owns the decryption; the
+ * desktop never reads plaintext from disk directly.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -20,9 +18,9 @@ import { parse as parseYaml } from 'yaml';
 import path from 'node:path';
 import type { ModelDescriptor, SessionInfo } from '@moxxy/sdk';
 import { moxxyHome } from '@moxxy/sdk/server';
+import type { VaultStore } from '@moxxy/plugin-vault';
 import { discoverLocalModelDescriptors } from '@moxxy/plugin-provider-local';
 import { openAICompatModelsURL } from '@moxxy/plugin-provider-openai';
-import { resolveMoxxyCli, augmentedPaths, spawnCli } from './cli-resolver';
 
 /** Bound the live `/v1/models` request so a hung provider can't wedge the
  *  IPC handler (and the Settings model picker) indefinitely. */
@@ -195,38 +193,6 @@ export function builtinProviderKeyName(providerName: string): string {
 }
 
 /**
- * Spawn `moxxy vault get <key>` and resolve to stdout (trimmed). The
- * CLI prints the decrypted value to stdout and any UX scaffolding to
- * stderr; we drop stderr. Throws on non-zero exit.
- */
-function vaultGet(key: string): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const cli = resolveMoxxyCli({ extraPaths: augmentedPaths() });
-    if (!cli) {
-      reject(new Error('moxxy CLI not on PATH'));
-      return;
-    }
-    const child = spawnCli(cli, ['vault', 'get', key]);
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (b) => {
-      stdout += b.toString();
-    });
-    child.stderr?.on('data', (b) => {
-      stderr += b.toString();
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve(stdout.trim());
-      } else {
-        reject(new Error(`moxxy vault get ${key} exited ${code}: ${stderr.trim()}`));
-      }
-    });
-  });
-}
-
-/**
  * Resolve the env-var name a stored OpenAI-compat provider uses for
  * its auth token. The provider-admin convention is `<NAME>_API_KEY`
  * unless the user overrode `envVar` when adding it.
@@ -246,7 +212,11 @@ function envVarFor(provider: StoredProvider): string {
  */
 export async function fetchProviderModels(
   providerName: string,
-  options: { readonly signal?: AbortSignal } = {},
+  options: {
+    readonly signal?: AbortSignal;
+    /** Where a stored vendor's key is read; only a stored vendor needs one. */
+    readonly vault?: Pick<VaultStore, 'get'>;
+  } = {},
 ): Promise<ReadonlyArray<string>> {
   if (providerName === 'local') {
     const { config } = await readProviderItem(providerName);
@@ -271,7 +241,10 @@ export async function fetchProviderModels(
   // Validate the endpoint BEFORE decrypting/attaching the key so a poisoned
   // baseURL can't even trigger the vault read.
   assertSafeProviderBase(base);
-  const apiKey = await vaultGet(envVarFor(entry));
+  const keyName = envVarFor(entry);
+  if (!options.vault) throw new Error(`no vault to read ${keyName} from`);
+  const apiKey = await options.vault.get(keyName);
+  if (!apiKey) throw new Error(`${keyName} is not in the vault`);
   const url = openAICompatModelsURL(base);
   const res = await fetch(url, {
     headers: {

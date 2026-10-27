@@ -27,6 +27,7 @@ import type { WebhookSummary, WebhookDeleteResult } from './webhooks.js';
 import type { ChannelEntry, ChannelRunMode, ChannelRuntimeStatus } from './channels.js';
 import type {
   ProviderEntry,
+  ProviderCatalogEntry,
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
@@ -846,10 +847,11 @@ export interface IpcCommands {
    *  it advertises. Useful for admin-registered providers whose
    *  stored provider entry didn't enumerate models upfront. */
   'settings.fetchProviderModels': (args: { provider: string }) => Promise<ReadonlyArray<string>>;
-  /** Lists every provider name the user could realistically pick from
-   *  during onboarding — built-ins (anthropic, openai, openai-codex)
-   *  plus the stored vendors in the unified config (plugins.provider.items). */
-  'settings.providerCatalog': () => Promise<ReadonlyArray<string>>;
+  /** Lists every provider the user could realistically pick from during
+   *  onboarding — built-ins (anthropic, openai, openai-codex, the coding
+   *  agents) plus the stored vendors in the unified config
+   *  (plugins.provider.items) — each tagged agent or api. */
+  'settings.providerCatalog': () => Promise<ReadonlyArray<ProviderCatalogEntry>>;
   /** Subset of providers that the user added via `provider_add` — the
    *  ones for which live /v1/models fetching is wired. */
   'settings.adminProviders': () => Promise<ReadonlyArray<string>>;

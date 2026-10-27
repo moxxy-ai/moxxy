@@ -16,7 +16,7 @@ import type { BrowserWindow, Session } from 'electron';
 /**
  * Provider names are interpolated into vault key names
  * (`<PROVIDER>_API_KEY`) and passed as argv tokens to
- * `moxxy login <provider>` / `moxxy vault set`. Confine them to a strict
+ * `moxxy login <provider>`. Confine them to a strict
  * slug so a compromised renderer cannot inject a CLI flag (`--foo`),
  * traverse the vault namespace (`../`), or smuggle a path separator.
  */

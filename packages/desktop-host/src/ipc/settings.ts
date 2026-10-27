@@ -9,15 +9,17 @@
  * (`./vault`, `./prefs`).
  */
 
+import { AGENT_CLIS } from '@moxxy/agent-connection-kit';
+
 import type { RunnerPool } from '../runner-pool';
-import { handle, mustRemote, mustSession, resolveSupervisor } from './shared';
+import { getInProcessPlugins, handle, mustRemote, mustSession, resolveSupervisor } from './shared';
 
 export function registerSettingsHandlers(pool: RunnerPool): void {
   // ---- Settings -----------------------------------------------------------
 
   handle('settings.fetchProviderModels', async ({ provider }) => {
     const { fetchProviderModels } = await import('../provider-discovery');
-    return await fetchProviderModels(provider);
+    return await fetchProviderModels(provider, { vault: getInProcessPlugins().vault });
   });
   handle('settings.adminProviders', async () => {
     const { readAdminProviderNames } = await import('../provider-discovery');
@@ -32,11 +34,15 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
     const { readAdminProviderNames } = await import('../provider-discovery');
     const admin = await readAdminProviderNames();
     const seen = new Set<string>();
-    return [...builtins, ...admin].filter((name) => {
-      if (seen.has(name)) return false;
-      seen.add(name);
-      return true;
-    });
+    return [...builtins, ...admin]
+      .filter((name) => {
+        if (seen.has(name)) return false;
+        seen.add(name);
+        return true;
+      })
+      // A coding agent (its CLI works the turn) is told apart from a model API
+      // Moxxy calls itself, so the picker can group them.
+      .map((name) => ({ name, kind: Object.hasOwn(AGENT_CLIS, name) ? ('agent' as const) : ('api' as const) }));
   });
   handle('settings.providers', async (args) => {
     const sup = resolveSupervisor(pool, args?.workspaceId);

@@ -24,6 +24,15 @@ export interface StoredModelDefaults {
   fast: boolean;
 }
 
+/** One provider the user can connect during onboarding, with what does the work:
+ *  `agent` = a coding agent installed on this computer works the turn on its own
+ *  sign-in (Claude Code, Codex, OpenCode, driven through their SDK); `api` = Moxxy
+ *  calls the model's API itself, with an API key or a sign-in. */
+export interface ProviderCatalogEntry {
+  name: string;
+  kind: 'agent' | 'api';
+}
+
 export interface ProviderEntry {
   name: string;
   /** True when the runner has activated this provider (credentials

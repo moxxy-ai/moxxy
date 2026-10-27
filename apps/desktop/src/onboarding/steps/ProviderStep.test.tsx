@@ -1,9 +1,10 @@
 /**
  * The provider step offers an agent connection's CLI install where the person
- * picks the agent, before signing in, with the same row Settings shows.
+ * picks the agent, before signing in, with the same row Settings shows, and
+ * groups the picker so a coding agent (SDK) reads apart from a model API.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import type { ProviderEntry } from '@moxxy/desktop-ipc-contract';
 import { ProviderStep } from './ProviderStep';
@@ -30,7 +31,12 @@ describe('ProviderStep', () => {
     __setApiOverride({
       invoke: async (cmd: string, args: unknown) => {
         calls.push([cmd, args]);
-        if (cmd === 'settings.providerCatalog') return ['anthropic', 'codex-agent'];
+        if (cmd === 'settings.providerCatalog') {
+          return [
+            { name: 'anthropic', kind: 'api' },
+            { name: 'codex-agent', kind: 'agent' },
+          ];
+        }
         if (cmd === 'settings.providers') return [codex];
         if (cmd === 'onboarding.providerAuthKind') return 'oauth';
         if (cmd === 'agents.run') return { ok: true, message: 'Installed' };
@@ -48,5 +54,31 @@ describe('ProviderStep', () => {
     expect(row).toHaveTextContent('Not installed');
     fireEvent.click(screen.getByRole('button', { name: 'Install Codex' }));
     await waitFor(() => expect(calls).toContainEqual(['agents.run', { provider: 'codex-agent', action: 'install' }]));
+  });
+
+  it('groups the picker into coding agents and model APIs', async () => {
+    __setApiOverride({
+      invoke: async (cmd: string) => {
+        if (cmd === 'settings.providerCatalog') {
+          return [
+            { name: 'anthropic', kind: 'api' },
+            { name: 'openai-codex', kind: 'api' },
+            { name: 'claude-code', kind: 'agent' },
+            { name: 'opencode', kind: 'agent' },
+          ];
+        }
+        if (cmd === 'onboarding.providerAuthKind') return 'api-key';
+        return [];
+      },
+      subscribe: () => () => undefined,
+    } as never);
+    render(<ProviderStep onNext={() => undefined} onBack={() => undefined} />);
+
+    const agents = await screen.findByRole('group', { name: 'Coding agents · SDK' });
+    const apis = screen.getByRole('group', { name: 'Model APIs' });
+    const names = (group: HTMLElement): string[] =>
+      within(group).getAllByRole('option').map((option) => option.textContent ?? '');
+    expect(names(agents)).toEqual(['claude-code', 'opencode']);
+    expect(names(apis)).toEqual(['anthropic', 'openai-codex · OAuth']);
   });
 });

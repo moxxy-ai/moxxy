@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import os from 'node:os';
 import type { SessionInfo } from '@moxxy/sdk';
+import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 
 // Both readStoredProviders and the vault shell-out resolve under homedir().
 // Point homedir() at a throwaway dir so the parse paths read our fixtures.
@@ -262,6 +263,28 @@ describe('fetchProviderModels', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     await expect(fetchProviderModels('anthropic')).resolves.toEqual([]);
     expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("lists a stored vendor's models with its key read from the vault", async () => {
+    writeProvidersFile({
+      providers: [
+        { kind: 'openai-compat', name: 'zai', baseURL: 'https://api.z.ai/v4', defaultModel: 'glm-4', models: [] },
+      ],
+    });
+    const vault = new VaultStore({
+      filePath: path.join(tmp, 'vault.json'),
+      keySource: createStaticKeySource(deriveKey('test', generateSalt())),
+    });
+    await vault.set('ZAI_API_KEY', 'zai-secret');
+    // The vendor's HTTPS API is the external boundary; answer it here.
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ data: [{ id: 'glm-4-air' }, { id: 'glm-4' }] })));
+
+    await expect(fetchProviderModels('zai', { vault })).resolves.toEqual(['glm-4', 'glm-4-air']);
+    const headers = fetchSpy.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer zai-secret');
     fetchSpy.mockRestore();
   });
 

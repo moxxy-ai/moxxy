@@ -1,7 +1,8 @@
 /**
  * The first-workspace step — pick a folder, name the workspace, and
  * create + activate it. Surfaces any existing workspaces and lets the
- * user skip. First-run only.
+ * user skip: the app already runs in a workspace (the built-in Moxxy one,
+ * in ~/Moxxy, on a first run), so skipping keeps working there. First-run only.
  */
 
 import { useState } from 'react';
@@ -42,16 +43,23 @@ export function WorkspaceStep({
   };
 
   const hasAny = desks.desks.length > 0;
+  const current = desks.desks.find((desk) => desk.id === desks.activeId) ?? null;
 
   return (
     <StepCard
       title="Pick a workspace"
       sub="A workspace is a folder I'll operate in. You can add more later."
     >
-      {hasAny && (
+      {current ? (
         <SuccessRow
-          text={`You already have ${desks.desks.length} workspace${desks.desks.length === 1 ? '' : 's'}.`}
+          text={`Skip, and I’ll work in “${current.name}” at ${current.cwd}. You can pick another folder later.`}
         />
+      ) : (
+        hasAny && (
+          <SuccessRow
+            text={`You already have ${desks.desks.length} workspace${desks.desks.length === 1 ? '' : 's'}.`}
+          />
+        )
       )}
       <Fields>
         <button type="button" onClick={() => void onPickFolder()} style={pickerBtnStyle}>

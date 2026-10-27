@@ -6,6 +6,7 @@
  */
 
 export { RunnerPool, UNBOUND_ID } from './runner-pool.js';
+export { initialRunnerTarget } from './initial-runner.js';
 export { bindWindow, registerIpcHandlers } from './ipc.js';
 export { autostartConfiguredChannels } from './ipc/channels.js';
 export { sendEvent } from './send-event.js';

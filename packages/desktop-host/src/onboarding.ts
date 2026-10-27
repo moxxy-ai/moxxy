@@ -1,9 +1,9 @@
 /**
  * Onboarding probes — purely informational, the renderer uses them
  * to decide whether to render an install / init wizard before the
- * chat surface. The actual save path (`saveProviderKey`) hands the
- * secret off to the CLI's own `vault set` so encryption stays the
- * CLI's responsibility.
+ * chat surface. The actual save path (`saveProviderKey`) writes the
+ * secret into the vault the runner reads (the same store Settings → Vault
+ * writes), so encryption stays the vault's responsibility.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -12,6 +12,7 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { moxxyHome } from '@moxxy/sdk/server';
 import type { OnboardingStatus } from '@moxxy/desktop-ipc-contract';
+import type { VaultStore } from '@moxxy/plugin-vault';
 import { augmentedPaths, resolveMoxxyCli, spawnCli, type CliInvocation } from './cli-resolver';
 import { builtinProviderKeyName } from './provider-discovery';
 import { assertSafeProviderName } from './security';
@@ -74,16 +75,18 @@ export async function readVaultKeys(home: string): Promise<string[]> {
 }
 
 /**
- * Pipe the secret into `moxxy vault set <NAME>_API_KEY`. We never
- * persist or log the value ourselves; the CLI owns its own KDF and
- * keychain integration.
+ * Store the secret in the vault as `<NAME>_API_KEY`. We never persist or log
+ * the value ourselves; the vault owns its encryption and keychain integration.
+ * (This used to pipe it into `moxxy vault set`, a command the CLI does not
+ * have.)
  */
-export async function saveProviderKey(provider: string, secret: string): Promise<void> {
+export async function saveProviderKey(
+  provider: string,
+  secret: string,
+  vault: Pick<VaultStore, 'set'>,
+): Promise<void> {
   assertSafeProviderName(provider);
-  const cli = resolveMoxxyCli({ extraPaths: augmentedPaths() });
-  if (!cli) throw new Error('moxxy CLI not found');
-  const key = builtinProviderKeyName(provider);
-  await runCli(cli, ['vault', 'set', key], secret);
+  await vault.set(builtinProviderKeyName(provider), secret);
 }
 
 /**
@@ -105,9 +108,9 @@ export async function provisionProvider(provider: string, model?: string): Promi
   await runCli(cli, args);
 }
 
-function runCli(cli: CliInvocation, args: string[], stdin?: string): Promise<void> {
+function runCli(cli: CliInvocation, args: string[]): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    // 'pipe' stdin so we can feed the secret to `vault set`.
+    // No input to give: close stdin at once so a prompt can never hang it.
     const child = spawnCli(cli, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     let stderr = '';
     child.stderr?.on('data', (b: Buffer) => {
@@ -118,13 +121,7 @@ function runCli(cli: CliInvocation, args: string[], stdin?: string): Promise<voi
       if (code === 0) resolve();
       else reject(new Error(`${args.join(' ')} exited ${code ?? 'null'}: ${stderr.trim()}`));
     });
-    if (stdin !== undefined) {
-      child.stdin?.write(stdin);
-      child.stdin?.write('\n');
-      child.stdin?.end();
-    } else {
-      child.stdin?.end();
-    }
+    child.stdin?.end();
   });
 }
 
