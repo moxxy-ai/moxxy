@@ -19,7 +19,13 @@ async function withOfflineHome(
   process.env.MOXXY_HOME = home;
   process.env.PATH = home + path.delimiter + (process.env.PATH ?? '');
   try {
-    writeFakeCli(path.join(home, 'npm'), `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'offline'); process.stderr.write('offline'); process.exit(1);`);
+    // On Windows Moxxy runs npm's own script beside the npm.cmd shim, as a
+    // global Node install lays it out.
+    writeFakeCli(
+      path.join(home, 'npm'),
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'offline'); process.stderr.write('offline'); process.exit(1);`,
+      { windowsEntry: 'node_modules/npm/bin/npm-cli.js' },
+    );
     await writeFile(configPath, config);
     await run(() => setupSessionWithConfig({
       cwd: home, configPath, skipUserConfig: true, skipKeyPrompt: true, tolerateNoProvider: true,
