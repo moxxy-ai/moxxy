@@ -4,6 +4,12 @@ import type { VaultStore } from '@moxxy/plugin-vault';
 import { MoxxyError, type CredentialResolver } from '@moxxy/sdk';
 import { resolveProviderCredentials } from '../provider-credentials.js';
 import { providerDefault, providerItem, providerSlot } from './resolve-plugins-tree.js';
+import {
+  RETIRED_PROVIDER_NO_CODEX,
+  RETIRED_PROVIDER_NOTICE,
+  RETIRED_PROVIDER,
+  replaceRetiredProvider,
+} from './retired-provider.js';
 import type { BootStep } from './types.js';
 
 type Logger = {
@@ -29,6 +35,8 @@ export interface ActivateProviderArgs {
 export interface ActivateProviderResult {
   readonly activated: { name: string; cfg: Record<string, unknown> } | null;
   readonly credentialResolver: CredentialResolver;
+  /** The config still named the retired ChatGPT sign-in, replaced at boot. */
+  readonly retiredReplaced: boolean;
 }
 
 /**
@@ -44,13 +52,15 @@ export interface ActivateProviderResult {
 export async function activateProvider(args: ActivateProviderArgs): Promise<ActivateProviderResult> {
   const { session, config, vault, providerConfig, skipKeyPrompt, logger, progress, onProgress } = args;
 
-  const primaryProvider = providerDefault(config);
   const fallbacks = providerSlot(config).fallbacks ?? [];
   // Drop an unset primary (a fresh config has no provider until init/provision)
   // so the walk simply finds nothing → "continue without an active provider".
-  const candidates = [primaryProvider, ...fallbacks].filter(
+  const retired = replaceRetiredProvider([providerDefault(config), ...fallbacks].filter(
     (c): c is string => typeof c === 'string' && c.length > 0,
-  );
+  ));
+  const candidates = retired.candidates;
+  const primaryProvider = candidates[0];
+  if (retired.replaced) logger.warn(RETIRED_PROVIDER_NOTICE, { replacement: candidates.join(',') });
   // The caller may overlay boot-time options onto the primary item's config.
   // Every other path must still use that provider's own configured item rather
   // than silently falling back to environment/default values.
@@ -60,7 +70,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
       ...(item.config ?? {}),
       ...(item.model ? { model: item.model } : {}),
     };
-    const effective = providerName === primaryProvider
+    const effective = providerName === primaryProvider && providerDefault(config) !== RETIRED_PROVIDER
       ? { ...persisted, ...providerConfig }
       : persisted;
     return effective;
@@ -72,8 +82,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   if (args.skipProviderActivation) {
     logger.info('skipping provider activation (skipProviderActivation set)');
   } else {
-    for (let i = 0; i < candidates.length; i++) {
-      const candidate = candidates[i]!;
+    for (const [i, candidate] of candidates.entries()) {
       // A user-disabled provider (`plugins.provider.items.<name>.enabled:
       // false`, seeded into the registry before this walk) is never auto-activated —
       // fall through to the next candidate instead of failing on setActive.
@@ -104,7 +113,13 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   }
 
   if (!activated) {
-    const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+    // Read the real reason before the removal notice wraps it, so the notice
+    // is said once and the reason (no Codex, no network, …) stays visible.
+    const reason = lastErr instanceof Error ? lastErr.message : String(lastErr);
+    const errMsg = retired.replaced ? `${RETIRED_PROVIDER_NO_CODEX} (${reason})` : reason;
+    if (retired.replaced) {
+      lastErr = new MoxxyError({ code: 'PROVIDER_NOT_CONFIGURED', message: errMsg, cause: lastErr });
+    }
     if (args.tolerateNoProvider || args.skipProviderActivation) {
       logger.warn('no provider key resolvable; continuing without an active provider', {
         tried: candidates,
@@ -168,7 +183,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   };
   session.credentialResolver = credentialResolver;
 
-  return { activated, credentialResolver };
+  return { activated, credentialResolver, retiredReplaced: retired.replaced };
 }
 
 function noProviderError(candidates: ReadonlyArray<string>, lastErr: unknown): MoxxyError {

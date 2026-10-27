@@ -151,7 +151,7 @@ describe('SessionPersistence', () => {
         turnId: 't1' as never,
         source: 'system',
         type: 'provider_request',
-        provider: 'openai-codex',
+        provider: 'codex-agent',
         model: 'gpt-5.5',
       },
     ]);
@@ -165,7 +165,7 @@ describe('SessionPersistence', () => {
       id,
       eventCount: 2,
       firstPrompt: 'restored prompt becomes sidebar title',
-      provider: 'openai-codex',
+      provider: 'codex-agent',
       model: 'gpt-5.5',
     });
 

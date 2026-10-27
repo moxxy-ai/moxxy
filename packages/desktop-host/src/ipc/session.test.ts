@@ -47,7 +47,7 @@ const { codexTranscribe, vaultGet } = vi.hoisted(() => ({
 vi.mock('../in-process-plugins', () => ({
   buildInProcessPlugins: () => ({
     vault: { get: vaultGet },
-    transcriber: { name: 'openai-codex', transcribe: codexTranscribe },
+    transcriber: { name: 'codex-agent', transcribe: codexTranscribe },
   }),
 }));
 
@@ -81,15 +81,15 @@ function sessionInfo(sessionId: string): SessionInfo {
   return {
     sessionId,
     cwd: '/tmp/moxxy-test',
-    activeProvider: 'openai-codex',
-    providers: [{ name: 'openai-codex', models: [{ id: 'gpt-5' }] }],
+    activeProvider: 'codex-agent',
+    providers: [{ name: 'codex-agent', models: [{ id: 'gpt-5' }] }],
     activeMode: 'default',
     activeModeBadge: null,
     modes: ['default'],
     tools: [],
     skills: [],
     commands: [],
-    readyProviders: ['openai-codex'],
+    readyProviders: ['codex-agent'],
     hasTranscriber: false,
     activeTranscriber: null,
     hasSynthesizer: false,
@@ -118,7 +118,7 @@ describe('session.info handler', () => {
 
     await expect(result).resolves.toMatchObject({
       sessionId: 'fresh-session',
-      activeProvider: 'openai-codex',
+      activeProvider: 'codex-agent',
       activeMode: 'default',
     });
   });
@@ -152,7 +152,7 @@ describe('session.setModel handler', () => {
 
 describe('session.setProvider handler', () => {
   it('awaits runner activation and surfaces the exact activation failure', async () => {
-    const failure = new Error('Provider not registered: openai-codex');
+    const failure = new Error('Provider not registered: codex-agent');
     const setActiveProvider = vi.fn().mockRejectedValue(failure);
     const supervisor = {
       remote: () => ({ setActiveProvider }),
@@ -170,9 +170,9 @@ describe('session.setProvider handler', () => {
     assertDefined(setProviderHandler, 'session.setProvider handler');
 
     await expect(
-      setProviderHandler({ workspaceId: 'ws-provider', provider: 'openai-codex' }),
+      setProviderHandler({ workspaceId: 'ws-provider', provider: 'codex-agent' }),
     ).rejects.toBe(failure);
-    expect(setActiveProvider).toHaveBeenCalledWith('openai-codex');
+    expect(setActiveProvider).toHaveBeenCalledWith('codex-agent');
     expect(supervisor.refreshConnectedInfo).not.toHaveBeenCalled();
   });
 });
@@ -315,7 +315,7 @@ describe('session.runTurn handler', () => {
     setActiveBus(bus);
     registerSessionHandlers(pool, {
       channelModels: {
-        vault: () => ({ get: async (key: string) => (key === 'telegram_model' ? 'openai-codex::gpt-5.6-luna' : null) }),
+        vault: () => ({ get: async (key: string) => (key === 'telegram_model' ? 'codex-agent::gpt-5.6-luna' : null) }),
         activateProvider: async () => undefined,
       },
     });
@@ -575,18 +575,19 @@ describe('session.transcribe / hasTranscriber fallback chain', () => {
     expect(vaultGet).not.toHaveBeenCalled();
   });
 
-  it('hasTranscriber falls back to the Codex vault probe when the runner has none active', async () => {
-    vaultGet.mockResolvedValue('a-refresh-token');
+  it('hasTranscriber is true when an OpenAI API key is saved and the runner has none active', async () => {
+    vaultGet.mockImplementation(async (name: string) => (name === 'OPENAI_API_KEY' ? 'sk-test' : null));
     const remote = { getInfo: () => sessionInfo(WS) }; // activeTranscriber: null
     const handlers = register(makePool(remote));
 
     const hasTranscriberHandler = handlers.get('session.hasTranscriber');
     assertDefined(hasTranscriberHandler, 'session.hasTranscriber handler');
     await expect(hasTranscriberHandler()).resolves.toBe(true);
-    expect(vaultGet).toHaveBeenCalledWith('oauth/openai-codex/refresh_token');
+    expect(vaultGet).toHaveBeenCalledWith('OPENAI_API_KEY');
+    expect(vaultGet).not.toHaveBeenCalledWith('oauth/codex-agent/refresh_token');
   });
 
-  it('hasTranscriber is false when neither a runner transcriber nor Codex creds exist', async () => {
+  it('hasTranscriber is false when neither a runner transcriber nor an OpenAI key exist', async () => {
     vaultGet.mockResolvedValue(null);
     const remote = { getInfo: () => sessionInfo(WS) };
     const handlers = register(makePool(remote));

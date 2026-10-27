@@ -1,7 +1,7 @@
 /**
  * GPT-Live host handlers against the real stack: a real runner Session over a
- * real unix socket, a real encrypted vault holding ChatGPT OAuth tokens, and a
- * loopback HTTP server standing in for chatgpt.com (the external API). The
+ * real unix socket, a real encrypted vault holding the OpenAI API key, and a
+ * loopback HTTP server standing in for api.openai.com (the external API). The
  * only other stand-ins are the Electron IPC bus and the runner process pool,
  * which exist to spawn/route OS processes this test already owns directly.
  */
@@ -21,7 +21,6 @@ vi.mock('electron', () => ({
 
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import { SELF_REFERENCE_NOTE } from '@moxxy/sdk';
-import { persistCodexTokens } from '@moxxy/plugin-provider-openai-codex';
 import {
   createStaticKeySource,
   deriveKey,
@@ -55,21 +54,14 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function makeVault(withLogin: boolean): Promise<VaultStore> {
+async function makeVault(withKey: boolean): Promise<VaultStore> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'moxxy-gpt-live-'));
   cleanups.push(() => removeDir(dir));
   const vault = new VaultStore({
     filePath: path.join(dir, 'vault.json'),
     keySource: createStaticKeySource(deriveKey('test-passphrase', generateSalt())),
   });
-  if (withLogin) {
-    await persistCodexTokens(vault, {
-      access: 'oauth-access-token',
-      refresh: 'oauth-refresh-token',
-      expires: Date.now() + 3_600_000,
-      accountId: 'acct-live',
-    });
-  }
+  if (withKey) await vault.set('OPENAI_API_KEY', 'sk-live-test');
   return vault;
 }
 
@@ -92,15 +84,15 @@ async function startRunner(): Promise<{ session: Session; remote: RemoteSession 
 
 async function startBackend(): Promise<{
   readonly baseUrl: string;
-  readonly requests: Array<{ headers: IncomingHttpHeaders; body: { session: Record<string, unknown> } }>;
+  readonly requests: Array<{ url: string | undefined; headers: IncomingHttpHeaders; body: { session: Record<string, unknown> } }>;
 }> {
-  const requests: Array<{ headers: IncomingHttpHeaders; body: { session: Record<string, unknown> } }> = [];
+  const requests: Array<{ url: string | undefined; headers: IncomingHttpHeaders; body: { session: Record<string, unknown> } }> = [];
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk as Buffer));
-    requests.push({ headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
-    res.writeHead(201, { location: '/v1/realtime/calls/rtc_u32_TestCall123' });
-    res.end(ANSWER);
+    requests.push({ url: req.url, headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+    res.writeHead(201, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ session: { id: 'live_TestCall123' }, transport: { type: 'webrtc', sdp: ANSWER } }));
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -112,7 +104,7 @@ async function startBackend(): Promise<{
       }),
   );
   const { port } = server.address() as AddressInfo;
-  return { baseUrl: `http://127.0.0.1:${port}/backend-api`, requests };
+  return { baseUrl: `http://127.0.0.1:${port}/v1`, requests };
 }
 
 function registerHandlers(remote: RemoteSession, vault: VaultStore, baseUrl?: string): Map<string, Handler> {
@@ -125,7 +117,7 @@ function registerHandlers(remote: RemoteSession, vault: VaultStore, baseUrl?: st
     get: (id: string) => (id === 'workspace-1' ? { remote: () => remote } : undefined),
     list: () => [],
   } as unknown as RunnerPool;
-  const plugins = buildInProcessPlugins({ vault, ...(baseUrl ? { gptLiveBaseUrl: baseUrl } : {}) });
+  const plugins = buildInProcessPlugins({ vault, ...(baseUrl ? { openAiBaseUrl: baseUrl } : {}) });
   registerVoiceHandlers(pool, { inProcessPlugins: () => plugins });
   registerSessionHandlers(pool);
   return handlers;
@@ -151,7 +143,7 @@ async function seedConversation(session: Session): Promise<void> {
 }
 
 describe('GPT-Live voice handlers', () => {
-  it('reports whether the existing ChatGPT login can back GPT-Live', async () => {
+  it('reports whether an OpenAI API key is saved for GPT-Live', async () => {
     const { remote } = await startRunner();
 
     const signedIn = registerHandlers(remote, await makeVault(true));
@@ -169,11 +161,14 @@ describe('GPT-Live voice handlers', () => {
 
     const answer = await handlers.get('voice.live.start')?.({ workspaceId: 'workspace-1', sdp: OFFER });
 
-    expect(answer).toEqual({ sdp: ANSWER, callId: 'rtc_u32_TestCall123' });
+    expect(answer).toEqual({ sdp: ANSWER, callId: 'live_TestCall123' });
     const [request] = backend.requests;
-    expect(request?.headers.authorization).toBe('Bearer oauth-access-token');
-    expect(request?.headers['chatgpt-account-id']).toBe('acct-live');
-    expect(request?.body.session.initial_items).toEqual([
+    expect(request?.url).toBe('/v1/live/sessions');
+    expect(request?.headers.authorization).toBe('Bearer sk-live-test');
+    expect(request?.headers['chatgpt-account-id']).toBeUndefined();
+    expect(request?.body.session.model).toBe('gpt-live-1');
+    expect(request?.body.session.delegation).toEqual({ type: 'client' });
+    expect(request?.body.session.input).toEqual([
       { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Sekretne słowo to pomarańcza.' }] },
       { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Zapamiętałem sekretne słowo.' }] },
     ]);

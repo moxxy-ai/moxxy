@@ -1,67 +1,23 @@
 ---
-title: Provider OAuth login
-description: moxxy login openai-codex — and how the generic OAuth plugin powers it.
+title: Model account sign-in
+description: Sign in through the installed Claude Code, Codex or OpenCode connection.
 ---
 
-Most providers use API keys. Three providers use a **subscription** instead:
-`openai-codex` (`@moxxy/plugin-provider-openai-codex`, shown as **ChatGPT — Moxxy**)
-and `codex-agent` (`@moxxy/plugin-provider-codex-agent`, shown as **ChatGPT — Codex agent**)
-for ChatGPT Pro/Plus, and `claude-code` (`@moxxy/plugin-provider-claude-code`) for Claude Pro/Max.
-`opencode` (`@moxxy/plugin-provider-acp`, shown as **OpenCode agent**) uses
-whatever your own OpenCode is set up with.
-The generic `@moxxy/plugin-oauth` plugin handles the dance for any provider
-that wires the same hook.
-
-## Log in
+Use **ChatGPT — Codex agent** (`codex-agent`) for a ChatGPT account, **Claude
+Agent** (`claude-code`) for Claude, or **OpenCode agent** (`opencode`) for your
+OpenCode setup. The installed agent owns its credentials and runs the turn;
+Moxxy does not exchange or refresh its tokens through a private model API.
 
 ```sh
-moxxy login openai-codex
-# Opens your browser, listens on http://localhost:8765/callback,
-# exchanges the code for tokens, stores them in the vault.
+moxxy login codex-agent
+moxxy login claude-code
+moxxy login opencode
+moxxy login status
 ```
 
-`moxxy login` is generic: it walks the provider registry and any
-`ProviderDef` with `auth: { kind: 'oauth' }` becomes loggable. There's
-no provider-specific code in the CLI — the plugin owns the flow.
-
-| Command | Effect |
-|---|---|
-| `moxxy login <provider>` | Run the login flow. |
-| `moxxy login status [<provider>]` | Show stored creds (no secrets printed). |
-| `moxxy login logout <provider>` | Remove stored creds. |
-| `moxxy login --no-browser` | Force the headless device-code flow. |
-
-The `--no-browser` flag (or a non-TTY stdin) triggers RFC 8628 device-code
-flow — useful when you're SSH'd into a box without a local browser. You
-complete the flow on your laptop's browser; the daemon polls for the
-token.
-
-## How the Codex provider wires it
-
-```ts
-export const openaiCodexProviderDef = defineProvider({
-  name: 'openai-codex',
-  models: [...codexModels],
-  createClient: (config) => new CodexProvider(config),
-  auth: {
-    kind: 'oauth',
-    serviceName: 'ChatGPT Pro/Plus',
-    login: codexLogin,
-    logout: codexLogout,
-    status: codexStatus,
-  },
-});
-```
-
-`codexLogin` (see `packages/plugin-provider-openai-codex/src/login.ts`)
-uses helpers from `@moxxy/plugin-oauth` — PKCE generation, code
-exchange, device-flow polling — and stores the resulting bundle in
-the vault under `oauth/openai-codex/*`.
-
-Refresh tokens rotate on every refresh (single-use), so the provider's
-`onTokensRefreshed` callback writes the new bundle back to the vault
-before the next API call goes out. Lose that and you get one 401 then
-permanent failure.
+API-key connections such as OpenAI are configured with their API key instead.
+The generic `@moxxy/plugin-oauth` remains available for integrations implementing
+OAuth 2.0, PKCE or device-code profiles; it is independent of agent sign-in.
 
 ## Claude (Pro/Max) subscription — `claude-code`
 
@@ -129,8 +85,7 @@ What carries over, and what does not:
 The `codex-agent` connection, shown as **ChatGPT — Codex agent**, is the Codex
 counterpart of Claude Agent: Codex itself does each turn through
 `codex app-server`, with its own instructions, config, tools, skills and MCP
-servers, on your ChatGPT sign-in. (**ChatGPT — Moxxy**, `openai-codex`, is the
-other way round: Moxxy does the work with ChatGPT models.) Set it active with:
+servers, on your ChatGPT sign-in.  Set it active with:
 
 ```yaml
 # moxxy.config.yaml

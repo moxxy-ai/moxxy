@@ -83,13 +83,10 @@ agent does, how approvals and modes map onto it, and how updates work is in
 
 ### ChatGPT account
 
-Choose the OpenAI Codex connection on first start. Moxxy runs the turn itself
-on your ChatGPT sign-in and opens the OAuth flow; no OpenAI API key is
-required. You can also sign in separately:
-
-```sh
-moxxy login openai-codex
-```
+Choose **ChatGPT — Codex agent** on first start. Your installed Codex does the
+work through `codex app-server`, using its own ChatGPT sign-in. Moxxy does not
+store or refresh your ChatGPT tokens. Sign in with `codex login` or
+`moxxy login codex-agent`.
 
 ### API keys
 

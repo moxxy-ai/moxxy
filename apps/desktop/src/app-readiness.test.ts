@@ -12,7 +12,7 @@ const connectedPhase = (sessionId: string): LastConnectedSession['phase'] => ({
   phase: 'connected',
   socket: `/tmp/${sessionId}.sock`,
   sessionId,
-  activeProvider: 'openai-codex',
+  activeProvider: 'codex-agent',
   activeMode: 'default',
 });
 

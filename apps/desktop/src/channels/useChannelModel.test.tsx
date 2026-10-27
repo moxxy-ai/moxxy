@@ -4,7 +4,7 @@ import { __setApiOverride } from '@moxxy/client-core';
 import { useChannelModel } from './useChannelModel';
 
 const providers = [
-  { name: 'openai-codex', models: [{ id: 'gpt-5.6-luna' }, { id: 'gpt-5.6-terra' }], starterModel: 'gpt-5.6-terra' },
+  { name: 'codex-agent', models: [{ id: 'gpt-5.6-luna' }, { id: 'gpt-5.6-terra' }], starterModel: 'gpt-5.6-terra' },
   { name: 'anthropic', models: [{ id: 'claude-sonnet-5-5' }] },
 ];
 
@@ -12,7 +12,7 @@ let invoke: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   invoke = vi.fn(async (command: string) => {
-    if (command === 'session.info') return { providers, activeProvider: 'openai-codex' };
+    if (command === 'session.info') return { providers, activeProvider: 'codex-agent' };
     return undefined;
   });
   // Fake IPC transport — the renderer ↔ main boundary.
@@ -31,18 +31,18 @@ function setup(model?: string, setModel = vi.fn(async () => undefined)) {
 describe('useChannelModel', () => {
   it('labels the default and a chosen model', () => {
     expect(setup().hook.result.current.label).toBe('Default (same as the app)');
-    expect(setup('openai-codex::gpt-5.6-luna').hook.result.current.label).toBe('openai-codex · gpt-5.6-luna');
-    expect(setup('openai-codex::gpt-5.6-luna').hook.result.current.isDefault).toBe(false);
+    expect(setup('codex-agent::gpt-5.6-luna').hook.result.current.label).toBe('codex-agent · gpt-5.6-luna');
+    expect(setup('codex-agent::gpt-5.6-luna').hook.result.current.isDefault).toBe(false);
   });
 
   it('loads the provider catalog of the active workspace when the picker opens', async () => {
-    const { hook } = setup('openai-codex::gpt-5.6-luna');
+    const { hook } = setup('codex-agent::gpt-5.6-luna');
 
     act(() => hook.result.current.openPicker());
 
     await waitFor(() => expect(hook.result.current.providers).toEqual(providers));
     expect(invoke).toHaveBeenCalledWith('session.info', { workspaceId: 'ws-1' });
-    expect(hook.result.current.activeProvider).toBe('openai-codex');
+    expect(hook.result.current.activeProvider).toBe('codex-agent');
     expect(hook.result.current.activeModel).toBe('gpt-5.6-luna');
   });
 
@@ -61,13 +61,13 @@ describe('useChannelModel', () => {
     act(() => hook.result.current.openPicker());
     await waitFor(() => expect(hook.result.current.providers).toHaveLength(2));
 
-    await act(async () => hook.result.current.pick('openai-codex', null));
+    await act(async () => hook.result.current.pick('codex-agent', null));
 
-    expect(setModel).toHaveBeenCalledWith('discord', 'openai-codex::gpt-5.6-terra');
+    expect(setModel).toHaveBeenCalledWith('discord', 'codex-agent::gpt-5.6-terra');
   });
 
   it('"use default" clears the channel model', async () => {
-    const { hook, setModel } = setup('openai-codex::gpt-5.6-luna');
+    const { hook, setModel } = setup('codex-agent::gpt-5.6-luna');
 
     await act(async () => hook.result.current.resetToDefault());
 

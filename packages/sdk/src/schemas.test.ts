@@ -83,9 +83,9 @@ describe('moxxyPackageSchema', () => {
       requirements: [
         {
           kind: 'plugin',
-          name: '@moxxy/plugin-provider-openai-codex',
+          name: '@moxxy/plugin-provider-codex-agent',
           state: 'registered',
-          hint: 'Enable @moxxy/plugin-provider-openai-codex.',
+          hint: 'Enable @moxxy/plugin-provider-codex-agent.',
         },
       ],
     });
@@ -94,9 +94,9 @@ describe('moxxyPackageSchema', () => {
     expect(parsed.requirements).toEqual([
       {
         kind: 'plugin',
-        name: '@moxxy/plugin-provider-openai-codex',
+        name: '@moxxy/plugin-provider-codex-agent',
         state: 'registered',
-        hint: 'Enable @moxxy/plugin-provider-openai-codex.',
+        hint: 'Enable @moxxy/plugin-provider-codex-agent.',
       },
     ]);
   });

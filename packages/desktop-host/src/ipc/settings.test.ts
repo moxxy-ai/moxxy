@@ -42,7 +42,6 @@ describe('settings.providerCatalog', () => {
     expect(await catalog()).toEqual([
       { name: 'anthropic', kind: 'api' },
       { name: 'openai', kind: 'api' },
-      { name: 'openai-codex', kind: 'api' },
       { name: 'claude-code', kind: 'agent' },
       { name: 'codex-agent', kind: 'agent' },
       { name: 'opencode', kind: 'agent' },
@@ -79,11 +78,11 @@ describe('settings.modelDefaults', () => {
     assertDefined(read, 'settings.modelDefaults handler');
     assertDefined(save, 'settings.setModelDefaults handler');
 
-    await save({ model: { provider: 'openai-codex', model: 'gpt-6-luna' }, effort: 'medium', fast: true });
+    await save({ model: { provider: 'codex-agent', model: 'gpt-6-luna' }, effort: 'medium', fast: true });
 
-    expect(await read()).toEqual({ provider: 'openai-codex', model: 'gpt-6-luna', effort: 'medium', fast: true });
+    expect(await read()).toEqual({ provider: 'codex-agent', model: 'gpt-6-luna', effort: 'medium', fast: true });
     const config = await readFile(path.join(home, 'config.yaml'), 'utf8');
-    expect(config).toContain('default: openai-codex');
+    expect(config).toContain('default: codex-agent');
     expect(config).toContain('model: gpt-6-luna');
     expect(config).toContain('effort: medium');
     expect(config).toContain('fast: true');

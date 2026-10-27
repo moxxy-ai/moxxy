@@ -76,17 +76,17 @@ describe('channels.setModel', () => {
   it('stores the bot model channel-scoped and reports it in the status + list', async () => {
     const status = await call<ChannelRuntimeStatus>('channels.setModel', {
       channelId: 'discord',
-      model: 'openai-codex::gpt-5.6-luna',
+      model: 'codex-agent::gpt-5.6-luna',
     });
 
-    expect(status.model).toBe('openai-codex::gpt-5.6-luna');
-    expect(await vault.get('discord_model')).toBe('openai-codex::gpt-5.6-luna');
+    expect(status.model).toBe('codex-agent::gpt-5.6-luna');
+    expect(await vault.get('discord_model')).toBe('codex-agent::gpt-5.6-luna');
     const list = await call<ReadonlyArray<ChannelEntry>>('channels.list');
-    expect(list.find((e) => e.descriptor.id === 'discord')?.status.model).toBe('openai-codex::gpt-5.6-luna');
+    expect(list.find((e) => e.descriptor.id === 'discord')?.status.model).toBe('codex-agent::gpt-5.6-luna');
   });
 
   it('null resets the bot to the default model', async () => {
-    await vault.set('discord_model', 'openai-codex::gpt-5.6-luna');
+    await vault.set('discord_model', 'codex-agent::gpt-5.6-luna');
 
     const status = await call<ChannelRuntimeStatus>('channels.setModel', { channelId: 'discord', model: null });
 
@@ -178,7 +178,7 @@ describe('channels.openChat (the bot conversation as a live chat)', () => {
   });
 
   it("runs the chat with the bot's own model, so the app shows and uses what the bot runs", async () => {
-    await vault.set('telegram_model', 'openai-codex::gpt-5.6-luna');
+    await vault.set('telegram_model', 'codex-agent::gpt-5.6-luna');
     const activated: Array<[string, string]> = [];
     registerChannelsHandlers({
       vault: () => vault,
@@ -191,13 +191,13 @@ describe('channels.openChat (the bot conversation as a live chat)', () => {
     await call('channels.openChat', { channelId: 'telegram' });
 
     expect(getSessionModel('moxxy-channel-telegram')).toBe('gpt-5.6-luna');
-    expect(activated).toEqual([['moxxy-channel-telegram', 'openai-codex']]);
+    expect(activated).toEqual([['moxxy-channel-telegram', 'codex-agent']]);
   });
 
   it("follows a model picked in Setup into the bot's chat", async () => {
     setSessionModel('moxxy-channel-discord', null, { force: true });
 
-    await call('channels.setModel', { channelId: 'discord', model: 'openai-codex::gpt-5.5' });
+    await call('channels.setModel', { channelId: 'discord', model: 'codex-agent::gpt-5.5' });
     expect(getSessionModel('moxxy-channel-discord')).toBe('gpt-5.5');
 
     await call('channels.setModel', { channelId: 'discord', model: null });

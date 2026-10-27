@@ -29,7 +29,6 @@ export const NO_NPM = 'npm not found — the runner and extensions cannot be upd
 
 const LABELS: Readonly<Record<string, string>> = {
   '@moxxy/plugin-provider-openai': 'The OpenAI API connection',
-  '@moxxy/plugin-provider-openai-codex': 'ChatGPT sign-in',
   [COMPUTER_USE]: 'Computer Use',
 };
 const label = (plugin: string): string => LABELS[plugin] ?? plugin;

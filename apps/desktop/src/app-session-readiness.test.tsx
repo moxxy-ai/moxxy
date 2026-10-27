@@ -9,14 +9,14 @@ const connectedPhase = {
   phase: 'connected',
   socket: '/tmp/fresh.sock',
   sessionId: 'fresh-session',
-  activeProvider: 'openai-codex',
+  activeProvider: 'codex-agent',
   activeMode: 'default',
 } as const;
 
 const readyInfo: SessionInfo = {
-  providers: [{ name: 'openai-codex', models: [{ id: 'gpt-5' }] }],
+  providers: [{ name: 'codex-agent', models: [{ id: 'gpt-5' }] }],
   modes: ['default'],
-  activeProvider: 'openai-codex',
+  activeProvider: 'codex-agent',
   activeMode: 'default',
   activeModeBadge: null,
 };

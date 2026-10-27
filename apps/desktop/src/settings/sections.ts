@@ -1,4 +1,5 @@
 import type { IconName } from '@moxxy/desktop-ui';
+import { PROVIDER_KINDS } from './provider-kinds';
 
 /** Something inside a section a person may look for by its own name. */
 export interface SectionFind {
@@ -36,8 +37,11 @@ export const SETTINGS_SECTIONS = [
     finds: [
       { label: 'Add provider', keywords: ['connect a model', 'new provider', 'sign in'] },
       {
-        label: 'Coding agents',
+        label: PROVIDER_KINDS.agents.title,
         keywords: [
+          'coding agents',
+          'sdk agents',
+          'oauth',
           'agent connections',
           'claude code',
           'codex',
@@ -52,7 +56,7 @@ export const SETTINGS_SECTIONS = [
           'agent account',
         ],
       },
-      { label: 'Model providers', keywords: ['api providers', 'api key', 'oauth', 'moxxy loop'] },
+      { label: PROVIDER_KINDS.models.title, keywords: ['model providers', 'api models', 'api providers', 'api key', 'moxxy loop'] },
       {
         label: 'Default model',
         keywords: ['starting model', 'new conversation', 'reasoning effort', 'thinking', 'fast mode', 'fast tier'],
@@ -67,12 +71,17 @@ export const SETTINGS_SECTIONS = [
     view: 'settings',
     keywords: ['speech', 'tts', 'voice mode', 'read aloud'],
     finds: [
-      { label: 'Voice engine', keywords: ['voice mode', 'local'] },
+      { label: 'OpenAI API key', keywords: ['openai voice key', 'gpt-live key', 'transcription key'] },
+      { label: 'Voice engine', keywords: ['voice mode', 'local', 'classic voice', 'voice conversation'] },
       {
         label: 'Transcription',
-        keywords: ['speech to text', 'whisper', 'local transcription', 'cloud transcription', 'dictation', 'microphone'],
+        keywords: [
+          'speech to text', 'whisper', 'local transcription', 'openai transcription', 'gpt-transcribe',
+          'dictation', 'microphone',
+        ],
       },
-      { label: 'GPT-Live', keywords: ['chatgpt voice', 'realtime'] },
+      { label: 'GPT-Live', keywords: ['openai voice', 'realtime'] },
+      { label: 'Read aloud', keywords: ['speaker', 'spoken voice', 'reply voice'] },
       { label: 'Gemini Flash-Lite', keywords: ['gemini tts', 'google', 'cloud voice', 'gemini api key'] },
       { label: 'Local Piper', keywords: ['on-device voice', 'offline voice'] },
     ],

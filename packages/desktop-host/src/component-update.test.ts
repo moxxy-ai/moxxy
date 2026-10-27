@@ -63,7 +63,7 @@ beforeAll(() => {
   }
   packFixture('@moxxy/plugin-broken', '0.1.0', plugin('broken 0.1.0'), pluginManifest);
   packFixture('@moxxy/plugin-broken', '0.2.0', { 'index.js': 'throw new Error("broken build");' }, pluginManifest);
-  packFixture('@moxxy/plugin-provider-openai-codex', '0.2.0', { 'dist/index.js': fixtureProviderCode }, { main: 'dist/index.js' });
+  packFixture('@moxxy/plugin-provider-openai', '0.2.0', { 'dist/index.js': fixtureProviderCode }, { main: 'dist/index.js' });
 }, NPM_TIMEOUT);
 
 afterAll(() => removeDirSync(root));
@@ -120,7 +120,7 @@ function dataFingerprint(home: string): string {
 const installedVersion = (plugins: string, name: string): string =>
   (JSON.parse(readFileSync(path.join(plugins, 'node_modules', name, 'package.json'), 'utf8')) as { version: string }).version;
 
-function registry(latest: string, published: ReadonlyArray<string> = ['@moxxy/plugin-a', '@moxxy/lib-b', '@moxxy/plugin-hooks', '@moxxy/plugin-broken', '@moxxy/cli', '@moxxy/plugin-provider-openai-codex']): PackageRegistry {
+function registry(latest: string, published: ReadonlyArray<string> = ['@moxxy/plugin-a', '@moxxy/lib-b', '@moxxy/plugin-hooks', '@moxxy/plugin-broken', '@moxxy/cli', '@moxxy/plugin-provider-openai']): PackageRegistry {
   return {
     latestVersion: async (name) => (name === '@moxxy/cli' ? latest : null),
     hasVersion: async (name, version) => published.includes(name) && version === latest,
@@ -254,7 +254,7 @@ describe('applyComponentUpdate', () => {
 
   it('marks an updated OpenAI connection as a managed install, so the installer neither asks about it nor downgrades it', async () => {
     const { home, plugins, userData } = profile([]);
-    const name = '@moxxy/plugin-provider-openai-codex';
+    const name = '@moxxy/plugin-provider-openai';
 
     await applyComponentUpdate({
       plan: { version: '0.2.0', cli: null, plugins: [{ name, current: '0.0.0' }] },

@@ -106,8 +106,9 @@ export interface GeminiVoiceInfo {
   readonly description?: string;
 }
 
-/** Where speech is turned into text. Cloud uses the host's ChatGPT login;
- *  Local runs Whisper turbo on this computer. */
+/** Where speech is turned into text. `cloud` is OpenAI transcription on the
+ *  person's OpenAI API key (shown as OpenAI); `local` runs Whisper turbo on
+ *  this computer. */
 export type TranscriptionMode = 'cloud' | 'local';
 
 /** How far getting Local ready has come: the model downloading, then local

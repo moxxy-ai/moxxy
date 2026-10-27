@@ -122,15 +122,44 @@ function agentWorking(delegations: GptLiveDelegations, turnId = 'agent_turn'): v
 }
 
 describe('GptLiveDelegations progress', () => {
-  it('describes what the delegated agent turn is doing, once per change', () => {
-    const delegations = new GptLiveDelegations();
+  it('describes what the delegated agent turn is doing, concretely, once per change', () => {
+    let now = 0;
+    const delegations = new GptLiveDelegations({ now: () => now });
     agentWorking(delegations);
 
-    expect(delegations.observe(toolCall('agent_turn', 'c1', 'bash', { command: 'pnpm test' })))
-      .toBe('Progress of the running Moxxy task: the agent is running checks or tests.');
-    expect(delegations.observe(toolCall('agent_turn', 'c2', 'bash', { command: 'pnpm vitest run' }))).toBeNull();
-    expect(delegations.observe(toolCall('agent_turn', 'c3', 'Read')))
-      .toBe('Progress of the running Moxxy task: the agent is reading the project.');
+    now = 30_000;
+    expect(delegations.observe(toolCall('agent_turn', 'c1', 'Read', { file_path: '/repo/src/app.ts' })))
+      .toBe('Progress of the running Moxxy task "Uruchom testy." (running for under a minute): step 1, the agent is reading the project (app.ts).');
+    expect(delegations.observe(toolCall('agent_turn', 'c2', 'Read', { file_path: '/repo/src/app.ts' }))).toBeNull();
+    now = 125_000;
+    expect(delegations.observe(toolCall('agent_turn', 'c3', 'bash', { command: 'pnpm test' })))
+      .toBe('Progress of the running Moxxy task "Uruchom testy." (running for 2 min): step 3, the agent is running checks or tests (pnpm test). Done so far: reading the project.');
+  });
+
+  it('includes the agent plan once it writes one', () => {
+    const delegations = new GptLiveDelegations({ now: () => 0 });
+    agentWorking(delegations);
+    delegations.observe(toolCall('agent_turn', 'c1', 'TodoWrite'));
+
+    const progress = delegations.observe(runnerEvent('agent_turn-c1-r', {
+      type: 'tool_result',
+      source: 'tool',
+      callId: 'c1',
+      turnId: 'agent_turn',
+      output: {
+        forModel: 'ok',
+        display: {
+          kind: 'step-list',
+          steps: [
+            { text: 'Read the failing test', status: 'completed' },
+            { text: 'Fix the parser', status: 'in_progress' },
+            { text: 'Run the tests', status: 'pending' },
+          ],
+        },
+      },
+    }));
+
+    expect(progress).toMatch(/Plan: 1 of 3 steps done, now: Fix the parser\.$/);
   });
 
   it('ignores tool calls of turns it did not start', () => {
@@ -167,4 +196,36 @@ describe('GptLiveDelegations while the agent is busy', () => {
     expect(refused.text).toMatch(/answer it yourself/i);
     expect(delegations.inFlight).toBe(1);
   });
+});
+
+
+it('reports a task typed in chat, refreshes its elapsed time and clears it on completion', () => {
+  let now = 0;
+  const tasks = new GptLiveDelegations({ now: () => now });
+  tasks.observe(prompt('typed', 'Run the tests'));
+  tasks.observe(toolCall('typed', 'c', 'Bash', { command: 'pnpm test' }));
+  now = 120_000;
+  expect(tasks.status()).toMatch(/Run the tests.*2 min.*pnpm test/);
+  expect(tasks.status(true)).toMatch(/waiting.*approve|waiting.*answer/);
+  expect(tasks.inFlight).toBe(1);
+  expect(tasks.complete('typed', null)).toBeNull();
+  expect(tasks.inFlight).toBe(0);
+  expect(tasks.status()).toMatch(/finished/);
+});
+
+it('restores the currently running task from the chat log when a call opens mid-task', () => {
+  const tasks = new GptLiveDelegations({ now: () => 120_001 });
+  tasks.restore([prompt('old', 'A finished task'), prompt('running', 'Fix the parser'), toolCall('running', 'c', 'Read', { path: 'src/parser.ts' })], 'running');
+  expect(tasks.inFlight).toBe(1);
+  expect(tasks.status()).toMatch(/Fix the parser.*2 min.*parser.ts/);
+  expect(tasks.status()).not.toContain('A finished task');
+});
+
+it('stops reporting a command as running once its result arrives', () => {
+  const tasks = new GptLiveDelegations();
+  tasks.observe(prompt('typed', 'Run tests'));
+  tasks.observe(toolCall('typed', 'c', 'Bash', { command: 'pnpm test' }));
+  tasks.observe(toolResult('typed', 'c'));
+  expect(tasks.status()).not.toContain('(pnpm test)');
+  expect(tasks.activeOperations).toEqual([]);
 });

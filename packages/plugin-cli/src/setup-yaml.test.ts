@@ -134,7 +134,7 @@ describe('renderYaml', () => {
 
 describe('yamlScalar', () => {
   it('leaves real catalog ids bare (happy path stays unquoted)', () => {
-    for (const v of ['anthropic', 'claude-sonnet-4-6', 'openai-codex', 'gpt-4.1', 'default', 'a/b', 'x_y', 'v1.2.3+meta']) {
+    for (const v of ['anthropic', 'claude-sonnet-4-6', 'codex-agent', 'gpt-4.1', 'default', 'a/b', 'x_y', 'v1.2.3+meta']) {
       expect(yamlScalar(v)).toBe(v);
     }
   });

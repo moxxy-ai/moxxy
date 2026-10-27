@@ -59,12 +59,12 @@ try {
     throw new Error('Installed CLI returned an unexpected --help response');
   }
   const plugins = run(runtimePath, [cliBin, 'plugins', 'list'], 60_000, smokeEnv);
-  if (!plugins.includes('openai-codex')) {
-    throw new Error('Installed CLI did not discover the seeded OpenAI Codex provider');
+  if (!plugins.includes('claude-code')) {
+    throw new Error('Installed CLI did not discover the seeded Claude Agent provider');
   }
   const loginHelp = run(runtimePath, [cliBin, 'login'], 60_000, smokeEnv, 2);
-  if (!/PROVIDERS[\s\S]*openai-codex/i.test(loginHelp)) {
-    throw new Error('Installed CLI did not register OpenAI Codex for OAuth login');
+  if (!/PROVIDERS[\s\S]*claude-code/i.test(loginHelp)) {
+    throw new Error('Installed CLI did not register Claude Agent for sign-in');
   }
 
   // Reproduce the real clean-machine contract: Node/npm are present, but Git

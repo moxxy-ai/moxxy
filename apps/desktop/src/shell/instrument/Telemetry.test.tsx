@@ -75,8 +75,8 @@ describe('Telemetry model panel', () => {
     __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
     const info = {
       sessionId: 's1',
-      providers: [{ name: 'openai-codex', models: [{ id: 'gpt-6-luna', supportsReasoning: true, supportsFast: true }] }],
-      modes: [], activeProvider: 'openai-codex', activeMode: null, activeModeBadge: null,
+      providers: [{ name: 'codex-agent', models: [{ id: 'gpt-6-luna', supportsReasoning: true, supportsFast: true }] }],
+      modes: [], activeProvider: 'codex-agent', activeMode: null, activeModeBadge: null,
       reasoningEffort: 'high' as const, fast: true,
     };
     render(<Telemetry workspaceId="ws" info={info} selectedModel="gpt-6-luna" disabled={false} onPick={() => {}} />);
@@ -110,11 +110,11 @@ describe('Telemetry model name', () => {
     sessionId: 's1',
     providers: [
       {
-        name: 'openai-codex',
+        name: 'codex-agent',
         models: [{ id: 'gpt-plain' }, { id: 'gpt-6-luna', supportsReasoning: true, supportsFast: true }],
       },
     ],
-    modes: [], activeProvider: 'openai-codex', activeMode: null, activeModeBadge: null,
+    modes: [], activeProvider: 'codex-agent', activeMode: null, activeModeBadge: null,
   };
 
   it('names the model a turn will run on when none was picked here, and offers what that model has', () => {
@@ -132,7 +132,7 @@ describe('Telemetry model name', () => {
   it('names the provider when the runner is too old to say which model that is', () => {
     __setApiOverride({ invoke: vi.fn(async () => {}), subscribe: () => () => {} } as unknown as MoxxyApi);
     render(<Telemetry workspaceId="ws-old" info={info} selectedModel={null} disabled={false} onPick={() => {}} />);
-    expect(screen.getByTestId('instrument-telemetry')).toHaveTextContent('openai-codex');
+    expect(screen.getByTestId('instrument-telemetry')).toHaveTextContent('codex-agent');
     __setApiOverride(null);
   });
 });
@@ -145,7 +145,7 @@ describe('Telemetry token count', () => {
    * "2.4M" read as if every one of them was new.
    */
   const info = {
-    sessionId: 's1', providers: [], modes: [], activeProvider: 'openai-codex',
+    sessionId: 's1', providers: [], modes: [], activeProvider: 'codex-agent',
     activeMode: null, activeModeBadge: null,
   };
   const usage = (workspaceId: string, tokens: Record<string, number>): void =>
@@ -153,7 +153,7 @@ describe('Telemetry token count', () => {
       type: 'event',
       event: {
         id: `${workspaceId}-1`, seq: 1, ts: 1, turnId: 'T1', sessionId: 'S', source: 'model',
-        type: 'provider_response', provider: 'openai-codex', model: 'gpt-6-luna', ...tokens,
+        type: 'provider_response', provider: 'codex-agent', model: 'gpt-6-luna', ...tokens,
       } as unknown as MoxxyEvent,
     });
   const tokensCell = (): HTMLElement => {

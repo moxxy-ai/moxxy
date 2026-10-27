@@ -603,7 +603,7 @@ function handleModelSelected(id: string, deps: PickerHandlerDeps): void {
   if (!providerId || !modelId) return;
   // If the provider wasn't in the boot probe's ready set, switching
   // would surface a credential error on the next turn. Connect it inline
-  // when the session can (install + key entry / OAuth in a dialog);
+  // when the session can (install + key entry / sign-in in a dialog);
   // otherwise surface the right configuration command.
   const ready = deps.session.readyProviders ?? new Set<string>();
   if (!ready.has(providerId)) {
@@ -611,10 +611,7 @@ function handleModelSelected(id: string, deps: PickerHandlerDeps): void {
       deps.openProviderConnect({ providerId, modelId });
       return;
     }
-    const cmd =
-      providerId === 'openai-codex'
-        ? 'moxxy login openai-codex'
-        : `moxxy onboard   # (will prompt for ${providerId.toUpperCase()}_API_KEY)`;
+    const cmd = `moxxy onboard   # (will prompt for ${providerId.toUpperCase()}_API_KEY)`;
     deps.setSystemNotice(
       `${providerId} isn't connected. Run \`${cmd}\` then restart moxxy.\n` +
         `Alternatively set the ${providerId.toUpperCase()}_API_KEY env var before launching.`,

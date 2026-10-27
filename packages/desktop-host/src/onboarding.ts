@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
+import { readProviderMigrationNotice } from '@moxxy/config';
 import { moxxyHome } from '@moxxy/sdk/server';
 import type { OnboardingStatus } from '@moxxy/desktop-ipc-contract';
 import type { VaultStore } from '@moxxy/plugin-vault';
@@ -36,7 +37,9 @@ export async function probeOnboarding(): Promise<OnboardingStatus> {
     expectedKey !== null &&
     vaultKeys.includes(expectedKey);
 
-  return { cliInstalled, cliPath, hasProvider, activeProvider };
+  const providerMigration = await readProviderMigrationNotice();
+
+  return { cliInstalled, cliPath, hasProvider, activeProvider, providerMigration };
 }
 
 /**

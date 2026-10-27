@@ -18,6 +18,7 @@ import { AgentTaskModal } from './shared/AgentTaskModal';
 import { OAuthSignIn } from './shared/OAuthSignIn';
 import { PROVIDER_PROMPT_TEMPLATE } from './provider-prompt';
 import { AgentConnectionRow } from './agents/AgentConnectionRow';
+import { PROVIDER_KINDS } from './provider-kinds';
 import { isAgentConnection, useAgentConnections } from './agents/useAgentConnections';
 
 type ProviderRow = ReturnType<typeof useSettings>['providers'][number];
@@ -98,9 +99,8 @@ export function ProvidersTab({
           {agents.rows.length > 0 && (
             <CardGroup
               id="provider-group-agents"
-              title="Coding agents"
+              title={PROVIDER_KINDS.agents.title}
               count={agents.rows.length}
-              description="The agent installed on this computer does the work, on its own sign-in."
             >
               {agents.rows.map((row) => (
                 <AgentConnectionRow
@@ -120,9 +120,8 @@ export function ProvidersTab({
           {others.length > 0 && (
             <CardGroup
               id="provider-group-models"
-              title="Model providers"
+              title={PROVIDER_KINDS.models.title}
               count={others.length}
-              description="Moxxy does the work and calls the model, with an API key or a sign-in."
             >
               {others.map((p) => {
                 const { bg, fg } = tintFor(p.name);

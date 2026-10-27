@@ -18,7 +18,7 @@ placeholders, and hands a fully-wired `Session` to the chosen channel.
 | `moxxy -p "..." --output-format text\|json\|stream-json` | Scripting-friendly outputs. |
 | `cat f \| moxxy -p "..."` | stdin piped as additional context. |
 | `moxxy init` | Interactive first-time setup (provider keys → vault). |
-| `moxxy login <provider>` | OAuth sign-in (e.g. `moxxy login openai-codex`). |
+| `moxxy login <provider>` | OAuth sign-in (e.g. `moxxy login codex-agent`). |
 | `moxxy login status\|logout` | Inspect / remove stored OAuth creds. |
 | `moxxy doctor [--check-keys]` | Diagnose config, vault, providers, channels, memory. |
 | `moxxy resume [-s <id>\|<id>]` | Resume a persisted session (interactive picker if no id). |

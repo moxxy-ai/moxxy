@@ -7,9 +7,9 @@ import { setModelPreference } from './modelPreferences';
 import type { SessionInfo } from './types';
 
 const info: SessionInfo = {
-  providers: [{ name: 'openai-codex', models: [{ id: 'gpt-5' }] }],
+  providers: [{ name: 'codex-agent', models: [{ id: 'gpt-5' }] }],
   modes: ['default'],
-  activeProvider: 'openai-codex',
+  activeProvider: 'codex-agent',
   activeMode: 'default',
   activeModeBadge: null,
 };
@@ -31,15 +31,15 @@ function Probe({
       <span>{agent.info.activeProvider}</span>
       <span data-testid="mode">{agent.info.activeMode}</span>
       <span data-testid="selected-model">{agent.selectedModel ?? 'default'}</span>
-      <button type="button" onClick={() => void agent.onPickProviderModel('openai-codex', 'gpt-5')}>
+      <button type="button" onClick={() => void agent.onPickProviderModel('codex-agent', 'gpt-5')}>
         pick
       </button>
-      <button type="button" onClick={() => void agent.onPickProviderModel('openai-codex', null)}>
+      <button type="button" onClick={() => void agent.onPickProviderModel('codex-agent', null)}>
         pick provider
       </button>
       <button
         type="button"
-        onClick={() => void agent.onPickProviderModel('openai-codex', 'vendor/model-v2', 200_000)}
+        onClick={() => void agent.onPickProviderModel('codex-agent', 'vendor/model-v2', 200_000)}
       >
         pick custom
       </button>
@@ -72,11 +72,11 @@ describe('useAgentSession', () => {
     const { rerender } = render(<Probe workspaceId="session-a" disabled />);
 
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText('openai-codex')).toBeNull();
+    expect(screen.queryByText('codex-agent')).toBeNull();
 
     rerender(<Probe workspaceId="session-a" disabled={false} />);
 
-    expect(await screen.findByText('openai-codex')).toBeInTheDocument();
+    expect(await screen.findByText('codex-agent')).toBeInTheDocument();
     expect(screen.getByTestId('mode')).toHaveTextContent('default');
   });
 
@@ -85,7 +85,7 @@ describe('useAgentSession', () => {
     render(<Probe workspaceId="fresh-session" disabled={false} />);
 
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText('openai-codex')).toBeNull();
+    expect(screen.queryByText('codex-agent')).toBeNull();
 
     act(() => {
       connectionStore.setSnapshot('fresh-session', {
@@ -93,7 +93,7 @@ describe('useAgentSession', () => {
           phase: 'connected',
           socket: '/tmp/fresh-session.sock',
           sessionId: 'fresh-session',
-          activeProvider: 'openai-codex',
+          activeProvider: 'codex-agent',
           activeMode: 'default',
         },
         cliPath: null,
@@ -102,7 +102,7 @@ describe('useAgentSession', () => {
       });
     });
 
-    expect(await screen.findByText('openai-codex')).toBeInTheDocument();
+    expect(await screen.findByText('codex-agent')).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledTimes(2);
   });
 
@@ -113,7 +113,7 @@ describe('useAgentSession', () => {
         phase: 'connected',
         socket: '/tmp/fresh-session.sock',
         sessionId: 'fresh-session',
-        activeProvider: 'openai-codex',
+        activeProvider: 'codex-agent',
         activeMode: 'default',
       },
       cliPath: null,
@@ -124,13 +124,13 @@ describe('useAgentSession', () => {
     render(<Probe workspaceId="fresh-session" disabled={false} />);
 
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText('openai-codex')).toBeNull();
+    expect(screen.queryByText('codex-agent')).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(750);
     });
 
-    expect(screen.getByText('openai-codex')).toBeInTheDocument();
+    expect(screen.getByText('codex-agent')).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledTimes(2);
   });
 
@@ -140,13 +140,13 @@ describe('useAgentSession', () => {
     render(<Probe workspaceId="missed-snapshot-session" disabled={false} />);
 
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText('openai-codex')).toBeNull();
+    expect(screen.queryByText('codex-agent')).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(750);
     });
 
-    expect(screen.getByText('openai-codex')).toBeInTheDocument();
+    expect(screen.getByText('codex-agent')).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledTimes(2);
   });
 
@@ -246,21 +246,21 @@ describe('useAgentSession', () => {
 describe("useAgentSession in a bot's chat (the bot owns the model)", () => {
   it("keeps the bot's model instead of restoring the app's own pick over it", async () => {
     const invoke = installInfoSequence([info]);
-    setModelPreference('moxxy-channel-telegram', 'openai-codex', 'gpt-4', null);
+    setModelPreference('moxxy-channel-telegram', 'codex-agent', 'gpt-4', null);
     chatStore.setModel('moxxy-channel-telegram', 'gpt-5.6-luna', null);
 
     render(
       <Probe workspaceId="moxxy-channel-telegram" disabled={false} modelOwner={{ pick: async () => undefined }} />,
     );
 
-    expect(await screen.findByText('openai-codex')).toBeInTheDocument();
+    expect(await screen.findByText('codex-agent')).toBeInTheDocument();
     expect(screen.getByTestId('selected-model')).toHaveTextContent('gpt-5.6-luna');
     expect(invoke.mock.calls.map(([cmd]) => cmd)).not.toContain('session.setModel');
   });
 
   it("saves a model picked in the header as the bot's model", async () => {
     const invoke = installInfoSequence([
-      { ...info, providers: [{ name: 'openai-codex', models: [{ id: 'gpt-5' }, { id: 'gpt-5-mini' }], starterModel: 'gpt-5-mini' }] },
+      { ...info, providers: [{ name: 'codex-agent', models: [{ id: 'gpt-5' }, { id: 'gpt-5-mini' }], starterModel: 'gpt-5-mini' }] },
     ]);
     const pick = vi.fn(async () => undefined);
     render(<Probe workspaceId="moxxy-channel-telegram" disabled={false} modelOwner={{ pick }} />);
@@ -269,9 +269,9 @@ describe("useAgentSession in a bot's chat (the bot owns the model)", () => {
     fireEvent.click(screen.getByText('pick provider'));
 
     await waitFor(() => expect(pick).toHaveBeenCalledTimes(2));
-    expect(pick).toHaveBeenNthCalledWith(1, 'openai-codex', 'gpt-5');
+    expect(pick).toHaveBeenNthCalledWith(1, 'codex-agent', 'gpt-5');
     // A provider alone means the model a new conversation starts on — a bot's model always names one.
-    expect(pick).toHaveBeenNthCalledWith(2, 'openai-codex', 'gpt-5-mini');
+    expect(pick).toHaveBeenNthCalledWith(2, 'codex-agent', 'gpt-5-mini');
     expect(invoke.mock.calls.map(([cmd]) => cmd)).not.toContain('session.setProvider');
   });
 });

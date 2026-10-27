@@ -2,9 +2,14 @@ import {
   categorizeVoiceOperation,
   toVoiceConversationText,
   type VoiceActiveOperation,
-  type VoiceOperationKind,
 } from '@moxxy/client-core';
+import {
+  isStepListDisplay,
+  isToolDisplayResult,
+  stepListProgress,
+} from '@moxxy/sdk/tool-display';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { describeAgentStatus, operationDetail, type AgentTaskStatus } from './gpt-live-status';
 
 /** A read-back result stays short enough for GPT-Live to say in one breath. */
 export const GPT_LIVE_RESULT_MAX_CHARS = 4_000;
@@ -20,21 +25,16 @@ interface Dispatch {
 }
 
 interface AgentTurn {
-  readonly itemId: string;
+  readonly itemId: string | null;
   reply: string;
-  lastProgress: VoiceOperationKind | null;
+  status: AgentTaskStatus;
+  /** The last status line sent, so an unchanged one is not repeated. */
+  lastSaid: string | null;
 }
 
-const PROGRESS: Readonly<Record<VoiceOperationKind, string>> = {
-  'web-search': 'searching the web',
-  'project-read': 'reading the project',
-  editing: 'editing files',
-  verification: 'running checks or tests',
-  command: 'running a command',
-  application: 'using an app on screen',
-  delegation: 'working with a sub-agent',
-  generic: 'using a tool',
-};
+export interface GptLiveDelegationsOptions {
+  readonly now?: () => number;
+}
 
 /** Waits keyed by user turn; `ANY_TURN` takes whichever user turn ends next. */
 const ANY_TURN = Symbol('any user turn');
@@ -46,8 +46,9 @@ const ANY_TURN = Symbol('any user turn');
  *    transcript is final — so the delegation waits for the user's own words.
  * 2. Those exact words run as an ordinary agent turn; the turn is recognised
  *    when its `user_prompt` reaches the chat.
- * 3. While it runs, its tool calls become progress context, so GPT-Live can
- *    answer "how is it going?" itself instead of delegating the question.
+ * 3. While it runs, its tool calls and plan become a concrete status (task,
+ *    time, step, command or file, plan progress), so GPT-Live can answer "how
+ *    is it going?" itself instead of delegating the question.
  * 4. When that turn completes, its final reply (or failure) becomes the result
  *    GPT-Live reads back. Nothing is reported before the agent has finished.
  *
@@ -58,8 +59,14 @@ export class GptLiveDelegations {
   private readonly waiting = new Map<string | typeof ANY_TURN, string>();
   private readonly dispatches: Dispatch[] = [];
   private readonly agentTurns = new Map<string, AgentTurn>();
-  private readonly operations = new Map<string, VoiceActiveOperation & { readonly turnId: string }>();
+  private readonly operations = new Map<string, VoiceActiveOperation & { readonly turnId: string; readonly detail?: string }>();
   private operationOrdinal = 0;
+  private lastStatus = 'The Moxxy agent has no running task.';
+  private readonly now: () => number;
+
+  constructor(options: GptLiveDelegationsOptions = {}) {
+    this.now = options.now ?? Date.now;
+  }
 
   get inFlight(): number {
     return this.dispatches.length + this.agentTurns.size;
@@ -100,29 +107,83 @@ export class GptLiveDelegations {
   observe(event: MoxxyEvent): string | null {
     if (event.type === 'user_prompt') {
       const index = this.dispatches.findIndex((dispatch) => dispatch.prompt === event.text);
-      if (index < 0) return null;
-      const [dispatch] = this.dispatches.splice(index, 1);
-      if (dispatch) {
-        this.agentTurns.set(event.turnId, { itemId: dispatch.itemId, reply: '', lastProgress: null });
+      if (index < 0 && (event.origin?.kind === 'voice' || event.origin?.kind === 'checkpoint')) return null;
+      const dispatch = index >= 0 ? this.dispatches.splice(index, 1)[0] : undefined;
+      if (!this.agentTurns.has(event.turnId)) {
+        this.agentTurns.set(event.turnId, {
+          itemId: dispatch?.itemId ?? null,
+          reply: '',
+          status: { task: event.text, startedAt: this.now(), steps: 0, done: [] },
+          lastSaid: null,
+        });
       }
       return null;
     }
     const turn = this.agentTurns.get(event.turnId);
     if (!turn) return null;
     if (event.type === 'assistant_message' && event.content.trim()) turn.reply = event.content;
-    if (event.type === 'tool_result') this.operations.delete(event.callId);
+    if (event.type === 'tool_result') {
+      const finished = this.operations.get(event.callId);
+      this.operations.delete(event.callId);
+      const operation = [...this.operations.values()].filter(operation => operation.turnId === event.turnId).at(-1);
+      turn.status = {
+        ...turn.status,
+        current: operation ? { kind: operation.kind, detail: operation.detail } : undefined,
+        done: finished && !turn.status.done.includes(finished.kind) ? [...turn.status.done, finished.kind] : turn.status.done,
+      };
+      const output = event.output;
+      if (!isToolDisplayResult(output) || !isStepListDisplay(output.display)) return null;
+      const { done, total, current } = stepListProgress(output.display);
+      turn.status = { ...turn.status, plan: { done, total, ...(current ? { current: current.text } : {}) } };
+      return this.say(turn);
+    }
     if (event.type !== 'tool_call_requested') return null;
     const kind = categorizeVoiceOperation(event.name, event.input);
+    const detail = operationDetail(event.input);
     this.operationOrdinal += 1;
     this.operations.set(event.callId, {
       callId: event.callId,
       kind,
       ordinal: this.operationOrdinal,
+      ...(detail ? { detail } : {}),
       turnId: event.turnId,
     });
-    if (turn.lastProgress === kind) return null;
-    turn.lastProgress = kind;
-    return `Progress of the running Moxxy task: the agent is ${PROGRESS[kind]}.`;
+    const previous = turn.status.current;
+    turn.status = {
+      ...turn.status,
+      steps: turn.status.steps + 1,
+      current: { kind, ...(detail ? { detail } : {}) },
+      done: previous && previous.kind !== kind && !turn.status.done.includes(previous.kind)
+        ? [...turn.status.done, previous.kind]
+        : turn.status.done,
+    };
+    if (previous?.kind === kind && previous.detail === detail) return null;
+    return this.say(turn);
+  }
+
+  /** Reuse the chat's existing event projection when a call starts mid-task. */
+  restore(events: ReadonlyArray<MoxxyEvent>, activeTurnId: string): void {
+    const current = events.filter(event => event.turnId === activeTurnId);
+    for (const event of current) this.observe(event);
+    const turn = this.agentTurns.get(activeTurnId);
+    const first = current[0];
+    if (turn && first) turn.status = { ...turn.status, startedAt: first.ts };
+  }
+
+  /** Read the same task projection on demand, including tasks typed in chat. */
+  status(waitingForInput = false): string {
+    const turn = [...this.agentTurns.values()].at(-1);
+    if (!turn) return this.lastStatus;
+    if (waitingForInput) return 'The Moxxy agent is waiting for you to approve a step or answer a question in the chat.';
+    return describeAgentStatus(turn.status, this.now());
+  }
+
+  /** The turn's status line, unless it says nothing new. */
+  private say(turn: AgentTurn): string | null {
+    const text = describeAgentStatus(turn.status, this.now());
+    if (text === turn.lastSaid) return null;
+    turn.lastSaid = text;
+    return text;
   }
 
   complete(turnId: string, error: string | null): GptLiveDelegationResult | null {
@@ -132,6 +193,10 @@ export class GptLiveDelegations {
     for (const [callId, operation] of this.operations) {
       if (operation.turnId === turnId) this.operations.delete(callId);
     }
+    this.lastStatus = error
+      ? `The Moxxy agent could not finish the task: ${error.slice(0, 200)}`
+      : 'The Moxxy agent finished its task.';
+    if (turn.itemId === null) return null;
     if (error) return failure(turn.itemId, error);
     const reply = toVoiceConversationText(turn.reply).trim();
     return {

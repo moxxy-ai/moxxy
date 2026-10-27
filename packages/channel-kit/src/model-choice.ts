@@ -80,9 +80,7 @@ export function findModelOptions(options: ReadonlyArray<ModelOption>, query: str
 }
 
 function setupHint(provider: string): string {
-  return provider === 'openai-codex'
-    ? 'moxxy login openai-codex'
-    : `moxxy init   # (will prompt for ${provider.toUpperCase()}_API_KEY)`;
+  return `moxxy init   # (will prompt for ${provider.toUpperCase()}_API_KEY)`;
 }
 
 /**

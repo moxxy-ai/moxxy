@@ -49,31 +49,31 @@ describe('RequirementRegistry', () => {
     const { requirements, providers } = makeRequirements();
     providers.register(
       defineProvider({
-        name: 'openai-codex',
+        name: 'codex-agent',
         models: [],
-        createClient: () => ({ name: 'openai-codex', models: [], stream: async function* () {}, countTokens: async () => 0 }),
+        createClient: () => ({ name: 'codex-agent', models: [], stream: async function* () {}, countTokens: async () => 0 }),
       }),
     );
 
-    const check = requirements.check([{ kind: 'provider', name: 'openai-codex', state: 'active' }]);
+    const check = requirements.check([{ kind: 'provider', name: 'codex-agent', state: 'active' }]);
 
     expect(check.ready).toBe(false);
     expect(check.issues[0]).toMatchObject({
       code: 'inactive',
-      message: 'Required provider is not active: openai-codex',
+      message: 'Required provider is not active: codex-agent',
     });
   });
 
   it('reports runtime requirements until they are marked ready', () => {
     const { requirements } = makeRequirements();
-    const req = { kind: 'runtime' as const, name: 'auth:provider:openai-codex', state: 'ready' as const };
+    const req = { kind: 'runtime' as const, name: 'auth:provider:codex-agent', state: 'ready' as const };
 
     expect(requirements.check([req])).toMatchObject({
       ready: false,
       issues: [{ code: 'not_ready' }],
     });
 
-    requirements.setRuntime('auth:provider:openai-codex', 'ready');
+    requirements.setRuntime('auth:provider:codex-agent', 'ready');
 
     expect(requirements.check([req])).toEqual({ ready: true, issues: [] });
   });
@@ -95,15 +95,15 @@ describe('RequirementRegistry', () => {
     const { requirements, providers } = makeRequirements();
     providers.register(
       defineProvider({
-        name: 'openai-codex',
+        name: 'codex-agent',
         models: [],
-        createClient: () => ({ name: 'openai-codex', models: [], stream: async function* () {}, countTokens: async () => 0 }),
+        createClient: () => ({ name: 'codex-agent', models: [], stream: async function* () {}, countTokens: async () => 0 }),
       }),
     );
-    providers.setActive('openai-codex');
+    providers.setActive('codex-agent');
 
     const check = requirements.check([
-      { kind: 'provider', name: 'openai-codex', state: 'active', version: '1.0.0' },
+      { kind: 'provider', name: 'codex-agent', state: 'active', version: '1.0.0' },
     ]);
 
     expect(check.ready).toBe(true);
@@ -126,19 +126,19 @@ describe('RequirementRegistry', () => {
     const { requirements, transcribers } = makeRequirements();
     transcribers.register(
       defineTranscriber({
-        name: 'openai-codex-transcribe',
-        createClient: () => ({ name: 'openai-codex-transcribe', transcribe: async () => ({ text: 'ok' }) }),
+        name: 'openai-gpt-transcribe',
+        createClient: () => ({ name: 'openai-gpt-transcribe', transcribe: async () => ({ text: 'ok' }) }),
       }),
     );
 
-    expect(requirements.isReady('transcriber', 'openai-codex-transcribe')).toMatchObject({
+    expect(requirements.isReady('transcriber', 'openai-gpt-transcribe')).toMatchObject({
       ready: false,
       issues: [{ code: 'inactive' }],
     });
 
-    transcribers.setActive('openai-codex-transcribe');
+    transcribers.setActive('openai-gpt-transcribe');
 
-    expect(requirements.isReady('transcriber', 'openai-codex-transcribe')).toEqual({
+    expect(requirements.isReady('transcriber', 'openai-gpt-transcribe')).toEqual({
       ready: true,
       issues: [],
     });

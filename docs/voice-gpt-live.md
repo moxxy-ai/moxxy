@@ -1,173 +1,111 @@
-# GPT-Live Voice Mode
+# Voice in the desktop
 
-Voice Mode in the desktop app has two engines, picked in
-**Settings → Voice** (the same tab holds the spoken voice the Local engine
-reads replies with):
+Settings → Voice has three sections: **Conversation**, **Read aloud** and
+**Transcription**. One `OPENAI_API_KEY` vault entry is shared by the OpenAI model
+connection, GPT-Live, OpenAI transcription and OpenAI TTS. The key field only
+reports whether a key exists; it never reads the secret back into the window.
+There is no paid-use confirmation dialog. The key card explains API billing.
 
-| Engine | How a turn works | Can act in the app |
-|---|---|---|
-| **Local** (default) | Your speech is transcribed, answered by the Moxxy agent, and read aloud by the spoken voice you choose — Gemini Flash-Lite (cloud) or Local Piper (on-device). | Yes — every utterance is an agent turn. |
-| **GPT-Live** | A full-duplex call with OpenAI's GPT-Live over your existing ChatGPT login. GPT-Live listens and talks with you itself. | Yes, on explicit request — your own words run as an agent turn and GPT-Live reads back the real result. |
+| Conversation engine | Behaviour |
+| --- | --- |
+| Classic (shown as Local) | Transcription → the Moxxy agent → read aloud. Local Whisper and Piper can work offline. |
+| GPT-Live | OpenAI's `gpt-live-1` holds the conversation over WebRTC. Explicit tasks run through the Moxxy agent. Requires an OpenAI API key. |
 
-GPT-Live reuses the ChatGPT OAuth login from `moxxy login openai-codex` (the
-same login the Codex provider and Codex transcription use). No API key is
-involved. Calls draw on your ChatGPT voice allowance.
+Read aloud retains the existing Gemini Flash-Lite and Piper choices. New Gemini
+Live, Gemini transcription and further Gemini TTS work are deferred.
 
-## How a GPT-Live call behaves
+## Official OpenAI connection
 
-- **Knows the chat.** When a call opens, the last messages of the workspace
-  conversation (up to 128 items / ~8,192 tokens) are handed to GPT-Live. While
-  the call is open, anything typed in the chat or answered by the agent is
-  forwarded as silent context.
-- **Talks by itself.** Questions, chat and anything it can answer from the
-  conversation are answered by GPT-Live directly. Those exchanges are recorded
-  into the chat as ordinary turns (visible, persisted, and context for later
-  agent turns). Speech it never answered is recorded when the call closes.
-  Conversation spoken while the agent is working is held by the runner and
-  appears after that turn ends as **one collapsed "Voice conversation" block**
-  (expand it to read the transcript), so it never lands in the middle of the
-  agent's task (the agent re-reads the whole log before every model call).
-  Later agent turns see it as context, not as a request.
-- **Hands explicit tasks to the agent — in your words.** When you explicitly
-  ask Moxxy to do, run, create, change, check or find something, GPT-Live
-  delegates. Moxxy does not use GPT-Live's paraphrase: it takes the final
-  transcript of *your* turn (matched by `user_bidi_turn_id`) and sends it to the
-  chat as one ordinary agent turn, exactly as if you had typed it.
-- **Reports only real results.** GPT-Live says a short acknowledgement and then
-  waits. When that agent turn completes, its final reply — or its failure — is
-  handed back and GPT-Live reads it out. It is instructed never to claim the
-  work is done before the result arrives. If the agent stops for an approval,
-  the rail shows "Needs your input" and GPT-Live is told to point you to it.
-- **Knows what the agent is doing.** While a task runs, each change in the
-  agent's activity (reading the project, running tests, editing files, …) is
-  sent to GPT-Live as silent context, and the same operations show on the
-  Voice Mode rail. "How is it going?" is answered by GPT-Live itself instead of
-  becoming another task. Between tool calls — one model call can run for
-  minutes — the rail says "Agent thinking · m:ss" or "Agent writing a reply"
-  instead of "No tools running" (both voice engines).
-- **One task at a time; voice never feeds the chat queue.** If you ask for a
-  new task while the agent is busy (with a voice task, or with something typed
-  that is running or queued), it is **not started** and never runs later: the
-  agent finishes what it is doing. GPT-Live tells you so (or, if the request
-  was really a question, answers it itself), and the request stays in the chat
-  as a "Not started" note. Typed messages keep queueing exactly as before, and
-  the Local engine is unchanged.
-- **Never talks over itself.** Anything appended to the call while GPT-Live is
-  speaking cuts its answer off mid-sentence, and it then only remembers the
-  part it got to say. Progress, chat context and task results therefore wait
-  until its current spoken turn ends.
-- **No duplicates.** A delegated request appears in the chat once, as the
-  agent turn; acknowledgements and read-back results are not recorded again.
+`GptLiveSessionClient` in `packages/plugin-provider-openai/src/live/` uses the
+installed OpenAI SDK's `client.live.create` (`POST /v1/live/sessions`). The main
+process sends the API key, model, instructions, history and browser SDP offer;
+the renderer receives only the SDP answer and session ID. Audio and the
+`oai-events` data channel then flow over WebRTC. The API key stays in the main
+process. This public Live API accepts the server-side SDP exchange directly;
+no ephemeral credential is sent to the browser.
 
-## Architecture
-
-```
-renderer: apps/desktop/src/voice-call/gpt-live/
-  useGptLiveVoiceCall      the call (implements UseVoiceCall)
-  gpt-live-transport       WebRTC peer, microphone, `oai-events` data channel
-  gpt-live-protocol        parse server events, build client events
-  gpt-live-exchange        pair finished turns into recorded exchanges
-  gpt-live-delegation      delegation → agent turn → result; progress; busy refusal
-  gpt-live-chat-context    forward new chat messages as silent context
-  gpt-live-outbox          hold outbound context while GPT-Live is speaking
-
-main process: packages/desktop-host/src/ipc/
-  voice.live.preflight     is there a ChatGPT login?
-  voice.live.start         runner history + host instructions → GptLiveCallClient
-  session.recordVoiceExchange → RemoteSession.recordExchange (runner v16)
-
-GptLiveCallClient (packages/plugin-provider-openai-codex/src/live/)
-  POST chatgpt.com/backend-api/codex/realtime/calls  ← SDP offer, OAuth bearer
+```json
+{
+  "session": {
+    "model": "gpt-live-1",
+    "instructions": "…",
+    "delegation": { "type": "client" },
+    "input": [{ "role": "user", "type": "message", "content": [{ "type": "input_text", "text": "…" }] }]
+  },
+  "transport": { "type": "webrtc", "sdp": "v=0…" }
+}
 ```
 
-- The bearer token, endpoint, model, instructions and chat history never leave
-  the main process. The renderer only sends its WebRTC offer and receives the
-  SDP answer.
-- The runner method `session.recordExchange` (protocol **v16**) appends
-  `user_prompt` + `assistant_message` under one new turn id without running a
-  model or tools. While a turn is running exchanges are held
-  (`packages/runner/src/spoken-exchanges.ts`) and appended once no turn runs —
-  before that turn's `turn.complete` — as one `user_prompt` transcript with
-  `origin: { kind: 'voice' }`, which the desktop and TUI render as a collapsed
-  marker (like webhook / schedule prompts). Older runners reject it with an "update the CLI" error, and
-  Voice Mode stops rather than silently losing the conversation.
-- Delegated tasks go through the normal chat send path (`chat.send`), so they
-  queue, stream, ask for permissions and persist like any typed prompt. The
-  result is correlated by the agent turn's `user_prompt` and delivered on
-  `runner.turn.complete`.
-- `useDesktopVoiceCall` picks the engine; the Voice Mode rail, Focus mirror and
-  capture lease are shared with the local engine unchanged.
+The service returns `session.id` and `transport.sdp`. The data-channel reader
+handles `session.started`, `session.input_transcript.delta`,
+`session.output_transcript.delta`, `session.delegation.created`, `session.closed`
+and errors. Live streams transcript fragments rather than discrete turns; the
+reader finishes an utterance when the speaker changes, a delegation arrives,
+the call ends or the assistant is quiet for 1.5 seconds.
 
-## Wire contract
+See OpenAI's [WebRTC guide](https://developers.openai.com/api/docs/guides/voice-webrtc?api=live),
+[session guide](https://developers.openai.com/api/docs/guides/live-conversations)
+and [client delegation](https://developers.openai.com/api/docs/guides/live-delegation).
 
-GPT-Live is only reachable with a ChatGPT login through the Codex realtime
-route (the public `/v1/live/sessions` API requires an API key). It is an
-undocumented preview contract. Verified against the live service on
-2026-09-28:
+## Conversation and tasks
 
-- `POST https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas`
-  with headers `Authorization: Bearer …`, `ChatGPT-Account-Id`,
-  `openai-alpha: quicksilver=v2`, `originator: codex_cli_rs`, `x-session-id`
-  and body `{ sdp, session: { instructions, model: "gpt-live-1-codex",
-  audio: { output: { voice } }, delegation: { type: "client" }, initial_items } }`.
-  Returns `201` with the SDP answer and `Location: …/rtc_…`.
-  The model id is enforced: the earlier `gpt-live-1-boulder-alpha` now fails
-  with `400 session.model is not allowed`.
-- Server events on the `oai-events` data channel: `session.started`,
-  `input_transcript.added` / `output_transcript.added` (`item.text`),
-  `turn.created`, `turn.delta`, `turn.done` (`turn.role`, `turn.transcript`),
-  `delegation.created` (`item.id`, `item.user_bidi_turn_id`; usually arrives
-  before the user turn's `turn.done`), `delegation.context.appended`,
-  `session.usage.updated`, `session.closed`, `error`.
-- Client events accepted: `session.update`, `session.context.append`
-  (channels `speakable`, `commentary`, `developer`), `delegation.context.append`,
-  `input_audio.pause` / `resume`, `response.create`, `session.close`, and a few
-  others. `session.context.append` without a channel is treated as user text
-  and answered aloud; the `developer` channel adds context silently.
-- A task result goes back as `delegation.context.append` with the delegation
-  `item.id` and `channel: "speakable"`, chunked to 500 bytes; GPT-Live then
-  speaks it. An interim status on `channel: "commentary"` leaves the
-  delegation open; its speakable result can follow much later (Voice Mode does
-  not use it).
-- Any `session.context.append` sent while an assistant turn is being spoken
-  interrupts it: the turn ends early with `turn.done` carrying only the words
-  already spoken, and the model does not resume. Sent before the reply starts,
-  it does not interrupt. (Verified 2026-09-29.)
+- Recent chat messages (up to 128 items and roughly 8,192 tokens) seed the call.
+  New typed messages and agent answers reach it as silent context.
+- Questions are answered by the voice model. Only explicit tasks are delegated.
+  Moxxy dispatches the user's transcript verbatim, through normal chat send,
+  permissions and persistence. It never executes a model's rewritten prompt.
+- A delegation waits for the agent's real final answer or error before reading
+  the result aloud. A busy agent refuses a second task; voice never queues it.
+- Recorded voice exchanges use the runner's `session.recordExchange`. They are
+  context rather than new requests and do not get mirrored back into the call.
+- Context and results wait in an outbox while the voice model speaks.
 
-## Risks
+## Progress
 
-- The route is private and has changed before (model id, a `403 Voice session
-  access denied` wave in September 2026). Every wire detail lives in
-  `packages/plugin-provider-openai-codex/src/live/gpt-live-call.ts` and
-  `apps/desktop/src/voice-call/gpt-live/gpt-live-protocol.ts`.
-- Whether a request counts as a task is GPT-Live's call, steered by the host
-  instructions in `packages/desktop-host/src/ipc/voice.ts`. What runs is always
-  the user's own transcript, never the model's paraphrase.
-- The instructions also say GPT-Live cannot check live facts (prices,
-  timetables, news) and must not state them as current, and they carry the
-  agent's own self-reference rule (`SELF_REFERENCE_NOTE` from `@moxxy/sdk`):
-  both speak of Moxxy in the feminine form, because both write into the same
-  chat and each copies the form it finds there.
-- Sometimes a call is accepted (`201` with an SDP answer) but its media server
-  never answers ICE checks, so the call cannot open; a call a few minutes later
-  works (seen 2026-09-29). Voice Mode then stops with "Couldn't reach the
-  GPT-Live voice server" after 30 seconds.
-- Only the WebRTC transport works with a ChatGPT login, so GPT-Live is desktop
-  only.
-- OpenAI's terms say nothing explicit about third-party clients using the
-  ChatGPT login for voice.
+The status projection reads the same runner events as the chat: user prompt,
+tool requests and results, step lists, and turn completion. It follows tasks
+started in chat as well as voice. A call opened mid-task restores that task
+from the chat's current event window. Progress includes elapsed time, command,
+file basename or host, completed activity categories and plan progress. Input
+requests tell the person to approve or answer in the chat. Tool results and file
+contents never enter the progress summary; common key and credential arguments
+are redacted from command descriptions.
 
-## Verifying
+Changes in activity send `session.thinking.append`; starting a user utterance
+refreshes the status and elapsed time. Official Live **client delegation does
+not expose a custom function directly to the voice model**. Status therefore
+arrives as on-demand context, rather than a fictional `get_agent_status` tool.
+The model is instructed to answer progress questions without starting a task.
+`session.commentary.append` carries the finished delegation result.
 
-```bash
-pnpm --filter @moxxy/runner exec vitest run src/integration.test.ts -t recordExchange
-pnpm --filter @moxxy/plugin-provider-openai-codex exec vitest run src/live
-pnpm --filter @moxxy/desktop-host exec vitest run src/ipc/voice-live.test.ts
-pnpm --filter @moxxy/desktop exec vitest run src/voice-call
+## Transcription and migration
+
+The microphone's OpenAI path uses `gpt-transcribe` through the official audio
+transcriptions API. It resolves the shared vault key for each recording, so a
+newly saved or replaced key works without restarting. Without a key or a local
+transcriber, it asks the person to choose transcription and configure a key.
+There is no ChatGPT-token fallback.
+
+The retired ChatGPT-token provider and transcriber packages are no longer loaded,
+even if an old installation left them on disk. A configuration or saved chat
+that selected the retired provider moves to `codex-agent` when it is available
+and authenticated. Old backend configuration and model IDs are not reused.
+Without a working Codex connection, the desktop opens provider recovery and
+explains how to connect Codex, add an OpenAI API key, or choose another connection.
+A successful automatic move shows a notice. Old vault tokens are not used.
+
+First-run provider provisioning waits for the same plugin preparation as runner
+startup and provider login, so saving a key cannot race the initial installation.
+
+## Verification
+
+```sh
+pnpm --filter @moxxy/plugin-provider-openai test
+pnpm --filter @moxxy/desktop-host test
+pnpm --filter @moxxy/desktop exec vitest run src/voice-call src/settings src/onboarding
+pnpm build
 ```
 
-Manual smoke: sign in with `moxxy login openai-codex`, pick **GPT-Live** in
-Settings, open Voice Mode, ask about something earlier in the chat, then ask it
-to do something ("run the tests in this project"). The request should appear in
-the chat as your own words, the agent should run it, and GPT-Live should read
-back the agent's actual reply only after the turn finishes.
+Use an isolated home for API and desktop smokes. Manual microphone testing should
+cover conversation, exact task wording, results, progress questions, approval,
+interruption and reconnect. `pnpm test:agents:live` is required before merging.

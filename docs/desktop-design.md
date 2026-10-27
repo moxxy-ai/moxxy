@@ -107,9 +107,10 @@ between yet. It is one form on the sidebar's ground: the mark, a card with
 "Step n of N" over a line of step marks, and one step at a time
 (`onboarding/chrome/Shell.tsx`). A step that can be left for later offers a
 quiet "Skip for now" in place of the lit button, so the accent only marks the
-way forward. The provider step's picker groups the coding agents (Claude Code,
+way forward. The provider step's picker groups the "SDK · OAuth login" agents (Claude Code,
 Codex, OpenCode: they work through their own SDK, on their own sign-in) apart
-from the model APIs Moxxy calls itself; `settings.providerCatalog` tags each
+from the "API · API key login" models Moxxy calls itself, named as in Settings and the model
+picker (`settings/provider-kinds.ts`); `settings.providerCatalog` tags each
 entry `agent` or `api`. Skipping the workspace step keeps the built-in Moxxy
 workspace, whose folder is `~/Moxxy` (inside `MOXXY_HOME` when that is set):
 the app starts its first runner there (`initialRunnerTarget` in
@@ -517,9 +518,9 @@ as the same app.
 | State chip | `.tag`, `components/StateToggle.tsx` | A state is a word in a filled pill, toned good, bad or warn. The chip that switches a workflow, schedule or webhook on is the same chip. |
 | Table | `.data-table`, `.data-row` | Fixed tracks for the trailing columns, so a head sits over its cells. |
 | Approvals | `workflows/WorkflowApprovals.tsx` | Shown only while a workflow waits on the person. |
-| Provider groups | `CardGroup` in `settings/settings-primitives.tsx` | Providers is two lists, not one: "Coding agents" (the agent on this computer does the work, on its own sign-in) above "Model providers" (Moxxy does the work and calls the model, with an API key or a sign-in). Each has a quiet heading with its count and one line on what sets it apart; a hairline and 20 px of air sit between them, so the split reads before any row does. A kind with no rows shows no heading. No motion: it is a list. |
-| Model picker providers | `chat/agent-picker/ProviderModelGrid.tsx`, `useConnectedProviders.ts` | The provider column of the model picker (Model & usage, and a channel's model) lists only the providers Settings → Providers shows as connected — an agent installed and signed in, a provider whose key resolved, a local server that answers — read from the same `settings.providers` answer through `isProviderConnected` in `@moxxy/client-core`, so the two never disagree. The running provider always stays. It splits them the way Providers does: "Coding agents" above "Model providers", each under a quiet heading, a kind with none showing no heading. Until Settings answers only the running provider shows, so a list never grows and then shrinks under the pointer; when Settings cannot answer, every provider shows rather than none. |
-| Agent connection | `settings/agents/AgentConnectionRow.tsx` | Claude, Codex and OpenCode each get a row in the "Coding agents" group at the head of Providers, and the same row in the first-run provider step: the agent's name with its state as a chip beside it (so the line under the name has the whole width and stays one line), one line under it (the account it is signed in to and the version, or what is wrong), the one action that moves it on (Install, Update, Sign in, Check again) and a menu with "Check for updates". While its CLI installs or updates, a thin bar under the line fills as the installer reports a percentage, or slides while it says none. The state comes from the runner (`ProviderEntry.agentCli`) and from the install this window runs (`agentConnectionView` in `@moxxy/client-core`). |
+| Provider groups | `CardGroup` in `settings/settings-primitives.tsx` | Providers is two lists, not one, split by how the person signs in: "SDK · OAuth login" (an agent app on this computer, on its own sign-in) above "API · API key login" (a model Moxxy calls with an API key, or one on this computer). The names live in `settings/provider-kinds.ts`, shared with the model picker and the first-run provider step, so a kind is called the same everywhere; ⌘K still finds them by the old words ("coding agents", "model providers"). People using Moxxy need not know how either works, so no line explains a kind: the name is enough. Each has a quiet heading with its count; a hairline and 20 px of air sit between them, so the split reads before any row does. A kind with no rows shows no heading. No motion: it is a list. |
+| Model picker providers | `chat/agent-picker/ProviderModelGrid.tsx`, `useConnectedProviders.ts` | The provider column of the model picker (Model & usage, and a channel's model) lists only the providers Settings → Providers shows as connected — an agent installed and signed in, a provider whose key resolved, a local server that answers — read from the same `settings.providers` answer through `isProviderConnected` in `@moxxy/client-core`, so the two never disagree. The running provider always stays. It splits them the way Providers does: "SDK · OAuth login" above "API · API key login". Each heading is the kind's name alone, in the text colour, and a hairline with a little air sits between the kinds, so the split reads before any provider does. A kind with none shows no heading. Until Settings answers only the running provider shows, so a list never grows and then shrinks under the pointer; when Settings cannot answer, every provider shows rather than none. |
+| Agent connection | `settings/agents/AgentConnectionRow.tsx` | Claude, Codex and OpenCode each get a row in the "SDK · OAuth login" group at the head of Providers, and the same row in the first-run provider step: the agent's name with its state as a chip beside it (so the line under the name has the whole width and stays one line), one line under it (the account it is signed in to and the version, or what is wrong), the one action that moves it on (Install, Update, Sign in, Check again) and a menu with "Check for updates". While its CLI installs or updates, a thin bar under the line fills as the installer reports a percentage, or slides while it says none. The state comes from the runner (`ProviderEntry.agentCli`) and from the install this window runs (`agentConnectionView` in `@moxxy/client-core`). |
 
 ### The focus window
 
@@ -588,3 +589,14 @@ above are reimplemented here in Moxxy's own components.
 9. **Found by name** (done): the palette finds every option by its own name
    and opens the section that holds it; Providers are the first section of
    Settings; first run is one form with no sidebar.
+
+## Voice settings and connection migration
+
+Voice uses the existing segmented control for Conversation, Read aloud and
+Transcription, with immediate switching. A shared OpenAI key card stays above
+these sections; the password field and save action use the existing input and
+button primitives, card border and text tokens. Saved-key state and failures
+are written in text, not conveyed only by colour. Each option is indexed for
+⌘K. Existing read-aloud choices remain available. API billing is explained inline;
+there is no paid-use modal. Recovery from the retired ChatGPT sign-in shows an
+inline explanation in the provider form; a successful move uses the normal toast.

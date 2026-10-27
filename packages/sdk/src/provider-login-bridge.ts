@@ -8,8 +8,7 @@
  * JSON marker on stdout. NUL never appears in normal terminal output, so the
  * host can scan the byte stream for these markers, render the prompt, and
  * write the user's answer back as one stdin line. Loopback flows that never
- * call `ctx.prompt` (e.g. openai-codex, which captures the code via a local
- * callback server) emit no markers — the host just streams their output and
+ * call `ctx.prompt` (they capture the code via a local callback server) emit no markers — the host just streams their output and
  * waits for the process to exit.
  *
  * Living here (not in the CLI or the desktop contract) keeps the one wire

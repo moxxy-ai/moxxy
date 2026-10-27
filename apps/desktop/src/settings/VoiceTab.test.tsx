@@ -13,7 +13,7 @@ afterEach(() => {
 const MODEL_BYTES = 1_036_613_791;
 const CLOUD: TranscriptionSettings = {
   mode: 'cloud',
-  active: 'openai-codex-transcribe',
+  active: null,
   modelReady: false,
   modelBytes: MODEL_BYTES,
   setup: null,
@@ -27,6 +27,7 @@ let pushTranscription: (settings: TranscriptionSettings) => void = () => undefin
 function installApi(
   engine: VoiceEnginePreference = 'local',
   useLocalTranscription: () => Promise<void> = async () => undefined,
+  vaultEntries: Array<{ name: string }> = [],
 ) {
   let transcription: TranscriptionSettings = CLOUD;
   let changed: (settings: TranscriptionSettings) => void = () => undefined;
@@ -43,7 +44,7 @@ function installApi(
     if (command === 'prefs.read') return { voiceEngine: engine };
     if (command === 'prefs.update') return {};
     if (command === 'voice.getSettings') return { backend: 'local-piper', voiceId: 'Fola' };
-    if (command === 'settings.vaultEntries') return [];
+    if (command === 'settings.vaultEntries') return vaultEntries;
     if (command === 'voice.isLocalPiperInstalled') return true;
     if (command === 'voice.listGeminiVoices') {
       return [{ id: 'Fola', displayName: 'Fola', languageCode: 'en-US' }];
@@ -60,10 +61,68 @@ function installApi(
   return invoke;
 }
 
+function openSection(name: 'conversation' | 'read-aloud' | 'transcription'): void {
+  fireEvent.click(screen.getByTestId(`voice-section-${name}`));
+}
+
 describe('VoiceTab', () => {
+  it('asks for the OpenAI API key once, for every OpenAI voice feature', async () => {
+    const invoke = installApi();
+    render(<VoiceTab />);
+
+    const field = await screen.findByLabelText(/^OpenAI API key/u);
+    expect(screen.getByText(/GPT-Live and OpenAI transcription both use this key/u)).toBeTruthy();
+    fireEvent.change(field, { target: { value: 'sk-test' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save OpenAI key' }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.vaultSet', {
+      name: 'OPENAI_API_KEY', value: 'sk-test',
+    }));
+    await screen.findByText(/key saved in this device vault/u);
+  });
+
+  it('splits voice into Conversation, Read aloud and Transcription tabs', async () => {
+    installApi();
+    render(<VoiceTab />);
+
+    expect(screen.getByTestId('voice-section-conversation').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('voice-engine-gpt-live')).toBeTruthy();
+    expect(screen.queryByTestId('transcription-cloud')).toBeNull();
+
+    openSection('read-aloud');
+    expect(screen.getByRole('heading', { name: 'Local Piper' })).toBeTruthy();
+    expect(screen.queryByTestId('voice-engine-gpt-live')).toBeNull();
+
+    openSection('transcription');
+    expect(await screen.findByTestId('transcription-cloud')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Local Piper' })).toBeNull();
+  });
+
+  it('describes GPT-Live and the Classic engine without any ChatGPT login', async () => {
+    installApi('gpt-live');
+    render(<VoiceTab />);
+
+    expect(screen.getByTestId('voice-engine-local').textContent).toBe('Classic');
+    expect(await screen.findByText(/GPT-Live.*your OpenAI API key/u)).toBeTruthy();
+    expect(screen.queryByText(/ChatGPT login/u)).toBeNull();
+  });
+
+  it('offers OpenAI transcription on the API key, and says when the key is missing', async () => {
+    installApi();
+    render(<VoiceTab />);
+    openSection('transcription');
+
+    const openai = await screen.findByTestId('transcription-cloud');
+    expect(openai.textContent).toBe('OpenAI');
+    expect(screen.getByText(/transcribed by OpenAI with your OpenAI API key/u)).toBeTruthy();
+    expect(await screen.findByText(/Add your OpenAI API key above to use OpenAI transcription/u)).toBeTruthy();
+    expect(screen.queryByText(/ChatGPT login/u)).toBeNull();
+  });
+
   it('saves a Gemini key, loads account voices and activates the chosen voice', async () => {
     const invoke = installApi();
     render(<VoiceTab />);
+    openSection('read-aloud');
 
     expect(screen.getByText(/played one sentence at a time, with up to two upcoming sentences prepared ahead/i))
       .toBeTruthy();
@@ -80,17 +139,14 @@ describe('VoiceTab', () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('voice.useGeminiTts', { voiceId: 'Fola' }));
   });
 
-  it('holds the Voice Mode engine choice next to the spoken voices', async () => {
+  it('switches the Voice Mode engine, and Read aloud says GPT-Live speaks for itself', async () => {
     const invoke = installApi('local');
     render(<VoiceTab />);
 
-    expect(screen.getByTestId('voice-engine-local')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Gemini Flash-Lite' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Local Piper' })).toBeTruthy();
-
     fireEvent.click(screen.getByTestId('voice-engine-gpt-live'));
-
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('prefs.update', { voiceEngine: 'gpt-live' }));
+
+    openSection('read-aloud');
     expect(screen.queryByRole('heading', { name: 'Gemini Flash-Lite' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Local Piper' })).toBeNull();
     expect(screen.getByText(/GPT-Live speaks with its own voice/u)).toBeTruthy();
@@ -99,6 +155,7 @@ describe('VoiceTab', () => {
   it('shows no usage or cost estimate', async () => {
     const invoke = installApi();
     render(<VoiceTab />);
+    openSection('read-aloud');
     await screen.findByText('Current voice: Local · Piper');
 
     expect(screen.queryByText(/Estimated Gemini usage/u)).toBeNull();
@@ -109,10 +166,10 @@ describe('VoiceTab', () => {
     let finish = (): void => undefined;
     const invoke = installApi('local', () => new Promise<void>((resolve) => { finish = resolve; }));
     render(<VoiceTab />);
+    openSection('transcription');
 
     const cloud = await screen.findByTestId('transcription-cloud');
     await waitFor(() => expect(cloud.getAttribute('data-active')).toBe('true'));
-    expect(screen.getByText(/transcribed by OpenAI over your ChatGPT login/u)).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('transcription-local'));
     const dialog = await screen.findByRole('dialog', { name: 'Download Whisper turbo?' });
@@ -146,6 +203,7 @@ describe('VoiceTab', () => {
   it('downloads nothing when the person says not now', async () => {
     const invoke = installApi();
     render(<VoiceTab />);
+    openSection('transcription');
     const cloud = await screen.findByTestId('transcription-cloud');
     await waitFor(() => expect(cloud.getAttribute('data-active')).toBe('true'));
 

@@ -9,9 +9,9 @@ const luna = { id: 'gpt-6-luna', supportsReasoning: true, supportsFast: true };
 const plain = { id: 'plain', supportsReasoning: true };
 const infoWith = (over: Partial<SessionInfo> = {}): SessionInfo => ({
   sessionId: 's1',
-  providers: [{ name: 'openai-codex', models: [luna, plain] }],
+  providers: [{ name: 'codex-agent', models: [luna, plain] }],
   modes: ['default'],
-  activeProvider: 'openai-codex',
+  activeProvider: 'codex-agent',
   activeMode: 'default',
   activeModeBadge: null,
   reasoningEffort: null,

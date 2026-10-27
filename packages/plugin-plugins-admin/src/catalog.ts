@@ -197,17 +197,10 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
   },
   {
     id: 'stt-whisper',
-    label: 'Whisper voice input',
-    description: 'Speech-to-text via the OpenAI Whisper API (Ctrl+R in the TUI).',
+    label: 'OpenAI voice input',
+    description: 'Speech-to-text via the OpenAI transcription API, gpt-transcribe (Ctrl+R in the TUI; reuses OPENAI_API_KEY).',
     packageName: '@moxxy/plugin-stt-whisper',
     installSpec: '@moxxy/plugin-stt-whisper',
-  },
-  {
-    id: 'stt-whisper-codex',
-    label: 'Whisper via ChatGPT sign-in',
-    description: 'Speech-to-text through a ChatGPT OAuth account (needs the codex provider).',
-    packageName: '@moxxy/plugin-stt-whisper-codex',
-    installSpec: '@moxxy/plugin-stt-whisper-codex',
   },
   {
     id: 'tts-openai',

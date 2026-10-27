@@ -35,9 +35,9 @@ export default defineConfig({
 ```yaml
 plugins:
   provider:
-    default: openai-codex          # the provider a new conversation starts on
+    default: codex-agent          # the provider a new conversation starts on
     items:
-      openai-codex:
+      codex-agent:
         model: gpt-6-luna          # the model it runs when a turn names none
 context:
   reasoning: { effort: medium }

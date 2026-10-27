@@ -10,6 +10,9 @@ export interface OnboardingStatus {
   hasProvider: boolean;
   /** Active provider (`plugins.provider.default`) from `~/.moxxy/config.yaml`. */
   activeProvider: string | null;
+  /** A provider the runner moved the config off at startup (the retired
+   *  ChatGPT sign-in → the Codex agent), not yet shown to the person. */
+  providerMigration: { from: string; to: string } | null;
 }
 
 /**

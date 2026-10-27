@@ -5,7 +5,7 @@ describe('summarizeModalTabs', () => {
   const tabs = [
     { id: 'anthropic', label: 'anthropic (5)' },
     { id: 'openai', label: 'openai (18)' },
-    { id: 'openai-codex', label: 'openai-codex (offline)' },
+    { id: 'codex-agent', label: 'codex-agent (offline)' },
   ];
 
   it('shows one active provider and its position instead of an overflowing strip', () => {
@@ -17,7 +17,7 @@ describe('summarizeModalTabs', () => {
   });
 
   it('truncates a long provider label to the available header width', () => {
-    const summary = summarizeModalTabs(tabs, 'openai-codex', 12);
+    const summary = summarizeModalTabs(tabs, 'codex-agent', 12);
     expect(summary?.label.length).toBeLessThanOrEqual(12);
     expect(summary?.label).toContain('…');
   });

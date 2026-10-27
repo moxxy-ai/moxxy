@@ -162,8 +162,8 @@ const BUNDLED_WORKSPACE_DEPS = [
   '@moxxy/runner',
   '@moxxy/sdk',
   '@moxxy/plugin-vault',
-  '@moxxy/plugin-provider-openai-codex',
-  '@moxxy/plugin-stt-whisper-codex',
+  '@moxxy/plugin-provider-openai',
+  '@moxxy/plugin-stt-whisper',
   '@moxxy/desktop-ipc-contract',
   '@moxxy/desktop-host',
 ];

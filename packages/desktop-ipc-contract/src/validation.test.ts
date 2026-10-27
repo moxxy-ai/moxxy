@@ -121,7 +121,7 @@ describe('IPC payload validation', () => {
   });
 
   it('confines provider names to a slug', () => {
-    expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: 'openai-codex' })).not.toThrow();
+    expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: 'codex-agent' })).not.toThrow();
     expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: '--flag' })).toThrow();
     expect(() => validateIpcInput('onboarding.saveProviderKey', { provider: '../x', secret: 'k' })).toThrow();
   });
@@ -247,7 +247,7 @@ describe('IPC payload validation', () => {
   });
 
   it('takes a known change, whole or in part, for settings.setModelDefaults', () => {
-    const model = { provider: 'openai-codex', model: 'gpt-6-luna' };
+    const model = { provider: 'codex-agent', model: 'gpt-6-luna' };
     expect(() => validateIpcInput('settings.setModelDefaults', { model, effort: 'medium', fast: true })).not.toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { model })).not.toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { effort: 'off' })).not.toThrow();
@@ -255,7 +255,7 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('settings.setModelDefaults', { effort: 'default' })).toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { model: { ...model, model: '' } })).toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { model: { ...model, provider: '../x' } })).toThrow();
-    expect(() => validateIpcInput('settings.setModelDefaults', { model: { provider: 'openai-codex' } })).toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { model: { provider: 'codex-agent' } })).toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { path: 'permissions' })).toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', {})).toThrow();
   });
@@ -615,7 +615,7 @@ describe('IPC payload validation', () => {
 
   it('accepts channels.setModel only as provider::model or null (reset to default)', () => {
     const ok = (model: unknown) => () => validateIpcInput('channels.setModel', { channelId: 'discord', model });
-    expect(ok('openai-codex::gpt-5.6-luna')).not.toThrow();
+    expect(ok('codex-agent::gpt-5.6-luna')).not.toThrow();
     expect(ok(null)).not.toThrow();
     expect(ok('gpt-5.6-luna')).toThrow();
     expect(ok('::m')).toThrow();
@@ -713,7 +713,7 @@ describe('IPC payload validation', () => {
 
   it('accepts a provider switch for a workspace', () => {
     expect(() =>
-      validateIpcInput('session.setProvider', { workspaceId: 'workspace-1', provider: 'openai-codex' }),
+      validateIpcInput('session.setProvider', { workspaceId: 'workspace-1', provider: 'codex-agent' }),
     ).not.toThrow();
   });
 

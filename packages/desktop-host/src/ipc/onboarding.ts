@@ -11,6 +11,7 @@
 import { app, shell, BrowserWindow as BrowserWindowApi } from 'electron';
 
 import type { RunnerPool } from '../runner-pool';
+import { clearProviderMigrationNotice } from '@moxxy/config';
 import { probeOnboarding, provisionProvider, saveProviderKey } from '../onboarding';
 import { installMoxxyCli, probeNode } from '../installer';
 import { installManagedNode } from '../node-manager';
@@ -22,6 +23,7 @@ export function registerOnboardingHandlers(pool: RunnerPool): void {
   // ---- Onboarding ----------------------------------------------------------
 
   handle('onboarding.status', () => probeOnboarding());
+  handle('onboarding.dismissProviderMigration', () => clearProviderMigrationNotice());
   // The Node the installer carries is unpacked as the app starts: look for one only after that.
   handle('onboarding.probeNode', async () => {
     await bundledRuntimesReady();
@@ -57,6 +59,7 @@ export function registerOnboardingHandlers(pool: RunnerPool): void {
     if (session) void Promise.resolve(session.providers.setActive(provider)).catch(() => undefined);
   });
   handle('onboarding.provisionProvider', async ({ provider, model }) => {
+    await pool.prepare();
     await provisionProvider(provider, model);
     // The provider package now lives in ~/.moxxy/plugins and the config names it
     // as the default — but the runner(s) booted before it existed. Restart every
@@ -74,7 +77,7 @@ export function registerOnboardingHandlers(pool: RunnerPool): void {
     const info = remote?.getInfo();
     const known = info?.providers.find((p) => p.name === provider);
     if (known) return known.authKind;
-    const OAUTH_FALLBACK = new Set(['openai-codex', 'claude-code', 'codex-agent', 'opencode']);
+    const OAUTH_FALLBACK = new Set(['claude-code', 'codex-agent', 'opencode']);
     return OAUTH_FALLBACK.has(provider) ? 'oauth' : 'api-key';
   });
 }

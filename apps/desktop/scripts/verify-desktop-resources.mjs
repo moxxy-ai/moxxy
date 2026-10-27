@@ -17,9 +17,9 @@ const COMPUTER_HELPERS = {
 };
 
 const REQUIRED_CLI_DEPENDENCIES = ['@moxxy/sdk', 'zod', 'undici'];
-const CODEX_PROVIDER = '@moxxy/plugin-provider-openai-codex';
+const SIGN_IN_PROVIDER = '@moxxy/plugin-provider-claude-code';
 /** Sign-in providers the desktop offers out of the box — each must be seeded. */
-const SIGN_IN_PROVIDERS = [CODEX_PROVIDER, '@moxxy/plugin-provider-claude-code'];
+const SIGN_IN_PROVIDERS = [SIGN_IN_PROVIDER];
 /** Both voices Settings offers work without npm: offline Piper (with every
  *  voice it offers, checked below) and Gemini. */
 const VOICE_PLUGINS = ['@moxxy/plugin-tts-local', '@moxxy/plugin-tts-gemini'];
@@ -85,7 +85,7 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
       }
       await requireFile(path.resolve(path.dirname(manifestPath), entry), `${dependency} entrypoint`);
     }
-    if (dependency === CODEX_PROVIDER) providerManifest = manifest;
+    if (dependency === SIGN_IN_PROVIDER) providerManifest = manifest;
     const helper = COMPUTER_HELPERS[options.platform ?? process.platform];
     if (dependency === '@moxxy/plugin-computer-control' && helper) {
       const [label, segments, protocol] = helper;
@@ -104,7 +104,7 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
     }
   }
   if (!providerManifest?.moxxy?.plugin) {
-    throw new Error(`${CODEX_PROVIDER} is installed but is not a discoverable plugin`);
+    throw new Error(`${SIGN_IN_PROVIDER} is installed but is not a discoverable plugin`);
   }
 
   await verifyBundledVoices(path.join(root, 'models-seed', 'tts'));
@@ -268,7 +268,7 @@ if (isMain()) {
         runtimePath: process.argv[3],
       });
       console.log(
-        `Desktop resources verified: CLI ${report.cliVersion}, ${report.seedPackageCount} seed packages, ${report.voiceCount} voices, ${CODEX_PROVIDER} ${report.providerVersion}`,
+        `Desktop resources verified: CLI ${report.cliVersion}, ${report.seedPackageCount} seed packages, ${report.voiceCount} voices, ${SIGN_IN_PROVIDER} ${report.providerVersion}`,
       );
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));

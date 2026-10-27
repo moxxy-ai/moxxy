@@ -6,7 +6,7 @@
  * Why this exists: once @moxxy/cli is bundled and published as a single
  * binary, the bundled packages have no on-disk `package.json`, so the
  * runtime disk lookup (`readPackageMoxxyRequirements`) returns `[]` for them
- * — silently disabling hard-requirement gating (e.g. @moxxy/plugin-stt-whisper-codex).
+ * — silently disabling hard-requirement gating (a plugin's `moxxy.requirements`).
  * This manifest is consulted first; the disk lookup remains the fallback for
  * third-party / from-source plugins.
  *

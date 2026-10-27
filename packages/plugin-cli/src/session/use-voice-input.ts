@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ClientSession as Session } from '@moxxy/sdk';
-import { getInstallHint, MOXXY_PCM16_24KHZ_MIME, type RequirementCheck, type RequirementIssue, type Transcriber } from '@moxxy/sdk';
+import { getInstallHint, MOXXY_PCM16_24KHZ_MIME, type RequirementCheck, type Transcriber } from '@moxxy/sdk';
 import type { ExternalInsert } from '../components/prompt/external-insert.js';
 import {
   startVoiceRecording,
@@ -10,8 +10,6 @@ import {
   type ActiveVoiceRecording,
   type StartVoiceRecordingOptions,
 } from '../voice-input.js';
-
-const CODEX_TRANSCRIBER_NAME = 'openai-codex-transcribe';
 
 export interface UseVoiceInputOptions {
   readonly session: Session;
@@ -50,7 +48,7 @@ export function useVoiceInput(opts: UseVoiceInputOptions): VoiceInputState {
   const [captureReadiness, setCaptureReadiness] = useState<RequirementCheck>(() =>
     unavailableVoiceCaptureCheck(),
   );
-  const readiness = combineVoiceInputReadiness(checkCodexVoiceInputReady(session), captureReadiness);
+  const readiness = combineVoiceInputReadiness(checkVoiceInputReady(session), captureReadiness);
   const ready = readiness.ready;
 
   useEffect(() => {
@@ -96,7 +94,7 @@ export function useVoiceInput(opts: UseVoiceInputOptions): VoiceInputState {
         try {
           if (!recording) throw new Error('voice recorder is not running');
           const pcm = await recording.stop();
-          const transcriber = resolveCodexTranscriber(session);
+          const transcriber = resolveVoiceTranscriber(session);
           const result = await transcriber.transcribe(pcm, {
             mimeType: MOXXY_PCM16_24KHZ_MIME,
           });
@@ -119,7 +117,7 @@ export function useVoiceInput(opts: UseVoiceInputOptions): VoiceInputState {
 
       try {
         const readiness = combineVoiceInputReadiness(
-          checkCodexVoiceInputReady(session),
+          checkVoiceInputReady(session),
           captureReadiness,
         );
         if (!readiness.ready) {
@@ -140,78 +138,53 @@ export function useVoiceInput(opts: UseVoiceInputOptions): VoiceInputState {
   return { externalInsert, ready, phase, toggleVoiceInput };
 }
 
-export function checkCodexVoiceInputReady(session: Session): RequirementCheck {
-  const check = session.requirements.check([
-    { kind: 'transcriber', name: CODEX_TRANSCRIBER_NAME },
-    { kind: 'provider', name: 'openai-codex', state: 'active' },
-    { kind: 'runtime', name: 'auth:provider:openai-codex', state: 'ready' },
-  ]);
-  const activeName = session.transcribers.getActiveName();
-  if (!activeName || activeName === CODEX_TRANSCRIBER_NAME) return check;
+/** Shown when no speech-to-text backend is active in this session. */
+const NO_TRANSCRIBER =
+  'no transcription is set up. Save OPENAI_API_KEY with /vault set, or set plugins.transcriber.default, then restart';
+const NO_TRANSCRIBER_RUNTIME = 'voice:transcriber';
 
-  const conflict: RequirementIssue = {
-    requirement: {
-      kind: 'transcriber',
-      name: CODEX_TRANSCRIBER_NAME,
-      state: 'active',
-      hint: `Switch active transcriber to ${CODEX_TRANSCRIBER_NAME}.`,
-    },
-    code: 'inactive',
-    message: `Required active transcriber ${CODEX_TRANSCRIBER_NAME}; active is ${activeName}`,
-    hint: `Switch active transcriber to ${CODEX_TRANSCRIBER_NAME}.`,
-  };
+/** Voice input works with whichever transcriber the session has active. */
+export function checkVoiceInputReady(session: Session): RequirementCheck {
+  if (session.transcribers.getActiveName()) return { ready: true, issues: [] };
   return {
     ready: false,
-    issues: [conflict, ...check.issues],
+    issues: [
+      {
+        requirement: { kind: 'runtime', name: NO_TRANSCRIBER_RUNTIME, state: 'ready' },
+        code: 'not_ready',
+        message: NO_TRANSCRIBER,
+      },
+    ],
   };
 }
 
 export function combineVoiceInputReadiness(
-  codexCheck: RequirementCheck,
+  transcriberCheck: RequirementCheck,
   captureCheck: RequirementCheck,
 ): RequirementCheck {
   return {
-    ready: codexCheck.ready && captureCheck.ready,
-    issues: [...codexCheck.issues, ...captureCheck.issues],
+    ready: transcriberCheck.ready && captureCheck.ready,
+    issues: [...transcriberCheck.issues, ...captureCheck.issues],
   };
 }
 
-export function resolveCodexTranscriber(session: Session): Transcriber {
-  const activeName = session.transcribers.getActiveName();
-  if (activeName && activeName !== CODEX_TRANSCRIBER_NAME) {
-    throw new Error(`Codex voice requires active transcriber ${CODEX_TRANSCRIBER_NAME}.`);
-  }
-  if (activeName === CODEX_TRANSCRIBER_NAME) return session.transcribers.getActive();
-  if (session.transcribers.has(CODEX_TRANSCRIBER_NAME)) {
-    return session.transcribers.setActive(CODEX_TRANSCRIBER_NAME);
-  }
-  throw new Error(
-    `No speech-to-text backend is registered. Run \`moxxy login openai-codex\` and restart with the Codex STT plugin enabled.`,
-  );
+export function resolveVoiceTranscriber(session: Session): Transcriber {
+  const transcriber = session.transcribers.tryGetActive();
+  if (!transcriber) throw new Error(NO_TRANSCRIBER);
+  return transcriber;
 }
 
 export function formatVoiceReadinessNotice(check: RequirementCheck): string {
   const issue = check.issues.find((i) => !i.requirement.optional) ?? check.issues[0];
   if (!issue) return 'voice: unavailable';
-  if (issue.requirement.kind === 'provider' && issue.requirement.name === 'openai-codex') {
-    return 'voice: Codex voice requires active provider openai-codex';
-  }
-  if (issue.requirement.kind === 'runtime' && issue.requirement.name === 'auth:provider:openai-codex') {
-    return 'voice: run moxxy login openai-codex to enable Codex voice';
-  }
   if (issue.requirement.kind === 'runtime' && issue.requirement.name === VOICE_CAPTURE_RUNTIME) {
     const install = getInstallHint('ffmpeg');
     return `voice: ffmpeg is required for voice input\nInstall via ${install.manager}:  ${install.command}`;
-  }
-  if (issue.requirement.kind === 'transcriber' && issue.code === 'inactive') {
-    return `voice: Codex voice requires active transcriber ${CODEX_TRANSCRIBER_NAME}`;
   }
   return `voice: ${issue.hint ?? issue.message}`;
 }
 
 function formatVoiceError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
-  if (/ffmpeg/i.test(message)) return `voice: ${message}`;
-  if (/openai-codex|OAuth|credentials|login/i.test(message)) return `voice: ${message}`;
   return `voice: ${message || 'failed'}`;
 }

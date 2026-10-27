@@ -110,10 +110,10 @@ describe('useSettings', () => {
     await waitFor(() => expect(invokes.some((i) => i.cmd === 'settings.providers')).toBe(true));
     invokes.length = 0;
 
-    await act(() => result.current.activateProvider('openai-codex'));
+    await act(() => result.current.activateProvider('codex-agent'));
     expect(invokes[0]).toEqual({
       cmd: 'session.setProvider',
-      args: { provider: 'openai-codex' },
+      args: { provider: 'codex-agent' },
     });
     expect(invokes.slice(1).some((i) => i.cmd === 'settings.providers')).toBe(true);
   });

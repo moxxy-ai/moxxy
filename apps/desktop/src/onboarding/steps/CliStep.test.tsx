@@ -37,6 +37,7 @@ function installFakeApi(opts: FakeOpts): { invokes: string[]; progress: Progress
     cliPath: installed ? '/usr/local/bin/moxxy' : null,
     hasProvider: false,
     activeProvider: null,
+    providerMigration: null,
   });
 
   __setApiOverride({

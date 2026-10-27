@@ -21,6 +21,7 @@ function installFakeApi(): { invokes: string[]; subscribes: string[] } {
     cliPath: '/usr/local/bin/moxxy',
     hasProvider: true,
     activeProvider: 'anthropic',
+    providerMigration: null,
   });
 
   __setApiOverride({

@@ -23,7 +23,7 @@ function connectedSnapshot(workspaceId: string): ConnectionSnapshot {
       phase: 'connected',
       socket: '',
       sessionId: workspaceId,
-      activeProvider: 'openai-codex',
+      activeProvider: 'codex-agent',
       activeMode: 'default',
     },
     cliPath: null,

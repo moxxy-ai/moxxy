@@ -33,6 +33,7 @@ import { DoneStep } from './steps/DoneStep';
 
 interface Props {
   readonly phase?: ConnectionPhase;
+  readonly notice?: string | null;
   readonly onComplete: () => void;
 }
 
@@ -41,7 +42,7 @@ interface Props {
  * `prefs.onboardingComplete`) and as a recovery gate (CLI/provider/node
  * missing). One step list, gated per step — see {@link ONBOARDING_STEPS}.
  */
-export function Onboarding({ phase, onComplete }: Props): JSX.Element {
+export function Onboarding({ phase, notice, onComplete }: Props): JSX.Element {
   const { prefs } = usePrefs();
   const ob = useOnboarding(phase);
   useRuntimeAutoInstall(ob);
@@ -70,6 +71,7 @@ export function Onboarding({ phase, onComplete }: Props): JSX.Element {
         onComplete,
         ob,
         ctx.full,
+        notice,
       )}
     </Shell>
   );
@@ -82,6 +84,7 @@ function renderStep(
   onComplete: () => void,
   ob: UseOnboarding,
   full: boolean,
+  notice?: string | null,
 ): JSX.Element {
   const onBack = back ?? ((): void => undefined);
   switch (id) {
@@ -99,7 +102,7 @@ function renderStep(
       // linear cursor. Its optional provider step must therefore dismiss the
       // recovery surface directly when the user chooses "Skip for now";
       // calling `next` here is a no-op in auto mode.
-      return <ProviderStep onNext={full ? next : onComplete} onBack={onBack} />;
+      return <ProviderStep notice={notice} onNext={full ? next : onComplete} onBack={onBack} />;
     case 'workspace':
       return <WorkspaceStep onNext={next} onBack={onBack} />;
     case 'done':

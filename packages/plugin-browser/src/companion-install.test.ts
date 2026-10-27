@@ -17,7 +17,6 @@ function readManifest(packageDir: string): PackageManifest {
 describe('native web-search provider companion install', () => {
   it.each([
     'plugin-provider-anthropic',
-    'plugin-provider-openai-codex',
     'plugin-provider-claude-code',
   ])('%s installs the local browser fallback', (packageDir) => {
     expect(readManifest(packageDir).dependencies?.['@moxxy/plugin-browser']).toBe('workspace:*');

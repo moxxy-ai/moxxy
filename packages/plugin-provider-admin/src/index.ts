@@ -490,7 +490,7 @@ export function buildProviderAdminPlugin(
         name: 'provider_list',
         description:
           'List user-registered providers (persisted in the unified config (plugins.provider.items)) plus their default model and base URL. ' +
-          'Built-in providers (anthropic, openai, openai-codex) are NOT included — query session.providers for those.',
+          'Built-in providers (anthropic, openai) are NOT included — query session.providers for those.',
         inputSchema: z.object({}),
         isolation: {
           capabilities: {

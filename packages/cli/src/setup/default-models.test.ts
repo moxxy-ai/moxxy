@@ -6,13 +6,13 @@ describe('configuredDefaultModels', () => {
     const models = configuredDefaultModels({
       plugins: {
         provider: {
-          default: 'openai-codex',
-          items: { 'openai-codex': { model: 'gpt-6-luna' }, anthropic: { model: 'claude-sonnet-5-5' } },
+          default: 'codex-agent',
+          items: { 'codex-agent': { model: 'gpt-6-luna' }, anthropic: { model: 'claude-sonnet-5-5' } },
         },
       },
     });
 
-    expect(models).toEqual({ 'openai-codex': 'gpt-6-luna', anthropic: 'claude-sonnet-5-5' });
+    expect(models).toEqual({ 'codex-agent': 'gpt-6-luna', anthropic: 'claude-sonnet-5-5' });
   });
 
   it('leaves out a provider that has no model set', () => {

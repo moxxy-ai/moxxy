@@ -93,7 +93,7 @@ describe('provider-login relay', () => {
   it('opens a validated auth URL through the injected Electron callback and emits a renderer fallback event', async () => {
     const openExternal = vi.fn(async () => undefined);
     const url = 'https://auth.example.test/authorize?state=opaque';
-    startProviderLogin('id-auth', 'openai-codex', fakeWindow, { openExternal });
+    startProviderLogin('id-auth', 'codex-agent', fakeWindow, { openExternal });
 
     current.stdout.emit('data', Buffer.from(encodeLoginAuthUrl(url)));
 
@@ -106,7 +106,7 @@ describe('provider-login relay', () => {
       throw new Error('native opener unavailable');
     });
     const url = 'https://auth.example.test/authorize?state=opaque';
-    startProviderLogin('id-auth-fallback', 'openai-codex', fakeWindow, { openExternal });
+    startProviderLogin('id-auth-fallback', 'codex-agent', fakeWindow, { openExternal });
 
     expect(() => current.stdout.emit('data', Buffer.from(encodeLoginAuthUrl(url)))).not.toThrow();
     expect(events('provider.login.authUrl')[0]).toEqual({ loginId: 'id-auth-fallback', url });
@@ -121,7 +121,7 @@ describe('provider-login relay', () => {
     ['unsafe-creds', 'https://alice:secret@auth.example.test/authorize'],
   ])('does not open or emit a forged unsafe auth URL marker: %s', (loginId, url) => {
     const openExternal = vi.fn(async () => undefined);
-    startProviderLogin(loginId, 'openai-codex', fakeWindow, {
+    startProviderLogin(loginId, 'codex-agent', fakeWindow, {
       openExternal,
     });
     const forged = `\u0000${JSON.stringify({ tag: 'moxxy.login.auth_url', url })}\u0000`;

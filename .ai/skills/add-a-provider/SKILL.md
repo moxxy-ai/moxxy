@@ -36,5 +36,5 @@ Runtime alternative: an OpenAI-compatible vendor needs NO code — the
 
 Test with `@moxxy/testing` record/replay (`MOXXY_FIXTURES=record` once, commit
 fixtures). Reference impls: `plugin-provider-anthropic` (API key + cache),
-`plugin-provider-claude-code`, `plugin-provider-codex-agent` and `plugin-provider-acp` (agent connections, `agentStep`), `plugin-provider-openai-codex`
+`plugin-provider-claude-code`, `plugin-provider-codex-agent` and `plugin-provider-acp` (agent connections, `agentStep`), `plugin-provider-openai`
 (Responses API).

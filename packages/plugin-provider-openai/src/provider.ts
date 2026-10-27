@@ -8,8 +8,15 @@ import type {
 } from '@moxxy/sdk';
 import { assertDefined, estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
 import { toOpenAIMessages, toOpenAITools } from './translate.js';
+import { isResponsesRouteMissing, openResponses, readResponses, responsesError } from './responses.js';
 
 export interface OpenAIProviderConfig {
+  /**
+   * Force one protocol. Unset: OpenAI's own address always uses Responses;
+   * any other OpenAI-compatible server tries Responses and falls back to
+   * Chat Completions (remembered) when it does not have that route.
+   */
+  readonly api?: 'responses' | 'chat-completions';
   readonly apiKey?: string;
   readonly baseURL?: string;
   readonly defaultModel?: string;
@@ -96,14 +103,27 @@ function safeStringify(value: unknown): string {
   }
 }
 
+/** No configured address, or OpenAI's own API host. */
+function isOpenAIAddress(baseURL: string | undefined): boolean {
+  if (!baseURL) return true;
+  try {
+    return new URL(baseURL).hostname === 'api.openai.com';
+  } catch {
+    return false;
+  }
+}
+
 export class OpenAIProvider implements LLMProvider {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
   private readonly client: OpenAI;
   private readonly defaultModel: string;
+  /** `auto` tries Responses once and settles on whichever route works. */
+  private api: 'responses' | 'chat-completions' | 'auto';
 
   constructor(config: OpenAIProviderConfig = {}) {
     this.name = config.name ?? 'openai';
+    this.api = config.api ?? (this.name === 'openai' && isOpenAIAddress(config.baseURL) ? 'responses' : 'auto');
     this.models = config.models ?? openAIModels;
     this.client =
       config.client ??
@@ -118,6 +138,31 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
+    if (this.api !== 'chat-completions') {
+      const model = req.model || this.defaultModel;
+      let stream: Awaited<ReturnType<typeof openResponses>> | undefined;
+      let failure: unknown;
+      try {
+        stream = await openResponses(this.client, req, model, this.name);
+      } catch (error) {
+        failure = error;
+      }
+      if (stream) {
+        if (this.api === 'auto') this.api = 'responses';
+        yield { type: 'message_start', model };
+        yield* readResponses(stream, req, this.name);
+        return;
+      }
+      if (this.api === 'auto' && !req.signal?.aborted && isResponsesRouteMissing(failure)) {
+        // This server has no Responses route: answer the same request over
+        // Chat Completions below, and go there directly from now on.
+        this.api = 'chat-completions';
+      } else {
+        yield { type: 'message_start', model };
+        yield responsesError(failure, req, this.name);
+        return;
+      }
+    }
     const messages = toOpenAIMessages(req.messages);
     // `req.system` is the hook-injection side channel (e.g. the memory
     // consolidation nudge): extra system text delivered IN ADDITION to any

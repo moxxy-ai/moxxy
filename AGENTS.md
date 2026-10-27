@@ -33,7 +33,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/skills-builtin             MD skills shipped with the framework
 
 @moxxy/plugin-provider-anthropic  first-party provider
-@moxxy/plugin-provider-openai     OpenAI provider
+@moxxy/plugin-provider-openai     OpenAI API-key provider (Responses API) + official GPT-Live session negotiation
 @moxxy/plugin-vault               encrypted secret store (AES-256-GCM + keytar fallback)
 @moxxy/plugin-memory              long-term memory journal + TF-IDF / vector recall
 @moxxy/plugin-cli                 Ink TUI components + interactive PermissionResolver
@@ -51,14 +51,13 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/isolator-worker            worker_threads-based Isolator (memory + time + JS-state isolation)
 @moxxy/isolator-subprocess        subprocess Isolator (kernel-enforced process boundary)
 @moxxy/isolator-wasm              WebAssembly Isolator (zero ambient authority; experimental)
-@moxxy/plugin-provider-openai-codex  ChatGPT OAuth provider (Responses API)
 @moxxy/plugin-provider-claude-code  "Claude Agent" connection: Claude Code does each turn through the Claude Agent SDK (installed into ~/.moxxy on first use) on the Claude Pro/Max sign-in
 @moxxy/plugin-provider-codex-agent  "ChatGPT — Codex agent" connection: Codex does each turn through `codex app-server` (the person's installed Codex CLI) on the ChatGPT sign-in
 @moxxy/plugin-provider-acp        agent connections over the Agent Client Protocol; first entry "OpenCode agent" (`opencode`): OpenCode does each turn through `opencode acp` with the person's own OpenCode setup and models
 @moxxy/agent-connection-kit       shared parts of agent connections (vendor agent does the turn via `agentStep`): Moxxy tools MCP server, line JSON-RPC client, live agent session pool, mode mapping, CLI version/update checks, turn inbox, one-off transcript
 @moxxy/plugin-provider-admin      register OpenAI-compatible providers at runtime
 @moxxy/plugin-oauth               generic OAuth 2.0 + PKCE / device-code
-@moxxy/plugin-stt-whisper         Whisper transcriber (voice in); `-codex` variant reuses ChatGPT creds
+@moxxy/plugin-stt-whisper         OpenAI API-key transcription (gpt-transcribe; whisper-1 retained for existing configs)
 @moxxy/plugin-computer-control    macOS native input (screenshot/click/type)
 @moxxy/plugin-subagents           dispatch typed sub-agents from a turn
 @moxxy/plugin-commands            built-in slash commands (/info, /clear, /compact, …)

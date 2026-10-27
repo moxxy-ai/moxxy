@@ -530,6 +530,9 @@ export const localProviderDef = defineProvider({
     const baseURL = resolveLocalBaseURL(cfg);
     const catalog = [...localModels];
     const delegate = new OpenAIProvider({
+      // Unset: try Responses, fall back to Chat Completions for servers
+      // (older Ollama, other local servers) that do not have it.
+      ...(cfg.api ? { api: cfg.api } : {}),
       apiKey: cfg.apiKey ?? process.env.LOCAL_API_KEY ?? LOCAL_PLACEHOLDER_KEY,
       name: 'local',
       baseURL,
