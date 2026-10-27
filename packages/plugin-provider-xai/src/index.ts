@@ -14,7 +14,6 @@ const XAI_DEFAULT_MODEL = 'grok-4';
  * context attribute to `xai`, not `openai`).
  */
 export const xaiProviderDef = defineOpenAICompatProvider({
-  api: 'responses',
   name: 'xai',
   baseURL: XAI_BASE_URL,
   defaultModel: XAI_DEFAULT_MODEL,

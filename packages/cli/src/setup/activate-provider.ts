@@ -35,6 +35,8 @@ export interface ActivateProviderArgs {
 export interface ActivateProviderResult {
   readonly activated: { name: string; cfg: Record<string, unknown> } | null;
   readonly credentialResolver: CredentialResolver;
+  /** The config still named the retired ChatGPT sign-in, replaced at boot. */
+  readonly retiredReplaced: boolean;
 }
 
 /**
@@ -111,11 +113,13 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   }
 
   if (!activated) {
-    if (retired.replaced) {
-      lastErr = new MoxxyError({ code: 'PROVIDER_NOT_CONFIGURED', message: RETIRED_PROVIDER_NO_CODEX, cause: lastErr });
-    }
+    // Read the real reason before the removal notice wraps it, so the notice
+    // is said once and the reason (no Codex, no network, …) stays visible.
     const reason = lastErr instanceof Error ? lastErr.message : String(lastErr);
     const errMsg = retired.replaced ? `${RETIRED_PROVIDER_NO_CODEX} (${reason})` : reason;
+    if (retired.replaced) {
+      lastErr = new MoxxyError({ code: 'PROVIDER_NOT_CONFIGURED', message: errMsg, cause: lastErr });
+    }
     if (args.tolerateNoProvider || args.skipProviderActivation) {
       logger.warn('no provider key resolvable; continuing without an active provider', {
         tried: candidates,
@@ -179,7 +183,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   };
   session.credentialResolver = credentialResolver;
 
-  return { activated, credentialResolver };
+  return { activated, credentialResolver, retiredReplaced: retired.replaced };
 }
 
 function noProviderError(candidates: ReadonlyArray<string>, lastErr: unknown): MoxxyError {

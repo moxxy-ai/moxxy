@@ -70,6 +70,7 @@ export {
   loadModelDefaults,
   loadProviderItems,
   removeProviderItem,
+  replaceProviderName,
   setCategoryDefault,
   setCategoryItemConfig,
   setModelDefaults,
@@ -110,3 +111,10 @@ export {
 } from './policy-source.js';
 export { policyBundleRefSchema, policyConfigSchema } from './schema.js';
 export type { PolicyBundleRef, PolicyConfig } from './schema.js';
+
+export {
+  clearProviderMigrationNotice,
+  readProviderMigrationNotice,
+  recordProviderMigrationNotice,
+  type ProviderMigrationNotice,
+} from './provider-migration-notice.js';

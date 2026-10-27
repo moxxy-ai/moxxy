@@ -7,14 +7,16 @@ shape ↔ the OpenAI wire format. Register it into a
 
 Responses requests are stateless (`store: false`); Moxxy replays its own history,
 including encrypted reasoning when supplied by the provider. The adapter also
-supports Chat Completions for compatible endpoints. Choose the protocol with
-`api`; changing `baseURL` alone keeps the OpenAI provider's Responses default.
+supports Chat Completions for compatible endpoints.
 
-The xAI plugin defaults to Responses. The local plugin defaults to Responses
-for Ollama on port 11434; other local endpoints retain Chat Completions. Set
-`api: 'responses'` for Ollama behind a proxy or on another port. Google and
-Z.ai retain Chat Completions. Ollama Responses support requires version 0.13.3
-or later, per its [compatibility documentation](https://docs.ollama.com/api/openai-compatibility).
+OpenAI's own address (no `baseURL`, or `api.openai.com`) always uses Responses.
+Any other endpoint (xAI, Google, local servers such as Ollama, runtime-added
+vendors, `openai` behind a proxy) tries Responses first and, when the server
+has no Responses route (HTTP 404/405, not a missing model), answers the same
+request over Chat Completions and stays there for that client. Other errors
+surface unchanged. Z.ai is pinned to Chat Completions, the only protocol it
+documents. Set `api` to pin a protocol for an endpoint the automatic choice
+gets wrong.
 
 ## Install
 
@@ -47,7 +49,7 @@ console.log((await collectTurn(session, 'Hello!')).findLast((e) => e.type === 'a
 session.providers.setActive('openai', {
   apiKey: process.env.GROQ_API_KEY,
   baseURL: 'https://api.groq.com/openai/v1',
-  api: 'chat-completions', // choose the protocol this endpoint supports
+  // api: 'chat-completions', // only to pin a protocol; unset tries Responses first
   // model: '...'   // the vendor's model id
 });
 ```
@@ -57,7 +59,7 @@ session.providers.setActive('openai', {
 | field | meaning |
 |---|---|
 | `apiKey` | the API key (or wire it through the Session's `secretResolver`) |
-| `api` | `responses` (OpenAI default) or `chat-completions` |
+| `api` | pin `responses` or `chat-completions`; unset: Responses on OpenAI, otherwise Responses with Chat Completions fallback |
 | `baseURL` | override the API base for an OpenAI-compatible vendor |
 | `model` / `models` | pick / override the advertised model catalog |
 

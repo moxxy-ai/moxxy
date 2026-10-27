@@ -1,4 +1,9 @@
-import { RETIRED_PROVIDER, RETIRED_PROVIDER_REPLACEMENT, RETIRED_PROVIDER_NO_CODEX, replaceRetiredProvider } from './setup/retired-provider.js';
+import {
+  RETIRED_PROVIDER_REPLACEMENT,
+  RETIRED_PROVIDER_NO_CODEX,
+  persistRetiredProviderMigration,
+  replaceRetiredProvider,
+} from './setup/retired-provider.js';
 import type { Session } from '@moxxy/core';
 import {
   createAllowListResolver,
@@ -228,10 +233,16 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // provider-owned catalog manifest, install it into the normal user plugin
   // directory and reload before activation. This is generic for every catalog
   // provider (not a special case for the formerly bundled OAuth pair).
-  const configuredProviders = replaceRetiredProvider([
+  const namedProviders = [
     config.plugins?.provider?.default,
     ...(config.plugins?.provider?.fallbacks ?? []),
-  ].filter((name): name is string => typeof name === 'string' && name.length > 0)).candidates;
+  ].filter((name): name is string => typeof name === 'string' && name.length > 0);
+  const configuredProviders = replaceRetiredProvider(namedProviders).candidates;
+  // The Codex agent is only here because it replaced the retired ChatGPT
+  // sign-in, not because the person chose it: failing to install it (e.g.
+  // offline) must not stop startup — provider recovery explains the removal.
+  const replacementOnly = configuredProviders.includes(RETIRED_PROVIDER_REPLACEMENT)
+    && !namedProviders.includes(RETIRED_PROVIDER_REPLACEMENT);
   for (const name of new Set(configuredProviders)) {
     if (session.providers.list().some((provider) => provider.name === name)) continue;
     const entry = findCatalogEntryForContribution('provider', name);
@@ -245,7 +256,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
         onWarn: (message) => logger.warn(message),
       });
     } catch (error) {
-      if (config.plugins?.provider?.default !== RETIRED_PROVIDER || name !== RETIRED_PROVIDER_REPLACEMENT) throw error;
+      if (!replacementOnly || name !== RETIRED_PROVIDER_REPLACEMENT) throw error;
       logger.warn(RETIRED_PROVIDER_NO_CODEX, { reason: error instanceof Error ? error.message : String(error) });
       continue;
     }
@@ -290,7 +301,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     // best-effort — never block boot
   }
 
-  const { credentialResolver } = await activateProvider({
+  const { credentialResolver, activated, retiredReplaced } = await activateProvider({
     session,
     config: resolvedConfig,
     vault,
@@ -305,6 +316,12 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     progress,
     logger,
   });
+
+  // Save the move off the retired ChatGPT sign-in only once the Codex agent
+  // really started; otherwise provider recovery asks the person to choose.
+  if (retiredReplaced && activated?.name === RETIRED_PROVIDER_REPLACEMENT && !opts.skipUserConfig) {
+    await persistRetiredProviderMigration(logger);
+  }
 
   // In-session provider onboarding (install / key entry / OAuth) — backs the
   // TUI's inline connect dialog and shares its implementation with the init

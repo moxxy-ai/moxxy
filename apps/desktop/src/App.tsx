@@ -1,3 +1,4 @@
+import { ProviderMigrationToast } from './onboarding/ProviderMigrationToast';
 import { useProviderMigrationNotice } from './onboarding/useProviderMigrationNotice';
 import { useCallback, useEffect, useState } from 'react';
 import type { DesktopPrefs } from '@moxxy/desktop-ipc-contract';
@@ -120,7 +121,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
   const activeWorkspaceId = useActiveWorkspaceId();
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const phase = snapshot?.phase;
-  const providerMigrationNotice = useProviderMigrationNotice(phase);
+  const providerMigrationNotice = useProviderMigrationNotice(phase, { toast: false });
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const bench = useWorkbench(activeWorkspaceId);
   // Each destination remembers what it was showing, so switching away and back
@@ -460,6 +461,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
           view so an ask is never invisible (and never double-rendered). */}
       {view !== 'chat' && <GlobalAskFallback workspaceId={activeWorkspaceId} />}
       <WorkflowApprovals modal />
+      <ProviderMigrationToast phase={phase} />
       <Toasts />
     </div>
     </ShellNavProvider>

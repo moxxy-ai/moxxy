@@ -50,6 +50,11 @@ export function pickOpenAICompatConfig(config: Record<string, unknown>): OpenAIC
 }
 
 export interface DefineOpenAICompatProviderSpec {
+  /**
+   * Pin a protocol for a vendor whose behaviour on the other route is
+   * unknown (e.g. Z.ai documents only Chat Completions). Unset: try
+   * Responses, fall back to Chat Completions. A user's `api` config wins.
+   */
   readonly api?: OpenAIProviderConfig['api'];
   /**
    * Vendor slug (e.g. `xai`, `zai`, `google`, `local`). Stamped onto the
@@ -132,7 +137,7 @@ export function defineOpenAICompatProvider(spec: DefineOpenAICompatProviderSpec)
         );
       }
       return new OpenAIProvider({
-        api: cfg.api ?? spec.api ?? 'chat-completions',
+        ...(cfg.api ?? spec.api ? { api: cfg.api ?? spec.api } : {}),
         apiKey,
         name: spec.name,
         baseURL: resolveBaseURL(cfg),

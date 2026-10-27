@@ -1,3 +1,5 @@
+import { recordProviderMigrationNotice, replaceProviderName } from '@moxxy/config';
+
 /**
  * "ChatGPT sign-in" (`openai-codex`) reached OpenAI through a private ChatGPT
  * route and is gone. A config that still names it moves to the official
@@ -23,4 +25,22 @@ export function replaceRetiredProvider(candidates: ReadonlyArray<string>): {
   if (!candidates.includes(RETIRED_PROVIDER)) return { candidates, replaced: false };
   const next = candidates.map((name) => (name === RETIRED_PROVIDER ? RETIRED_PROVIDER_REPLACEMENT : name));
   return { candidates: [...new Set(next)], replaced: true };
+}
+
+/**
+ * Once the Codex agent has started in place of the retired ChatGPT sign-in,
+ * save that choice in the user config, so the swap (and its notice) happens
+ * once, and leave a notice for the desktop to show once. Never stops startup.
+ */
+export async function persistRetiredProviderMigration(
+  logger: { warn(message: string, meta?: Record<string, unknown>): void },
+): Promise<void> {
+  try {
+    if (!(await replaceProviderName(RETIRED_PROVIDER, RETIRED_PROVIDER_REPLACEMENT))) return;
+    await recordProviderMigrationNotice({ from: RETIRED_PROVIDER, to: RETIRED_PROVIDER_REPLACEMENT });
+  } catch (error) {
+    logger.warn('could not save the move from ChatGPT sign-in to the Codex agent', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
 }

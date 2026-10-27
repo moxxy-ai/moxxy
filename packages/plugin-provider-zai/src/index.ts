@@ -24,6 +24,9 @@ const ZAI_DEFAULT_MODEL = 'glm-4.6';
  * user's OpenAI credential to a third-party host on a misconfigured provider.
  */
 export const zaiProviderDef = defineOpenAICompatProvider({
+  // Z.ai documents only Chat Completions and checks the key before the route,
+  // so a Responses attempt cannot be shown safe: stay on Chat Completions.
+  api: 'chat-completions',
   name: 'zai',
   baseURL: ZAI_OPENAI_BASE_URL,
   defaultModel: ZAI_DEFAULT_MODEL,

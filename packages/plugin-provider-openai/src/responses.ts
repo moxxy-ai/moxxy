@@ -1,28 +1,56 @@
-import type OpenAI from 'openai';
+import OpenAI from 'openai';
 import type { ProviderEvent, ProviderRequest, TokenUsage } from '@moxxy/sdk';
 import { toResponsesInput, toResponsesTools } from './responses-input.js';
 import { toFriendlyError } from '@moxxy/sdk';
 
-/** Stateless requests: Moxxy's event log owns the conversation. */
-export async function* streamResponses(
+type ResponsesStream = AsyncIterable<OpenAI.Responses.ResponseStreamEvent>;
+
+/**
+ * Start a stateless Responses request: Moxxy's event log owns the
+ * conversation. Throws the SDK's error when the server refuses the request,
+ * before anything has streamed, so the caller can still pick another route.
+ */
+export async function openResponses(
   client: OpenAI,
   req: ProviderRequest,
   model: string,
   provider: string,
-): AsyncIterable<ProviderEvent> {
+): Promise<ResponsesStream> {
   const input = toResponsesInput(req.messages, provider);
   if (req.system) input.unshift({ role: 'system', content: req.system });
   const reasoning = req.reasoning && typeof req.reasoning === 'object' ? req.reasoning : undefined;
+  return client.responses.create({
+    model, input, stream: true, store: false,
+    include: ['reasoning.encrypted_content'],
+    ...(req.tools?.length ? { tools: toResponsesTools(req.tools) } : {}),
+    ...(req.maxTokens ? { max_output_tokens: req.maxTokens } : {}),
+    ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+    ...(req.fast ? { service_tier: 'priority' } : {}),
+    ...(req.reasoning ? { reasoning: { effort: reasoning?.effort, summary: 'auto' } } : {}),
+  }, req.signal ? { signal: req.signal } : undefined);
+}
+
+/**
+ * A server without the Responses route (404/405, but not a missing model),
+ * which Chat Completions may still serve.
+ */
+export function isResponsesRouteMissing(error: unknown): boolean {
+  if (!(error instanceof OpenAI.APIError)) return false;
+  if (error.status === 405) return true;
+  return error.status === 404 && error.code !== 'model_not_found';
+}
+
+export function responsesError(error: unknown, req: ProviderRequest, provider: string): ProviderEvent {
+  return { type: 'error', ...(req.signal?.aborted ? { message: 'aborted', retryable: false } : toFriendlyError(error, { provider })) };
+}
+
+/** Translate an opened Responses stream into Moxxy provider events. */
+export async function* readResponses(
+  stream: ResponsesStream,
+  req: ProviderRequest,
+  provider: string,
+): AsyncIterable<ProviderEvent> {
   try {
-    const stream = await client.responses.create({
-      model, input, stream: true, store: false,
-      include: ['reasoning.encrypted_content'],
-      ...(req.tools?.length ? { tools: toResponsesTools(req.tools) } : {}),
-      ...(req.maxTokens ? { max_output_tokens: req.maxTokens } : {}),
-      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-      ...(req.fast ? { service_tier: 'priority' } : {}),
-      ...(req.reasoning ? { reasoning: { effort: reasoning?.effort, summary: 'auto' } } : {}),
-    }, req.signal ? { signal: req.signal } : undefined);
     const calls = new Map<number, { id: string; name: string; arguments: string }>();
     let finished = false;
     for await (const event of stream) {
@@ -66,7 +94,7 @@ export async function* streamResponses(
     }
     if (!finished) throw new Error('OpenAI stream ended before a terminal response');
   } catch (error) {
-    yield { type: 'error', ...(req.signal?.aborted ? { message: 'aborted', retryable: false } : toFriendlyError(error, { provider })) };
+    yield responsesError(error, req, provider);
   }
 }
 

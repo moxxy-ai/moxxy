@@ -8,9 +8,13 @@ API-key auth, the OpenAI model list, and streaming Responses API. Moxxy keeps
 conversation state locally (`store: false`), including tool calls and encrypted reasoning.
 Images and PDF inputs, cancellation, cached-token usage and parallel function calls are supported.
 
-The compatibility adapter also serves xAI and Ollama through Responses. Google
-and Z.ai continue to use Chat Completions. For other compatible servers, set
-`api: "responses"` or `api: "chat-completions"` explicitly.
+OpenAI's own API always uses Responses. Every other OpenAI-compatible server
+(xAI, Google, Ollama and other local servers, providers you add, or `openai`
+behind your own address) tries Responses first; when the server has no
+Responses route (HTTP 404/405), Moxxy answers the same request over Chat
+Completions and keeps using it. Other errors are shown as they are. Z.ai stays
+on Chat Completions. To pin one protocol for an unusual server, set
+`api: "responses"` or `api: "chat-completions"` in that provider's config.
 
 ## Install
 

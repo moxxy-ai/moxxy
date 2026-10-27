@@ -179,6 +179,8 @@ export interface IpcCommands {
   'app.updateDiagnostics': () => Promise<AppUpdateDiagnostics>;
 
   'onboarding.status': () => Promise<OnboardingStatus>;
+  /** The provider-migration notice in `onboarding.status` was shown; forget it. */
+  'onboarding.dismissProviderMigration': () => Promise<void>;
   /** Probe Node.js — used by the first wizard step before we offer
    *  the install. */
   'onboarding.probeNode': () => Promise<NodeProbe>;

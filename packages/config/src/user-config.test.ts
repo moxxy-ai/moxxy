@@ -11,6 +11,7 @@ import {
   setCategoryDefault,
   loadDisabledProviders,
   loadModelDefaults,
+  replaceProviderName,
   setCategoryItemConfig,
   setModelDefaults,
   setPluginEnabled,
@@ -314,5 +315,54 @@ describe('model defaults', () => {
 
     const parsed = (await readParsed()) as { plugins: { provider: { items: Record<string, unknown> } } };
     expect(parsed.plugins.provider.items).toEqual({ 'codex-agent': { model: 'gpt-6-luna' }, anthropic: { enabled: false } });
+  });
+});
+
+describe('replaceProviderName', () => {
+  it('moves the default and fallbacks to the new name, keeping the rest of the file', async () => {
+    await fs.writeFile(configPath, [
+      '# my settings',
+      'plugins:',
+      '  provider:',
+      '    default: openai-codex',
+      '    fallbacks: [anthropic, openai-codex, codex-agent]',
+      '    items:',
+      '      openai-codex: { model: gpt-6-luna }',
+      '  packages:',
+      '    "@moxxy/plugin-self-update": { enabled: true }',
+      '',
+    ].join('\n'));
+
+    expect(await replaceProviderName('openai-codex', 'codex-agent', { configPath })).toBe(true);
+
+    const raw = await fs.readFile(configPath, 'utf8');
+    expect(raw).toContain('# my settings');
+    const parsed = parseYaml(raw) as { plugins: { provider: Record<string, unknown>; packages: unknown } };
+    expect(parsed.plugins.provider.default).toBe('codex-agent');
+    // The new default is not repeated as its own fallback.
+    expect(parsed.plugins.provider.fallbacks).toEqual(['anthropic']);
+    expect(parsed.plugins.packages).toEqual({ '@moxxy/plugin-self-update': { enabled: true } });
+  });
+
+  it('renames a fallback in place when the default is something else', async () => {
+    await fs.writeFile(configPath, 'plugins:\n  provider:\n    default: anthropic\n    fallbacks: [openai-codex, zai]\n');
+
+    expect(await replaceProviderName('openai-codex', 'codex-agent', { configPath })).toBe(true);
+
+    const parsed = (await readParsed()) as { plugins: { provider: Record<string, unknown> } };
+    expect(parsed.plugins.provider).toEqual({ default: 'anthropic', fallbacks: ['codex-agent', 'zai'] });
+  });
+
+  it('changes nothing when the file does not name the old provider', async () => {
+    const original = 'plugins:\n  provider:\n    default: claude-code\n';
+    await fs.writeFile(configPath, original);
+
+    expect(await replaceProviderName('openai-codex', 'codex-agent', { configPath })).toBe(false);
+    expect(await fs.readFile(configPath, 'utf8')).toBe(original);
+  });
+
+  it('treats a missing file as nothing to change', async () => {
+    expect(await replaceProviderName('openai-codex', 'codex-agent', { configPath })).toBe(false);
+    await expect(fs.access(configPath)).rejects.toThrow();
   });
 });

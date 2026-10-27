@@ -44,7 +44,7 @@ describe('activateProvider', () => {
   it('marks provider auth as ready after credentials resolve and provider activates', async () => {
     const session = makeSession([testProvider()]);
 
-    await activateProvider({
+    const result = await activateProvider({
       ...baseArgs,
       session,
       config: { plugins: { provider: { default: 'test-provider' } } },
@@ -56,6 +56,7 @@ describe('activateProvider', () => {
         { kind: 'runtime', name: 'auth:provider:test-provider', state: 'ready' },
       ]),
     ).toEqual({ ready: true, issues: [] });
+    expect(result.retiredReplaced).toBe(false);
   });
 
   it('carries the session workspace through production activation', async () => {
@@ -102,6 +103,7 @@ describe('activateProvider after ChatGPT sign-in was removed', () => {
     });
 
     expect(result.activated?.name).toBe('codex-agent');
+    expect(result.retiredReplaced).toBe(true);
     expect(warn).toHaveBeenCalledWith(
       expect.stringMatching(/ChatGPT sign-in was removed.*ChatGPT — Codex agent/),
       expect.anything(),
@@ -132,6 +134,11 @@ describe('activateProvider after ChatGPT sign-in was removed', () => {
       kind: 'provider-failed',
       error: expect.stringMatching(/ChatGPT sign-in was removed.*choose another provider/),
     }));
+    // The removal is explained once, and the real reason the Codex agent did
+    // not start stays visible.
+    const failed = progress.mock.calls.map(([event]) => event).find((event) => event.kind === 'provider-failed');
+    expect(failed.error.match(/ChatGPT sign-in was removed/g)).toHaveLength(1);
+    expect(failed.error).toContain('(Codex is not installed.)');
   });
 });
 
