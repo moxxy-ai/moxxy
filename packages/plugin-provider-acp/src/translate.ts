@@ -109,9 +109,14 @@ export class AcpTurnTranslator {
     if (done && state.shown && !state.ended) {
       state.ended = true;
       const output = toolOutput(update);
-      if (state.tool === SUBAGENT_TOOL) {
+      if (SUBAGENT_TOOLS.has(state.tool)) {
         // A subagent started in the background works on: its end comes later, from OpenCode's HTTP API.
         if (update.status === 'completed' && BACKGROUND_TASK.test(output)) return events;
+        // OpenCode 2's `acp` serves no such API: nothing else would ever close it.
+        if (update.status === 'completed' && BACKGROUND_TASK_V2.test(output)) {
+          events.push({ type: 'subagent_completed', id: update.toolCallId, text: BACKGROUND_UNSEEN });
+          return events;
+        }
         events.push(
           update.status === 'completed'
             ? { type: 'subagent_completed', id: update.toolCallId, text: taskResultOf(output) }
@@ -156,7 +161,7 @@ export class AcpTurnTranslator {
   private show(callId: string, state: CallState): AgentStepEvent[] {
     if (state.shown || this.isMoxxyTool(state.tool)) return [];
     state.shown = shownCall(state.tool, state.kind, state.input);
-    if (state.tool === SUBAGENT_TOOL) return [subagentStarted(callId, state.input)];
+    if (SUBAGENT_TOOLS.has(state.tool)) return [subagentStarted(callId, state.input)];
     return [{ type: 'tool_call', callId, name: state.shown.name, input: state.shown.input }];
   }
 
@@ -177,15 +182,18 @@ export class AcpTurnTranslator {
   }
 }
 
-/** OpenCode's tool that hands a task to a subagent; ACP reports the task and its answer, not the subagent's own calls. */
-const SUBAGENT_TOOL = 'task';
+/** OpenCode's tool that hands a task to a subagent (`task` in OpenCode 1, `subagent` in 2); ACP reports the task and its answer, not the subagent's own calls. */
+const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['task', 'subagent']);
 /** OpenCode 1.19's answer to a `task` call with `background: true`: the subagent's session, still running. */
 const BACKGROUND_TASK = /^<task id="[^"]+" state="running">/;
+/** OpenCode 2's answer to a `subagent` call with `background: true` (2.1.4). */
+const BACKGROUND_TASK_V2 = /^The subagent is working in the background \(sessionID: /;
+const BACKGROUND_UNSEEN = 'Started in the background. OpenCode 2 does not report what it does there or when it ends.';
 
 function subagentStarted(callId: string, input: Record<string, unknown>): AgentStepEvent {
   const text = (key: string): string | undefined => (typeof input[key] === 'string' && input[key] ? (input[key] as string) : undefined);
   const prompt = text('prompt');
-  return { type: 'subagent_started', id: callId, label: text('description') ?? 'subagent', agentType: text('subagent_type') ?? 'general', ...(prompt ? { prompt } : {}), toolsUnseen: true };
+  return { type: 'subagent_started', id: callId, label: text('description') ?? 'subagent', agentType: text('subagent_type') ?? text('agent') ?? 'general', ...(prompt ? { prompt } : {}), toolsUnseen: true };
 }
 
 /** The subagent's answer inside OpenCode's `<task …><task_result>…</task_result></task>` wrapping. */
@@ -199,7 +207,9 @@ export function shownCall(tool: string, kind: AcpToolKind | undefined, input: Re
   const pick = (pairs: ReadonlyArray<readonly [string, string]>): Record<string, unknown> =>
     Object.fromEntries(pairs.flatMap(([from, to]) => (input[from] === undefined ? [] : [[to, input[from]]])));
   switch (tool) {
+    // OpenCode 2 calls its shell tool `shell`.
     case 'bash':
+    case 'shell':
       return { name: 'Bash', input: pick([['command', 'command'], ['description', 'description'], ['timeout', 'timeout']]) };
     case 'read':
       return { name: 'Read', input: pick([['filePath', 'file_path'], ['offset', 'offset'], ['limit', 'limit']]) };
@@ -222,6 +232,7 @@ export function shownCall(tool: string, kind: AcpToolKind | undefined, input: Re
     case 'todowrite':
       return { name: 'TodoWrite', input: input };
     case 'task':
+    case 'subagent':
       return { name: 'Task', input: input };
     case 'skill':
       return { name: 'Skill', input: input };
