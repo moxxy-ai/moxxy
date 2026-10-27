@@ -652,12 +652,22 @@ function maxEventSeq(events: ReadonlyArray<MoxxyEvent>): number | null {
   return max;
 }
 
+/**
+ * The row that ended `turnId`, or null while it may still run. A reply is its end
+ * only when no work of the turn follows it: an agent connection once marked the
+ * sentence before a call `end_turn`, and logs written then still hold such rows.
+ */
 function terminalEventForTurn(events: ReadonlyArray<MoxxyEvent>, turnId: string): MoxxyEvent | null {
+  let workedAfter = false;
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (!event) continue;
     if (event.turnId !== turnId) continue;
-    if (event.type === 'assistant_message') return event.stopReason === 'tool_use' ? null : event;
+    if (event.type === 'tool_call_requested' || event.type === 'tool_result') {
+      workedAfter = true;
+      continue;
+    }
+    if (event.type === 'assistant_message') return event.stopReason === 'tool_use' || workedAfter ? null : event;
     if (event.type === 'abort') return event;
     if (event.type === 'error') return event.kind === 'fatal' ? event : null;
   }
