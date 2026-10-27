@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   cwdForSession,
+  moxxyWorkspaceDir,
   MOXXY_WORKSPACE_ID,
   WorkspaceRegistry,
   type WorkspaceSessionSource,
@@ -275,6 +276,41 @@ describe('WorkspaceRegistry — desk + session mutations', () => {
     await reg.setActiveSession(b.id);
 
     expect((await reg.getActive())?.id).toBe(b.id);
+  });
+});
+
+/**
+ * Skipping the workspace step leaves the person with the built-in Moxxy
+ * workspace, so its folder must be a real one they can open: `~/Moxxy`, not a
+ * hidden directory and not whatever folder the app process happened to start in.
+ */
+describe('WorkspaceRegistry — the Moxxy workspace folder', () => {
+  it('is ~/Moxxy on a normal install', () => {
+    delete process.env.MOXXY_HOME;
+    expect(moxxyWorkspaceDir()).toBe(path.join(os.homedir(), 'Moxxy'));
+  });
+
+  it('stays inside an isolated MOXXY_HOME, so trials and tests never touch the real ~/Moxxy', () => {
+    expect(moxxyWorkspaceDir()).toBe(path.join(home, 'Moxxy'));
+  });
+
+  it('is saved, made active and created on disk the first time it is ensured', async () => {
+    const reg = registry();
+
+    const desk = await reg.ensureMoxxyWorkspace();
+
+    expect(desk.cwd).toBe(path.join(home, 'Moxxy'));
+    expect(existsSync(desk.cwd)).toBe(true);
+    expect((await registry().getActive())?.id).toBe(MOXXY_WORKSPACE_ID);
+  });
+
+  it('leaves another active workspace in front', async () => {
+    const reg = registry();
+    const project = await reg.create({ name: 'P', cwd: path.join(home, 'p') });
+
+    await reg.ensureMoxxyWorkspace();
+
+    expect((await reg.getActive())?.id).toBe(project.id);
   });
 });
 

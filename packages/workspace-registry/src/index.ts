@@ -15,6 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -66,6 +67,17 @@ interface DeskDoc {
   version: number;
   activeId: string | null;
   desks: DeskRecord[];
+}
+
+/**
+ * The built-in Moxxy workspace's folder — where the agent works when the person
+ * never picked one. `~/Moxxy` so its files are easy to find in Finder/Explorer;
+ * an isolated profile (`MOXXY_HOME` set: trials, tests) keeps it inside that
+ * home, so it never writes into the person's real home folder.
+ */
+export function moxxyWorkspaceDir(): string {
+  const isolatedHome = process.env.MOXXY_HOME;
+  return isolatedHome ? path.join(isolatedHome, 'Moxxy') : path.join(os.homedir(), 'Moxxy');
 }
 
 export function defaultWorkspaceRegistryPath(): string {
@@ -474,7 +486,7 @@ function synthMoxxyRecord(): DeskRecord {
   return {
     id: MOXXY_WORKSPACE_ID,
     name: MOXXY_WORKSPACE_NAME,
-    cwd: moxxyPath('workspaces', 'moxxy'),
+    cwd: moxxyWorkspaceDir(),
     color: MOXXY_WORKSPACE_COLOR,
     createdAt: 0,
     activeSessionId: null,
@@ -508,7 +520,7 @@ function ensureDirectoryIfMoxxyWorkspace(desk: { id: string; cwd: string }): voi
 }
 
 function ensureManagedMoxxyCwd(): string {
-  const cwd = moxxyPath('workspaces', 'moxxy');
+  const cwd = moxxyWorkspaceDir();
   try {
     mkdirSync(cwd, { recursive: true });
   } catch {

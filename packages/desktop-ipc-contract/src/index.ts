@@ -96,6 +96,7 @@ export type {
 // ---------- Settings -------------------------------------------------------
 export type {
   ProviderEntry,
+  ProviderCatalogEntry,
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,

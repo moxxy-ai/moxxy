@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   RunnerPool,
-  UNBOUND_ID,
+  initialRunnerTarget,
   bindWindow,
   registerIpcHandlers,
   BrowserHost,
@@ -28,7 +28,6 @@ import {
   type HostWebContents,
   ElectronCommandBus,
   DeskStore,
-  cwdForSession,
   watchSessionsForChanges,
   sweepStaleSockets,
   beginFocusWindowDrag,
@@ -296,17 +295,9 @@ async function prepareRunnerEnvironment(): Promise<void> {
 }
 
 async function primeInitialRunner(runnerPool: RunnerPool, desks: DeskStore): Promise<void> {
-  const initialActive = await desks.getActive();
-  if (initialActive?.activeSessionId) {
-    await runnerPool.getOrCreate(
-      initialActive.activeSessionId,
-      cwdForSession(initialActive, initialActive.activeSessionId),
-    );
-    runnerPool.setActive(initialActive.activeSessionId);
-    return;
-  }
-  await runnerPool.getOrCreate(UNBOUND_ID, null);
-  runnerPool.setActive(UNBOUND_ID);
+  const { id, cwd } = await initialRunnerTarget(desks);
+  await runnerPool.getOrCreate(id, cwd);
+  runnerPool.setActive(id);
 }
 
 async function createWindow(): Promise<void> {

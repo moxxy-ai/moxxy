@@ -107,7 +107,13 @@ between yet. It is one form on the sidebar's ground: the mark, a card with
 "Step n of N" over a line of step marks, and one step at a time
 (`onboarding/chrome/Shell.tsx`). A step that can be left for later offers a
 quiet "Skip for now" in place of the lit button, so the accent only marks the
-way forward.
+way forward. The provider step's picker groups the coding agents (Claude Code,
+Codex, OpenCode: they work through their own SDK, on their own sign-in) apart
+from the model APIs Moxxy calls itself; `settings.providerCatalog` tags each
+entry `agent` or `api`. Skipping the workspace step keeps the built-in Moxxy
+workspace, whose folder is `~/Moxxy` (inside `MOXXY_HOME` when that is set):
+the app starts its first runner there (`initialRunnerTarget` in
+`@moxxy/desktop-host`), and the step says so before the person skips.
 
 Menus are one component, `shell/menu/PopoverMenu.tsx`, positioned by
 `shell/menu/usePopover.ts`. A menu opened with the pointer grows from the

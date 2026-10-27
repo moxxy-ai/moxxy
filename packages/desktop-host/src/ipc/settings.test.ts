@@ -39,7 +39,14 @@ describe('settings.providerCatalog', () => {
     const catalog = captureHandlers().get('settings.providerCatalog');
     assertDefined(catalog, 'settings.providerCatalog handler');
 
-    expect(await catalog()).toEqual(['anthropic', 'openai', 'openai-codex', 'claude-code', 'codex-agent', 'opencode']);
+    expect(await catalog()).toEqual([
+      { name: 'anthropic', kind: 'api' },
+      { name: 'openai', kind: 'api' },
+      { name: 'openai-codex', kind: 'api' },
+      { name: 'claude-code', kind: 'agent' },
+      { name: 'codex-agent', kind: 'agent' },
+      { name: 'opencode', kind: 'agent' },
+    ]);
   });
 });
 
