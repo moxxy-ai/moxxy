@@ -1,5 +1,56 @@
 # @moxxy/workspace-registry
 
+## 0.2.44
+
+### Patch Changes
+
+- 05fc1e7: First run is clearer about providers and never leaves the agent in a random folder. The provider picker now groups "Coding agents · SDK" (Claude Code, Codex, OpenCode) apart from "Model APIs" (Anthropic, OpenAI, …), and `settings.providerCatalog` returns `{ name, kind: 'agent' | 'api' }` entries instead of bare names. Skipping the workspace step now keeps a real workspace: the built-in Moxxy workspace is saved, brought to front and given the folder `~/Moxxy` (inside `MOXXY_HOME` when that is set), and the app starts its first runner there instead of in whatever folder the app process started in. The workspace step says where a skip keeps working. Workspaces that are already saved keep their folder.
+- Updated dependencies [71f8aa8]
+- Updated dependencies [db33b95]
+- Updated dependencies [71e90e5]
+- Updated dependencies [84ff880]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [02119e8]
+- Updated dependencies [29841af]
+- Updated dependencies [211f80c]
+- Updated dependencies [49dd789]
+- Updated dependencies [90ab0bb]
+- Updated dependencies [cb494ef]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [887b8b7]
+- Updated dependencies [072b8b5]
+- Updated dependencies [a8e8418]
+- Updated dependencies [322f2ce]
+- Updated dependencies [7868760]
+- Updated dependencies [4af5560]
+- Updated dependencies [ee669b7]
+- Updated dependencies [3c1527c]
+- Updated dependencies [178a215]
+- Updated dependencies [318d476]
+- Updated dependencies [7cc93a2]
+- Updated dependencies [6e54a6b]
+- Updated dependencies [1329245]
+- Updated dependencies [8472068]
+- Updated dependencies [deeeeea]
+- Updated dependencies [46b20d3]
+- Updated dependencies [9bfe644]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [7d718f6]
+- Updated dependencies [6f4d652]
+- Updated dependencies [1fe7d4e]
+- Updated dependencies [05fc1e7]
+- Updated dependencies [d118b03]
+- Updated dependencies [2160501]
+- Updated dependencies [2b9c87f]
+- Updated dependencies [332e4c2]
+- Updated dependencies [191a5b4]
+- Updated dependencies [a06de31]
+- Updated dependencies [066a949]
+- Updated dependencies [fa44b8c]
+  - @moxxy/sdk@0.45.0
+  - @moxxy/core@0.45.0
+  - @moxxy/desktop-ipc-contract@0.15.0
+
 ## 0.2.43
 
 ### Patch Changes

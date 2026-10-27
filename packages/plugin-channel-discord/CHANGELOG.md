@@ -1,5 +1,59 @@
 # @moxxy/plugin-channel-discord
 
+## 0.45.0
+
+### Patch Changes
+
+- 7cc93a2: "Always allow" on a request for access to an app now saves just that request: full access to Safari is let through later, also in a new conversation, but a request for Terminal or for more control still asks. Before, the answer was saved for the whole tool and every later request passed unasked. Within the conversation the answer covers the same request only, and Telegram and Discord now keep "Allow session" to the same request too for such a tool.
+
+  For tool authors: the permission file takes `inputEquals` (exact values per input field), the SDK adds `alwaysAllowRule` and `createSessionGrants`, and runner protocol 32 carries `inputEquals` in `permission.addAllow` (a client never sends it to an older runner).
+
+- Updated dependencies [71f8aa8]
+- Updated dependencies [db33b95]
+- Updated dependencies [71e90e5]
+- Updated dependencies [84ff880]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [02119e8]
+- Updated dependencies [29841af]
+- Updated dependencies [211f80c]
+- Updated dependencies [49dd789]
+- Updated dependencies [90ab0bb]
+- Updated dependencies [cb494ef]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [887b8b7]
+- Updated dependencies [072b8b5]
+- Updated dependencies [a8e8418]
+- Updated dependencies [322f2ce]
+- Updated dependencies [7868760]
+- Updated dependencies [4af5560]
+- Updated dependencies [ee669b7]
+- Updated dependencies [3c1527c]
+- Updated dependencies [178a215]
+- Updated dependencies [318d476]
+- Updated dependencies [7cc93a2]
+- Updated dependencies [6e54a6b]
+- Updated dependencies [1329245]
+- Updated dependencies [8472068]
+- Updated dependencies [deeeeea]
+- Updated dependencies [46b20d3]
+- Updated dependencies [9bfe644]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [7d718f6]
+- Updated dependencies [6f4d652]
+- Updated dependencies [1fe7d4e]
+- Updated dependencies [d118b03]
+- Updated dependencies [2160501]
+- Updated dependencies [2b9c87f]
+- Updated dependencies [332e4c2]
+- Updated dependencies [a06de31]
+- Updated dependencies [066a949]
+- Updated dependencies [fa44b8c]
+  - @moxxy/sdk@0.45.0
+  - @moxxy/core@0.45.0
+  - @moxxy/chat-model@0.5.0
+  - @moxxy/channel-kit@0.45.0
+  - @moxxy/plugin-vault@0.45.0
+
 ## 0.44.0
 
 ### Patch Changes

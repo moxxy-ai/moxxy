@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-claude-code",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "description": "Claude Agent connection for moxxy: Claude Code itself does the work through the Claude Agent SDK, on the person's Claude subscription sign-in, while Moxxy shows it, asks for approvals and questions, and lends its own tools over MCP.",
   "keywords": [
     "moxxy",

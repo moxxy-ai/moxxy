@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/agent-connection-kit",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Shared parts of agent connections: the Moxxy tools MCP server, a line JSON-RPC client, the live agent session pool, mode mapping and CLI version checks.",
   "keywords": [
     "moxxy",

@@ -1,5 +1,58 @@
 # @moxxy/config
 
+## 0.45.0
+
+### Patch Changes
+
+- a3fbd14: Settings → Voice gets a Transcription choice: Cloud (OpenAI over the ChatGPT login, as before) or Local (Whisper turbo on this computer, offline once its model is on disk). The first switch to Local asks before it downloads the model (about 1 GB), then shows a progress bar with Cancel; the download runs in the background, so the app stays usable and the bar shows again when you come back to the tab. A toast says when Local is ready or why it could not start, and if it cannot start Moxxy stays on Cloud. The installer now ships the local Whisper plugin.
+
+  Whisper turbo now downloads as its three files from Hugging Face, in parallel, pinned by size and sha256, instead of a `.tar.bz2` that had to be unpacked; that unpacking took about 67 s against 9 s for the download. Local Whisper offers only the multilingual turbo model: `tiny`, `base` and `small` are gone, and a config still naming one of them is rejected with a message listing `turbo`.
+
+  The desktop shows toasts: a chat that finishes or asks while you are elsewhere in the app, and work the host finishes in the background (`app.notice`), shown as a toast while the window is in front and a system notification otherwise. Settings → Preferences → Notifications switches each kind on its own: "In-app toasts" for the notes inside Moxxy, and "System notification" for the macOS, Windows or Linux notification while Moxxy is in the background.
+
+  `@moxxy/model-fetch` adds `ensureModelFiles` and `modelFilesReady` (also at `@moxxy/model-fetch/files`); `@moxxy/config` adds `clearCategoryDefault`.
+
+- Updated dependencies [71f8aa8]
+- Updated dependencies [db33b95]
+- Updated dependencies [71e90e5]
+- Updated dependencies [84ff880]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [02119e8]
+- Updated dependencies [29841af]
+- Updated dependencies [211f80c]
+- Updated dependencies [49dd789]
+- Updated dependencies [90ab0bb]
+- Updated dependencies [cb494ef]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [887b8b7]
+- Updated dependencies [072b8b5]
+- Updated dependencies [a8e8418]
+- Updated dependencies [322f2ce]
+- Updated dependencies [7868760]
+- Updated dependencies [4af5560]
+- Updated dependencies [ee669b7]
+- Updated dependencies [3c1527c]
+- Updated dependencies [178a215]
+- Updated dependencies [318d476]
+- Updated dependencies [7cc93a2]
+- Updated dependencies [6e54a6b]
+- Updated dependencies [1329245]
+- Updated dependencies [8472068]
+- Updated dependencies [deeeeea]
+- Updated dependencies [46b20d3]
+- Updated dependencies [9bfe644]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [7d718f6]
+- Updated dependencies [6f4d652]
+- Updated dependencies [d118b03]
+- Updated dependencies [2160501]
+- Updated dependencies [2b9c87f]
+- Updated dependencies [332e4c2]
+- Updated dependencies [a06de31]
+- Updated dependencies [066a949]
+- Updated dependencies [fa44b8c]
+  - @moxxy/sdk@0.45.0
+
 ## 0.44.0
 
 ### Patch Changes

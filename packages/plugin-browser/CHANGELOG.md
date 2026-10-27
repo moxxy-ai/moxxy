@@ -1,5 +1,52 @@
 # @moxxy/plugin-browser
 
+## 0.45.0
+
+### Patch Changes
+
+- fa44b8c: Move to zod 4.6.6, the fix for GHSA-mrhx-c7xc-m3w5 (a crafted value could make validation use up memory). Moxxy keeps zod 3's API from it: every import is now `zod/v3`, and `z` from `@moxxy/sdk` is zod 3's API as before, so schemas, validation and the tool schemas models see are unchanged. The SDK's `zod` peer range is now `^4.6.6`. A plugin should build its tool schemas with `z` from `@moxxy/sdk` or `zod/v3`: one built with zod 4's API reaches the model with no fields. Also pick up undici 8.12.3, 7.30.1 and 6.29.1 (GHSA-xjj6-f33q-929c, GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472) and fast-uri 3.1.9 (GHSA-w74x-v6f9-j3xg and three more).
+- Updated dependencies [71f8aa8]
+- Updated dependencies [db33b95]
+- Updated dependencies [71e90e5]
+- Updated dependencies [84ff880]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [02119e8]
+- Updated dependencies [29841af]
+- Updated dependencies [211f80c]
+- Updated dependencies [49dd789]
+- Updated dependencies [90ab0bb]
+- Updated dependencies [cb494ef]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [887b8b7]
+- Updated dependencies [072b8b5]
+- Updated dependencies [a8e8418]
+- Updated dependencies [322f2ce]
+- Updated dependencies [7868760]
+- Updated dependencies [4af5560]
+- Updated dependencies [ee669b7]
+- Updated dependencies [3c1527c]
+- Updated dependencies [178a215]
+- Updated dependencies [318d476]
+- Updated dependencies [7cc93a2]
+- Updated dependencies [6e54a6b]
+- Updated dependencies [1329245]
+- Updated dependencies [8472068]
+- Updated dependencies [deeeeea]
+- Updated dependencies [46b20d3]
+- Updated dependencies [9bfe644]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [7d718f6]
+- Updated dependencies [6f4d652]
+- Updated dependencies [d118b03]
+- Updated dependencies [2160501]
+- Updated dependencies [2b9c87f]
+- Updated dependencies [332e4c2]
+- Updated dependencies [a06de31]
+- Updated dependencies [066a949]
+- Updated dependencies [fa44b8c]
+  - @moxxy/sdk@0.45.0
+  - @moxxy/jev@0.2.4
+
 ## 0.44.0
 
 ### Patch Changes

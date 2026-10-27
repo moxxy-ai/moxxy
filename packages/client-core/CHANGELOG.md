@@ -1,5 +1,71 @@
 # @moxxy/client-core
 
+## 0.14.0
+
+### Minor Changes
+
+- 332e4c2: Collaborative mode is gone. The desktop no longer has a Collaborate tab, the terminal no longer has `/collab`, and the CLI no longer has the internal `moxxy collab` and `moxxy agent` commands. The `@moxxy/mode-collaborative` and `@moxxy/plugin-collab` packages are no longer bundled and were removed from the repo and from the install catalog. The `collab.*` desktop IPC commands and events and the `CollabRunSummary` type were removed, along with `CollaborationBlock` and its views in `@moxxy/chat-model`. Collaboration events in old saved runs are no longer shown.
+
+### Patch Changes
+
+- a8e8418: Claude Agent: the times Claude sets itself to come back (ScheduleWakeup, `/loop`, CronCreate) show above the message box ("Back at 22:59 · in 3 min") and under "Scheduled" in the Agents pane, read from Claude's own list (`SessionInfo.scheduledWakeups`, runner protocol 31); the turn it comes back in reads "Scheduled check-in". The Agents pane and the background line are drawn with the app's own pieces, and the desktop's close, warning, check, fit and broadcast marks are icons rather than text glyphs. The cron parser moved to `@moxxy/sdk/cron`.
+- 290cba7: A finished turn's work folds into one line over the answer in the desktop conversation: "Worked for 4m 12s · 12 steps", opening to every step as it was drawn. The agent's comments along the way, its thoughts, tool runs and diffs no longer stretch the conversation; the person's messages, errors, "Stopped", notes, answered questions, the list of steps, a mode's card and the turn's last message stay in view, and the turn still going stays open. The grouping is `groupWorkNodes` in `@moxxy/client-core` (with the `WorkNode` row and `keyOfNode`), so other surfaces can draw the same.
+- d2de3a1: A question the agent asks can no longer leave the conversation stuck.
+
+  - A question Codex asks while it works is shown at once instead of when its turn ends. An answer given while Codex works goes into its running turn. When Codex finishes without the answer, the question closes with the note that Codex went on. When Codex ends its turn on the question (plan mode), it still waits for the answer as before.
+  - A new message from the person closes any question an earlier turn still waits on, so that turn ends and the new message runs. A message an agent or a trigger started does not.
+  - An open question stays on screen while any turn runs, not only while the turn that asked it runs.
+  - The question card on Telegram and Discord says why a question closed: the agent went on, or a new message was sent.
+  - Desktop and terminal history keep the reason a question closed without an answer. A new message interrupts a Codex turn blocked on native user input before that turn can keep waiting on an empty answer.
+  - `@moxxy/sdk`: `QuestionAsker` callers can pass `{ signal }` to `ModeContext.ask` and `AgentStepHost.ask`; aborting it with `QUESTION_CLOSED_AGENT_WENT_ON` closes the question with that note. A dismissed `QuestionOutcome` and the `question_resolved` record carry an optional `note`. New exports: `QUESTION_CLOSED_AGENT_WENT_ON`, `QUESTION_CLOSED_NEW_MESSAGE`, `questionCloseNote`, `QuestionCloseNote`, `QuestionAskOptions`.
+
+- 191a5b4: The mobile app is gone, and with it everything that existed only to pair a phone. The desktop no longer has a Mobile place in its menu or search, and no longer starts a WebSocket bridge (the `MOXXY_WS_*` variables do nothing now). The CLI no longer has `moxxy mobile`, the `MOXXY_MOBILE_*` variables or the enterprise profile's `channels.mobile` lock. The `@moxxy/plugin-channel-mobile`, `@moxxy/ipc-server-ws` and `@moxxy/client-transport-ws` packages, the `mobileGateway.*` desktop IPC commands and event, the `mobileGatewayEnabled` preference and `useMobileGateway` were removed. Conversations started from the phone still show in the desktop history, and a preferences file that still names the gateway still loads.
+- Updated dependencies [71f8aa8]
+- Updated dependencies [db33b95]
+- Updated dependencies [71e90e5]
+- Updated dependencies [84ff880]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [02119e8]
+- Updated dependencies [29841af]
+- Updated dependencies [211f80c]
+- Updated dependencies [49dd789]
+- Updated dependencies [90ab0bb]
+- Updated dependencies [cb494ef]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [887b8b7]
+- Updated dependencies [072b8b5]
+- Updated dependencies [a8e8418]
+- Updated dependencies [322f2ce]
+- Updated dependencies [7868760]
+- Updated dependencies [4af5560]
+- Updated dependencies [ee669b7]
+- Updated dependencies [3c1527c]
+- Updated dependencies [178a215]
+- Updated dependencies [318d476]
+- Updated dependencies [7cc93a2]
+- Updated dependencies [6e54a6b]
+- Updated dependencies [1329245]
+- Updated dependencies [8472068]
+- Updated dependencies [deeeeea]
+- Updated dependencies [46b20d3]
+- Updated dependencies [9bfe644]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [7d718f6]
+- Updated dependencies [6f4d652]
+- Updated dependencies [05fc1e7]
+- Updated dependencies [d118b03]
+- Updated dependencies [2160501]
+- Updated dependencies [2b9c87f]
+- Updated dependencies [332e4c2]
+- Updated dependencies [191a5b4]
+- Updated dependencies [a06de31]
+- Updated dependencies [066a949]
+- Updated dependencies [fa44b8c]
+  - @moxxy/sdk@0.45.0
+  - @moxxy/chat-model@0.5.0
+  - @moxxy/desktop-ipc-contract@0.15.0
+  - @moxxy/workflows-builder@0.1.58
+
 ## 0.13.35
 
 ### Patch Changes
