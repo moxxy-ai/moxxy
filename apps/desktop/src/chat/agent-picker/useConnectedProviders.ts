@@ -3,9 +3,9 @@ import { api, isProviderConnected } from '@moxxy/client-core';
 import type { ProviderInfo } from './types';
 
 export interface ProviderGroups {
-  /** Coding agents: the agent installed on this computer does the work. */
+  /** SDK agents: the agent app installed on this computer does the work. */
   readonly agents: ReadonlyArray<ProviderInfo>;
-  /** Model providers: Moxxy does the work and calls the model. */
+  /** API models: Moxxy does the work and calls the model through its API. */
   readonly models: ReadonlyArray<ProviderInfo>;
 }
 

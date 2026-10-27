@@ -19,8 +19,8 @@ export interface Destination {
  */
 export const DESTINATIONS: ReadonlyArray<Destination> = [
   // The id stays `chat`: the surface behind it is `src/chat` and the chat store.
-  // "Runs" is the product's name for what it shows.
-  { id: 'chat', label: 'Runs', icon: 'chat', chord: 'mod+1' },
+  // "Workspaces" is the product's name for what it shows (it was "Runs").
+  { id: 'chat', label: 'Workspaces', icon: 'chat', chord: 'mod+1' },
   { id: 'extensions', label: 'Extensions', icon: 'plug', chord: 'mod+2' },
   { id: 'automations', label: 'Automations', icon: 'workflow' },
   { id: 'apps', label: 'Apps', icon: 'grid' },
@@ -28,6 +28,11 @@ export const DESTINATIONS: ReadonlyArray<Destination> = [
   { id: 'voice', label: 'Voice', icon: 'speaker' },
   { id: 'settings', label: 'Settings', icon: 'settings', chord: 'mod+,' },
 ];
+
+/** The name a place goes by, as the menu, the palette and the sidebar say it. */
+export function destinationLabel(id: DestinationId): string {
+  return DESTINATIONS.find((destination) => destination.id === id)?.label ?? id;
+}
 
 /** Views that read the runner session and cannot render while it loads. */
 const RUNNER_LOCKED: ReadonlySet<DestinationId> = new Set(['apps', 'automations']);

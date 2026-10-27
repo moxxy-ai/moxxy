@@ -5,6 +5,7 @@ import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { IndexColumn } from './IndexColumn';
+import { destinationLabel } from './navigation/destinations';
 import {
   toggleWorkspaceCollapsed,
   useWorkspaceCollapsed,
@@ -110,7 +111,7 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
 
   return (
     <IndexColumn
-      title="runs"
+      title={destinationLabel('chat')}
       actions={
         <button
           type="button"

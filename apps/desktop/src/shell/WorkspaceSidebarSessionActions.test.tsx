@@ -121,6 +121,11 @@ describe('WorkspaceSidebar session actions', () => {
     expect(screen.getByTestId('session-row-session-1')).toBeTruthy();
   });
 
+  it('is headed Workspaces, the name the menu and shortcuts use', () => {
+    renderSidebar();
+    expect(screen.getByTestId('index-column').querySelector('.index-col__title')?.textContent).toBe('Workspaces');
+  });
+
   it('starts a new run in the current workspace from the sidebar head', async () => {
     renderSidebar();
     fireEvent.click(screen.getByTestId('session-new'));

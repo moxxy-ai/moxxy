@@ -330,8 +330,11 @@ describe('ProvidersTab — agent connections', () => {
     host();
     renderTab({ providers: [anthropic, codex, opencode(missing)] });
 
-    const agents = screen.getByRole('region', { name: 'Coding agents' });
-    const models = screen.getByRole('region', { name: 'Model providers' });
+    const agents = screen.getByRole('region', { name: 'SDK agents' });
+    const models = screen.getByRole('region', { name: 'API models' });
+    // Each kind says what it is, in plain words.
+    expect(agents).toHaveTextContent('An agent app installed on this computer does the work, on its own sign-in.');
+    expect(models).toHaveTextContent('Moxxy does the work and calls the model through its API, with an API key or a model on this computer.');
     expect(within(agents).getByTestId('agent-row-opencode')).toBeInTheDocument();
     expect(within(agents).queryByTestId('provider-row-anthropic')).toBeNull();
     expect(within(models).getByTestId('provider-row-anthropic')).toBeInTheDocument();
@@ -345,7 +348,7 @@ describe('ProvidersTab — agent connections', () => {
     host();
     renderTab({ providers: [anthropic] });
 
-    expect(screen.queryByRole('region', { name: 'Coding agents' })).toBeNull();
-    expect(screen.getByRole('region', { name: 'Model providers' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'SDK agents' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'API models' })).toBeInTheDocument();
   });
 });

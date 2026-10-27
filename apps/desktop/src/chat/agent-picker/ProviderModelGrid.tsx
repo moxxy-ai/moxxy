@@ -3,8 +3,9 @@
  *
  *   [ provider list ] │ [ models for the hovered provider ]
  *
- * The left column lists the connected providers (with an active dot), coding
- * agents apart from model providers as in Settings; clicking one "browses" it
+ * The left column lists the connected providers (with an active dot), SDK
+ * agents apart from API models as in Settings, each kind under a heading that
+ * says in a few words what it is; clicking one "browses" it
  * without committing. The right column lists that
  * provider's models. Providers that advertise live discovery replace their
  * build-time fallback catalog with the current `/v1/models` result. Picking a
@@ -19,6 +20,7 @@ import type { ProviderInfo } from './types';
 import { useLiveProviderModels } from './useLiveProviderModels';
 import { CustomModelForm } from './CustomModelForm';
 import { useConnectedProviders } from './useConnectedProviders';
+import { PROVIDER_KINDS } from '../../settings/provider-kinds';
 
 export function ProviderModelGrid({
   workspaceId,
@@ -89,37 +91,51 @@ export function ProviderModelGrid({
           </li>
         )}
         {[
-          { title: 'Coding agents', items: groups.agents },
-          { title: 'Model providers', items: groups.models },
-        ].map(
-          (group) =>
-            group.items.length > 0 && (
-              <li key={group.title}>
-                <ul role="group" aria-label={group.title} style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  <li
-                    role="presentation"
+          { ...PROVIDER_KINDS.agents, items: groups.agents },
+          { ...PROVIDER_KINDS.models, items: groups.models },
+        ]
+          .filter((group) => group.items.length > 0)
+          .map((group, index) => (
+            <li
+              key={group.title}
+              // A hairline and some air between the kinds, as in Settings, so
+              // the split reads before any provider does.
+              style={index > 0 ? { marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--color-card-border)' } : undefined}
+            >
+              <ul role="group" aria-label={group.title} style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                <li role="presentation" style={{ padding: '8px 8px 6px' }}>
+                  <div
                     style={{
-                      padding: '8px 8px 4px',
                       fontSize: 'var(--type-label)',
-                      fontWeight: 600,
-                      color: 'var(--color-text-dim)',
+                      fontWeight: 650,
+                      color: 'var(--color-text)',
                     }}
                   >
                     {group.title}
-                  </li>
-                  {group.items.map((p) => (
-                    <ProviderOption
-                      key={p.name}
-                      name={p.name}
-                      active={p.name === activeProvider}
-                      hovered={p.name === hoveredProvider}
-                      onBrowse={() => setHoveredProvider(p.name)}
-                    />
-                  ))}
-                </ul>
-              </li>
-            ),
-        )}
+                  </div>
+                  <div
+                    style={{
+                      marginTop: 2,
+                      fontSize: 'var(--type-micro)',
+                      lineHeight: 1.35,
+                      color: 'var(--color-text-dim)',
+                    }}
+                  >
+                    {group.short}
+                  </div>
+                </li>
+                {group.items.map((p) => (
+                  <ProviderOption
+                    key={p.name}
+                    name={p.name}
+                    active={p.name === activeProvider}
+                    hovered={p.name === hoveredProvider}
+                    onBrowse={() => setHoveredProvider(p.name)}
+                  />
+                ))}
+              </ul>
+            </li>
+          ))}
       </ul>
       <div
         style={{

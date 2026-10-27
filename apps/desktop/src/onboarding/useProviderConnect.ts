@@ -10,6 +10,7 @@ import { assertDefined } from '@/lib/assert';
 import { api, decodeError, retryWhileReconnecting, toErrorMessage, useSettings } from '@moxxy/client-core';
 import type { ProviderCatalogEntry } from '@moxxy/desktop-ipc-contract';
 import { useAgentConnections } from '../settings/agents/useAgentConnections';
+import { PROVIDER_KINDS } from '../settings/provider-kinds';
 
 /** Static fallback catalog (used until `settings.providerCatalog` resolves). */
 const FALLBACK_CATALOG: ReadonlyArray<ProviderCatalogEntry> = [
@@ -27,8 +28,8 @@ const OAUTH_PROVIDER_IDS = new Set(['claude-code', 'codex-agent', 'opencode']);
 
 /** The picker's groups, in the order Settings lists them: agents first. */
 const GROUPS: ReadonlyArray<{ readonly kind: ProviderCatalogEntry['kind']; readonly label: string }> = [
-  { kind: 'agent', label: 'Coding agents · SDK' },
-  { kind: 'api', label: 'Model APIs' },
+  { kind: 'agent', label: PROVIDER_KINDS.agents.title },
+  { kind: 'api', label: PROVIDER_KINDS.models.title },
 ];
 
 export interface ProviderOptionGroup {

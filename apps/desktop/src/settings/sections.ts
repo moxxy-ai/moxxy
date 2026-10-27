@@ -1,4 +1,5 @@
 import type { IconName } from '@moxxy/desktop-ui';
+import { PROVIDER_KINDS } from './provider-kinds';
 
 /** Something inside a section a person may look for by its own name. */
 export interface SectionFind {
@@ -36,8 +37,10 @@ export const SETTINGS_SECTIONS = [
     finds: [
       { label: 'Add provider', keywords: ['connect a model', 'new provider', 'sign in'] },
       {
-        label: 'Coding agents',
+        label: PROVIDER_KINDS.agents.title,
         keywords: [
+          'coding agents',
+          'sdk',
           'agent connections',
           'claude code',
           'codex',
@@ -52,7 +55,7 @@ export const SETTINGS_SECTIONS = [
           'agent account',
         ],
       },
-      { label: 'Model providers', keywords: ['api providers', 'api key', 'oauth', 'moxxy loop'] },
+      { label: PROVIDER_KINDS.models.title, keywords: ['model providers', 'api providers', 'api key', 'oauth', 'moxxy loop'] },
       {
         label: 'Default model',
         keywords: ['starting model', 'new conversation', 'reasoning effort', 'thinking', 'fast mode', 'fast tier'],

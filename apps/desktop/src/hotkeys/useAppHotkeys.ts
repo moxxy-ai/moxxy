@@ -23,7 +23,7 @@ export interface AppHotkeysOptions {
 
 /** The places with a number. Every other place is in the account menu and the palette. */
 const NUMBERED_VIEWS: ReadonlyArray<{ view: View; label: string }> = [
-  { view: 'chat', label: 'Runs' },
+  { view: 'chat', label: 'Workspaces' },
   { view: 'extensions', label: 'Extensions' },
   { view: 'settings', label: 'Settings' },
 ];

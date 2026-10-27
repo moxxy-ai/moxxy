@@ -11,6 +11,7 @@ import {
 } from '@/lib/useIndexWidth';
 import { SidebarAccount } from './account/SidebarAccount';
 import { useShellNav } from './navigation/ShellNav';
+import { destinationLabel } from './navigation/destinations';
 
 /**
  * The sidebar: one frame whose list changes with the view.
@@ -34,7 +35,7 @@ export function IndexColumn({
   toolbar,
   children,
 }: {
-  /** The view's name, e.g. "runs". */
+  /** The view's name, e.g. "Workspaces". */
   readonly title: string;
   /** Trailing controls in the head (new, …). */
   readonly actions?: ReactNode;
@@ -84,8 +85,8 @@ export function IndexColumn({
             type="button"
             className="btn-quiet tip"
             data-testid="sidebar-back"
-            aria-label="Back to runs"
-            data-tip="Back to runs"
+            aria-label={`Back to ${destinationLabel('chat').toLowerCase()}`}
+            data-tip={`Back to ${destinationLabel('chat').toLowerCase()}`}
             data-tip-side="bottom"
             onClick={() => nav.go('chat')}
           >
