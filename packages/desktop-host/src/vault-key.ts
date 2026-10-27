@@ -3,8 +3,8 @@
  * works without an interactive passphrase prompt — which the desktop can never
  * answer.
  *
- * The desktop saves provider secrets by piping them into `moxxy vault set` over
- * a non-TTY pipe (and uses an in-process vault for transcription). The vault key
+ * The desktop saves provider secrets through its in-process vault (the same
+ * file and key source the runner reads), never at a terminal. The vault key
  * source resolves in order: `MOXXY_VAULT_PASSPHRASE` → OS keychain
  * (`@napi-rs/keyring`) → on-disk cached key (`~/.moxxy/vault.key`) → interactive
  * passphrase prompt. On a fresh install with no keychain available — notably the

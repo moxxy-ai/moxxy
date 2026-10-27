@@ -14,7 +14,7 @@
  * opens it through Electron and the renderer retains an explicit fallback.
  *
  * Encryption + the OAuth dance stay entirely in the CLI (mirroring
- * `saveProviderKey` → `moxxy vault set`); this module is only a relay.
+ * `saveProviderKey` → the vault); this module is only a relay.
  */
 
 import type { BrowserWindow } from 'electron';

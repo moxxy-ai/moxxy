@@ -37,8 +37,8 @@ import type { Transcriber } from '@moxxy/sdk';
 export interface InProcessPlugins {
   /** Vault shared with the runner — same file path
    *  (`~/.moxxy/vault.json`), same key source (combined keychain +
-   *  env/passphrase). Populated by the user's existing `moxxy
-   *  login` / `moxxy vault set` flows. */
+   *  env/passphrase). Written by `moxxy login` and by the desktop's
+   *  own key forms (onboarding, Settings → Vault). */
   readonly vault: VaultStore;
   /** Codex OAuth transcriber instance wired against the shared
    *  vault. The TUI's voice flow uses the same backing class. */

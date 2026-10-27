@@ -12,14 +12,14 @@
 import { AGENT_CLIS } from '@moxxy/agent-connection-kit';
 
 import type { RunnerPool } from '../runner-pool';
-import { handle, mustRemote, mustSession, resolveSupervisor } from './shared';
+import { getInProcessPlugins, handle, mustRemote, mustSession, resolveSupervisor } from './shared';
 
 export function registerSettingsHandlers(pool: RunnerPool): void {
   // ---- Settings -----------------------------------------------------------
 
   handle('settings.fetchProviderModels', async ({ provider }) => {
     const { fetchProviderModels } = await import('../provider-discovery');
-    return await fetchProviderModels(provider);
+    return await fetchProviderModels(provider, { vault: getInProcessPlugins().vault });
   });
   handle('settings.adminProviders', async () => {
     const { readAdminProviderNames } = await import('../provider-discovery');
