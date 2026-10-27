@@ -7,12 +7,21 @@
  * The projection layer (see `mode-helpers.ts`) sends ONLY `forModel` to the
  * model, so the rich payload never bloats the context window.
  *
- * The first (and currently only) display kind is `file-diff`, emitted by the
- * built-in Write/Edit tools. It carries the changed slices of a file (a few
+ * `question-answer` (from `ask_user`) keeps what the person chose, so the
+ * transcript still shows it once the Question's card is gone.
+ *
+ * `file-diff` is emitted by the built-in Write/Edit tools, and by agent connections for the agent's own
+ * edits (built with `file-diff.ts`). It carries the changed slices of a file (a few
  * lines of context around each edit) — never the whole file — so the payload
  * stays bounded regardless of file size. Channels render it as a classic diff:
  * line numbers, +/- markers, green/red line backgrounds.
+ *
+ * `step-list` is an agent's own list of steps (Claude's tasks or TodoWrite,
+ * Codex's plan, OpenCode's todos) as it stands after a change: every step,
+ * not only the changed one, so the last list of a turn is the whole picture.
  */
+
+import { invariant } from './assert.js';
 
 /** One rendered line of a diff. */
 export interface DiffLine {
@@ -46,8 +55,42 @@ export interface FileDiffDisplay {
   readonly truncated?: boolean;
 }
 
+/** One question the person answered, as words: what was asked and what they chose. */
+export interface AnsweredQuestion {
+  readonly header?: string;
+  readonly question: string;
+  /** Labels of the suggested answers they picked, in order. */
+  readonly chosen: ReadonlyArray<string>;
+  /** Their answer in their own words, when they wrote one. */
+  readonly own?: string;
+}
+
+/**
+ * The answers to a Question (`ask_user`), kept so the transcript shows what the
+ * person chose after the card is gone.
+ */
+export interface QuestionAnswerDisplay {
+  readonly kind: 'question-answer';
+  readonly questions: ReadonlyArray<AnsweredQuestion>;
+}
+
+export type StepStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+
+export interface ListedStep {
+  readonly text: string;
+  readonly status: StepStatus;
+}
+
+/** An agent's list of steps after a change to it. */
+export interface StepListDisplay {
+  readonly kind: 'step-list';
+  readonly steps: ReadonlyArray<ListedStep>;
+  /** Why the agent changed its plan, when it said so (Codex). */
+  readonly explanation?: string;
+}
+
 /** Extensible union of structured tool-result payloads. */
-export type ToolDisplay = FileDiffDisplay;
+export type ToolDisplay = FileDiffDisplay | QuestionAnswerDisplay | StepListDisplay;
 
 /**
  * The shape a tool returns when it wants a rich, channel-rendered result.
@@ -68,7 +111,81 @@ export function isToolDisplayResult(x: unknown): x is ToolDisplayResult {
 }
 
 export function isToolDisplay(x: unknown): x is ToolDisplay {
-  return isFileDiffDisplay(x);
+  return isFileDiffDisplay(x) || isQuestionAnswerDisplay(x) || isStepListDisplay(x);
+}
+
+export function isStepListDisplay(x: unknown): x is StepListDisplay {
+  if (typeof x !== 'object' || x === null) return false;
+  const d = x as { kind?: unknown; steps?: unknown };
+  if (d.kind !== 'step-list' || !Array.isArray(d.steps)) return false;
+  return d.steps.every((step: unknown) => {
+    if (typeof step !== 'object' || step === null) return false;
+    const item = step as { text?: unknown; status?: unknown };
+    return typeof item.text === 'string' && stepStatusOf(item.status) === item.status;
+  });
+}
+
+/** An agent's word for a step's state, as Moxxy's: `in_progress` and Codex's `inProgress` alike. */
+export function stepStatusOf(raw: unknown): StepStatus | undefined {
+  switch (raw) {
+    case 'pending':
+    case 'completed':
+    case 'cancelled':
+    case 'in_progress':
+      return raw;
+    case 'inProgress':
+      return 'in_progress';
+    default:
+      return undefined;
+  }
+}
+
+/** The steps of a TodoWrite-style list (`{ content, status }` items, as Claude and OpenCode write them). */
+export function stepsFromTodos(todos: unknown): ListedStep[] | undefined {
+  if (!Array.isArray(todos)) return undefined;
+  const steps = todos.flatMap((todo: unknown): ListedStep[] => {
+    if (typeof todo !== 'object' || todo === null) return [];
+    const item = todo as { content?: unknown; status?: unknown };
+    const status = stepStatusOf(item.status);
+    return typeof item.content === 'string' && item.content.trim() && status ? [{ text: item.content.trim(), status }] : [];
+  });
+  return steps;
+}
+
+/** A tool output whose result is the agent's list of steps as it now stands. */
+export function stepListOutput(forModel: string, steps: ReadonlyArray<ListedStep>, explanation?: string): ToolDisplayResult {
+  return { forModel, display: { kind: 'step-list', steps, ...(explanation ? { explanation } : {}) } };
+}
+
+/** How far a list is: steps done (completed or cancelled), all steps, and the one being worked on or next. */
+export function stepListProgress(d: StepListDisplay): { readonly done: number; readonly total: number; readonly current?: ListedStep } {
+  const done = d.steps.filter((step) => step.status === 'completed' || step.status === 'cancelled').length;
+  const current = d.steps.find((step) => step.status === 'in_progress') ?? d.steps.find((step) => step.status === 'pending');
+  return { done, total: d.steps.length, ...(current ? { current } : {}) };
+}
+
+export function isQuestionAnswerDisplay(x: unknown): x is QuestionAnswerDisplay {
+  if (typeof x !== 'object' || x === null) return false;
+  const d = x as { kind?: unknown; questions?: unknown };
+  if (d.kind !== 'question-answer' || !Array.isArray(d.questions)) return false;
+  return d.questions.every((item: unknown) => {
+    if (typeof item !== 'object' || item === null) return false;
+    const q = item as { question?: unknown; chosen?: unknown; own?: unknown };
+    return (
+      typeof q.question === 'string' &&
+      Array.isArray(q.chosen) &&
+      q.chosen.every((label) => typeof label === 'string') &&
+      (q.own === undefined || typeof q.own === 'string')
+    );
+  });
+}
+
+/** One line per answered question, e.g. "Colour: Which colour? → Blue", for text surfaces. */
+export function questionAnswerLines(d: QuestionAnswerDisplay): string[] {
+  return d.questions.map((item) => {
+    const said = [...(item.chosen.length > 0 ? [item.chosen.join(', ')] : []), ...(item.own ? [`own answer: ${item.own}`] : [])];
+    return `${item.header ? `${item.header}: ` : ''}${item.question} → ${said.join('; ')}`;
+  });
 }
 
 export function isFileDiffDisplay(x: unknown): x is FileDiffDisplay {
@@ -94,6 +211,47 @@ export function isFileDiffDisplay(x: unknown): x is FileDiffDisplay {
     if (!Array.isArray((hunk as { lines?: unknown }).lines)) return false;
   }
   return true;
+}
+
+/** Pixels a tool result carries, as base64. */
+export interface ToolImage {
+  readonly mediaType: string;
+  readonly base64: string;
+}
+
+/**
+ * The images in a tool output and the text beside them, or `null`. A tool
+ * returns `{ mediaType, base64, forModel?, moreImages? }` (Moxxy's screenshot
+ * tools, agent connections) or the provider-native `{ type: 'image', mediaType, data }`.
+ */
+export function toolImagesOf(output: unknown): { readonly images: ReadonlyArray<ToolImage>; readonly text: string } | null {
+  if (typeof output !== 'object' || output === null) return null;
+  const o = output as { type?: unknown; mediaType?: unknown; base64?: unknown; data?: unknown; forModel?: unknown; moreImages?: unknown };
+  if (typeof o.mediaType !== 'string') return null;
+  const base64 = typeof o.base64 === 'string' ? o.base64 : o.type === 'image' && typeof o.data === 'string' ? o.data : null;
+  if (base64 === null) return null;
+  const more = Array.isArray(o.moreImages) ? o.moreImages.filter(isToolImage) : [];
+  return { images: [{ mediaType: o.mediaType, base64 }, ...more], text: typeof o.forModel === 'string' ? o.forModel : '' };
+}
+
+function isToolImage(x: unknown): x is ToolImage {
+  if (typeof x !== 'object' || x === null) return false;
+  const image = x as { mediaType?: unknown; base64?: unknown };
+  return typeof image.mediaType === 'string' && typeof image.base64 === 'string';
+}
+
+/**
+ * A tool output holding the images a tool returned, in order, and the text the
+ * agent read beside them. An image sent more than once is kept once.
+ */
+export function imageToolOutput(
+  text: string,
+  images: ReadonlyArray<ToolImage>,
+): { readonly forModel: string; readonly mediaType: string; readonly base64: string; readonly moreImages?: ReadonlyArray<ToolImage> } {
+  const distinct = images.filter((image, index) => images.findIndex((other) => other.base64 === image.base64) === index);
+  const [first, ...more] = distinct;
+  invariant(first !== undefined, 'an image tool output holds at least one image');
+  return { forModel: text, mediaType: first.mediaType, base64: first.base64, ...(more.length > 0 ? { moreImages: more } : {}) };
 }
 
 /** Human summary, e.g. "Added 10 lines, removed 1 line". */

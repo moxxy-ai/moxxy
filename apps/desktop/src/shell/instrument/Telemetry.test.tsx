@@ -88,6 +88,21 @@ describe('Telemetry model panel', () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.setFast', { workspaceId: 'ws', enabled: false }));
     __setApiOverride(null);
   });
+
+  it('does not mark a conversation fast when its model has no fast tier', () => {
+    __setApiOverride({ invoke: vi.fn(async () => {}), subscribe: () => () => {} } as unknown as MoxxyApi);
+    // Fast stays on from an earlier model, but Claude Code serves no fast tier.
+    const info = {
+      sessionId: 's1',
+      providers: [{ name: 'claude-code', models: [{ id: 'claude-sonnet-5-5', supportsReasoning: true }] }],
+      modes: [], activeProvider: 'claude-code', activeMode: 'default', activeModeBadge: null,
+      reasoningEffort: 'medium' as const, fast: true,
+    };
+    render(<Telemetry workspaceId="ws-claude" info={info} selectedModel="claude-sonnet-5-5" disabled={false} onPick={() => {}} />);
+    expect(screen.getByTestId('instrument-telemetry')).toHaveTextContent('claude-sonnet-5-5');
+    expect(screen.getByTestId('instrument-telemetry')).not.toHaveTextContent('fast');
+    __setApiOverride(null);
+  });
 });
 
 describe('Telemetry model name', () => {
@@ -167,6 +182,31 @@ describe('Telemetry token count', () => {
 
     expect(tokensCell()).toHaveTextContent(/^tok12\.4k$/);
     expect(tokensCell()).toHaveAttribute('data-tip', `${(12_400).toLocaleString()} tokens over 1 calls`);
+    __setApiOverride(null);
+  });
+});
+
+describe('Telemetry account limit', () => {
+  /** The limit lives here, where the model is picked, rather than as a line above the message box nobody could close. */
+  const info = {
+    sessionId: 's1', providers: [{ name: 'claude-agent', agentName: 'Claude', models: [] }], modes: [],
+    activeProvider: 'claude-agent', activeMode: null, activeModeBadge: null,
+  };
+
+  it("says how much of its limit the active agent has used, in the model and usage window", () => {
+    __setApiOverride({ invoke: async () => null, subscribe: () => () => {} } as unknown as MoxxyApi);
+    chatStore.dispatch('limit-ws', {
+      type: 'event',
+      event: {
+        id: 'limit-1', seq: 1, ts: 1, turnId: 'T1', sessionId: 'S', source: 'plugin', type: 'plugin_event',
+        pluginId: '@moxxy/agent-connection', subtype: 'account_limit',
+        payload: { provider: 'claude-agent', agent: 'Claude', limit: { state: 'ok', usedPercent: 56, windowMinutes: 10080 } },
+      } as unknown as MoxxyEvent,
+    });
+    render(<Telemetry workspaceId="limit-ws" info={info} selectedModel={null} disabled={false} onPick={() => {}} />);
+
+    fireEvent.click(screen.getByTestId('instrument-telemetry'));
+    expect(screen.getByTestId('model-account-limit')).toHaveTextContent('Claude has used 56% of its weekly limit');
     __setApiOverride(null);
   });
 });

@@ -13,77 +13,7 @@ export type Block =
   | SubagentBlock
   | SubagentGroupBlock
   | LiveToolBlockData
-  | CollaborationBlock;
-
-/** One agent on a collaborative team (from collab_agent_* + roster events). */
-export interface CollabAgentView {
-  readonly id: string;
-  name: string;
-  role: string;
-  /** pending | working | done | crashed | ... (mirrors the hub AgentStatus). */
-  status: string;
-  subtask: string | null;
-  summary: string | null;
-}
-
-/** One inter-agent (or human) message on the shared bus. */
-export interface CollabMsgView {
-  readonly id: string;
-  readonly from: string;
-  readonly to: string;
-  readonly subject?: string;
-  readonly body: string;
-  readonly atMs: number;
-}
-
-/** One shared task-board item. */
-export interface CollabTaskView {
-  readonly id: string;
-  title: string;
-  status: string;
-  owner: string | null;
-  /** Files/areas this item covers (claimed paths) — the run's deliverables. */
-  paths?: ReadonlyArray<string>;
-  detail?: string;
-}
-
-/** One shared contract (agreed interface/boundary). */
-export interface CollabContractView {
-  readonly id: string;
-  title: string;
-  owner: string;
-  status: string;
-  version: number;
-}
-
-/**
- * Aggregated view of one collaborative run, folded from the coordinator's
- * `collab_*` plugin_event stream (pluginId `@moxxy/mode-collaborative`). The
- * separate agent PROCESSES stream their own full transcripts over their own
- * runner sockets (attached on demand by the desktop); this block holds the
- * team-level picture: roster, messages, board, contracts, control, outcome.
- */
-export interface CollaborationBlock {
-  kind: 'collab';
-  readonly id: string;
-  task: string;
-  /** Parallel git-worktree run vs the sequential single-workspace fallback. */
-  parallel: boolean;
-  /** Why the run fell back to sequential (git missing / not a repo), if it did. */
-  fallbackReason: string | null;
-  readonly startedAtMs: number;
-  completedAtMs: number | null;
-  readonly agents: CollabAgentView[];
-  readonly messages: CollabMsgView[];
-  readonly tasks: CollabTaskView[];
-  readonly contracts: CollabContractView[];
-  readonly conflicts: Array<{ agentId: string; files: ReadonlyArray<string> }>;
-  /** Live human step-in state (pause / directive). */
-  control: { paused: boolean; directive?: string } | null;
-  summary: string | null;
-  doneCount: number | null;
-  totalCount: number | null;
-}
+  | StepListBlock;
 
 /**
  * Aggregated view of one spawned subagent. Built from the plugin_event
@@ -104,6 +34,8 @@ export interface SubagentBlock {
   /** ms timestamp of completion, or null while running. */
   completedAtMs: number | null;
   toolCallCount: number;
+  /** True when the agent that ran it does not report its tool calls, so the count says nothing. */
+  readonly toolsUnseen?: boolean;
   /** Total tokens the child consumed (input + output), null until completion. */
   tokensUsed: number | null;
   /** The agent's tool calls in order (name + input), accumulated live from
@@ -115,6 +47,10 @@ export interface SubagentBlock {
   finalPreview: string | null;
   /** Error message if the agent failed (subagent_error/abort or non-OK stopReason). */
   error: string | null;
+  /** Still running when its turn ended: the agent went on without waiting for it. */
+  backgrounded?: boolean;
+  /** What a subagent from an earlier turn did after that turn ended, shown where it happened. */
+  readonly continued?: boolean;
 }
 
 /**
@@ -143,6 +79,20 @@ export interface ToolCallBlockData {
   readonly id: string;
   readonly request: ToolCallRequestedEvent;
   outcome: ToolResultEvent | { type: 'denied'; reason: string } | null;
+}
+
+/**
+ * An agent's list of steps for one turn: every call that changed it this turn
+ * (Claude's tasks, Codex's plan, OpenCode's todos), shown as one list where the
+ * first of them was. Each call's result carries the whole list, so the last
+ * one is the list as it stands.
+ */
+export interface StepListBlock {
+  kind: 'step-list';
+  readonly id: string;
+  readonly calls: ToolCallBlockData[];
+  /** Set once the turn ends: no later change can join the list. */
+  closed: boolean;
 }
 
 export interface SkillScopeBlock {

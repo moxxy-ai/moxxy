@@ -1,5 +1,7 @@
 // ---------- Settings -------------------------------------------------------
 
+import type { AgentCliReport } from '@moxxy/sdk';
+
 /** Reasoning/thinking effort the desktop can request for the active session.
  *  `off` clears the preference; the others map to `config.context.reasoning`
  *  on the runner (`settings.setReasoning`). Mirrors the runner protocol's
@@ -20,6 +22,15 @@ export interface StoredModelDefaults {
   model: string | null;
   effort: ReasoningEffort | 'default';
   fast: boolean;
+}
+
+/** One provider the user can connect during onboarding, with what does the work:
+ *  `agent` = a coding agent installed on this computer works the turn on its own
+ *  sign-in (Claude Code, Codex, OpenCode, driven through their SDK); `api` = Moxxy
+ *  calls the model's API itself, with an API key or a sign-in. */
+export interface ProviderCatalogEntry {
+  name: string;
+  kind: 'agent' | 'api';
 }
 
 export interface ProviderEntry {
@@ -53,6 +64,28 @@ export interface ProviderEntry {
    *  selector. Derived from the runner's model catalog (the desktop never sees
    *  raw `ModelDescriptor`s). Absent ⇒ unknown/false. */
   supportsReasoning?: boolean;
+  /** For an agent connection, the agent's name as the person knows it ("Codex"). */
+  agentName?: string;
+  /** For an agent connection, the last check of its CLI: installed, current, signed in. */
+  agentCli?: AgentCliReport;
+}
+
+/** What installing or updating an agent's CLI does. */
+export type AgentCliAction = 'install' | 'update';
+
+/** How an install or update ended: `message` is the last line it printed, or why it failed. */
+export interface AgentCliRunResult {
+  ok: boolean;
+  message: string;
+}
+
+/** A line an installer or updater printed, and how far it got when it said so. */
+export interface AgentCliProgress {
+  provider: string;
+  action: AgentCliAction;
+  line?: string;
+  /** 0–1, from a percentage it printed. */
+  fraction?: number;
 }
 
 export interface McpServerEntry {
@@ -73,10 +106,37 @@ export interface GeminiVoiceInfo {
   readonly description?: string;
 }
 
+/** Where speech is turned into text. Cloud uses the host's ChatGPT login;
+ *  Local runs Whisper turbo on this computer. */
+export type TranscriptionMode = 'cloud' | 'local';
+
+/** How far getting Local ready has come: the model downloading, then local
+ *  Whisper starting in the runner and loading the model. */
+export type TranscriptionSetup =
+  | { readonly phase: 'downloading'; readonly receivedBytes: number; readonly totalBytes: number }
+  | { readonly phase: 'starting' };
+
+export interface TranscriptionSettings {
+  /** Local when local Whisper is the chosen transcriber; Cloud otherwise. */
+  readonly mode: TranscriptionMode;
+  /** The transcriber the runner actually runs, `null` when none. */
+  readonly active: string | null;
+  /** Whisper turbo is on this computer, so choosing Local downloads nothing. */
+  readonly modelReady: boolean;
+  /** The model's download size in bytes. */
+  readonly modelBytes: number;
+  /** Getting Local ready, while it runs in the host; `null` otherwise. */
+  readonly setup: TranscriptionSetup | null;
+  /** Why the last attempt to switch to Local failed; cleared by the next one. */
+  readonly error: string | null;
+}
+
 export interface SkillFile {
   name: string;
   /** True if the file is editable (lives under ~/.moxxy/skills/). */
   editable: boolean;
-  /** First line of the skill's frontmatter `description`, when present. */
+  /** The skill's frontmatter `description`, when present. */
   description?: string;
+  /** Why the agent cannot load this skill (invalid frontmatter), when it can't. */
+  problem?: string;
 }

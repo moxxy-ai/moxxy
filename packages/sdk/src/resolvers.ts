@@ -4,6 +4,7 @@ import type {
   PermissionDecision,
   PermissionResolver,
   PermissionRule,
+  StandingAllowRule,
 } from './permission.js';
 
 export const autoAllowResolver: PermissionResolver = {
@@ -77,21 +78,12 @@ export function createDeferredPermissionResolver(
   opts: DeferredPermissionResolverOptions,
 ): DeferredPermissionResolver {
   const sessionAllows = opts.sessionAllows ?? new Set<string>();
-  const scopedSessionAllows: Array<{
-    toolName: string;
-    inputKeys: ReadonlyArray<string>;
-    signature: string;
-  }> = [];
+  const grants = createSessionGrants();
   const pending = new Set<(d: PermissionDecision) => void>();
   return {
     name: opts.name ?? 'deferred',
     async check(call, ctx) {
-      const scopedAllowed = scopedSessionAllows.some(
-        (grant) =>
-          grant.toolName === call.name &&
-          grant.signature === scopedGrantKey(call, grant.inputKeys),
-      );
-      if (sessionAllows.has(call.name) || scopedAllowed) {
+      if (sessionAllows.has(call.name) || grants.covers(call)) {
         return { mode: 'allow_session', reason: 'allow_session previously granted' };
       }
       const decision = await new Promise<PermissionDecision>((resolve) => {
@@ -107,22 +99,9 @@ export function createDeferredPermissionResolver(
           },
         );
       });
-      // Unscoped allow_session and allow_always skip future prompts for the
-      // same tool within this resolver instance. A scoped grant above remembers
-      // only the matching consequence. allow_always
-      // additionally signals to the caller (via the decision flag) that
-      // the rule should be persisted to ~/.moxxy/permissions.json — but
-      // that persistence isn't our job; the channel does it when wiring
-      // up the dialog.
-      if (decision.mode === 'allow_session' && decision.sessionScope) {
-        scopedSessionAllows.push({
-          toolName: call.name,
-          inputKeys: decision.sessionScope.inputKeys,
-          signature: scopedGrantKey(call, decision.sessionScope.inputKeys),
-        });
-      } else if (decision.mode === 'allow_session' || decision.mode === 'allow_always') {
-        sessionAllows.add(call.name);
-      }
+      // allow_always also skips later prompts in this conversation; saving it
+      // to ~/.moxxy/permissions.json is the channel's job (see alwaysAllowRule).
+      grants.remember(call, decision, ctx);
       return decision.mode === 'deny' ? decision : { ...decision, decidedNow: true };
     },
     abortAll(reason = 'channel closed') {
@@ -130,6 +109,40 @@ export function createDeferredPermissionResolver(
       pending.clear();
     },
   };
+}
+
+/** What a conversation's "allow for this session" and "always allow" answers cover. */
+export interface SessionGrants {
+  covers(call: PendingToolCall): boolean;
+  /** Remember an answer: the same request only when the answer or the tool narrows it, else the whole tool. */
+  remember(call: PendingToolCall, decision: PermissionDecision, ctx: PermissionContext): void;
+}
+
+export function createSessionGrants(): SessionGrants {
+  const tools = new Set<string>();
+  const requests: Array<{ readonly inputKeys: ReadonlyArray<string>; readonly key: string }> = [];
+  return {
+    covers: (call) =>
+      tools.has(call.name) || requests.some((grant) => grant.key === scopedGrantKey(call, grant.inputKeys)),
+    remember(call, decision, ctx) {
+      if (decision.mode !== 'allow_session' && decision.mode !== 'allow_always') return;
+      const scope = decision.sessionScope ?? ctx.toolPermission?.sessionScope;
+      if (scope) requests.push({ inputKeys: scope.inputKeys, key: scopedGrantKey(call, scope.inputKeys) });
+      else tools.add(call.name);
+    },
+  };
+}
+
+/**
+ * The rule an "Always allow" answer saves: the whole tool, or, for a tool that
+ * narrows its grant to the same request, exactly that request, so a later
+ * conversation is not let through for something nobody approved.
+ */
+export function alwaysAllowRule(call: PendingToolCall, ctx: PermissionContext): StandingAllowRule {
+  const keys = ctx.toolPermission?.sessionScope?.inputKeys;
+  if (!keys) return { name: call.name };
+  const input = isRecord(call.input) ? call.input : {};
+  return { name: call.name, inputEquals: Object.fromEntries(keys.map((key) => [key, input[key] ?? null])) };
 }
 
 function scopedGrantKey(call: PendingToolCall, inputKeys?: ReadonlyArray<string>): string {

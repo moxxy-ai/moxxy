@@ -30,7 +30,6 @@ import {
   readBootLog,
 } from '../app-update/index.js';
 import { sendEvent } from '../send-event';
-import { wsEventBus } from '../event-bus';
 import { settleShellUpdate } from '../shell-update/index.js';
 import { buildUpdatePlan, createUpdatePlanStore, runUpdatePlan, settleUpdatePlan, type UpdatePlanStore } from '../update-plan/index.js';
 import { handle } from './shared';
@@ -203,8 +202,6 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
         ...(res.bundleUrl ? { bundleUrl: res.bundleUrl } : {}),
         onProgress: (p) => {
           if (target) sendEvent(target, 'app.update.progress', p);
-          // Mirror to non-Electron transports. No-op without a WS bridge.
-          wsEventBus.broadcast('app.update.progress', p);
         },
       });
       // Keep the freshly-staged version, the currently-running one, AND the
@@ -254,7 +251,6 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
         feedBaseUrl: `https://github.com/${GH_REPO}/releases/download/desktop-v${res.latestVersion}/`,
         onProgress: (p) => {
           if (target) sendEvent(target, 'app.update.progress', p);
-          wsEventBus.broadcast('app.update.progress', p);
         },
       });
       return { ok: true, install };
@@ -279,7 +275,6 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
   const emitPlan = (plan: AppUpdatePlan): void => {
     const target = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
     if (target) sendEvent(target, 'app.update.plan', plan);
-    wsEventBus.broadcast('app.update.plan', plan);
   };
   // Once per launch, before anything else touches the plan: settling a plan
   // this launch is carrying out would fail its running step.

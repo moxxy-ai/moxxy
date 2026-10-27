@@ -194,8 +194,10 @@ describe('runTurn turnId filtering', () => {
   });
 
   describe('the model a turn runs on when it names none', () => {
-    const models = [{ id: 'noop-first' }, { id: 'noop-chosen' }, { id: 'noop-last' }];
-    const modelEcho = (): Session => {
+    const models = [{ id: 'noop-first' }, { id: 'noop-chosen' }, { id: 'noop-last' }, { id: 'noop-small' }];
+    const otherModels = [{ id: 'other-first' }, { id: 'other-chosen' }];
+    const modelEcho = (starterModel?: string): Session => {
+      const starter = starterModel ? { starterModel } : {};
       const session = new Session({ cwd: '/tmp', silent: true });
       session.pluginHost.registerStatic(
         definePlugin({
@@ -205,7 +207,13 @@ describe('runTurn turnId filtering', () => {
             defineProvider({
               name: 'noop',
               models,
-              createClient: () => ({ name: 'noop', models, stream: async function* () {}, countTokens: async () => 0 }),
+              ...starter,
+              createClient: () => ({ name: 'noop', models, ...starter, stream: async function* () {}, countTokens: async () => 0 }),
+            }),
+            defineProvider({
+              name: 'other',
+              models: otherModels,
+              createClient: () => ({ name: 'other', models: otherModels, stream: async function* () {}, countTokens: async () => 0 }),
             }),
           ],
           modes: [
@@ -248,6 +256,19 @@ describe('runTurn turnId filtering', () => {
       expect(await ranOn(session)).toMatchObject({ text: 'noop-last' });
     });
 
+    it("is the new provider's default once the conversation switches provider, never the old provider's model", async () => {
+      const session = modelEcho();
+      session.defaultModels = { noop: 'noop-chosen', other: 'other-chosen' };
+      expect(await ranOn(session, 'noop-last')).toMatchObject({ text: 'noop-last' });
+
+      session.providers.setActive('other');
+
+      expect(session.getInfo().defaultModel).toBe('other-chosen');
+      expect(await ranOn(session)).toMatchObject({ text: 'other-chosen' });
+      expect(await ranOn(session, 'other-first')).toMatchObject({ text: 'other-first' });
+      expect(await ranOn(session)).toMatchObject({ text: 'other-first' });
+    });
+
     it('gives way to the model the turn names', async () => {
       const session = modelEcho();
       session.defaultModels = { noop: 'noop-chosen' };
@@ -261,6 +282,62 @@ describe('runTurn turnId filtering', () => {
 
       expect(session.getInfo().defaultModel).toBe('noop-first');
       expect(await ranOn(session)).toMatchObject({ text: 'noop-first' });
+    });
+
+    it("is the provider's starter model when no default is set, not the first it lists", async () => {
+      const session = modelEcho('noop-small');
+
+      expect(session.getInfo().defaultModel).toBe('noop-small');
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-small' });
+    });
+
+    it('gives the starter model way to the default the person set and to the model the conversation ran on', async () => {
+      const session = modelEcho('noop-small');
+      session.defaultModels = { noop: 'noop-chosen' };
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-chosen' });
+
+      session.lastResolvedModel = 'noop-last';
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-last' });
+    });
+
+    it('starts a new conversation (/new) on the starter model, not the one the old conversation ran on', async () => {
+      const session = modelEcho('noop-small');
+      expect(await ranOn(session, 'noop-first')).toMatchObject({ text: 'noop-first' });
+
+      await session.reset();
+
+      expect(session.getInfo().defaultModel).toBe('noop-small');
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-small' });
+    });
+
+    it("tells every surface each provider's starter model, also for a provider that is not active", () => {
+      const session = modelEcho('noop-small');
+      session.providers.setActive('other');
+
+      const providers = session.getInfo().providers;
+      expect(providers.find((p) => p.name === 'noop')?.starterModel).toBe('noop-small');
+      expect(providers.find((p) => p.name === 'other')).not.toHaveProperty('starterModel');
+    });
+
+    it('is the first model when the starter model is not among those the provider lists', async () => {
+      const session = modelEcho('noop-retired');
+
+      expect(session.getInfo().defaultModel).toBe('noop-first');
+      expect(await ranOn(session)).toMatchObject({ text: 'noop-first' });
+    });
+
+    it('reports the starter model while the provider is replaced and not built again yet', () => {
+      const session = modelEcho();
+      session.providers.replace(
+        defineProvider({
+          name: 'noop',
+          models,
+          starterModel: 'noop-small',
+          createClient: () => ({ name: 'noop', models, stream: async function* () {}, countTokens: async () => 0 }),
+        }),
+      );
+
+      expect(session.getInfo().defaultModel).toBe('noop-small');
     });
 
     it('is not reported while no provider is active', () => {
@@ -751,5 +828,64 @@ describe('runTurn with tools meant for one mode', () => {
 
     expect(seen['goal']).toEqual({ tools: ['Read', 'goal_abandon'], reached: 'goal_abandon' });
     expect(seen['default']?.tools).toEqual(['Read']);
+  });
+});
+
+describe('runTurn — a question left waiting when the person writes again', () => {
+  const colour = {
+    id: 'q1',
+    question: 'Which colour?',
+    options: [{ id: 'red', label: 'Red' }],
+    multiSelect: false,
+    allowOther: true,
+  };
+
+  /** A mode whose first turn asks and reports what came back; later turns just end. */
+  function sessionThatAsks(outcomes: unknown[]): Session {
+    const asker = defineMode({
+      name: 'asker',
+      run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+        if (ctx.log.ofType('user_prompt').length > 1) return;
+        outcomes.push(ctx.ask ? await ctx.ask([colour]) : 'no ask');
+      },
+    });
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({ name: 'asking-mode', version: '0.0.0', providers: [makeNoopProvider()], modes: [asker] }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('asker');
+    session.questions.attachSurface();
+    return session;
+  }
+
+  const openQuestions = (session: Session) =>
+    session.log.ofType('plugin_event').filter((e) => e.subtype === 'question_asked').length -
+    session.log.ofType('plugin_event').filter((e) => e.subtype === 'question_resolved').length;
+
+  it("closes the earlier turn's question, so that turn ends instead of holding the conversation", async () => {
+    const outcomes: unknown[] = [];
+    const session = sessionThatAsks(outcomes);
+    const first = collectTurn(session, 'fix the page');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(openQuestions(session)).toBe(1);
+
+    await collectTurn(session, 'did you build the new dist?');
+    await first;
+
+    expect(outcomes).toEqual([{ kind: 'dismissed', reason: 'cancelled', note: 'new-message' }]);
+    expect(openQuestions(session)).toBe(0);
+  });
+
+  it('leaves the question open for a turn the agent started by itself', async () => {
+    const outcomes: unknown[] = [];
+    const session = sessionThatAsks(outcomes);
+    void collectTurn(session, 'fix the page');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    await collectTurn(session, 'List files finished in the background', { origin: { kind: 'agent', name: 'List files finished in the background' } });
+
+    expect(outcomes).toEqual([]);
+    expect(openQuestions(session)).toBe(1);
   });
 });

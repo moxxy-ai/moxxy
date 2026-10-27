@@ -22,8 +22,8 @@ export interface RunTurnArgs {
   visibility?: RunTurnVisibility;
   attachments?: ReadonlyArray<PromptAttachment>;
   /**
-   * Inline attachments for REMOTE clients (the mobile app) that cannot
-   * reference host filesystem paths: the payload itself crosses the wire
+   * Inline attachments for clients that cannot reference host filesystem
+   * paths: the payload itself crosses the wire
    * (base64 bytes for image/document/audio, inline text for file/stdin) in
    * the SDK's `UserPromptAttachment` shape, and the host forwards it to
    * `session.runTurn`'s `attachments` option untouched. Path-based

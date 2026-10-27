@@ -44,7 +44,9 @@ context:
   fast: true
 ```
 
-A turn runs on the model it names; without one, on the model the conversation last ran on; in a new conversation, on `items.<provider>.model`; and only when that is not set, on the first model the provider lists. This is one setting for every surface: the desktop, `moxxy` in the terminal, the runner and the channels all read it when a conversation starts. The desktop writes it in **Settings → Providers → Default model** (model, effort and fast in one row). Conversations already open keep what they run on.
+A turn runs on the model it names; without one, on the model the conversation last ran on; in a new conversation (also one `/new` starts, and one restarted before its first turn), on `items.<provider>.model`; when that is not set, on the provider's light starter model (`starterModel`: Haiku 5.5 for Claude, GPT-6 Luna for Codex, so an unset default does not spend a plan on the biggest model); and only when the provider names none, or no longer lists it, on the first model it lists. This is one setting for every surface: the desktop, `moxxy` in the terminal, the runner and the channels all read it when a conversation starts. The desktop writes it in **Settings → Providers → Default model** (model, effort and fast in one row). Conversations already open keep what they run on.
+
+Local models (`local` provider, `LOCAL_MODEL_BASE_URL` or `items.local.config.baseURL`): Moxxy plans compaction around the context the server really gives the model. Ollama reports it through `/api/ps` and `/api/show`, LM Studio 0.4+ through `/api/v1/models` (the context a loaded model was loaded with). A model that is not loaded yet counts as 4096 tokens until the server loads it; a server with neither API counts as 8192.
 
 ### Reasoning effort and fast mode
 
@@ -178,13 +180,14 @@ permissions:
       inputPathPrefix: { path: /srv/app }
 ```
 
-Three matchers, and the choice matters:
+Four matchers, and the choice matters:
 
 | Matcher | Semantics |
 |---|---|
 | `inputPathPrefix` | anchored, path-segment aware. `/srv/app` covers `/srv/app/x` but not `/srv/apple`, and `..` is normalised away first. |
 | `inputGlob` | anchored whole-value. `*` stays within a path segment, `**` crosses, `?` is one character. |
 | `inputMatches` | **unanchored** regex, the long-standing policy-file contract. |
+| `inputEquals` | exact value per field (`null` for a field the call leaves out). What "Always allow" saves for a tool that narrows its grant, e.g. `{ name: computer_request_access, inputEquals: { apps: [Safari], full_access: true } }`. |
 
 Prefer the first two when writing an organisation's policy. `{ Read: { path: '/etc' } }` as `inputMatches` reads like "under /etc" but means "contains /etc anywhere", which over-blocks as a deny and over-grants as an allow.
 
@@ -262,21 +265,13 @@ network:
 | `MOXXY_HTTP_TOKEN` | Sets the bearer token for the HTTP channel. |
 | `MOXXY_WEB_TOKEN` | Sets the authentication token for the web surface. |
 | `MOXXY_NO_WEB_SURFACE=1` | Prevents `moxxy serve` from starting the web surface. |
-| `MOXXY_MOBILE_TOKEN` | Sets the bearer token for the mobile WebSocket bridge. |
-| `MOXXY_MOBILE_HOST` | Sets the mobile channel bind host. The default is `127.0.0.1`; `0.0.0.0` exposes it to the LAN. |
-| `MOXXY_MOBILE_TUNNEL` | Selects `localhost` (no tunnel) or `proxy` (the self-hosted encrypted relay) for the mobile channel tunnel. |
 | `MOXXY_VOICE_AUDIO_DEVICE` | Selects the audio capture device for TUI voice input. |
 | `MOXXY_MCP_STDERR=inherit` | Surfaces MCP server stderr. It is ignored by default. |
 
-### Desktop and bridge
+### Desktop
 
 | Variable | Effect |
 |---|---|
-| `MOXXY_WS_BRIDGE=1` | Enables the desktop WebSocket IPC bridge for remote clients. |
-| `MOXXY_WS_PORT` | Overrides the desktop bridge port. |
-| `MOXXY_WS_HOST` | Overrides the desktop bridge bind host. |
-| `MOXXY_WS_TOKEN` | Sets the desktop bridge authentication token. A token is generated when omitted. |
-| `MOXXY_WS_ALLOW_QUERY_TOKEN=1` | Accepts the legacy `?t=` query token. Native clients use a protocol bearer and this option is off by default. |
 | `MOXXY_CLI_ENTRY` | Sets the CLI entry that the desktop app uses to spawn runners. |
 | `MOXXY_CHATS_DIR` | Overrides the desktop NDJSON chat-log directory. The default is `~/.moxxy/chats`. |
 | `MOXXY_UPDATE_URL` | Overrides the desktop self-update manifest URL. |

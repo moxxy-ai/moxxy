@@ -1,10 +1,10 @@
 import type {
-  ApprovalDecision,
   ComputerControlCommand,
   ComputerControlSnapshot,
   MoxxyEvent,
   SessionInfo,
   OpenSurfaceResult,
+  QuestionAnswers,
   SurfaceInfo,
   SurfaceInputMessage,
   SurfaceSize,
@@ -24,17 +24,20 @@ import type {
 } from './workflows.js';
 import type { ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
 import type { WebhookSummary, WebhookDeleteResult } from './webhooks.js';
-import type { MobileGatewayStatus } from './mobile.js';
 import type { ChannelEntry, ChannelRunMode, ChannelRuntimeStatus } from './channels.js';
 import type {
   ProviderEntry,
+  ProviderCatalogEntry,
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
+  TranscriptionSettings,
   SkillFile,
   ReasoningEffort,
   ModelDefaultsChange,
   StoredModelDefaults,
+  AgentCliAction,
+  AgentCliRunResult,
 } from './settings.js';
 import type { Desk, DeskSession, DesksOverview, SessionsOverview } from './desks.js';
 import type {
@@ -43,6 +46,7 @@ import type {
   RunTurnArgs,
   RunTurnResult,
 } from './chat.js';
+import type { ChatMediaImageChunk, ChatMediaImageData, ChatMediaLibrary } from './chat-media.js';
 import type {
   AppUpdateInfo,
   AppUpdateCheck,
@@ -57,38 +61,6 @@ import type { FocusVerticalAnchor } from './focus-layout.js';
 import type { BrowserControlState, BrowserTabInfo } from './browser.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
-
-/** One archived collaboration run (mirrors `@moxxy/mode-collaborative`'s
- *  CollabRunRecord; the main process reads `~/.moxxy/collab/runs/*.json`). */
-export interface CollabRunSummary {
-  readonly runId: string;
-  readonly task: string;
-  readonly startedAtMs: number;
-  readonly finishedAtMs: number;
-  readonly outcome: 'completed' | 'aborted' | 'failed';
-  readonly parallel: boolean;
-  readonly gitRepo: boolean;
-  readonly agents: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly role: string;
-    readonly status: string;
-    readonly subtask: string;
-    readonly doneSummary?: string;
-  }>;
-  readonly doneCount: number;
-  readonly totalCount: number;
-  readonly board?: ReadonlyArray<{ readonly id: string; readonly title: string; readonly status: string; readonly owner?: string }>;
-  readonly contracts?: ReadonlyArray<{ readonly id: string; readonly title: string; readonly owner: string; readonly status: string; readonly version: number }>;
-  readonly messageCount?: number;
-  readonly merge?: {
-    readonly merged: ReadonlyArray<string>;
-    readonly promoted: boolean;
-    readonly conflicts: number;
-    readonly stagingBranch?: string;
-  };
-  readonly brief?: string;
-}
 
 export interface ImageAttachmentPreview {
   readonly kind: 'image';
@@ -335,6 +307,18 @@ export interface IpcCommands {
     workspaceId?: string;
     enabled: boolean;
   }) => Promise<void>;
+  /** Stop one work the agent of the workspace's conversation runs in the
+   *  background (`SessionInfo.backgroundWork`); `false` when it runs no such
+   *  work. Every client sees the list without it through `session.info.changed`. */
+  'session.stopBackgroundWork': (args: { workspaceId?: string; workId: string }) => Promise<boolean>;
+  /** Answer an open Question of the workspace's conversation. Questions are
+   *  read from the conversation log, so every client of it shows the same one
+   *  and the first answer closes it everywhere; a later answer rejects. */
+  'session.answerQuestion': (args: {
+    workspaceId?: string;
+    questionId: string;
+    answers: QuestionAnswers;
+  }) => Promise<void>;
   /** Run a slash command on the workspace's runner. The runner returns
    *  a CommandOutput (text / session-action / noop / error) which the
    *  caller renders inline in the transcript. */
@@ -356,7 +340,7 @@ export interface IpcCommands {
   /** Cancel an in-flight generated speech request for interruption/barge-in. */
   'session.cancelSynthesis': (args: { workspaceId?: string; requestId: string }) => Promise<void>;
   /** True when the desktop's optional on-device Piper synthesizer package is
-   *  complete on disk. Host-only: remote clients must not inspect plugins. */
+   *  complete on disk. */
   'voice.isLocalPiperInstalled': () => Promise<boolean>;
   /** Install, enable and select the fixed first-party Local Piper package, then
    *  restart desktop runners. Accepts no renderer-controlled package spec. */
@@ -369,6 +353,20 @@ export interface IpcCommands {
   'voice.useLocalPiper': () => Promise<void>;
   /** Read the active backend and the saved Gemini voice selection. */
   'voice.getSettings': () => Promise<{ backend: string | null; voiceId: string }>;
+  /** Read whether speech is transcribed in the cloud or on this computer, and
+   *  which transcriber the runner actually runs. Host-only. */
+  'voice.getTranscription': () => Promise<TranscriptionSettings>;
+  /** Download the pinned Whisper turbo model when it is missing (progress on
+   *  `voice.transcription.changed`), then install, enable and select the fixed
+   *  first-party local Whisper package, restart desktop runners and load the
+   *  model. Stays on, or falls back to, Cloud and rejects when it cannot start.
+   *  Accepts no renderer-controlled input. */
+  'voice.useLocalTranscription': () => Promise<void>;
+  /** Stop the model download of a switch to Local; Moxxy stays on Cloud. Does
+   *  nothing once the download is done or when none runs. */
+  'voice.cancelLocalTranscription': () => Promise<void>;
+  /** Unselect local Whisper and restart desktop runners (Cloud transcription). */
+  'voice.useCloudTranscription': () => Promise<void>;
   /** Keep the local main renderer realtime while it owns an active Voice Mode
    * capture. Local desktop IPC only; no audio or workspace data crosses here. */
   'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;
@@ -390,52 +388,6 @@ export interface IpcCommands {
     readonly userText?: string;
     readonly assistantText?: string;
   }) => Promise<void>;
-  /** The globally-active collaboration (only one runs at a time), or inactive.
-   *  Read from the single-flight lock file so it spans all workspaces' runners;
-   *  the Collaborate tab uses it to disable Start while one is running. */
-  'collab.active': () => Promise<{
-    readonly active: boolean;
-    readonly sessionId?: string;
-    readonly task?: string;
-    readonly startedAtMs?: number;
-  }>;
-  /** Start a collaboration on the DEDICATED coordinator runner (`moxxy collab`),
-   *  separate from every chat session. `cwd` (the repo to work in) defaults to the
-   *  given workspace's directory. The coordinator drives the goal turn; its events
-   *  arrive via `collab.event`, its roster approval via `collab.approval`. */
-  'collab.start': (args: { workspaceId?: string; goal: string }) => Promise<{
-    readonly started: boolean;
-  }>;
-  /** Seed a freshly-mounted Collaborate panel with the coordinator's current
-   *  event log (the live `collab.event` stream continues from there). */
-  'collab.snapshot': () => Promise<ReadonlyArray<MoxxyEvent>>;
-  /** Run a step-in command on the coordinator session (collab_say / collab_direct
-   *  / collab_pause / collab_resume) — the Collaborate panel's human-in-the-loop
-   *  controls. Never touches a chat session. */
-  'collab.command': (args: { name: string; args: string }) => Promise<{
-    readonly kind: 'text' | 'session-action' | 'noop' | 'error';
-    readonly text?: string;
-    readonly message?: string;
-    readonly notice?: string;
-  }>;
-  /** Answer the coordinator's roster-approval checkpoint from the panel. */
-  'collab.respondApproval': (args: {
-    requestId: string;
-    decision: ApprovalDecision;
-  }) => Promise<void>;
-  /** End the active collaboration: abort its coordinator turn (whose finally
-   *  tears the team down + archives) and force-release the global single-flight
-   *  lock so a new one can start — even if the holder is a stale/crashed run. */
-  'collab.end': (args?: { workspaceId?: string }) => Promise<{
-    readonly ended: boolean;
-    readonly abortedTurns: number;
-    readonly clearedTask?: string;
-  }>;
-  /** Archived past collaborations (newest first), read from
-   *  `~/.moxxy/collab/runs`. Powers the Collaborate tab's run history. */
-  'collab.history': (args?: { limit?: number }) => Promise<
-    ReadonlyArray<CollabRunSummary>
-  >;
   /** Transcribe an audio blob to text. Routes to the runner's active
    *  transcriber first (offline local STT when a plugin like `stt-local` is
    *  active) and falls back to the in-process Codex transcriber when the runner
@@ -449,7 +401,9 @@ export interface IpcCommands {
   /** Synthesize text to speech via the runner's active synthesizer. Returns
    *  base64 audio + its MIME type, or null when no synthesizer is active.
    *  `language` selects the matching local/remote voice when supported;
-   *  `rate` is a bounded speaking-rate multiplier. */
+   *  `rate` is a bounded speaking-rate multiplier. `cache` asks to keep the
+   *  clip on disk and hand it back next time instead of synthesizing again;
+   *  only Gemini TTS keeps it (the read-aloud button sets it). */
   'session.synthesize': (args: {
     workspaceId?: string;
     requestId?: string;
@@ -457,7 +411,12 @@ export interface IpcCommands {
     language?: string;
     rate?: number;
     voice?: string;
+    cache?: boolean;
   }) => Promise<{ audioBase64: string; mimeType: string } | null>;
+  /** How the read-aloud button should send a message: in parts of up to
+   *  `partChars` characters, each kept on disk (Gemini TTS), or null to read
+   *  sentence by sentence as before (Piper and every other synthesizer). */
+  'session.readAloudPlan': (args?: { workspaceId?: string }) => Promise<{ partChars: number } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */
   'session.pickAttachment': () => Promise<string | null>;
@@ -644,6 +603,24 @@ export interface IpcCommands {
     index: number;
     offset: number;
   }) => Promise<{ data: string; total: number } | null>;
+  /** The chat's photos, files and links, newest first, read from its whole
+   *  log (not just the loaded page) through an index the host keeps beside it.
+   *  `null` for an unknown/unreadable session. */
+  'chat.media': (args: { workspaceId: string }) => Promise<ChatMediaLibrary | null>;
+  /** A small copy of a library image, made once and kept. `null` when the
+   *  item is gone or cannot be drawn small. */
+  'chat.mediaThumbnail': (args: { workspaceId: string; id: string }) => Promise<ChatMediaImageData | null>;
+  /** One slice of a library image's bytes from `offset` characters; repeat
+   *  with `offset += data.length` until `total`. */
+  'chat.readMediaImage': (args: {
+    workspaceId: string;
+    id: string;
+    offset: number;
+  }) => Promise<ChatMediaImageChunk | null>;
+  /** Open a library file with its default app (only types that just view or
+   *  play), or show it in the file manager. An attached copy is written out
+   *  under the host's cache first. */
+  'chat.openMediaFile': (args: { workspaceId: string; id: string }) => Promise<{ opened: 'app' | 'folder' }>;
 
   // Workflows
   'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;
@@ -695,9 +672,7 @@ export interface IpcCommands {
   // Webhooks
   /** List every persisted webhook trigger. The host reads the shared webhooks
    *  store directly so it also sees triggers the agent's `webhook_*` tools
-   *  created; verification secrets are redacted before crossing the boundary.
-   *  Host-only (NOT remote-allowed) — managing inbound triggers is a desktop
-   *  operation, like the apps gallery. */
+   *  created; verification secrets are redacted before crossing the boundary. */
   'webhooks.list': () => Promise<ReadonlyArray<WebhookSummary>>;
   /** Pause/resume an existing webhook trigger without rewriting its prompt. */
   'webhooks.setEnabled': (args: { id: string; enabled: boolean }) => Promise<WebhookSummary | null>;
@@ -709,9 +684,6 @@ export interface IpcCommands {
   'webhooks.setTargetSession': (args: { id: string; sessionId: string | null }) => Promise<WebhookSummary | null>;
 
   // ---- Communication channels (Slack / Telegram on dedicated runners) --
-  // Host-only (run a local subprocess + read/write the vault): deliberately NOT
-  // in REMOTE_ALLOWED_COMMANDS, so a paired phone can't start a channel or save
-  // its secrets.
   /** Every runnable channel with its descriptor (config fields, webhook-url
    *  affordance) + live status (configured / running / requestUrl). */
   'channels.list': () => Promise<ReadonlyArray<ChannelEntry>>;
@@ -748,9 +720,6 @@ export interface IpcCommands {
   }) => Promise<ChannelRuntimeStatus>;
 
   // ---- Desktop apps gallery (install lifecycle) ------------------------
-  // All host-only (native pickers + filesystem + a network download). They are
-  // deliberately NOT in REMOTE_ALLOWED_COMMANDS — a paired phone can't trigger
-  // a desktop download or read/write local files.
   /** Current install state of an app's local assets. */
   'apps.status': (args: { appId: string }) => Promise<AppInstallStatus>;
   /** Download + install an app's local assets (e.g. the anonymizer's NER
@@ -796,8 +765,6 @@ export interface IpcCommands {
   // Focus-mode window control (from the floating widget back to main).
   // Returned by focus-window geometry calls so the renderer can keep any
   // collapsed reply preview on the inward-facing side of the tile.
-  // Local desktop IPC only: deliberately excluded from REMOTE_ALLOWED_COMMANDS.
-  // See remote.test.ts.
   // Exported inline in the command map to keep the boundary compact.
   /** Toggle focus mode from trusted local desktop UI. This follows the same
    *  main-process controller path as the app menu, tray menu, and global
@@ -820,9 +787,7 @@ export interface IpcCommands {
     /** Keep character chrome fixed while transient content grows above it. */
     verticalAnchor?: FocusVerticalAnchor;
   }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
-  /** Move the focus window by a renderer-measured pointer delta. This stays
-   *  local-only because remote/mobile clients must not be able to move the
-   *  user's desktop window. */
+  /** Move the focus window by a renderer-measured pointer delta. */
   'focus.moveBy': (args: {
     dx: number;
     dy: number;
@@ -882,13 +847,21 @@ export interface IpcCommands {
    *  it advertises. Useful for admin-registered providers whose
    *  stored provider entry didn't enumerate models upfront. */
   'settings.fetchProviderModels': (args: { provider: string }) => Promise<ReadonlyArray<string>>;
-  /** Lists every provider name the user could realistically pick from
-   *  during onboarding — built-ins (anthropic, openai, openai-codex)
-   *  plus the stored vendors in the unified config (plugins.provider.items). */
-  'settings.providerCatalog': () => Promise<ReadonlyArray<string>>;
+  /** Lists every provider the user could realistically pick from during
+   *  onboarding — built-ins (anthropic, openai, openai-codex, the coding
+   *  agents) plus the stored vendors in the unified config
+   *  (plugins.provider.items) — each tagged agent or api. */
+  'settings.providerCatalog': () => Promise<ReadonlyArray<ProviderCatalogEntry>>;
   /** Subset of providers that the user added via `provider_add` — the
    *  ones for which live /v1/models fetching is wired. */
   'settings.adminProviders': () => Promise<ReadonlyArray<string>>;
+  /** Check every agent connection's CLI now, asking the registry again; the
+   *  new state arrives in each runner's info (`ProviderEntry.agentCli`). */
+  'agents.check': (args?: { workspaceId?: string }) => Promise<void>;
+  /** Install the CLI behind an agent connection with the vendor's installer,
+   *  or update it with its own command, on this computer. Lines and progress
+   *  stream as `agents.progress`. An update is refused while any turn runs. */
+  'agents.run': (args: { provider: string; action: AgentCliAction }) => Promise<AgentCliRunResult>;
   'settings.mcpServers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<McpServerEntry>>;
   'settings.mcpToggle': (args: {
     workspaceId?: string;
@@ -906,23 +879,6 @@ export interface IpcCommands {
   'settings.readSkill': (args: { name: string }) => Promise<string>;
   'settings.writeSkill': (args: { name: string; body: string }) => Promise<void>;
   'settings.deleteSkill': (args: { name: string }) => Promise<void>;
-
-  // ---- Mobile gateway (WebSocket bridge) --------------------------------
-  // These CONTROL the bridge, so they are host-only. The WS bus is
-  // deny-by-default (see REMOTE_ALLOWED_COMMANDS) and these are NOT on the
-  // allow-list — a remote (WS) client must never be able to toggle the gateway
-  // or read/rotate the pairing token over the very transport the token guards.
-  /** Current gateway status (enabled, advertised host+port, connectUrl/QR
-   *  payload, token, connected-client count). */
-  'mobileGateway.status': () => Promise<MobileGatewayStatus>;
-  /** Start (true) or stop (false) the gateway and persist the preference so it
-   *  survives a restart. Starting binds the bridge on the LAN-advertised
-   *  interface so a phone can reach it. Returns the resulting status. */
-  'mobileGateway.setEnabled': (args: { enabled: boolean }) => Promise<MobileGatewayStatus>;
-  /** Rotate the pairing token — invalidates the old QR and terminates every
-   *  currently-connected client. Returns the status with the new token /
-   *  connectUrl. No-op (returns disabled status) when the gateway is off. */
-  'mobileGateway.rotateToken': () => Promise<MobileGatewayStatus>;
 }
 
 /** Names of every command, derived. */

@@ -1,8 +1,7 @@
 /**
  * The moxxy design tokens — one framework-neutral source of truth for colour,
  * typography, geometry, spacing, frame heights, and motion. The desktop
- * renderer projects these to CSS custom properties (see `./css-vars`); the
- * React Native app consumes the same object directly in `StyleSheet.create`.
+ * renderer projects these to CSS custom properties (see `./css-vars`).
  * Values mirror the desktop's `styles.css` `:root` block, and the parity test
  * in `./css-vars.test.ts` keeps the two declarations locked together.
  *
@@ -222,8 +221,8 @@ export type ThemeTokens = Widen<Tokens>;
  * cannot carry white, so `onPrimary` flips to ink. Same reason the brand ships
  * a `-dark` mark rather than recolouring the light one with a CSS filter.
  *
- * Shape-frozen against {@link tokens} (identical keys throughout) — mobile's
- * theme map and the CSS-var generator consume both interchangeably.
+ * Shape-frozen against {@link tokens} (identical keys throughout) — the CSS-var
+ * generator consumes both interchangeably.
  */
 export const darkTokens: ThemeTokens = {
   color: {

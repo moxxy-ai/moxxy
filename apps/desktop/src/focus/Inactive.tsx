@@ -99,7 +99,7 @@ export function Inactive({
         }}
       >
         {chrome}
-        <FocusAskCard prompt={ask} variant="toast" />
+        <FocusAskCard ask={ask} variant="toast" />
       </div>
     );
   }

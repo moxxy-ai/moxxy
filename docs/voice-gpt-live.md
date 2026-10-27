@@ -83,8 +83,6 @@ GptLiveCallClient (packages/plugin-provider-openai-codex/src/live/)
 - The bearer token, endpoint, model, instructions and chat history never leave
   the main process. The renderer only sends its WebRTC offer and receives the
   SDP answer.
-- `voice.live.*` and `session.recordVoiceExchange` are **not** on the remote
-  (mobile / WS bridge) allow-list.
 - The runner method `session.recordExchange` (protocol **v16**) appends
   `user_prompt` + `assistant_message` under one new turn id without running a
   model or tools. While a turn is running exchanges are held

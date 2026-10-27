@@ -1,10 +1,20 @@
-import type { EventLogReader } from '@moxxy/sdk';
-import { z } from 'zod';
+import type { EventLogReader, PermissionRule } from '@moxxy/sdk';
+import { z } from 'zod/v3';
 import { clipboardFlagsFor, isSystemKeyCombo, parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError } from '../contract/outcome.js';
 import type { ComputerAction } from '../contract/tools.js';
 
 export const REQUEST_ACCESS_TOOL = 'computer_request_access';
+
+/**
+ * Approving an access request grants access by itself, so "allow for this
+ * session" covers only the same request again: another app, full control, the
+ * clipboard or system chords are asked for anew. The reason may change freely.
+ */
+export const ACCESS_PERMISSION: PermissionRule = {
+  action: 'prompt',
+  sessionScope: { inputKeys: ['apps', 'full_access', 'clipboard_read', 'clipboard_write', 'system_key_combos'] },
+};
 
 export const accessTiers = ['read', 'click', 'full'] as const;
 export type AccessTier = (typeof accessTiers)[number];

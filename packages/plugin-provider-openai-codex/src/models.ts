@@ -33,3 +33,6 @@ export const codexModels: ReadonlyArray<ModelDescriptor> = [
 // OpenAI's own Codex default moved to gpt-5.6-sol at GA (July 9, 2026); mirror
 // it so a ChatGPT-plan user who hasn't pinned a model gets the current flagship.
 export const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol';
+
+/** What a new conversation starts on while the person chose no default: light, so it spares their plan. */
+export const CODEX_STARTER_MODEL = 'gpt-6-luna';

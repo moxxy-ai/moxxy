@@ -1,4 +1,4 @@
-import type { EventLogReader, SubagentSpawner, ToolContext, ToolDef } from '@moxxy/sdk';
+import type { EventLogReader, QuestionAsker, SubagentSpawner, ToolContext, ToolDef } from '@moxxy/sdk';
 import type { Logger } from '../logger.js';
 import { asToolCallId, asSessionId, asTurnId } from '@moxxy/sdk';
 
@@ -37,15 +37,19 @@ export class ToolRegistryImpl implements ToolRegistry {
    * context or `process.env`.
    */
   private readonly secretResolver?: (name: string) => Promise<string | null>;
+  /** The session's Question asker, surfaced to a handler running in a turn as `ctx.ask`. */
+  private readonly questionAsker?: QuestionAsker;
 
   constructor(opts: {
     logger: Logger;
     cwd: string;
     secretResolver?: (name: string) => Promise<string | null>;
+    questionAsker?: QuestionAsker;
   }) {
     this.defaultLogger = opts.logger;
     this.defaultCwd = opts.cwd;
     this.secretResolver = opts.secretResolver;
+    this.questionAsker = opts.questionAsker;
   }
 
   list(): ReadonlyArray<ToolDef> {
@@ -100,6 +104,7 @@ export class ToolRegistryImpl implements ToolRegistry {
       logger: opts.logger ?? this.defaultLogger,
       ...(opts.subagents ? { subagents: opts.subagents } : {}),
       ...(this.secretResolver ? { getSecret: this.secretResolver } : {}),
+      ...this.askFor(opts.turnId, signal),
     };
 
     const result = await tool.handler(parsed, ctx);
@@ -116,6 +121,13 @@ export class ToolRegistryImpl implements ToolRegistry {
       return outResult.data;
     }
     return result;
+  }
+
+  /** A question belongs to a turn, so only a call made in one gets to ask. */
+  private askFor(turnId: string | undefined, signal: AbortSignal): Pick<ToolContext, 'ask'> {
+    const asker = this.questionAsker;
+    if (!asker || turnId === undefined) return {};
+    return { ask: (questions) => asker({ turnId: asTurnId(turnId), questions, signal }) };
   }
 }
 

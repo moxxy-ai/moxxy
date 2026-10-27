@@ -20,13 +20,6 @@ export interface DesktopPrefs {
   clerkUserId: string | null;
   clerkDisplayName: string | null;
   signedInAt: number | null;
-  /** Whether the user last had the mobile gateway (the WebSocket bridge) on.
-   *  Recorded when the gateway is toggled, but NOT acted on at boot: the gateway
-   *  is on-demand only and never auto-starts with the app (exposing the host on
-   *  the network is always an explicit, per-session opt-in from the Mobile view).
-   *  Kept for diagnostics / a possible future "remember" option. Defaults to
-   *  false (OFF). */
-  mobileGatewayEnabled: boolean;
   /** Color scheme. The renderer's useTheme() controller maps it to
    *  `data-theme="dark"` on <html>; the main process mirrors it into
    *  `nativeTheme.themeSource` so window chrome / prefers-color-scheme agree.
@@ -40,6 +33,9 @@ export interface DesktopPrefs {
   /** Whether such a chat also shows a system notification while the app is in
    *  the background. Defaults to true. */
   systemNotifications: boolean;
+  /** Whether Moxxy shows its own toasts in the main window: a chat the person
+   *  is not reading, or work it finished in the background. Defaults to true. */
+  inAppToasts: boolean;
   /** Last native size chosen for the Focus Mode mini text composer.
    *  Null means the renderer should use its built-in default. */
   focusMiniTextSize: FocusMiniTextSize | null;
@@ -47,5 +43,8 @@ export interface DesktopPrefs {
    *  entry is `manual`. Host-owned — not writable through `prefs.update`,
    *  because changing it installs/removes an OS background service. */
   channelRunModes: Readonly<Record<string, ChannelRunMode>>;
+  /** The agent update the person closed the notice of, by connection name
+   *  (`codex-agent` → `0.162.1`): it shows again for a newer version. */
+  dismissedAgentUpdates: Readonly<Record<string, string>>;
   version: 1;
 }

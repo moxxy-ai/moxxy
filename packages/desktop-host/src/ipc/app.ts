@@ -28,7 +28,6 @@ import {
   type ComponentUpdatePlan,
 } from '../component-update';
 import { sendEvent } from '../send-event';
-import { wsEventBus } from '../event-bus';
 import { NO_NPM } from '../startup-setup/index.js';
 import { handle } from './shared';
 
@@ -61,7 +60,6 @@ function install(plan: ComponentUpdatePlan, onLine?: (line: string) => void): Pr
         const progress: AppUpdateProgress = { phase: 'install', message };
         const target = focusedWindow();
         if (target) sendEvent(target, 'app.update.progress', progress);
-        wsEventBus.broadcast('app.update.progress', progress);
       },
     });
     // Point new runners at the updated copy, the same way the boot block does.
@@ -122,7 +120,6 @@ export function registerAppHandlers(pool: RunnerPool, componentsVersion?: string
     const target = focusedWindow();
     const emit = (line: string): void => {
       if (target) sendEvent(target, 'onboarding.install.progress', line);
-      wsEventBus.broadcast('onboarding.install.progress', line);
     };
     try {
       const version = builtWithVersion ?? (await npmRegistry().latestVersion('@moxxy/cli'));

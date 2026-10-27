@@ -39,8 +39,10 @@ page link to it; the rest are summarized here.
 |---|---|
 | [`@moxxy/plugin-provider-anthropic`](/packages/plugin-provider-anthropic/) | Anthropic Messages API (API key). |
 | [`@moxxy/plugin-provider-openai`](/packages/plugin-provider-openai/) | OpenAI Chat Completions (API key). |
-| [`@moxxy/plugin-provider-openai-codex`](/packages/plugin-provider-openai-codex/) | ChatGPT Pro/Plus OAuth (Responses API). |
-| `@moxxy/plugin-provider-claude-code` | Claude Pro/Max OAuth (Anthropic Messages API via a Claude Code token). |
+| [`@moxxy/plugin-provider-openai-codex`](/packages/plugin-provider-openai-codex/) | "ChatGPT — Moxxy": Moxxy does the work with ChatGPT models on your ChatGPT Pro/Plus sign-in (Responses API). |
+| `@moxxy/plugin-provider-claude-code` | "Claude Agent": Claude Code does the work through the Claude Agent SDK on your Claude Pro/Max sign-in. |
+| `@moxxy/plugin-provider-codex-agent` | "ChatGPT — Codex agent": Codex does the work through `codex app-server` on your ChatGPT sign-in. |
+| `@moxxy/plugin-provider-acp` | "OpenCode agent": OpenCode does the work through `opencode acp` (Agent Client Protocol) with your own OpenCode setup and models. |
 | `@moxxy/plugin-provider-admin` | `provider_add/list/remove/test` tools — register OpenAI-compatible vendors at runtime. |
 
 ## Channels
@@ -51,7 +53,6 @@ page link to it; the rest are summarized here.
 | [`@moxxy/plugin-telegram`](/packages/plugin-telegram/) | Telegram channel (TOFU pairing, voice notes). |
 | [`@moxxy/plugin-channel-http`](/packages/plugin-channel-http/) | HTTP channel (`POST /v1/turn`, SSE streaming, audio). |
 | `@moxxy/plugin-channel-web` | Web surface channel: browser app rendering agent-authored view-spec UIs over a WebSocket. |
-| `@moxxy/plugin-channel-mobile` | Mobile channel: the desktop IPC contract over an authenticated WebSocket (`moxxy mobile`). |
 
 ## Plugins
 
@@ -91,8 +92,6 @@ page link to it; the rest are summarized here.
 | `@moxxy/desktop-ui` | Dependency-free React UI primitives (Icon set, Modal, Skeleton). |
 | `@moxxy/client-core` | DOM-free headless client layer: stores + `use*` hooks + transport seam + platform capabilities. |
 | `@moxxy/client-platform-web` | Web platform capabilities (mic capture, Web Speech TTS, localStorage KV). |
-| `@moxxy/client-transport-ws` | `MoxxyApi` over a WebSocket JSON-RPC client (Metro/React Native-safe). |
-| `@moxxy/ipc-server-ws` | Serves the desktop IPC contract over an authenticated WebSocket. |
 | `@moxxy/design-tokens` | Framework-neutral design tokens + `:root` CSS-variable generator. |
 
 ## Apps
@@ -100,6 +99,5 @@ page link to it; the rest are summarized here.
 | App | What it is |
 |---|---|
 | `apps/desktop` | Electron desktop app; attaches to `@moxxy/runner`, hot self-updates its JS layers. |
-| `apps/mobile` | Expo (React Native) proof-of-concept on the shared client layer over the WebSocket bridge. |
 | `apps/docs` | This documentation site (Astro Starlight). |
 | `apps/fixture-recorder` | Internal helper for recording provider fixtures. |

@@ -11,7 +11,8 @@
 
 import { memo, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type UrlTransform } from 'react-markdown';
-import { localFilePath, openLocalFile } from './local-file-link';
+import { localFilePath } from './local-file-link';
+import { useLocalFileLink } from './useLocalFileLink';
 import { CopyBlock } from './markdown/CopyBlock';
 import { useStreamingMarkdownText } from './useStreamingMarkdownText';
 import remarkGfm from 'remark-gfm';
@@ -27,6 +28,39 @@ const LINK_STYLE: React.CSSProperties = {
  *  route through the host; every other URL keeps the default scheme allow-list. */
 const urlTransform: UrlTransform = (url, key, node) =>
   node.tagName === 'a' && key === 'href' && localFilePath(url) ? url : defaultUrlTransform(url);
+
+/** A link to a file on this machine; a failed open says so beside it instead of doing nothing. */
+function LocalFileLink({
+  file,
+  node: _node,
+  ...p
+}: React.AnchorHTMLAttributes<HTMLAnchorElement> & { readonly file: string; readonly node?: unknown }): JSX.Element {
+  const { open, failure } = useLocalFileLink(file);
+  return (
+    <>
+      <a
+        {...p}
+        title={file}
+        onClick={(e) => {
+          e.preventDefault();
+          open();
+        }}
+        style={LINK_STYLE}
+      />
+      {failure && (
+        <span role="alert" title={failure} style={FAILURE_STYLE}>
+          Couldn’t open this file
+        </span>
+      )}
+    </>
+  );
+}
+
+const FAILURE_STYLE: React.CSSProperties = {
+  marginLeft: '0.4em',
+  fontSize: 'var(--type-meta)',
+  color: 'var(--color-red)',
+};
 
 const components: Components = {
   p: (p) => <p style={{ margin: '0 0 0.7em' }} {...p} />,
@@ -47,17 +81,7 @@ const components: Components = {
     if (file) {
       // A file on this machine opens through the host (`files.open`), never by
       // navigating — see local-file-link.ts.
-      return (
-        <a
-          {...p}
-          title={file}
-          onClick={(e) => {
-            e.preventDefault();
-            openLocalFile(file);
-          }}
-          style={LINK_STYLE}
-        />
-      );
+      return <LocalFileLink {...p} file={file} />;
     }
     return (
       <a

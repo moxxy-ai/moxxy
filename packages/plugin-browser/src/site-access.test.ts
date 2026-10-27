@@ -37,14 +37,17 @@ describe('siteOf', () => {
     ['https://*.canva.com', 'canva.com'],
     ['app.example.org', 'app.example.org'],
     ['https://bücher.example', 'xn--bcher-kva.example'],
-    ['localhost:3000', 'localhost'],
-    ['http://[::1]:5173', '[::1]'],
+    ['localhost:3000', 'localhost:3000'],
+    ['http://[::1]:5173', '[::1]:5173'],
+    ['http://localhost/', 'localhost:80'],
+    ['https://127.0.0.1/app', '127.0.0.1:443'],
+    ['http://app.localhost:5173/', 'app.localhost:5173'],
     ['http://192.168.1.10/admin', '192.168.1.10'],
   ])('%s is the site %s', (input, site) => {
     expect(siteOf(input)).toBe(site);
   });
 
-  it.each(['', '   ', 'about:blank', 'file:///etc/passwd', 'data:text/html,hi', 'com', 'javascript:alert(1)'])(
+  it.each(['', '   ', 'about:blank', 'file:///etc/passwd', 'data:text/html,hi', 'com', 'javascript:alert(1)', 'localhost', '127.0.0.1', '[::1]'])(
     'has no site for %j',
     (input) => {
       expect(siteOf(input)).toBeNull();
@@ -69,6 +72,13 @@ describe('siteAllows', () => {
   it('matches an address only exactly', () => {
     expect(siteAllows(['192.168.1.10'], 'http://192.168.1.10:8080/')).toBe(true);
     expect(siteAllows(['1.10'], 'http://192.168.1.10/')).toBe(false);
+  });
+
+  it('covers a page on this computer only at the address and port that were allowed', () => {
+    expect(siteAllows(['localhost:5173'], 'http://localhost:5173/app')).toBe(true);
+    expect(siteAllows(['localhost:5173'], 'http://localhost:8080/')).toBe(false);
+    expect(siteAllows(['localhost:5173'], 'http://127.0.0.1:5173/')).toBe(false);
+    expect(siteAllows(['localhost:5173'], 'http://app.localhost:5173/')).toBe(false);
   });
 
   it('covers nothing that is not a web page', () => {
@@ -124,6 +134,10 @@ describe('siteRefusal', () => {
     expect(message).toContain('canva.com');
     expect(message).toContain(ALLOW_SITE_TOOL);
     expect(message).toMatch(/nothing was done/);
+  });
+
+  it('names a page on this computer by its address and port', () => {
+    expect(siteRefusal('http://localhost:5173/app')).toContain('"localhost:5173"');
   });
 
   it('says when the tab is not on a web page at all', () => {

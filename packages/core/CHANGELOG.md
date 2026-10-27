@@ -1,5 +1,69 @@
 # @moxxy/core
 
+## 0.45.0
+
+### Patch Changes
+
+- a8e8418: Claude Agent: the times Claude sets itself to come back (ScheduleWakeup, `/loop`, CronCreate) show above the message box ("Back at 22:59 · in 3 min") and under "Scheduled" in the Agents pane, read from Claude's own list (`SessionInfo.scheduledWakeups`, runner protocol 31); the turn it comes back in reads "Scheduled check-in". The Agents pane and the background line are drawn with the app's own pieces, and the desktop's close, warning, check, fit and broadcast marks are icons rather than text glyphs. The cron parser moved to `@moxxy/sdk/cron`.
+- 7cc93a2: "Always allow" on a request for access to an app now saves just that request: full access to Safari is let through later, also in a new conversation, but a request for Terminal or for more control still asks. Before, the answer was saved for the whole tool and every later request passed unasked. Within the conversation the answer covers the same request only, and Telegram and Discord now keep "Allow session" to the same request too for such a tool.
+
+  For tool authors: the permission file takes `inputEquals` (exact values per input field), the SDK adds `alwaysAllowRule` and `createSessionGrants`, and runner protocol 32 carries `inputEquals` in `permission.addAllow` (a client never sends it to an older runner).
+
+- d2de3a1: A question the agent asks can no longer leave the conversation stuck.
+
+  - A question Codex asks while it works is shown at once instead of when its turn ends. An answer given while Codex works goes into its running turn. When Codex finishes without the answer, the question closes with the note that Codex went on. When Codex ends its turn on the question (plan mode), it still waits for the answer as before.
+  - A new message from the person closes any question an earlier turn still waits on, so that turn ends and the new message runs. A message an agent or a trigger started does not.
+  - An open question stays on screen while any turn runs, not only while the turn that asked it runs.
+  - The question card on Telegram and Discord says why a question closed: the agent went on, or a new message was sent.
+  - Desktop and terminal history keep the reason a question closed without an answer. A new message interrupts a Codex turn blocked on native user input before that turn can keep waiting on an empty answer.
+  - `@moxxy/sdk`: `QuestionAsker` callers can pass `{ signal }` to `ModeContext.ask` and `AgentStepHost.ask`; aborting it with `QUESTION_CLOSED_AGENT_WENT_ON` closes the question with that note. A dismissed `QuestionOutcome` and the `question_resolved` record carry an optional `note`. New exports: `QUESTION_CLOSED_AGENT_WENT_ON`, `QUESTION_CLOSED_NEW_MESSAGE`, `questionCloseNote`, `QuestionCloseNote`, `QuestionAskOptions`.
+
+- 6f4d652: A new conversation no longer starts on the provider's biggest model when no default model is chosen. It starts on the provider's light starter model instead: Haiku 5.5 for Claude, GPT-6 Luna for Codex (both the agent connection and the ChatGPT sign-in). A default model chosen in Settings → Default model still comes first, and a conversation keeps the model it last ran on. Settings → Default model, the chat's effort and fast controls, a bot's "Default" model and the terminal's header now show the model that really runs, not the first one listed. The helper calls Moxxy makes by itself, outside the conversation, run on the starter model too instead of the biggest one: merging memories (`memory_consolidate`), drafting a workflow (`workflow_create`, unless the host sets a draft model) and the post-turn reflection.
+
+  The SDK adds `LLMProvider.starterModel`, `ProviderDef.starterModel`, `ProviderInfo.starterModel` and `startingModel()`. The runner protocol goes to v30 (`ProviderInfo.starterModel`, additive); an older runner leaves it out and surfaces fall back to the first listed model.
+
+- 1fe7d4e: A new conversation starts on the light starter model (Haiku 5.5 for Claude) also after `/new` and after a restart. A new session wrote the first model its provider lists (Fable) into its file before any turn ran, and a runner restarted before the first turn took that as the model the conversation last ran on; `/new` in the terminal, a bot chat or an attached desktop kept the old conversation's model. The file now names a model only once a turn ran on it, an empty conversation is not given one on restart, and `/new` forgets the old conversation's model.
+- Updated dependencies [71f8aa8]
+- Updated dependencies [db33b95]
+- Updated dependencies [71e90e5]
+- Updated dependencies [84ff880]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [02119e8]
+- Updated dependencies [29841af]
+- Updated dependencies [211f80c]
+- Updated dependencies [49dd789]
+- Updated dependencies [90ab0bb]
+- Updated dependencies [cb494ef]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [887b8b7]
+- Updated dependencies [072b8b5]
+- Updated dependencies [a8e8418]
+- Updated dependencies [322f2ce]
+- Updated dependencies [7868760]
+- Updated dependencies [4af5560]
+- Updated dependencies [ee669b7]
+- Updated dependencies [3c1527c]
+- Updated dependencies [178a215]
+- Updated dependencies [318d476]
+- Updated dependencies [7cc93a2]
+- Updated dependencies [6e54a6b]
+- Updated dependencies [1329245]
+- Updated dependencies [8472068]
+- Updated dependencies [deeeeea]
+- Updated dependencies [46b20d3]
+- Updated dependencies [9bfe644]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [7d718f6]
+- Updated dependencies [6f4d652]
+- Updated dependencies [d118b03]
+- Updated dependencies [2160501]
+- Updated dependencies [2b9c87f]
+- Updated dependencies [332e4c2]
+- Updated dependencies [a06de31]
+- Updated dependencies [066a949]
+- Updated dependencies [fa44b8c]
+  - @moxxy/sdk@0.45.0
+
 ## 0.44.0
 
 ### Patch Changes

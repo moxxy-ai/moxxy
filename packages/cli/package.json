@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/cli",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "description": "moxxy command-line agent: TUI, one-shot prompts, setup, services, and API-key or installed-CLI subscription providers.",
   "keywords": [
     "moxxy",
@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "undici": "^8.11.2",
+    "undici": "^8.12.2",
     "zod": "catalog:"
   },
   "optionalDependencies": {
@@ -65,6 +65,8 @@
   },
   "devDependencies": {
     "@clack/prompts": "catalog:",
+    "@moxxy/agent-connection-kit": "workspace:*",
+    "@moxxy/chat-model": "workspace:*",
     "@moxxy/cache-strategy-stable-prefix": "workspace:*",
     "@moxxy/compactor-segments": "workspace:*",
     "@moxxy/compactor-summarize": "workspace:*",
@@ -73,12 +75,9 @@
     "@moxxy/isolator-subprocess": "workspace:*",
     "@moxxy/isolator-wasm": "workspace:*",
     "@moxxy/isolator-worker": "workspace:*",
-    "@moxxy/mode-collaborative": "workspace:*",
     "@moxxy/mode-default": "workspace:*",
     "@moxxy/mode-plan": "workspace:*",
-    "@moxxy/plugin-channel-mobile": "workspace:*",
     "@moxxy/plugin-cli": "workspace:*",
-    "@moxxy/plugin-collab": "workspace:*",
     "@moxxy/plugin-commands": "workspace:*",
     "@moxxy/plugin-embeddings-openai": "workspace:*",
     "@moxxy/plugin-embeddings-transformers": "workspace:*",

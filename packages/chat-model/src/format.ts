@@ -181,6 +181,7 @@ export function dotColorForTool(toolName: string): string {
 }
 
 import type { LiveToolCall } from './types.js';
+import type { ToolImage } from '@moxxy/sdk/tool-display';
 
 /**
  * Build the verb summary line for a live-tools block:
@@ -252,4 +253,48 @@ export function compactPreviewLine(call: LiveToolCall): string {
     if (typeof v === 'string') return truncate(oneLine(v), PREVIEW_LINE_MAX);
   }
   return summarizeArgs(call.request.input);
+}
+
+/** The images a tool returned, for surfaces that show them as text: "image (JPEG, 198.4 KB)", "3 images (JPEG, PNG, 610.0 KB)". */
+export function toolImagesLabel(images: ReadonlyArray<ToolImage>): string {
+  const bytes = images.reduce((sum, image) => sum + Math.floor((image.base64.length * 3) / 4), 0);
+  const size = bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
+  const kinds = [...new Set(images.map((image) => image.mediaType.replace(/^image\//, '').toUpperCase()))];
+  return `${images.length === 1 ? 'image' : `${images.length} images`} (${[...kinds, size].join(', ')})`;
+}
+
+export type SubagentState = 'running' | 'background' | 'done' | 'failed';
+
+/** How a subagent stands: a failure outranks the rest, and one left running when its turn ended goes on in the background. */
+export function subagentState(agent: { readonly completedAtMs: number | null; readonly error: string | null; readonly backgrounded?: boolean }): SubagentState {
+  if (agent.error !== null) return 'failed';
+  if (agent.completedAtMs !== null) return 'done';
+  return agent.backgrounded === true ? 'background' : 'running';
+}
+
+/**
+ * "4 Explore agents finished" / "1 agent in the background" / "2 agents
+ * finished, 1 failed": the line a batch of subagents folds into, on every
+ * screen. The default kind has no name worth saying, and a mixed batch has none.
+ */
+export function subagentGroupHeader(group: {
+  readonly agentType: string;
+  readonly agents: ReadonlyArray<{ readonly completedAtMs: number | null; readonly error: string | null; readonly backgrounded?: boolean; readonly continued?: boolean }>;
+}): string {
+  const { agents } = group;
+  const running = agents.filter((a) => subagentState(a) === 'running').length;
+  const background = agents.filter((a) => subagentState(a) === 'background').length;
+  const failed = agents.filter((a) => a.error !== null).length;
+  const typeWord = group.agentType === 'mixed' || group.agentType === 'default' ? '' : `${group.agentType} `;
+  const noun = agents.length === 1 ? 'agent' : 'agents';
+  const verb = running > 0 ? 'running' : background > 0 ? 'in the background' : 'finished';
+  const where = running === 0 && background === 0 && agents.every((a) => a.continued === true) ? ' in the background' : '';
+  const failTail = failed > 0 ? `, ${failed} failed` : '';
+  return `${agents.length} ${typeWord}${noun} ${verb}${where}${failTail}`;
+}
+
+/** "3 tool calls" for a subagent; null when its agent does not report its tool calls and none arrived. */
+export function subagentToolsLabel(agent: { readonly toolCallCount: number; readonly toolsUnseen?: boolean }, noun: 'call' | 'use'): string | null {
+  if (agent.toolsUnseen === true && agent.toolCallCount === 0) return null;
+  return `${agent.toolCallCount} tool ${noun}${agent.toolCallCount === 1 ? '' : 's'}`;
 }

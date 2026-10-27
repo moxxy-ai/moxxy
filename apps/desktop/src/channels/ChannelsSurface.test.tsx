@@ -151,7 +151,8 @@ describe('ChannelsSurface', () => {
     const agent = await screen.findByRole('button', { name: /model m/i });
 
     fireEvent.click(agent);
-    // "Default" of a provider is its first model for a bot, which always names one.
+    // "Default" of a provider is the model a new conversation starts on (here its
+    // only one) for a bot, which always names one.
     fireEvent.click(await screen.findByRole('option', { name: /Default/ }));
 
     await waitFor(() =>

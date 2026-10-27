@@ -16,14 +16,21 @@ import { randomUUID } from 'node:crypto';
 import type { BrowserWindow } from 'electron';
 
 import type { RemoteSession } from '@moxxy/runner';
-import { asTurnId } from '@moxxy/sdk';
-import type { RunTurnOptions, UserPromptAttachment } from '@moxxy/sdk';
+import { alwaysAllowRule, asTurnId, createDeferredPermissionResolver } from '@moxxy/sdk';
+import type {
+  DeferredPermissionResolver,
+  PendingToolCall,
+  PermissionContext,
+  PermissionDecision,
+  QuestionAnswers,
+  RunTurnOptions,
+  UserPromptAttachment,
+} from '@moxxy/sdk';
 
 import type { IpcEvents, RunTurnVisibility } from '@moxxy/desktop-ipc-contract';
 import { openAsk, cancelAsksFor } from './ask-broker.js';
 import { buildAttachments } from './attachments.js';
 import { sendEvent } from './send-event.js';
-import { wsEventBus } from './event-bus.js';
 import { withComputerApprovalFocus } from './computer-approval-focus.js';
 
 interface ActiveTurn {
@@ -54,6 +61,10 @@ export class SessionDriver {
    *  attach of the same window returns the existing unsub instead of stacking
    *  another 'closed' listener (which a re-bound focus widget would leak). */
   private readonly attachCleanups = new Map<BrowserWindow, () => void>();
+  /** Asks the person through the renderer's sheet and remembers an "Allow for
+   *  this session" answer for the rest of the conversation. Replaced on `/new`,
+   *  so a new conversation starts with no session grants. */
+  private asker: DeferredPermissionResolver;
 
   constructor(
     private readonly session: RemoteSession,
@@ -99,7 +110,10 @@ export class SessionDriver {
 
     // `/new` from another client of the conversation (a channel bot, the TUI)
     // wiped the runner's log: clear this chat too, or it keeps the old one.
-    this.disposes.push(this.session.onReset(() => this.send('chat.cleared', { workspaceId })));
+    this.disposes.push(this.session.onReset(() => {
+      this.asker = this.createAsker();
+      this.send('chat.cleared', { workspaceId });
+    }));
 
     // Forward agentic-surface frames (terminal bytes, browser frames) so the
     // renderer's pane can render them. Tagged with workspaceId so a background
@@ -114,6 +128,7 @@ export class SessionDriver {
     // handles permissions/approvals, so loop strategies (research)
     // actually pause and ask instead of assuming. Without them the runner
     // falls back to deny/auto and barrels ahead.
+    this.asker = this.createAsker();
     this.session.setPermissionResolver({
       name: 'desktop-ask',
       check: async (call, ctx) => {
@@ -121,32 +136,13 @@ export class SessionDriver {
         // goal mode (and any opted-in run) works hands-off. Mirrors the TUI's
         // yolo flag, which the permission queue checks before showing a prompt.
         if (this.autoApprove) return { mode: 'allow', decidedNow: true };
-        const signal = ctx.turnId ? this.turns.get(ctx.turnId)?.controller.signal : undefined;
-        const res = await withComputerApprovalFocus(this.session.computerControl,
-          String(this.session.id), call, ctx, signal, () => openAsk(
-          {
-            workspaceId,
-            kind: 'permission',
-            tool: {
-              name: call.name,
-              input: call.input,
-              ...(ctx.toolDescription ? { description: ctx.toolDescription } : {}),
-            },
-          },
-          (channel, payload) => this.send(channel, payload),
-          signal,
-        ));
-        // "Always allow" must persist so the runner's permission engine
-        // skips the prompt on the next call. The resolver only decides
-        // THIS call; without recording the rule, allow_always behaves
-        // exactly like allow_session and the sheet reappears every time.
-        if (res.mode === 'allow_always') {
-          void this.session.permissions.addAllow({ name: call.name });
-        }
-        // A sheet that was answered decided this call; a vanished one did not.
-        return res.mode && res.mode !== 'deny' ? { mode: res.mode, decidedNow: true } : { mode: res.mode ?? 'deny' };
+        return this.asker.check(call, ctx);
       },
     });
+    // The app shows the conversation's Questions (read from the log by the
+    // renderer), so the runner counts it as a surface that can answer them.
+    this.disposes.push(this.session.questions.attachSurface());
+
     this.session.setApprovalResolver({
       name: 'desktop-ask',
       confirm: async (request, context) => {
@@ -177,6 +173,44 @@ export class SessionDriver {
     this.session.onClose(() => {
       this.dispose();
     });
+  }
+
+  /** The sheet that decides one call. "Allow once" (`allow`) and "Deny" decide
+   *  only this call; "Allow for this session" is remembered by the deferred
+   *  resolver for the tool, or only for the same request where the tool's rule
+   *  narrows it; "Always allow" is remembered the same way and also persisted
+   *  to the runner's policy so it outlives the conversation. */
+  private createAsker(): DeferredPermissionResolver {
+    return createDeferredPermissionResolver({
+      name: 'desktop-ask',
+      prompt: (call, ctx) => this.askPerson(call, ctx),
+    });
+  }
+
+  private async askPerson(call: PendingToolCall, ctx: PermissionContext): Promise<PermissionDecision> {
+    const signal = ctx.turnId ? this.turns.get(ctx.turnId)?.controller.signal : undefined;
+    const res = await withComputerApprovalFocus(this.session.computerControl,
+      String(this.session.id), call, ctx, signal, () => openAsk(
+      {
+        workspaceId: this.workspaceId,
+        kind: 'permission',
+        tool: {
+          name: call.name,
+          input: call.input,
+          ...(ctx.toolDescription ? { description: ctx.toolDescription } : {}),
+        },
+      },
+      (channel, payload) => this.send(channel, payload),
+      signal,
+    ));
+    // "Always allow" must persist so the runner's permission engine skips the
+    // prompt on the next call, also in a later conversation; for a tool that
+    // narrows its grant (app access), only for the same request.
+    if (res.mode === 'allow_always') {
+      void this.session.permissions.addAllow(alwaysAllowRule(call, ctx));
+    }
+    // A sheet that vanished without an answer decided nothing: deny.
+    return { mode: res.mode ?? 'deny' };
   }
 
   /** True when this driver is bridging `session` — used by the IPC
@@ -298,21 +332,19 @@ export class SessionDriver {
     else if (this.otherTurns.has(turnId)) void this.session.abortTurn(turnId).catch(() => undefined);
   }
 
-  /** Abort every in-flight turn in this workspace without disposing the driver.
-   *  Used by the "End the collaboration" action: the coordinator turn aborts,
-   *  its finally tears the team down + archives, and the workspace stays usable. */
-  abortActiveTurns(): number {
-    let n = 0;
-    for (const turn of this.turns.values()) {
-      turn.controller.abort();
-      n += 1;
-    }
-    return n;
-  }
-
   /** Toggle auto-approve. When on, tool calls run without opening the
    *  renderer's approval sheet — for the whole conversation when the runner
    *  shares the switch, for this driver only on an older runner. */
+  /** Answer an open Question of this conversation; rejects when it is no longer open. */
+  answerQuestion(questionId: string, answers: QuestionAnswers): Promise<void> {
+    return this.session.questions.answer(questionId, answers);
+  }
+
+  /** Stop one work the conversation's agent runs in the background; `false` when it runs no such work. */
+  async stopBackgroundWork(workId: string): Promise<boolean> {
+    return this.session.stopBackgroundWork(workId);
+  }
+
   async setAutoApprove(on: boolean): Promise<void> {
     this.autoApprove = on;
     if (this.session.getInfo().autoApprove !== undefined) await this.session.setAutoApprove(on);
@@ -349,6 +381,7 @@ export class SessionDriver {
     // Deny any in-flight prompt so the runner doesn't block on a sheet that's
     // about to vanish with the driver.
     cancelAsksFor(this.workspaceId);
+    this.asker.abortAll('desktop session closed');
     for (const turn of this.turns.values()) turn.controller.abort();
     this.turns.clear();
     // Drop 'closed' listeners on any still-open attached (secondary) windows
@@ -374,8 +407,5 @@ export class SessionDriver {
 
   private send<K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void {
     for (const win of this.windows) sendEvent(win, channel, payload);
-    // Mirror the tagged stream (runner.event / runner.turn.complete / ask.request)
-    // to any non-Electron transports. No-op when no WS bridge is attached.
-    wsEventBus.broadcast(channel, payload);
   }
 }

@@ -24,8 +24,7 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
   // ---- Sessions (per-desk conversations) -----------------------------------
 
   // The registry derives names/first-prompts from the per-session files, so the
-  // overview is returned as-is — this handler also serves mobile over the WS
-  // bridge.
+  // overview is returned as-is.
   handle('sessions.list', async (args) => desks.listSessions(args?.deskId));
 
   handle('sessions.create', async (args) => {

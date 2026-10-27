@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ClientSession } from '@moxxy/sdk';
-import { buildSlashSuggestions, nextSelectableMode } from './helpers.js';
+import { buildSlashSuggestions, nextSelectableMode, resolveActiveModel } from './helpers.js';
 
 describe('buildSlashSuggestions', () => {
   const session = {
@@ -36,25 +36,12 @@ describe('buildSlashSuggestions', () => {
     ]);
   });
 
-  it('keeps collaboration behind one TUI entry point', () => {
-    const collabSession = {
-      commands: {
-        listForChannel: () => [
-          { name: 'collab_say', description: 'Message an agent' },
-          { name: 'collab_direct', description: 'Direct the team' },
-          { name: 'collab_pause', description: 'Pause the team' },
-          { name: 'collab_resume', description: 'Resume the team' },
-        ],
-      },
-    } as unknown as ClientSession;
-
-    const suggestions = buildSlashSuggestions(collabSession, {
+  it('offers no /collab command, since collaborative mode was removed', () => {
+    const suggestions = buildSlashSuggestions(session, {
       canSwitchRuns: true,
       canManageExtensions: true,
     });
-    const names = suggestions.map((command) => command.name);
-    expect(names.filter((name) => name === 'collab')).toHaveLength(1);
-    expect(names.filter((name) => name.startsWith('collab_'))).toEqual([]);
+    expect(suggestions.map((command) => command.name)).not.toContain('collab');
   });
 });
 
@@ -81,5 +68,19 @@ describe('nextSelectableMode', () => {
       modes: { list: () => [only], getActive: () => only },
     } as unknown as ClientSession;
     expect(nextSelectableMode(session)).toBeNull();
+  });
+});
+
+describe('resolveActiveModel', () => {
+  const info = { defaultModel: 'light' };
+
+  it('shows the model the runner runs a turn on while none is picked', () => {
+    expect(resolveActiveModel(info, null, undefined)).toBe('light');
+    expect(resolveActiveModel({}, null, undefined)).toBe('default');
+  });
+
+  it('shows a picked model first', () => {
+    expect(resolveActiveModel(info, 'picked', 'prop')).toBe('picked');
+    expect(resolveActiveModel(info, null, 'prop')).toBe('prop');
   });
 });

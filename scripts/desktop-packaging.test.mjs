@@ -103,7 +103,7 @@ test('desktop resource verifier starts the embedded CLI and finds the Codex prov
     const report = await verifyDesktopResources(root);
     assert.equal(report.cliVersion, '1.2.3');
     assert.equal(report.providerVersion, '1.2.3');
-    assert.equal(report.seedPackageCount, 4);
+    assert.equal(report.seedPackageCount, 7);
     assert.equal(report.voiceCount, VOICE_CATALOG.length);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -124,6 +124,25 @@ test('desktop resource verifier rejects a plugin seed without the Claude sign-in
   }
 });
 
+test('desktop resource verifier rejects a plugin seed without the Codex and OpenCode agent connections', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-agents-resources-'));
+  try {
+    await writeValidResources(root, { seedProviders: SIGN_IN_PROVIDERS });
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-provider-codex-agent/,
+    );
+
+    await writeValidResources(root, { seedProviders: [...SIGN_IN_PROVIDERS, '@moxxy/plugin-provider-codex-agent'] });
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-provider-acp/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('desktop resource verifier rejects a plugin seed without the offline voice', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-piper-resources-'));
   try {
@@ -132,6 +151,20 @@ test('desktop resource verifier rejects a plugin seed without the offline voice'
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false }),
       /plugins-seed manifest does not include @moxxy\/plugin-tts-local/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a plugin seed without the local transcription the settings offer', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-whisper-resources-'));
+  try {
+    await writeValidResources(root, { offlineTranscription: false });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-stt-local/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -465,16 +498,25 @@ async function writePackage(packageDir, name, extra = {}) {
 
 const OFFLINE_VOICE = '@moxxy/plugin-tts-local';
 const CLOUD_VOICE = '@moxxy/plugin-tts-gemini';
+const OFFLINE_TRANSCRIPTION = '@moxxy/plugin-stt-local';
 const SIGN_IN_PROVIDERS = ['@moxxy/plugin-provider-openai-codex', '@moxxy/plugin-provider-claude-code'];
+const AGENT_CONNECTIONS = ['@moxxy/plugin-provider-codex-agent', '@moxxy/plugin-provider-acp'];
 
 async function writeValidResources(
   root,
-  { includeSeedLock = true, seedProviders = SIGN_IN_PROVIDERS, offlineVoice = true, cloudVoice = true } = {},
+  {
+    includeSeedLock = true,
+    seedProviders = [...SIGN_IN_PROVIDERS, ...AGENT_CONNECTIONS],
+    offlineVoice = true,
+    cloudVoice = true,
+    offlineTranscription = true,
+  } = {},
 ) {
   const seedPackages = [
     ...seedProviders,
     ...(offlineVoice ? [OFFLINE_VOICE] : []),
     ...(cloudVoice ? [CLOUD_VOICE] : []),
+    ...(offlineTranscription ? [OFFLINE_TRANSCRIPTION] : []),
   ];
   const cliDir = path.join(root, 'moxxy-cli');
   await mkdir(path.join(cliDir, 'dist'), { recursive: true });

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import {
   applyInitConfig,
+  clearCategoryDefault,
   loadCategoryDefault,
   loadCategoryItemConfig,
   setCategoryDefault,
@@ -40,6 +41,29 @@ describe('category item configuration', () => {
     await expect(loadCategoryDefault('synthesizer', { configPath })).resolves.toBeNull();
     await setCategoryDefault('synthesizer', 'gemini-tts', { configPath });
     await expect(loadCategoryDefault('synthesizer', { configPath })).resolves.toBe('gemini-tts');
+  });
+
+  it('clears the selected backend but keeps its item options, and is a no-op when unset', async () => {
+    await clearCategoryDefault('transcriber', { configPath });
+    await expect(loadCategoryDefault('transcriber', { configPath })).resolves.toBeNull();
+
+    await setCategoryDefault('transcriber', 'local-whisper', { configPath });
+    await setCategoryItemConfig('transcriber', 'local-whisper', { language: 'pl' }, { configPath });
+    await clearCategoryDefault('transcriber', { configPath });
+
+    await expect(loadCategoryDefault('transcriber', { configPath })).resolves.toBeNull();
+    expect(await readParsed()).toEqual({
+      plugins: { transcriber: { items: { 'local-whisper': { language: 'pl' } } } },
+    });
+    await expect(clearCategoryDefault('not-a-category', { configPath }))
+      .rejects.toThrow(/unknown plugin category/);
+  });
+
+  it('drops the emptied category when clearing its only setting', async () => {
+    await setCategoryDefault('transcriber', 'local-whisper', { configPath });
+    await setCategoryDefault('synthesizer', 'local-piper', { configPath });
+    await clearCategoryDefault('transcriber', { configPath });
+    expect(await readParsed()).toEqual({ plugins: { synthesizer: { default: 'local-piper' } } });
   });
 
   it('persists synthesizer options without replacing other category items', async () => {
@@ -161,7 +185,7 @@ describe('applyInitConfig', () => {
 
 describe('setProviderEnabled', () => {
   it('serializes two concurrent toggles so neither update is lost', async () => {
-    // Two rapid cross-client toggles (e.g. desktop + mobile hitting the same
+    // Two rapid cross-client toggles (e.g. desktop + TUI hitting the same
     // runner) each read-merge-write config.yaml on DIFFERENT providers. Without
     // the config writer's mutex the second read would see the pre-first-write
     // snapshot and clobber the first provider's flag (last-writer-wins). The

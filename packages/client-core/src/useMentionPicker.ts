@@ -1,7 +1,7 @@
 /**
  * The chat's @ menu: while the caret is in an @ word, the skills that answer it
  * (Computer Use, Moxxy Browser, …), a highlighted one, and the draft with a pick
- * put in. DOM-free so the desktop composer and the mobile one share it; what a
+ * put in. DOM-free, so it carries no composer of its own; what a
  * mention does is decided by the runner when the prompt arrives, not here.
  */
 

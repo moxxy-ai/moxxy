@@ -1,15 +1,16 @@
-import type { ApprovalRequest, ComputerControlSnapshot, MoxxyEvent, SurfaceDataMessage } from '@moxxy/sdk';
+import type { ComputerControlSnapshot, MoxxyEvent, SurfaceDataMessage } from '@moxxy/sdk';
 
 import type { AskRequest } from './ask.js';
 import type { ConnectionPhase } from './connection.js';
 import type { AppSetupState, AppUpdatePlan, AppUpdateProgress } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
-import type { MobileGatewayStatus } from './mobile.js';
 import type { AppInstallProgress } from './apps.js';
 import type { DesksOverview } from './desks.js';
 import type { ChannelRuntimeStatus } from './channels.js';
 import type { RunTurnVisibility } from './chat.js';
 import type { BrowserControlState, BrowserCursor, BrowserTabInfo } from './browser.js';
+import type { AgentCliProgress, TranscriptionSettings } from './settings.js';
+import type { AppNotice } from './notices.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -55,10 +56,6 @@ export interface IpcEvents {
    *  routes it by `host`/`path`. Links that arrive before the renderer is
    *  listening are buffered and pulled via `deepLink:drain` on mount. */
   'deepLink:received': DeepLinkPayload;
-  /** The mobile gateway's status changed (enabled/disabled, token rotated, a
-   *  client connected/left) — the Settings → Mobile tab re-renders the QR +
-   *  client count from this without polling. */
-  'mobileGateway.changed': MobileGatewayStatus;
   /** The runner's registry snapshot changed (provider/mode/MCP/workflow
    *  mutations — including ones made by TOOLS inside a turn, e.g.
    *  provider_add). The renderer re-emits {@link SESSION_INFO_REFRESH_EVENT}
@@ -81,6 +78,8 @@ export interface IpcEvents {
     /** Omitted by legacy senders and therefore treated as foreground. */
     visibility?: RunTurnVisibility;
   };
+  /** A line from an agent CLI's installer or updater (`agents.run`). */
+  'agents.progress': AgentCliProgress;
   /** A running interactive provider login (`provider.login.start`) needs a
    *  pasted answer — the out-of-band token or `code#state` claude-code's flow
    *  asks for. The renderer renders an input (masked when `mask`) and replies
@@ -142,17 +141,10 @@ export interface IpcEvents {
    *  or its public Request URL became available) — the Channels panel re-renders
    *  that channel's card without polling. */
   'channels.status': ChannelRuntimeStatus;
-  /** A live event from the dedicated collaboration coordinator (`moxxy collab`),
-   *  forwarded off its own runner. The Collaborate panel folds these into its
-   *  view; they NEVER enter a chat session's `runner.event` stream — that is what
-   *  keeps collaborate a separate feature. */
-  'collab.event': { event: MoxxyEvent };
-  /** The coordinator's roster-approval checkpoint (the single human gate). The
-   *  panel renders it inline and answers via `collab.respondApproval`. */
-  'collab.approval': { requestId: string; request: ApprovalRequest };
-  /** A collab approval was answered (or the run ended) — drop the inline card. */
-  'collab.approval.resolved': { requestId: string };
-  /** The coordinator's liveness/task changed (started / ended / crashed) — the
-   *  panel reflects it without polling `collab.active`. */
-  'collab.status': { running: boolean; task?: string };
+  /** Where speech is transcribed, or how far getting Local ready has come,
+   *  changed — sent through the model download, so every window shows the same
+   *  progress wherever the person is in the app. */
+  'voice.transcription.changed': TranscriptionSettings;
+  /** The host finished, or failed at, work that ran in the background. */
+  'app.notice': AppNotice;
 }

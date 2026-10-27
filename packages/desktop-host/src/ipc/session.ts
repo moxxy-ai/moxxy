@@ -41,6 +41,20 @@ import {
   waitForSessionState,
 } from './shared';
 import { channelOfChat, syncChannelChatModel, type ChannelChatModelDeps } from '../channel-chat-model';
+import { loadCategoryItemConfig } from '@moxxy/config';
+import {
+  DEFAULT_VOICE,
+  GEMINI_TTS_MODEL,
+  GEMINI_TTS_READ_ALOUD_PART_CHARS,
+  GEMINI_TTS_SYNTHESIZER_NAME,
+} from '@moxxy/plugin-tts-gemini';
+import {
+  createSpeechCache,
+  defaultSpeechCacheDir,
+  SPEECH_CACHE_MAX_BYTES,
+  speechCacheKey,
+  type SpeechCache,
+} from '../speech-cache';
 
 /** Strict base64 (optional `=` padding). `Buffer.from(x, 'base64')` silently
  *  drops invalid characters and decodes a partial/garbage buffer, so reject a
@@ -56,16 +70,18 @@ function synthesisRequestKey(workspaceId: string, requestId: string): string {
   return `${workspaceId}\u0000${requestId}`;
 }
 
-// The collaboration on-disk layout (lock path + runs dir) and the defensive
-// lock parse/liveness probe are the coordinator's contract, owned by
-// `@moxxy/mode-collaborative`'s collab-store. The Collaborate tab reads them
-// straight off disk here (no runner round-trip, so a collaboration in ANY
-// workspace's runner is visible) — importing the SAME helpers the coordinator
-// writes with means the two can't drift apart.
-
 export interface SessionHandlerDependencies {
   /** Where a bot chat's model comes from (defaults to the in-process vault). */
   readonly channelModels: ChannelChatModelDeps;
+  /** Where read-aloud keeps Gemini's speech (defaults to `$MOXXY_HOME/cache/speech`). */
+  readonly speechCache: SpeechCache;
+  /** The Gemini voice the person chose in Settings, part of what a kept clip is. */
+  readonly geminiVoice: () => Promise<string>;
+}
+
+async function configuredGeminiVoice(): Promise<string> {
+  const config = await loadCategoryItemConfig('synthesizer', GEMINI_TTS_SYNTHESIZER_NAME);
+  return typeof config.voice === 'string' ? config.voice : DEFAULT_VOICE;
 }
 
 export function registerSessionHandlers(
@@ -76,6 +92,9 @@ export function registerSessionHandlers(
     vault: () => getInProcessPlugins().vault,
     activateProvider: providerActivator(pool),
   };
+  const speechCache = dependencies.speechCache
+    ?? createSpeechCache({ dir: defaultSpeechCacheDir(), maxBytes: SPEECH_CACHE_MAX_BYTES });
+  const geminiVoice = dependencies.geminiVoice ?? configuredGeminiVoice;
   // ---- Session (per-workspace) --------------------------------------------
 
   handle('computer.snapshot', async ({workspaceId}) => {
@@ -182,6 +201,16 @@ export function registerSessionHandlers(
     await mustDriver(id).setAutoApprove(enabled);
     broadcastHostEvent('session.autoApprove.changed', { workspaceId: id, enabled });
   });
+  handle('session.stopBackgroundWork', async ({ workspaceId, workId }) => {
+    const id = workspaceId ?? pool.activeWorkspaceId();
+    if (!id) return false;
+    return mustDriver(id).stopBackgroundWork(workId);
+  });
+  handle('session.answerQuestion', async ({ workspaceId, questionId, answers }) => {
+    const id = workspaceId ?? pool.activeWorkspaceId();
+    if (!id) throw new IpcError('not-connected', 'no active session to answer the question in');
+    await mustDriver(id).answerQuestion(questionId, answers);
+  });
   handle('session.runCommand', async ({ workspaceId, name, args }) => {
     const { session } = resolveCtx(pool, { workspaceId });
     const def = session.commands.get(name);
@@ -198,130 +227,6 @@ export function registerSessionHandlers(
       session,
     });
     return result;
-  });
-  handle('collab.active', async () => {
-    // Read the global single-flight lock the collaborative coordinator writes
-    // (~/.moxxy/collab/active.lock). Read directly here (no runner round-trip)
-    // so the Collaborate tab sees a collaboration running in ANY workspace.
-    try {
-      const { readCollabLock, isCollabHolderAlive } = await import('@moxxy/mode-collaborative');
-      const info = readCollabLock();
-      // A missing/corrupt lock (or one without a usable pid) → not active.
-      if (!info) return { active: false };
-      // Liveness: a dead holder pid means the lock is stale → not active.
-      if (!isCollabHolderAlive(info.pid)) return { active: false };
-      return { active: true, sessionId: info.sessionId, task: info.task, startedAtMs: info.startedAtMs };
-    } catch {
-      return { active: false };
-    }
-  });
-  handle('collab.start', async ({ workspaceId, goal }) => {
-    // Start on the DEDICATED coordinator runner — never a chat session. The
-    // coordinator works in the target workspace's bound folder. Dynamically
-    // imported so the collab/runner stack stays off the Electron boot path.
-    const cwd = resolveSupervisor(pool, workspaceId)?.getCwd();
-    if (!cwd) throw new IpcError('no-workspace', 'bind a folder before collaborating');
-    const { startCollab } = await import('../collab-supervisor');
-    return startCollab({ cwd, goal });
-  });
-  handle('collab.snapshot', async () => {
-    // Seed a freshly-mounted panel — and opportunistically attach to a
-    // coordinator started elsewhere (e.g. from the TUI) so the desktop can view it.
-    const { ensureCollabAttached, collabSnapshot } = await import('../collab-supervisor');
-    await ensureCollabAttached().catch(() => undefined);
-    return collabSnapshot() as never;
-  });
-  handle('collab.command', async ({ name, args }) => {
-    const { runCollabCommand } = await import('../collab-supervisor');
-    return (await runCollabCommand(name, args)) as never;
-  });
-  handle('collab.respondApproval', async ({ requestId, decision }) => {
-    const { respondCollabApproval } = await import('../collab-supervisor');
-    respondCollabApproval(requestId, decision);
-  });
-  handle('collab.end', async () => {
-    // Stop the dedicated coordinator (abort its turn — whose finally archives the
-    // run — then terminate the process), then force-release the global lock so a
-    // new collaboration can start even if a stale/crashed run left it held.
-    let abortedTurns = 0;
-    try {
-      const { stopCollab } = await import('../collab-supervisor');
-      abortedTurns = (await stopCollab()).abortedTurns;
-    } catch {
-      // best-effort
-    }
-    let clearedTask: string | undefined;
-    try {
-      // forceReleaseCollabLock removes the lock regardless of holder and returns
-      // the cleared holder (if any) so we can report which task we ended — the
-      // coordinator's own release-side helper, so the unlink path stays identical.
-      const { forceReleaseCollabLock } = await import('@moxxy/mode-collaborative');
-      clearedTask = forceReleaseCollabLock()?.task || undefined;
-    } catch {
-      // best-effort
-    }
-    return { ended: true, abortedTurns, ...(clearedTask ? { clearedTask } : {}) };
-  });
-  handle('collab.history', async (args) => {
-    // Read archived run records straight from ~/.moxxy/collab/runs (self-
-    // describing JSON), newest first — no runner round-trip, spans all workspaces.
-    //
-    // Hardening: the runs dir grows without bound (one file per collaboration),
-    // and the renderer's `limit` is untrusted. Reading + parsing every file
-    // SYNCHRONOUSLY on the Electron main event loop (the old impl) blocks all
-    // other IPC/animation/input. So: (1) all I/O is async (fs/promises +
-    // Promise.all), (2) `limit` is clamped, and (3) we never read more than a
-    // hard ceiling of files — the newest by mtime (a write-time proxy for run
-    // finish), then sort the parsed records by their authoritative `startedAtMs`.
-    try {
-      const { readdir, readFile, stat } = await import('node:fs/promises');
-      const { join } = await import('node:path');
-      // The runs dir layout is the coordinator's contract (`collabRunsDir`); the
-      // ASYNC, mtime-bounded scan below stays desktop-side on purpose — the
-      // coordinator's sync `listRunRecords` would block the Electron main event
-      // loop reading every file, which this handler header explicitly avoids.
-      const { collabRunsDir } = await import('@moxxy/mode-collaborative');
-      const dir = collabRunsDir();
-      // Clamp the renderer-supplied limit to a sane window (default 50, max 200);
-      // a non-positive / non-finite value falls back to the default.
-      const requested = Number(args?.limit ?? 50);
-      const limit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), 200) : 50;
-      // Read at most this many files regardless of how large the dir grows — the
-      // newest by mtime. (mtime ordering tracks run-finish ordering, so the
-      // top-N by startedAtMs are within this window.)
-      const MAX_SCAN = 200;
-      const names = (await readdir(dir)).filter((f) => f.endsWith('.json'));
-      const withMtime = await Promise.all(
-        names.map(async (f) => {
-          try {
-            const s = await stat(join(dir, f));
-            return { f, mtimeMs: s.mtimeMs };
-          } catch {
-            return null;
-          }
-        }),
-      );
-      const newest = withMtime
-        .filter((e): e is { f: string; mtimeMs: number } => e !== null)
-        .sort((a, b) => b.mtimeMs - a.mtimeMs)
-        .slice(0, MAX_SCAN);
-      const parsed = await Promise.all(
-        newest.map(async ({ f }) => {
-          try {
-            return JSON.parse(await readFile(join(dir, f), 'utf8')) as { startedAtMs?: number };
-          } catch {
-            return null;
-          }
-        }),
-      );
-      const records = parsed
-        .filter((r): r is { startedAtMs?: number } => r !== null)
-        .sort((a, b) => (b.startedAtMs ?? 0) - (a.startedAtMs ?? 0))
-        .slice(0, limit);
-      return records as never;
-    } catch {
-      return [];
-    }
   });
   handle('session.hasTranscriber', async () => {
     // The mic affordance lights up when EITHER voice path can serve a
@@ -378,7 +283,13 @@ export function registerSessionHandlers(
     const result = await transcriber.transcribe(audio, opts);
     return result.text;
   });
-  handle('session.synthesize', async ({ workspaceId, requestId, text, language, rate, voice }) => {
+  handle('session.readAloudPlan', async (args) => {
+    const synth = resolveSupervisor(pool, args?.workspaceId)?.remote()?.synthesizers.tryGetActive();
+    return synth?.name === GEMINI_TTS_SYNTHESIZER_NAME
+      ? { partChars: GEMINI_TTS_READ_ALOUD_PART_CHARS }
+      : null;
+  });
+  handle('session.synthesize', async ({ workspaceId, requestId, text, language, rate, voice, cache }) => {
     // Text-to-speech routes through the RUNNER's active synthesizer (unlike
     // STT, which uses the in-process Codex transcriber): a user-authored TTS
     // plugin (e.g. ElevenLabs) lives in ~/.moxxy/plugins, loaded by the runner.
@@ -404,7 +315,24 @@ export function registerSessionHandlers(
         ...(voice ? { voice } : {}),
         signal: controller.signal,
       };
+      // Only Gemini's speech is kept: it costs money and counts against a
+      // rate limit, while Piper speaks locally for free.
+      const cacheKey = cache && synth.name === GEMINI_TTS_SYNTHESIZER_NAME
+        ? speechCacheKey({
+          synthesizer: synth.name,
+          model: GEMINI_TTS_MODEL,
+          voice: voice ?? await geminiVoice().catch(() => DEFAULT_VOICE),
+          text,
+          ...(language ? { language } : {}),
+          ...(rate !== undefined ? { rate } : {}),
+        })
+        : null;
+      const kept = cacheKey ? await speechCache.get(cacheKey) : null;
+      if (kept) {
+        return { audioBase64: Buffer.from(kept.audio).toString('base64'), mimeType: kept.mimeType };
+      }
       const result = await synth.synthesize(text, options);
+      if (cacheKey) await speechCache.put(cacheKey, result);
       return {
         audioBase64: Buffer.from(result.audio).toString('base64'),
         mimeType: result.mimeType,

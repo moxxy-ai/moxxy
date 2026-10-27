@@ -39,6 +39,17 @@ describe('readPrefs', () => {
     expect(p.version).toBe(1);
   });
 
+  it('has no mobile gateway preference, since the mobile app was removed', () => {
+    expect(readPrefs()).not.toHaveProperty('mobileGatewayEnabled');
+  });
+
+  it('still reads a prefs file written while the mobile gateway existed', () => {
+    writePrefsFile({ version: 1, onboardingComplete: true, theme: 'dark', mobileGatewayEnabled: true });
+    const p = readPrefs();
+    expect(p.onboardingComplete).toBe(true);
+    expect(p.theme).toBe('dark');
+  });
+
   it('has the reply sound on until it is switched off, also for a file written before it existed', () => {
     expect(readPrefs().replySound).toBe(true);
 
@@ -57,6 +68,16 @@ describe('readPrefs', () => {
 
     writePrefsFile({ systemNotifications: false });
     expect(readPrefs().systemNotifications).toBe(false);
+  });
+
+  it('has in-app toasts on until they are switched off, also for a file written before they existed', () => {
+    expect(readPrefs().inAppToasts).toBe(true);
+
+    writePrefsFile({ systemNotifications: false });
+    expect(readPrefs().inAppToasts).toBe(true);
+
+    writePrefsFile({ inAppToasts: false });
+    expect(readPrefs().inAppToasts).toBe(false);
   });
 
   it('returns defaults for a malformed file (never throws)', () => {
@@ -107,10 +128,10 @@ describe('updatePrefs', () => {
   it('serializes concurrent updates so neither clobbers the other', async () => {
     await Promise.all([
       updatePrefs({ onboardingComplete: true }),
-      updatePrefs({ mobileGatewayEnabled: true }),
+      updatePrefs({ theme: 'dark' }),
     ]);
     const p = readPrefs();
     expect(p.onboardingComplete).toBe(true);
-    expect(p.mobileGatewayEnabled).toBe(true);
+    expect(p.theme).toBe('dark');
   });
 });

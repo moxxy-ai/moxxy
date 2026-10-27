@@ -45,6 +45,11 @@ around them changes.
    bodies an account's page receives; off the developer's own machine
    (`isLocalDevSite`) they pass the same `browser_allow_site` gate as acting.
    Credential-like keys and JWT-shaped values stay masked in what they return.
+10. **Moxxy's browser opens loopback only by exact consent.** A page on this
+    computer passes the SSRF guard only through `assertReachableUrl` with the
+    allowed `host:port` (`localSiteOf`); tools, sidecar goto and the in-page
+    route guard all run it. Never widen it to other private ranges, to a
+    host without a port, or to a DNS name that resolves to loopback.
 
 Smell test for new code: "what happens if the JSON/peer/renderer/model is
 malicious?" — if the answer is "it can't be", prove it with the validator.

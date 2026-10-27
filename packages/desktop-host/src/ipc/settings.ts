@@ -9,34 +9,40 @@
  * (`./vault`, `./prefs`).
  */
 
+import { AGENT_CLIS } from '@moxxy/agent-connection-kit';
+
 import type { RunnerPool } from '../runner-pool';
-import { handle, mustRemote, mustSession, resolveSupervisor } from './shared';
+import { getInProcessPlugins, handle, mustRemote, mustSession, resolveSupervisor } from './shared';
 
 export function registerSettingsHandlers(pool: RunnerPool): void {
   // ---- Settings -----------------------------------------------------------
 
   handle('settings.fetchProviderModels', async ({ provider }) => {
     const { fetchProviderModels } = await import('../provider-discovery');
-    return await fetchProviderModels(provider);
+    return await fetchProviderModels(provider, { vault: getInProcessPlugins().vault });
   });
   handle('settings.adminProviders', async () => {
     const { readAdminProviderNames } = await import('../provider-discovery');
     return readAdminProviderNames();
   });
   handle('settings.providerCatalog', async () => {
-    // Built-ins (bundled or seeded with the desktop) are always pickable.
-    // Admin-registered ones come from the unified config so the onboarding
-    // dropdown reflects whatever the user already added via `provider_add`
-    // (zai, openrouter, …).
-    const builtins = ['anthropic', 'openai', 'openai-codex', 'claude-code'];
+    // Built-ins (bundled or seeded with the desktop, or the agent connections
+    // provisioned on first sign-in) are always pickable. Admin-registered ones
+    // come from the unified config so the onboarding dropdown reflects whatever
+    // the user already added via `provider_add` (zai, openrouter, …).
+    const builtins = ['anthropic', 'openai', 'openai-codex', 'claude-code', 'codex-agent', 'opencode'];
     const { readAdminProviderNames } = await import('../provider-discovery');
     const admin = await readAdminProviderNames();
     const seen = new Set<string>();
-    return [...builtins, ...admin].filter((name) => {
-      if (seen.has(name)) return false;
-      seen.add(name);
-      return true;
-    });
+    return [...builtins, ...admin]
+      .filter((name) => {
+        if (seen.has(name)) return false;
+        seen.add(name);
+        return true;
+      })
+      // A coding agent (its CLI works the turn) is told apart from a model API
+      // Moxxy calls itself, so the picker can group them.
+      .map((name) => ({ name, kind: Object.hasOwn(AGENT_CLIS, name) ? ('agent' as const) : ('api' as const) }));
   });
   handle('settings.providers', async (args) => {
     const sup = resolveSupervisor(pool, args?.workspaceId);
@@ -75,6 +81,8 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
         // is the source of truth (the desktop never sees raw ModelDescriptors);
         // a provider supports it when ANY of its models advertises it.
         supportsReasoning: p.models.some((m) => m.supportsReasoning === true),
+        ...(p.agentName ? { agentName: p.agentName } : {}),
+        ...(p.agentCli ? { agentCli: p.agentCli } : {}),
         ...(detail
           ? {
               baseURL: detail.baseURL,

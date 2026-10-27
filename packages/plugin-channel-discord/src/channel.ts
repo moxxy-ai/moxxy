@@ -11,6 +11,7 @@ import {
 import { newTurnId } from '@moxxy/core';
 import {
   AutoApproveSwitch,
+  ChatQuestions,
   ForeignTurnMirror,
   MirrorTarget,
   TurnCoordinator,
@@ -54,6 +55,7 @@ import { handleInteraction, type InteractionLike } from './channel/interaction-h
 import { PairingHandler, type PairingConfirmResult } from './channel/pairing-handler.js';
 import { askForPermission } from './channel/permission-prompt.js';
 import { askForApproval } from './channel/approval-prompt.js';
+import { DiscordQuestionCards } from './channel/question-cards.js';
 import { publishAppCommands } from './channel/slash-handler.js';
 import { clampEditFrameMs, runDiscordTurn } from './channel/turn-runner.js';
 import { handleVoiceMessage } from './channel/voice-handler.js';
@@ -152,9 +154,18 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
       for (const part of splitForDiscord(text)) await target.send(part);
     },
     formatPrompt: (prompt) => `*typed in moxxy:* ${prompt}`,
+    formatAgentTurn: (name) => `*agent continued:* ${name}`,
     onReply: (reply) => this.calls.say(reply),
     onError: (err) => this.opts.logger?.warn('discord mirror failed', { err: String(err) }),
   });
+  // The conversation's Questions, drawn as cards with answer buttons where
+  // the mirror posts (the last channel served, else the owner's DM).
+  private readonly questions = new ChatQuestions(() => this.session);
+  private readonly questionCards = new DiscordQuestionCards({
+    target: () => this.mirrorTarget.resolve(),
+    logger: { warn: (msg, meta) => this.opts.logger?.warn(msg, meta) },
+  });
+  private detachQuestions: (() => void) | null = null;
   private awaitingApprovalText: AwaitingApprovalText | null = null;
   private handle: ChannelHandle | null = null;
   private readonly typing = new TypingIndicator();
@@ -266,6 +277,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     // (plan-execute) surface their validation dialog on this channel;
     // stop() tears it down so headless paths never see a stale handler.
     this.session.setApprovalResolver(this.approvalResolver);
+    this.detachQuestions = this.questions.attach((update) => void this.questionCards.render(update));
 
     // Mirror-to-both: when the session runs a turn this channel did NOT
     // initiate (e.g. a co-attached web surface), post the assistant's prose
@@ -345,6 +357,8 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         this.approvalResolver.abortAll(reason);
         this.logUnsub?.();
         this.logUnsub = null;
+        this.detachQuestions?.();
+        this.detachQuestions = null;
         if (this.session) this.session.setApprovalResolver(null);
         this.typing.stop();
         if (this.client) {
@@ -414,6 +428,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
       allowList: this.allowList,
       approvalResolver: this.approvalResolver,
       permissionResolver: this.permissionResolver,
+      questions: this.questions,
       ...(this.opts.logger ? { logger: this.opts.logger } : {}),
     };
     await handleInboundMessage(
@@ -458,6 +473,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         allowList: this.allowList,
         permissionResolver: this.permissionResolver,
         approvalResolver: this.approvalResolver,
+        questions: this.questions,
         ...(this.opts.logger ? { logger: this.opts.logger } : {}),
       },
       {

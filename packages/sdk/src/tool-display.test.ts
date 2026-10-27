@@ -3,9 +3,20 @@ import {
   diffGutterNo,
   fileDiffSummary,
   fileDiffVerb,
+  imageToolOutput,
   isFileDiffDisplay,
+  isQuestionAnswerDisplay,
+  isStepListDisplay,
   isToolDisplayResult,
+  questionAnswerLines,
+  stepListOutput,
+  stepListProgress,
+  stepStatusOf,
+  stepsFromTodos,
   toDiffRows,
+  toolImagesOf,
+  type QuestionAnswerDisplay,
+  type StepListDisplay,
   type FileDiffDisplay,
 } from './tool-display.js';
 
@@ -91,5 +102,113 @@ describe('guards', () => {
         hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [] }],
       }),
     ).toBe(true);
+  });
+});
+
+describe('question-answer display', () => {
+  const answered: QuestionAnswerDisplay = {
+    kind: 'question-answer',
+    questions: [
+      { header: 'Colour', question: 'Which colour?', chosen: ['Blue'] },
+      { question: 'Which parts?', chosen: ['Auth', 'Billing'], own: 'and the admin' },
+    ],
+  };
+
+  it('is a tool display, so the model is shown only the text and the transcript the answers', () => {
+    expect(isQuestionAnswerDisplay(answered)).toBe(true);
+    expect(isToolDisplayResult({ forModel: 'The user answered: …', display: answered })).toBe(true);
+  });
+
+  it('rejects a malformed payload instead of rendering it', () => {
+    expect(isQuestionAnswerDisplay({ kind: 'question-answer' })).toBe(false);
+    expect(isQuestionAnswerDisplay({ kind: 'question-answer', questions: [{ question: 'Q?' }] })).toBe(false);
+    expect(isQuestionAnswerDisplay({ kind: 'question-answer', questions: [{ question: 'Q?', chosen: [1] }] })).toBe(false);
+  });
+
+  it('reads as one line per question for text surfaces', () => {
+    expect(questionAnswerLines(answered)).toEqual([
+      'Colour: Which colour? → Blue',
+      'Which parts? → Auth, Billing; own answer: and the admin',
+    ]);
+  });
+});
+
+describe('images in a tool result', () => {
+  it('are read from the shape Moxxy tools return, with the text beside it', () => {
+    expect(toolImagesOf({ mediaType: 'image/png', base64: 'AAA', forModel: 'Screenshot of Arc' })).toEqual({
+      images: [{ mediaType: 'image/png', base64: 'AAA' }],
+      text: 'Screenshot of Arc',
+    });
+  });
+
+  it('are read from the provider-native image block too', () => {
+    expect(toolImagesOf({ type: 'image', mediaType: 'image/jpeg', data: 'BBB' })).toEqual({
+      images: [{ mediaType: 'image/jpeg', base64: 'BBB' }],
+      text: '',
+    });
+  });
+
+  it('are nothing for text, a file diff, or an object without pixels', () => {
+    expect(toolImagesOf('plain text')).toBeNull();
+    expect(toolImagesOf({ mediaType: 'image/png' })).toBeNull();
+    expect(toolImagesOf(null)).toBeNull();
+  });
+
+  it('are what an agent connection hands over: the text the agent read and every image, in order', () => {
+    const shots = [
+      { mediaType: 'image/jpeg', base64: 'ONE' },
+      { mediaType: 'image/png', base64: 'TWO' },
+      { mediaType: 'image/jpeg', base64: 'THREE' },
+    ];
+
+    expect(toolImagesOf(imageToolOutput('Took three screenshots.', shots))).toEqual({ images: shots, text: 'Took three screenshots.' });
+  });
+
+  it('keep one copy of an image sent twice, as Codex sends each screenshot', () => {
+    const shot = { mediaType: 'image/jpeg', base64: 'SAME' };
+    const other = { mediaType: 'image/jpeg', base64: 'OTHER' };
+
+    expect(imageToolOutput('', [shot, shot, other, shot])).toEqual({ forModel: '', mediaType: 'image/jpeg', base64: 'SAME', moreImages: [other] });
+    expect(imageToolOutput('', [shot, shot])).toEqual({ forModel: '', mediaType: 'image/jpeg', base64: 'SAME' });
+  });
+});
+
+describe("an agent's list of steps", () => {
+  it('reads a TodoWrite-style list, leaving out items it cannot show', () => {
+    expect(
+      stepsFromTodos([
+        { content: 'Create a.txt', status: 'completed', priority: 'high' },
+        { content: ' Create b.txt ', status: 'in_progress' },
+        { content: 'Create c.txt', status: 'pending' },
+        { content: '', status: 'pending' },
+        { content: 'Odd', status: 'someday' },
+      ]),
+    ).toEqual([
+      { text: 'Create a.txt', status: 'completed' },
+      { text: 'Create b.txt', status: 'in_progress' },
+      { text: 'Create c.txt', status: 'pending' },
+    ]);
+    expect(stepsFromTodos('nope')).toBeUndefined();
+  });
+
+  it("takes Codex's inProgress for in progress", () => {
+    expect(stepStatusOf('inProgress')).toBe('in_progress');
+    expect(stepStatusOf('done')).toBeUndefined();
+  });
+
+  it('is a display a tool result can carry, and says how far it is', () => {
+    const output = stepListOutput('Updated task #1 status', [
+      { text: 'a', status: 'completed' },
+      { text: 'b', status: 'in_progress' },
+      { text: 'c', status: 'pending' },
+    ]);
+
+    expect(isToolDisplayResult(output)).toBe(true);
+    expect(isStepListDisplay({ kind: 'step-list', steps: [{ text: 'a', status: 'inProgress' }] })).toBe(false);
+    expect(stepListProgress(output.display as StepListDisplay)).toEqual({ done: 1, total: 3, current: { text: 'b', status: 'in_progress' } });
+  });
+
+  it('has no current step once every step is done', () => {
+    expect(stepListProgress({ kind: 'step-list', steps: [{ text: 'a', status: 'completed' }, { text: 'b', status: 'cancelled' }] })).toEqual({ done: 2, total: 2 });
   });
 });

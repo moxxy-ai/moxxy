@@ -4,7 +4,7 @@ The desktop app is being redrawn as a messenger. The conversation is the main
 thing on screen. Everything else is reachable but out of the way.
 
 This document is the contract for that redesign. It covers the desktop app
-only; the mobile app, the TUI and the web channel keep their own look.
+only; the TUI and the web channel keep their own look.
 
 ## Decisions
 
@@ -96,10 +96,10 @@ a click or the wheel shows the hold was the start of something else
 
 No view stands without the sidebar. A view with sections of its own
 (Automations, Channels, Extensions, Settings) lists them there; a view with
-none (Apps, Collaborate, Mobile) keeps the runs beside it, and picking a run
+none (Apps) keeps the runs beside it, and picking a run
 goes back to the conversation. `shell/views.ts` holds that rule. In any view
 other than the runs, the sidebar's head carries a back control. A place that
-needs a loaded session (Collaborate, Automations, Apps) is shown disabled, with
+needs a loaded session (Automations, Apps) is shown disabled, with
 the reason, while the session loads.
 
 First run is the one screen with no sidebar, because there is nothing to move
@@ -107,7 +107,13 @@ between yet. It is one form on the sidebar's ground: the mark, a card with
 "Step n of N" over a line of step marks, and one step at a time
 (`onboarding/chrome/Shell.tsx`). A step that can be left for later offers a
 quiet "Skip for now" in place of the lit button, so the accent only marks the
-way forward.
+way forward. The provider step's picker groups the coding agents (Claude Code,
+Codex, OpenCode: they work through their own SDK, on their own sign-in) apart
+from the model APIs Moxxy calls itself; `settings.providerCatalog` tags each
+entry `agent` or `api`. Skipping the workspace step keeps the built-in Moxxy
+workspace, whose folder is `~/Moxxy` (inside `MOXXY_HOME` when that is set):
+the app starts its first runner there (`initialRunnerTarget` in
+`@moxxy/desktop-host`), and the step says so before the person skips.
 
 Menus are one component, `shell/menu/PopoverMenu.tsx`, positioned by
 `shell/menu/usePopover.ts`. A menu opened with the pointer grows from the
@@ -130,13 +136,67 @@ pane.
 |---|---|
 | What the person said | A bubble on the right, filled with the action colour. A prompt over 12 lines opens clamped, with a control that says how many lines it holds. Attachments sit above the bubble. |
 | What the agent said | A bubble on the left, in its own neutral tone. Code, tables and quotes inside it are tinted against the bubble, and each has a copy control in its corner (shown for the block under the pointer or holding focus, always on a touch screen). A table copies as tab-separated rows. |
-| Tool calls, reasoning, sub-agents | Quiet lines down the left, no wider than a bubble. The ones with a body open in place. |
-| Triggers, stops, errors | A note with a short label. |
+| Tool calls, reasoning, sub-agents | Quiet lines down the left, no wider than a bubble. The ones with a body open in place. Thoughts one after another are one folded "Thinking" line with their count, opening to every thought in order (`groupThinkingNodes` in client-core, `ThinkingGroupView`), so an agent that thinks before every step does not stretch the conversation with a line per thought. The images a tool returned (screenshots an agent looked at, an image file it read) show under its line as a wrapping row of thumbnails drawn like attached images, every one of them, and each opens in the same preview; opening the line shows the text beside them, never an image as text (`chat/blocks/ToolImages.tsx`). |
+| A finished turn's work | Once a turn ends, what the agent did on the way to its answer (its comments along the way, thoughts, tool runs, diffs, helpers) folds into one quiet line, "Worked for 4m 12s" with how many steps, and the answer stays under it. Opening the line shows every step as it was drawn, hung off a thin rule. Never folded: the person's messages, "Agent continued", errors, "Stopped", account limits and other notes, answered questions, the list of steps, a mode's card (a plan, a goal's end) and the turn's last message, so the work folds in runs between them, in order; a run of one step stays as it is. The turn still going stays open, so its steps show as they come (`groupWorkNodes` in client-core, `transcriptNodes`, `WorkGroupView`). |
+| A helper that outlives its turn | An agent's helper still working when its turn ends keeps its row there, saying "in the background" with the accent light held still (no breathing: that row no longer follows it). What it does after that, up to its answer, is a row of its own where it happens, marked "from the background"; the earlier row is left as it was, so a terminal that froze it and the desktop tell the same story (`chat/blocks/SubagentGroupView.tsx`). |
+| An agent's account limit | The limit an agent reports for the person's account, said in one sentence that names the agent, the window and when it resets: "Claude has used 94% of its weekly limit · resets Sat at 08:00". It sits under the effort and fast mode in the Model & usage window (the telemetry in the instrument bar opens it), dim while there is room, amber when nearly used up and red once it is, and leaves by itself when the window resets (`shell/instrument/Telemetry.tsx`, `chat/useAccountLimit.ts`). It is not a line above the message box: that line could not be closed and stood over every message for days. A turn that stopped on it ends with a "Limit" note in the conversation saying the same, in place of the agent's raw error. |
+| An agent's CLI | When the CLI behind the active agent connection is missing, older than Moxxy works with, or behind the vendor's latest, one quiet line above the message box says so in the words the terminal uses ("Codex 0.162.1 is out — you have 0.155.1"), with the fix after it (Install, Update). Amber for an update it can live without, red for one it cannot. The amber one can be closed, and stays closed until the vendor publishes another version (`dismissedAgentUpdates` in the desktop prefs); the red one cannot. While the fix runs the line shows what the installer prints (`chat/composer/AgentCliBar.tsx`, `chat/useAgentCliNotice.ts`, the words from `agentCliNotice` in `@moxxy/chat-model`). |
+| An agent's list of steps | One card per turn, drawn where the agent first wrote the list and updated in place each time it changes it: a "Steps" head with how many are done, then one row per step with a round mark (green tick done, accent dot in progress, empty ring waiting, struck through when dropped). The calls that changed the list never show as lines of their own; they sit under the card in the turn's activity (`chat/blocks/StepList.tsx`). |
+| Triggers, stops, errors | A note with a short label. A turn the agent opened by itself (Claude going on after its background helper finished) is the same note, "Agent continued" with what finished, on every surface: desktop and terminal (`chat/blocks/trigger-meta.ts`). |
 
 Under a message sit its time and, for an answer, copy, read aloud and feedback.
 That line always takes its height and is shown for the message under the
 pointer or holding focus, so revealing it moves nothing. On a touch screen it
 is always shown.
+
+Settings → Voice → Transcription picks where speech becomes text, for the chat
+microphone and Voice Mode's Local engine. Cloud is OpenAI over the ChatGPT
+login. Local is Whisper turbo on this computer (`@moxxy/plugin-stt-local`,
+shipped in the plugin seed). The first time, a dialog asks before anything
+downloads and says how big the model is (~1 GB) and that the app stays usable
+meanwhile. The main process then fetches the model's three int8 files from
+Hugging Face, in parallel and pinned by size and sha256 (`ensureModelFiles` in
+`@moxxy/model-fetch`), into `~/.moxxy/models/stt/turbo`, where the plugin finds
+them; nothing is unpacked, so it takes about as long as the bytes do. The card
+shows a progress bar with Cancel, and since the switch runs in the main process
+and reports on `voice.transcription.changed`, the download goes on and shows
+again when the person leaves the tab and comes back. After the download the
+switch enables the plugin, makes `local-whisper` the transcriber, restarts the
+runners and transcribes half a second of silence to load the model, so the
+first dictation does not wait. A notice says when Local is ready or why it
+could not start (see "Toasts"). A failed or cancelled switch leaves Moxxy on
+Cloud; choosing Cloud clears the choice (`local-whisper.ts` in
+`@moxxy/desktop-host`, `useTranscriptionSettings` and `TranscriptionSection` in
+the desktop).
+
+Read aloud speaks with the voice chosen in Settings → Voice. With Local Piper
+(or any voice but Gemini) it reads sentence by sentence, as Voice Mode does.
+With Gemini Flash-Lite it sends the whole answer in one request, or in parts
+of up to 3,000 characters cut between sentences for a long one, so it does not
+spend a request per sentence against Gemini's rate limit. Each part is kept on
+disk in `$MOXXY_HOME/cache/speech`, one WAV file per part, named by a hash of
+the voice, model, language, pace and text, so hearing it again plays the file
+and calls nothing. The store holds 500 MB; a file's modification time is when
+it was last heard, and after each new file the ones heard longest ago are
+deleted until it fits. A part that cannot be read or saved is synthesized
+again; the store never stops speech (`speech-cache.ts` in
+`@moxxy/desktop-host`, `useReadAloud` and `read-aloud-parts.ts` in
+`@moxxy/client-core`).
+
+When a turn marked "Agent continued" finishes without assistant text, tool
+activity or a helper's activity, one neutral note says "The agent finished
+without replying." The agent loop records it only after finishing, so live
+clients and reopened history show the same note. A stopped turn, an error or
+an exhausted account limit already explains the end and gets no extra note.
+The terminal and messaging channels use the same wording; the note
+does not become an assistant message or get read aloud by a channel.
+
+A link the agent writes to a file on this computer (a `file://` URL or an
+absolute path, spaces and all) opens through the host, never in the browser:
+the file's own app for a type that only views or plays, otherwise the file
+manager (`chat/local-file-link.ts`, `files.open`). A click that cannot open it
+leaves a short red "Couldn’t open this file" beside the link, with the reason
+under the pointer, instead of doing nothing.
 
 `chat/trace/TraceEntry.tsx` maps an entry's kind to its side and owns the row.
 The bubble is drawn by the block inside it (`UserBlock`, `AssistantBlock`).
@@ -150,6 +210,21 @@ mode other than the default one, auto-approve on, or a goal waiting for its
 objective. It says it the way a run says its state, as a toned dot and a line
 of text (`.status-chip`), never as a filled capsule: amber for what runs
 without asking, the accent for a goal. The model is read in the header.
+
+While a turn runs and the agent keeps a list of steps, a thin bar sits above
+the composer card and says where it is: "Step 2 of 3" and the step's text, or
+how many are done once none is left. Pressing it shows the whole list under it.
+It goes when the turn ends (`chat/composer/TurnStepsBar.tsx`,
+`chat/useTurnSteps.ts`).
+
+When the agent of an agent connection (Claude, Codex, OpenCode) uses the
+person's computer with its own tools, the strip Moxxy's own Computer Use draws
+sits at the top of the conversation: "Codex is using your computer", the app it
+last named, and Stop, which stops the turn. Moxxy cannot pause that agent or
+take over from it, so the strip offers neither. It shows from the agent's first
+computer call in the turn until the turn ends, and only while Moxxy's own strip
+is not shown (`computer-control/useAgentComputer.ts`, the call recognised by
+name in `agentComputerUseOf` of `@moxxy/sdk`).
 
 Files reach the composer four ways: the add menu, the file browser, a paste,
 and a drop anywhere on the conversation, which says it will take them while
@@ -211,9 +286,9 @@ so no mode has a look of its own.
 | Mode chip | `chat/modes/ModeChip.tsx` | In the composer's status row for every mode but the default: "Plan mode · read-only", "Goal mode · unattended", "Research mode". Its × goes back to the default mode. A mode that acts without asking takes the caution tone. |
 | Mode menu | the add menu | Each mode by name with its one-line hint under it. |
 | Outcome card | `chat/modes/ModeOutcomeCard.tsx` | What a mode hands back (a plan, a finished or paused goal, a research plan, a follow-up round) is a card with a title and its facts as chips, then the text. The signal tool call that precedes it is not drawn unless it failed. |
-| Plan answers | `chat/modes/plan-next.ts` | The plan nothing has followed offers "Implement" and "Run as goal", the one it recommends filled. Each switches the session's mode first and then sends the prompt, so the prompt cannot run as another round of planning. A goal run starts from the default mode, which is where it hands back. They are not offered while a turn runs, while a question waits, or on an older plan. |
+| Plan answers | `chat/modes/plan-next.ts`, `chat/modes/plan-dismissals.ts` | The plan nothing has followed offers "Implement" and "Run as goal", the one it recommends filled, then "Rewrite" and "Dismiss". Each way on switches the session's mode first and then sends the prompt, so the prompt cannot run as another round of planning. A goal run starts from the default mode, which is where it hands back. "Rewrite" puts a field in place of the answers for what does not fit (Enter sends, Escape goes back) and sends it in plan mode. "Dismiss" puts the answers away and tags the plan "Dismissed"; the agent is not told, and the dismissal is kept in this window's storage because only the desktop draws plan answers. Only the person moves past a plan: the agent saying more after it in the same turn leaves the answers in place, so a second or third plan offers the same four. They are not offered while a turn runs, while a question waits, or on an older plan. |
 | Step note | `chat/modes/ModeNoteLine.tsx` | A phase of the run (goal started, research round, research complete) is one quiet line with a toned dot. |
-| Agents | `chat/blocks/SubagentGroupView.tsx` | A fan-out lists its agents as rows: a state light, what the agent is working on, its tool and token counts, and its state. A research agent is named by its question. |
+| Agents | `chat/blocks/SubagentGroupView.tsx` | A fan-out lists its agents as rows: a state light, what the agent is working on, its tool and token counts, and its state. A research agent is named by its question. Its one-line summary ("2 agents finished, 1 failed") is `subagentGroupHeader` from `@moxxy/chat-model`, so the terminal says the same words. |
 
 `chat/modes/mode-events.ts` reads the modes' own events out of the run's log
 and says which message is an outcome and which event is a note. The desktop
@@ -240,15 +315,62 @@ is red. Asking leave to act marks the card amber; asking which way to go on
 marks it with the accent. Focus goes to the safe answer, Tab stays inside the
 card and Escape gives the safe answer.
 
+### A Question from the agent
+
+When the agent asks the person something (the `ask_user` tool, or a connected
+agent's own question) the card sits in the same place and is of the same make,
+titled "Question" with the accent mark (`chat/ask/QuestionCard.tsx`, placed by
+`chat/QuestionSheet.tsx`). An approval the run is blocked on comes first; the
+Question shows once it is answered.
+
+Each question is a group: an optional short header as an accent chip, the
+question as prose, the suggested answers as bordered chips (a picked one takes
+the accent border and soft fill), and, where the question takes one, a field
+for an answer of the person's own. Several questions stack in one card and go
+out with one "Send answer". Send stays disabled until every question has an
+answer, and its tooltip says which one is missing. A failed send says why in a
+red line above it.
+
+A Question blocks no action, so nothing in the card is safe to pick for the
+person: no answer is preselected and Escape answers nothing. Focus goes to the
+first suggested answer, Tab stays inside the card and ⌘↵ / Ctrl+↵ sends. The
+question is read from the conversation's own events (`useQuestion` in
+`@moxxy/client-core`), so every client of the conversation shows the same card
+and the first answer from any of them closes it everywhere. A chat with an
+open Question counts as waiting on the person in the sidebar and the
+instrument bar.
+
+An open Question stays visible when another turn becomes active; changing the
+active turn alone never hides it. Codex's asynchronous questions appear while
+it works. When it finishes after moving past the question, the card closes and
+the transcript says "Question closed: the agent went on without an answer."
+Writing a new message instead closes the earlier question, releases any turn
+blocked on it, and leaves "Question closed: you sent a new message instead."
+Stop closes the question with its turn. A final question still waits for an
+answer, which reaches Codex before its next step.
+
+The focus window shows the same card, after any approval, beside the mark and
+at the head of the Mini Chat (`focus/FocusAskCard.tsx`, read by
+`focus/useFocusAsk.ts`). There it is a group, not a dialog: it takes no focus
+and no key, and drops the ⌘↵ hint, because the window floats over other work.
+Picks and the field work as in the desktop, and Send answer sends. Its frame
+is fixed, so the questions scroll inside it and Send stays in view below them.
+
+Once answered, the card goes and the transcript keeps the decision: a quiet
+bordered block headed "You answered", each question in muted text (with its
+chip) and what the person chose under it in the text colour, their own words
+in italics and quotes (`chat/blocks/AnsweredQuestionBlock.tsx`). It reads the
+`question-answer` display `ask_user` returns, so it is never folded away like
+an ordinary tool row.
+
 ### A voice conversation
 
 Voice mode does not change the screen. While it is on, one card sits between
 the conversation and the composer, on the composer's measure and of its make
 (`voice-call/VoicePresenceRail.tsx`). At rest it is a capsule in the middle of
-that measure: the mark, what Moxxy is doing, and dots while a tool runs. Under
-the pointer or the keyboard's focus it opens to the full card: the tool at
-work on the left, and on the right the microphone as a round icon whose
-tooltip says the state it is in, and a pill that ends the call. A call makes no
+that measure: the mark, what Moxxy is doing, the microphone, and dots while a
+tool runs. Under the pointer or the keyboard's focus it opens to the full card:
+the tool at work on the left, and on the right a pill that ends the call. A call makes no
 sound of its own while Moxxy works: the card shows the work, and the only thing
 heard is the answer (`voice-call/voice-silence.test.ts`).
 
@@ -259,6 +381,8 @@ heard is the answer (`voice-call/voice-silence.test.ts`).
 | It closes a moment after the pointer leaves, and opens at once | A pointer that slips off on its way to End does not lose it. |
 | Why a call stopped is said once, beside the state, on up to two lines at every width; a reason longer than that, like any line of the card that is cut, gives all of itself in the tooltip (`components/tip/ClippedText.tsx`) | The reason is the one line here that has to be read, and text that is all there needs no tooltip. |
 | The phone starts a call and the phone laid down ends one, in the header, the Mini Chat, the focus pill and here | One pair of signs for one pair of actions. |
+| The microphone is a small round button beside the state, in the capsule, on or off: in the accent while it listens, cut and red while it is off, in every phase ("Speaking", "Thinking", "Working"…). Its tooltip says the state it is in, and while it is off a screen reader hears "…, microphone off" after the state (at rest the state itself reads "Microphone off"). Flipping it, by click or ⌘D, changes the same button in place, with no motion; it stays where it is as the card opens, and there is no microphone on the right. The capsule still hugs its state, so "Listening" becoming "Microphone off" moves it about 19px; its target reaches 24px to each side of its middle, so a second click in the same place still turns it back on | At rest only the capsule shows, so a microphone among the hidden controls could not say it was off while Moxxy thought or spoke. The card opens under the pointer that is already on the microphone, so it must not move away from it, and one place for it, on or off, is one thing to learn. |
+| ⌘D / Ctrl+D turns the microphone off and on during a call, in the main window and in Focus Mode, also while typing; it is listed under Voice in the shortcuts sheet (`voice-call/useVoiceMicrophoneShortcut.ts`). Not ⌘M, which macOS keeps for minimizing the window, nor ⌘⇧M, which is Focus Mode | The microphone is the control a call reaches for most; a key reaches it without finding the pointer. |
 
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
 be checked in the stylesheet.
@@ -288,9 +412,34 @@ and carrying the answer's first line or "Waiting for your decision."; a newer
 one for the same chat replaces the older, and a click brings the main window
 forward on that chat (`attention/show-banner.ts`). A chat removed while it
 answered calls for nothing, and an answer followed at once by its queued
-message calls only when the last of them is done. Each has its own desktop
-preference, `replySound` and `systemNotifications`, both on by default and
-switched in Settings → Preferences → Notifications.
+message calls only when the last of them is done.
+
+While the main window has the keyboard, a chat that calls also gets a toast in
+the top-right corner, under the header bar, with the same words as its banner;
+a click opens it.
+
+Each of the three has its own desktop preference, all on by default and
+switched in Settings → Preferences → Notifications: `replySound` for the
+chime, `inAppToasts` for toasts inside Moxxy and `systemNotifications` for the
+system's own notification (macOS, Windows or Linux) while Moxxy is in the
+background. Turning one off silences only that one, for chats and for
+`app.notice` alike; with toasts off, a notice that arrives while the main
+window is in front shows nothing rather than falling back to a system
+notification.
+
+### Toasts
+
+A toast is a short note about work that finished while the person was
+elsewhere in the app: a chat's answer (above) or work the host ran in the
+background, such as the Whisper download. The host sends that work as an
+`app.notice` (an id, a tone, a title, words and, optionally, the Settings
+section it is about); `notices/useAppNotices.ts` shows it as a toast while the
+main window has the keyboard (when in-app toasts are on) and hands it to the
+system as a banner otherwise (when system notifications are on). One store holds the toasts
+(`notices/toast-store.ts`): at most three, in the top-right corner clear of
+the composer, newest at the bottom, a newer one
+with the same id replacing the older; they leave on their own after six
+seconds, an error after ten. `notices/ToastStack.tsx` draws them.
 
 ## The work panel
 
@@ -321,6 +470,40 @@ Its width is never animated: the terminal measures its columns when it mounts.
 The closed panel stays in the layout at zero width instead of being removed,
 because the browser parked inside it has to keep painting to keep its pages.
 
+### Shared media
+
+Media is a fifth pane beside Terminal, Files, Diff and Browser, also found by
+name in ⌘K. Five labelled tabs are wider than the strip at the panel's default width, so
+below that width an inactive tab is drawn as its icon alone, named by its
+tooltip and for assistive tech; the open tab keeps its word, and every tab
+stays in view (`@container bench-tabs` in `styles.css`). It belongs to the current chat, including its older history, and
+does not open automatically when the agent captures a screen. Its three
+sections — Media, Files and Links — use the existing recessed segmented
+control. Search and the All / You / Agent sender filter sit below it; changing
+chats resets these controls. Typing and switching filters do not animate.
+
+Images form a responsive square grid under quiet month headings. Only visible
+tiles and their immediate neighbours request thumbnails. A small spark marks
+an agent image without making its tile a different colour. Clicking opens the
+existing image preview, with previous/next controls and arrow keys through the
+filtered images. File and link rows share one layout: a quiet icon, a truncated
+name, then size or host and date. Missing local files say so and cannot open.
+Links open as links in the chat do; the library never fetches a page preview.
+Empty, loading, search-without-results and read-error states are distinct.
+
+The full log is indexed into a disposable cache per chat that holds no
+attachment bytes; an attached file is copied there only when it is opened. Completed messages supply links; code and pages merely visited
+by browser tools do not. Repeated images and links appear once. Rebuilding
+the cache never rewrites the conversation.
+
+### Agents
+
+Agents is the sixth pane, also found by name in ⌘K ("background work", "helpers"). It lists the times the agent set itself to come back ("Scheduled"), then the chat's helpers and the commands its agent left running, those that run now first (`shell/surfaces/agents`). It is drawn with the Media pane's pieces: the same header with its count, captions in the muted text colour, and rows with the icon on a 32 px tile, the name and one line under it. A state is a dot and a word (an accent dot running, green done, red failed), the way a run says its state. A scheduled wakeup says when the agent comes back and how soon ("Back at 22:59 · in 3 min", or "Next at" for one that repeats), read from Claude's own list of what it set (`SessionInfo.scheduledWakeups`, from its `Stop` hook); Moxxy cannot cancel one, so the row has no control, and the agent cancels it when asked in the chat. Picking one opens its mini chat: a helper's task in a bubble on the right, what it said and the tools it called in order, then its answer; for a command, once it ended, what it printed last (its line is the heading, and the agent's summary shows only when it says more). A running work has Stop; nothing here writes to the agent. Durations count up while something runs and do not animate otherwise. "Show in chat" scrolls the chat to the "Agent continued" entry the work opened, and marks it a moment.
+
+In the chat, "Agent continued" is one chip without a box under it (its prompt is its name). When it says which work ended, clicking it opens that work here; a turn the agent woke itself up for reads "Agent continued · Scheduled check-in". Above the message box, drawn as the steps bar is (the lead in the text colour, the rest muted, 18 px), one quiet line says what runs in the background ("In the background npm run dev") and another when the agent comes back by itself (a clock, "Back at 22:59 · in 3 min", what for, and how many more are set); each opens this pane. The running dot breathes in opacity the way the mark does and holds still under reduced motion. The pane does not open by itself.
+
+No control or note draws a text glyph or an emoji for an icon (✕, ⚠, ✓, ⛶, 📣): they come from the one icon set, `Icon` in `@moxxy/desktop-ui`, so their weight and size match the rest. The terminal, Telegram and Discord, which have no icons, keep their characters.
+
 ## The other views
 
 Every view outside the conversation is built from one small kit, so they read
@@ -334,6 +517,9 @@ as the same app.
 | State chip | `.tag`, `components/StateToggle.tsx` | A state is a word in a filled pill, toned good, bad or warn. The chip that switches a workflow, schedule or webhook on is the same chip. |
 | Table | `.data-table`, `.data-row` | Fixed tracks for the trailing columns, so a head sits over its cells. |
 | Approvals | `workflows/WorkflowApprovals.tsx` | Shown only while a workflow waits on the person. |
+| Provider groups | `CardGroup` in `settings/settings-primitives.tsx` | Providers is two lists, not one: "Coding agents" (the agent on this computer does the work, on its own sign-in) above "Model providers" (Moxxy does the work and calls the model, with an API key or a sign-in). Each has a quiet heading with its count and one line on what sets it apart; a hairline and 20 px of air sit between them, so the split reads before any row does. A kind with no rows shows no heading. No motion: it is a list. |
+| Model picker providers | `chat/agent-picker/ProviderModelGrid.tsx`, `useConnectedProviders.ts` | The provider column of the model picker (Model & usage, and a channel's model) lists only the providers Settings → Providers shows as connected — an agent installed and signed in, a provider whose key resolved, a local server that answers — read from the same `settings.providers` answer through `isProviderConnected` in `@moxxy/client-core`, so the two never disagree. The running provider always stays. It splits them the way Providers does: "Coding agents" above "Model providers", each under a quiet heading, a kind with none showing no heading. Until Settings answers only the running provider shows, so a list never grows and then shrinks under the pointer; when Settings cannot answer, every provider shows rather than none. |
+| Agent connection | `settings/agents/AgentConnectionRow.tsx` | Claude, Codex and OpenCode each get a row in the "Coding agents" group at the head of Providers, and the same row in the first-run provider step: the agent's name with its state as a chip beside it (so the line under the name has the whole width and stays one line), one line under it (the account it is signed in to and the version, or what is wrong), the one action that moves it on (Install, Update, Sign in, Check again) and a menu with "Check for updates". While its CLI installs or updates, a thin bar under the line fills as the installer reports a percentage, or slides while it says none. The state comes from the runner (`ProviderEntry.agentCli`) and from the install this window runs (`agentConnectionView` in `@moxxy/client-core`). |
 
 ### The focus window
 
@@ -357,8 +543,8 @@ and `styles.css` disagree.
 
 The desktop has its own palette pair, `desktopTokens` and `desktopDarkTokens`,
 in `packages/design-tokens/src/desktop.ts`. The shared `tokens` and `darkTokens`
-in the same package are what the mobile app reads, and the redesign does not
-change them.
+in the same package are the framework-neutral default, and the redesign does
+not change them.
 
 Both desktop palettes keep the shared token shape, so every CSS variable the
 renderer already reads keeps resolving. `apps/desktop/src/styles.css` declares
@@ -384,8 +570,8 @@ above are reimplemented here in Moxxy's own components.
    composer.
 4. **Right panel** (done): the work panel is gone while closed and opens from
    the run's header.
-5. **Other views** (done): Settings, Extensions, Automations, Apps, Channels,
-   Mobile, Collaborate and onboarding share one kit, and the focus window wears
+5. **Other views** (done): Settings, Extensions, Automations, Apps, Channels
+   and onboarding share one kit, and the focus window wears
    the desktop palette.
 6. **Review pass** (done): voice and focus mode on the header, one tooltip
    layer that is never clipped, settings sections with icons, plan, goal and

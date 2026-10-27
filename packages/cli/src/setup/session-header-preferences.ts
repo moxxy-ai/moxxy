@@ -40,7 +40,10 @@ export async function applySessionHeaderPreferences(
     }
   }
 
-  if (meta.model) {
+  // Only a conversation something happened in has a model it last ran on; an
+  // empty one starts by the usual rule (chosen default, else the light starter).
+  if (meta.model && meta.eventCount > 0) {
     session.lastResolvedModel = meta.model;
+    session.lastResolvedProvider = meta.provider ?? null;
   }
 }

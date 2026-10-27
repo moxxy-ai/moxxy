@@ -2,8 +2,7 @@
  * Tunnel support for the webhooks listener — exposes the local HTTP listener
  * publicly through the self-hosted **proxy** relay (cloudflared/ngrok were
  * removed). The listener is registered under the `webhook` path target, so it
- * shares the agent's single `uuid.<host>` subdomain with the mobile bridge and
- * web preview.
+ * shares the agent's single `uuid.<host>` subdomain with the web preview.
  */
 import { proxyTunnel } from '@moxxy/plugin-tunnel-proxy';
 import type { TunnelHandle, TunnelProviderDef } from '@moxxy/sdk';

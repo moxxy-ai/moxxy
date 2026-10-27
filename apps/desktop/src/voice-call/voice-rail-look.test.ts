@@ -84,12 +84,10 @@ describe('voice-rail.css', () => {
   });
 
   it('draws its controls round and its way out as a pill, and answers a press', () => {
-    const control = rule('.voice-rail-control');
-    expect(control).toMatch(/border-radius:\s*var\(--radius-pill\)/);
-    expect(control).toMatch(/width:\s*32px/);
+    expect(rule('.voice-rail-mic')).toMatch(/border-radius:\s*var\(--radius-pill\)/);
     expect(rule('.voice-rail-end')).toMatch(/border-radius:\s*var\(--radius-pill\)/);
     expect(rule('.voice-rail-action')).toMatch(/border-radius:\s*var\(--radius-pill\)/);
-    expect(rule('.voice-rail-control:active')).toMatch(/transform:\s*scale\(0\.94\)/);
+    expect(rule('.voice-rail-mic:active')).toMatch(/transform:\s*scale\(0\.94\)/);
     expect(rule('.voice-rail-end:active')).toMatch(/transform:\s*scale\(0\.97\)/);
   });
 
@@ -111,5 +109,34 @@ describe('voice-rail.css for the reason a call stopped', () => {
 
   it('keeps the reason at every width: it is not supporting copy', () => {
     expect(css).not.toMatch(/\.voice-rail-reason\s*\{[^}]*display:\s*none/);
+  });
+});
+
+describe('voice-rail.css for the microphone', () => {
+  it('keeps the microphone where it is as the card opens, under the pointer that opened it', () => {
+    expect(css).not.toMatch(/\.voice-rail-mic[^{]*\{[^}]*(opacity:\s*0|display:\s*none|visibility:\s*hidden)/);
+    expect(css).not.toContain(`${OPEN} .voice-rail-mic`);
+    expect(rule('.voice-rail-mic')).toMatch(/cursor:\s*pointer/);
+  });
+
+  it('draws it on in the accent and off cut in red', () => {
+    expect(rule('.voice-rail-mic')).toMatch(/color:\s*var\(--color-primary-strong\)/);
+    expect(rule('.voice-rail-mic--off')).toMatch(/color:\s*var\(--color-red\)/);
+  });
+
+  it('has no microphone control of its own on the right any more', () => {
+    expect(css).not.toMatch(/\.voice-rail-control\b/);
+  });
+});
+
+describe('voice-rail.css keeps the microphone under the pointer', () => {
+  it('hugs the state with its usual gap, with no room held for a longer word', () => {
+    expect(css).not.toMatch(/voice-rail-copy-room/);
+    expect(rule('.voice-rail-copy')).not.toMatch(/justify-items:\s*end/);
+  });
+
+  it('reaches wider than it looks to its sides, so a click lands again after the state beside it changes length', () => {
+    // "Listening" to "Microphone off" moves it about 19px; it is 20px wide.
+    expect(rule('.voice-rail-mic::after')).toMatch(/inset:\s*-6px -14px/);
   });
 });

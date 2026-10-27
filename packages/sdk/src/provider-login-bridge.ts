@@ -17,7 +17,7 @@
  * depend on, so the two ends can never drift.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** The byte that brackets a prompt marker. Absent from normal CLI output. */
 const NUL = '\u0000';

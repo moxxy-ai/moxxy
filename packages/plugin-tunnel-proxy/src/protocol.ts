@@ -33,8 +33,8 @@ export type ControlServerMsg =
   /** Sent after a valid registration: the derived subdomain + the public base host. */
   | { readonly t: 'registered'; readonly uuid: string; readonly host: string }
   /** A new inbound peer connection; the agent must open a `/data` conn with this
-   *  id. `target` is the first path segment of the peer's request (e.g. `mobile`,
-   *  `web`), naming which local service the agent pipes it to. */
+   *  id. `target` is the first path segment of the peer's request (e.g. `web`,
+   *  `webhook`), naming which local service the agent pipes it to. */
   | { readonly t: 'open'; readonly connId: string; readonly target: string }
   /** Fatal: the relay is rejecting/closing the control connection. */
   | { readonly t: 'error'; readonly message: string };

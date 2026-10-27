@@ -1,6 +1,6 @@
 /**
  * The workbench: the right-hand pane, with one tab per kind of work (terminal,
- * files, diff, browser).
+ * files, diff, browser, media, and the agent's background work).
  *
  * Closed, it draws nothing and takes no room; the run's header holds the way
  * in. The element itself stays in the tree, because of the browser (below).
@@ -34,12 +34,14 @@ import { TerminalPane } from './surfaces/TerminalPane';
 import { FilesPane } from './surfaces/FilesPane';
 import { FilesExplorerPane } from './surfaces/FilesExplorerPane';
 import { BrowserPane } from './surfaces/BrowserPane';
+import { MediaPane } from './surfaces/media/MediaPane';
+import { AgentsPane } from './surfaces/agents/AgentsPane';
 
 /** The workbench tabs. Names say what the pane IS: `diff` is the git-changed
  *  set with its diff (the old "Files changed"), `files` browses the workspace
  *  (the old "Files"). The old ids are kept so persisted state and the
  *  agent-reveal seam below do not need a migration. */
-export type WorkbenchTab = 'terminal' | 'files' | 'explorer' | 'browser';
+export type WorkbenchTab = 'terminal' | 'files' | 'explorer' | 'browser' | 'media' | 'agents';
 
 interface TabDef {
   readonly id: WorkbenchTab;
@@ -52,6 +54,8 @@ const TABS: ReadonlyArray<TabDef> = [
   { id: 'explorer', label: 'Files', icon: 'file' },
   { id: 'files', label: 'Diff', icon: 'diff' },
   { id: 'browser', label: 'Browser', icon: 'globe' },
+  { id: 'media', label: 'Media', icon: 'image' },
+  { id: 'agents', label: 'Agents', icon: 'agent' },
 ];
 
 /**
@@ -184,17 +188,27 @@ export function Workbench({
           />}
 
           <div className="bench__tabs">
-            {/* The tab row scrolls; the collapse cell after it never shrinks. Four
+            {/* The tab row scrolls; the collapse cell after it never shrinks. The
                 labelled tabs are wider than a narrow workbench, and when they lived
                 in the same flex row as the collapse button they pushed it past the
-                right edge — so an opened workbench could not be closed at all. */}
+                right edge — so an opened workbench could not be closed at all. Below
+                the labelled width the inactive tabs drop their words (styles.css). */}
             <div className="bench__tablist" role="tablist" aria-label="Workbench panes">
               {TABS.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   role="tab"
-                  className="bench__tab"
+                  className="bench__tab tip"
+                  // A narrow strip draws an inactive tab as its icon alone: the
+                  // name stays for assistive tech and in the tooltip.
+                  aria-label={
+                    t.id === 'files' && changedCount !== undefined && changedCount > 0
+                      ? `${t.label}, ${changedCount} changed`
+                      : t.label
+                  }
+                  data-tip={t.label}
+                  data-tip-side="bottom"
                   data-testid={`bench-tab-${t.id}`}
                   data-active={t.id === tab}
                   aria-selected={t.id === tab}
@@ -204,7 +218,7 @@ export function Workbench({
                   onClick={() => (t.id === tab ? onClose() : onPick(t.id))}
                 >
                   <Icon name={t.icon} size={13} />
-                  <span>{t.label}</span>
+                  <span className="bench__tab-label">{t.label}</span>
                   {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
                     <b>{changedCount}</b>
                   )}
@@ -250,6 +264,8 @@ export function Workbench({
         {tab === 'terminal' && <TerminalPane workspaceId={workspaceId} />}
         {tab === 'files' && <FilesPane workspaceId={workspaceId} cwd={active?.cwd ?? null} />}
         {tab === 'explorer' && <FilesExplorerPane workspaceId={workspaceId} />}
+        {tab === 'media' && <MediaPane key={workspaceId} workspaceId={workspaceId} />}
+        {tab === 'agents' && <AgentsPane key={workspaceId} workspaceId={workspaceId} />}
         {browserStarted && (
           <div
             className="bench__browser"

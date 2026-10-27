@@ -65,6 +65,8 @@ export async function* runTurn(
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
     });
+    // The person wrote instead of answering: a turn still waiting on a question must not hold the conversation.
+    if (!opts.origin) await session.questions?.closeOnNewMessage(turnId);
 
     // Resolve provider + model AFTER the prompt is recorded so a
     // missing/misconfigured provider doesn't silently discard the user's
@@ -97,6 +99,7 @@ export async function* runTurn(
     // inherit the conversation's current model. Last-writer-wins when turns
     // run concurrently — see the field's doc in SessionRuntime.
     session.lastResolvedModel = model;
+    session.lastResolvedProvider = provider.name;
 
     // Combine the session's signal, the per-turn one (if provided), and the
     // generator-scoped abandonment signal so any of them firing cancels the turn.
@@ -116,6 +119,8 @@ export async function* runTurn(
     // so the shared tool dispatcher can hand onToolCall hooks the real cwd/env
     // (path-based policy hooks gate on these) instead of empty placeholders.
     const appCtx = session.appContext();
+    const questions = session.questions;
+    const reasoning = session.turnReasoning();
     const ctx: ModeContext = {
       sessionId: session.id,
       turnId,
@@ -128,6 +133,7 @@ export async function* runTurn(
       provider,
       // A tool meant for other modes (goal_abandon) is no way out of this one.
       tools: toolsForMode(tools, strategy.name),
+      allTools: session.tools,
       skills: session.skills,
       log: session.log,
       compactor: session.compactors.getActive(),
@@ -137,11 +143,17 @@ export async function* runTurn(
       ...(session.unfinishedStepCheck !== undefined ? { unfinishedStepCheck: session.unfinishedStepCheck } : {}),
       // Reasoning preference (effort) — honored only by providers/models that
       // advertise `supportsReasoning` (gated in collectProviderStream).
-      ...(session.reasoning ? { reasoning: session.reasoning } : {}),
+      ...(reasoning ? { reasoning } : {}),
       ...(session.fast ? { fast: true } : {}),
       ...(session.loopGuard ? { loopGuard: session.loopGuard } : {}),
       permissions: session.resolver,
       ...(session.approvalResolver ? { approval: session.approvalResolver } : {}),
+      ...(questions
+        ? {
+            ask: (items, askOpts) =>
+              questions.ask({ turnId, questions: items, signal: askOpts?.signal ? AbortSignal.any([effectiveSignal, askOpts.signal]) : effectiveSignal }),
+          }
+        : {}),
       hooks: session.dispatcher,
       pluginHost: session.pluginHost,
       signal: effectiveSignal,

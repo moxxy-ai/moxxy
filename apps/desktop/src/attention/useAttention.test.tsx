@@ -2,6 +2,8 @@ import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { __setApiOverride, askStore, chatStore } from '@moxxy/client-core';
 import type { AppPresence, AskRequest, Desk } from '@moxxy/desktop-ipc-contract';
+import { __resetToastsForTests, getToasts } from '../notices/toast-store';
+import { __resetInAppToastsForTests, setInAppToastsPreference } from '../notices/useInAppToastsPreference';
 import type { Banner } from './show-banner';
 import { useAttention } from './useAttention';
 import { __resetReplySoundForTests, setReplySoundPreference } from './useReplySoundPreference';
@@ -68,6 +70,8 @@ afterEach(() => {
   for (const pending of askStore.getAll()) askStore.resolve(pending.requestId);
   __resetReplySoundForTests();
   __resetSystemNotificationsForTests();
+  __resetToastsForTests();
+  __resetInAppToastsForTests();
   __setApiOverride(null);
 });
 
@@ -258,6 +262,41 @@ describe('useAttention', () => {
     finish('b', 't2');
     await waitFor(() => expect(ring).toHaveBeenCalledTimes(2));
     expect(show).not.toHaveBeenCalled();
+  });
+
+  it('shows a toast in the main window when another chat finishes, opening that chat', async () => {
+    const onOpen = vi.fn();
+    render(<Probe ring={vi.fn()} onOpen={onOpen} />);
+    start('b', 't1');
+    finish('b', 't1');
+
+    await waitFor(() => expect(getToasts()).toHaveLength(1));
+    const toast = getToasts()[0]!;
+    expect(toast).toMatchObject({ id: 'chat:b', tone: 'info', title: 'Chat b' });
+    toast.onOpen?.();
+    expect(onOpen).toHaveBeenCalledWith('b');
+  });
+
+  it('shows no toast once in-app toasts are switched off, and still rings', async () => {
+    const ring = vi.fn();
+    render(<Probe ring={ring} />);
+    act(() => setInAppToastsPreference(false));
+
+    start('b', 't1');
+    finish('b', 't1');
+
+    await waitFor(() => expect(ring).toHaveBeenCalledTimes(1));
+    expect(getToasts()).toEqual([]);
+  });
+
+  it('shows no toast for the chat being read', async () => {
+    render(<Probe ring={vi.fn()} />);
+
+    start('a', 't1');
+    finish('a', 't1');
+    await settle();
+
+    expect(getToasts()).toEqual([]);
   });
 
   it('falls back to "the app is in front" when the main process cannot be asked', async () => {

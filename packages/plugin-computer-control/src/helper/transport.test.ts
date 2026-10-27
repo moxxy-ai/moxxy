@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { HelperTransport, type HelperEvent, type HelperTransportOptions } from './transport.js';
 
 // Real subprocesses exercise pipe framing/lifetime; these do not simulate platform APIs.

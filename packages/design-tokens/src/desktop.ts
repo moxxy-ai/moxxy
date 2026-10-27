@@ -1,7 +1,7 @@
 /**
  * The desktop's own palette pair. The shared `tokens` / `darkTokens` in
- * `./index.ts` are what mobile reads; the desktop renderer projects THESE to its
- * CSS custom properties instead, so the two surfaces can be restyled apart.
+ * `./index.ts` are the framework-neutral default; the desktop renderer projects
+ * THESE to its CSS custom properties instead, so it can be restyled on its own.
  *
  * The desktop is a messenger: the conversation is the product and everything
  * around it stays quiet. So the chrome is a neutral grey ramp with no hue of its

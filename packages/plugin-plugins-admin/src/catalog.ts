@@ -32,8 +32,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
   // Modes + capability plugins — NOT bundled (the kernel is slim); they
   // install on demand. The `provides` mapping lets /goal, /mode and
   // set_default offer install-on-first-use at the point a missing capability
-  // is asked for. (mode-collaborative is still bundled — it unbundles with
-  // the runner flip in a later batch.)
+  // is asked for.
   {
     id: 'mode-goal',
     label: 'Goal mode',
@@ -49,14 +48,6 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     packageName: '@moxxy/mode-deep-research',
     installSpec: '@moxxy/mode-deep-research',
     provides: [{ category: 'mode', name: 'research' }],
-  },
-  {
-    id: 'mode-collaborative',
-    label: 'Collaborative mode',
-    description: 'Multi-agent collaboration on a dedicated coordinator runner (/collab).',
-    packageName: '@moxxy/mode-collaborative',
-    installSpec: '@moxxy/mode-collaborative',
-    provides: [{ category: 'mode', name: 'collaborative' }],
   },
   {
     id: 'subagents',

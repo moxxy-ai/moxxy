@@ -1,8 +1,8 @@
 import { resolve as resolvePath } from 'node:path';
 import { MoxxyError, defineTool, z, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { browserSidecarCall, type BrowserSessionDeps } from './browser-session.js';
-import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
-import { ALLOW_SITE_TOOL, siteOf, sitesFromLog, type SiteGrant } from './site-access.js';
+import { assertReachableUrl, localSiteOf, SsrfBlockedError } from './ssrf-guard.js';
+import { ALLOW_SITE_TOOL, siteOf, siteRefusal, sitesFromLog, type SiteGrant } from './site-access.js';
 import { buildRunTool, type JevAccess, type RunToolOptions } from './run/run-tool.js';
 import { buildDeveloperTools } from './developer-tools.js';
 import type { Region } from './page/host.js';
@@ -77,6 +77,24 @@ function withAllowedSites(read: unknown, sites: readonly string[]): unknown {
 }
 
 /** Capabilities shared by the acting tools; reading declares less. */
+/**
+ * The guard every tool that opens a page runs before the backend sees the URL
+ * (the backend re-checks — the sidecar is a separate process and must not
+ * trust its caller). A page on this computer the person has not allowed gets
+ * the same request for consent as any site, rather than a bare refusal.
+ */
+async function assertOpenable(url: string, label: string, ctx: ToolContext): Promise<void> {
+  const sites = sitesFromLog(ctx.log);
+  const local = localSiteOf(url);
+  if (local && !sites.includes(local)) throw new MoxxyError({ code: 'INTERNAL', message: siteRefusal(url) });
+  try {
+    await assertReachableUrl(url, label, { failClosed: true, localSites: sites });
+  } catch (err) {
+    if (err instanceof SsrfBlockedError) throw new MoxxyError({ code: 'INTERNAL', message: err.message });
+    throw err;
+  }
+}
+
 const ACT_ISOLATION = {
   capabilities: {
     subprocess: true,
@@ -190,8 +208,10 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     name: 'browser_navigate',
     icon: 'globe',
     description:
-      'Open a URL in a tab. Restricted to public http(s) origins — loopback, private, link-local and metadata ' +
-      'addresses are refused.',
+      "Open a URL in a tab of Moxxy's browser: in the Moxxy desktop app, the browser panel the person sees. " +
+      'Restricted to public http(s) origins. A page on this computer (localhost:PORT, e.g. an app you are ' +
+      `building) opens only after the user allowed that exact address and port through ${ALLOW_SITE_TOOL}; ` +
+      'other private, link-local and metadata addresses are always refused.',
     inputSchema: z.object({
       url: z
         .string()
@@ -203,15 +223,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     compact: { verb: 'Opening', noun: { one: 'page', other: 'pages' }, previewKey: 'url' },
     isolation: ACT_ISOLATION,
     async handler({ url, tab_id }, ctx) {
-      // Same guard as web_fetch and browser_session, run here so a blocked URL
-      // never reaches the sidecar (which re-checks it anyway — it is a separate
-      // process and must not trust its caller).
-      try {
-        await assertPublicUrl(url, 'browser_navigate', { failClosed: true });
-      } catch (err) {
-        if (err instanceof SsrfBlockedError) throw new MoxxyError({ code: 'INTERNAL', message: err.message });
-        throw err;
-      }
+      await assertOpenable(url, 'browser_navigate', ctx);
       return call('goto', { url, tab_id }, ctx);
     },
   });
@@ -232,7 +244,10 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     permission: acting,
     compact: { verb: 'Managing', noun: { one: 'tab', other: 'tabs' }, previewKey: 'action' },
     isolation: ACT_ISOLATION,
-    handler: ({ action, tab_id, url }, ctx) => call('tabs', { action, tab_id, url }, ctx),
+    async handler({ action, tab_id, url }, ctx) {
+      if (action === 'new' && url) await assertOpenable(url, 'browser_tabs', ctx);
+      return call('tabs', { action, tab_id, url }, ctx);
+    },
   });
 
   const capture = defineTool({
@@ -354,7 +369,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
           } else if (s.kind === 'key') {
             await call('key', { key: s.key, tab_id }, ctx);
           } else if (s.kind === 'navigate') {
-            await assertPublicUrl(s.url, 'browser_batch', { failClosed: true });
+            await assertOpenable(s.url, 'browser_batch', ctx);
             await call('goto', { url: s.url, tab_id }, ctx);
           } else {
             await call(s.action, { tab_id }, ctx);
@@ -536,15 +551,22 @@ function buildPageTools(call: Call): ToolDef[] {
       'Ask the user to let you act on a site — click, type, open its pages — for the rest of this conversation. ' +
       'Actions on a site nobody allowed are refused, so call this before the first action on a new site, in the ' +
       'same response as that action. The user is asked once for the whole site (it covers its subdomains); ' +
-      'reading a page never needs it. Say plainly in `reason` what you will do there.',
+      'reading a page never needs it. Say plainly in `reason` what you will do there. A page on this computer ' +
+      'is allowed by its exact address and port, e.g. "localhost:5173", and only then can it be opened.',
     inputSchema: z.object({
-      site: z.string().min(1).describe('The site, e.g. "canva.com", or any URL on it.'),
+      site: z.string().min(1).describe('The site, e.g. "canva.com" or "localhost:5173", or any URL on it.'),
       reason: z.string().min(1).describe('What you will do on the site, in one sentence — shown to the user.'),
     }),
     permission: { action: 'prompt' },
     compact: { verb: 'Allowing', noun: { one: 'site', other: 'sites' }, previewKey: 'site' },
     handler: async ({ site }): Promise<SiteGrant> => {
       const allowed = siteOf(site);
+      if (!allowed && localSiteOf(site.includes('://') ? site : `http://${site}`)) {
+        throw new MoxxyError({
+          code: 'INTERNAL',
+          message: `"${site}" is a page on this computer: ask for it with its port, e.g. "localhost:5173"`,
+        });
+      }
       if (!allowed) throw new MoxxyError({ code: 'INTERNAL', message: `"${site}" is not a web site` });
       return { kind: 'browser_site', site: allowed };
     },

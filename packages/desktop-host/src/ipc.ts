@@ -30,7 +30,7 @@ import type { RunnerPool } from './runner-pool';
 import { SessionDriver } from './session-driver';
 import type { DeskStore } from './desks';
 import { sendEvent } from './send-event';
-import { desktopEventBus, wsEventBus } from './event-bus';
+import { desktopEventBus } from './event-bus';
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import {
   drivers,
@@ -65,14 +65,31 @@ import { registerSchedulerHandlers } from './ipc/scheduler';
 import { registerWebhookHandlers } from './ipc/webhooks';
 import { registerPrefsHandlers } from './ipc/prefs';
 import { registerSettingsHandlers } from './ipc/settings';
+import { registerAgentsHandlers } from './ipc/agents';
 import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
-import { registerMobileGatewayHandlers, type MobileGatewayController } from './ipc/mobile-gateway';
+import { registerChatMediaHandlers, watchChatMediaCleanup } from './ipc/chat-media';
+import { ChatMediaStore } from './chat-media/store';
+import { electronFingerprint, electronThumbnail } from './chat-media/electron-images';
 import { registerChannelsHandlers } from './ipc/channels';
-import { registerFilesHandlers } from './ipc/files';
+import { electronFiles, registerFilesHandlers } from './ipc/files';
 import { registerVoiceHandlers, type VoiceHandlerDependencies } from './ipc/voice';
 
 let stopBotModelWatch: (() => void) | null = null;
+
+let chatMedia: ChatMediaStore | null = null;
+
+/** One library store per process, whichever transport asks: its queue is what
+ *  keeps two readers of one chat from writing the index over each other. */
+function chatMediaStore(): ChatMediaStore {
+  if (!chatMedia) {
+    chatMedia = new ChatMediaStore({ thumbnail: electronThumbnail, fingerprint: electronFingerprint });
+    watchChatMediaCleanup(chatMedia, desktopEventBus);
+    // The index of a chat removed since (from any surface) goes at start.
+    void chatMedia.sweep().catch(() => undefined);
+  }
+  return chatMedia;
+}
 
 /** A bot's `/model` (run in its own process) shows in the desktop's chat with
  *  the bot as soon as the bot saves it. Once per process, not per transport. */
@@ -93,9 +110,6 @@ export function registerIpcHandlers(
   desks: DeskStore,
   opts: {
     readonly update?: UpdateConfig;
-    /** Bridge-lifecycle surface for the mobile-gateway commands; the Electron
-     *  main injects it. Omitted ⇒ the commands report `not-supported`. */
-    readonly mobileGateway?: MobileGatewayController;
     readonly voice?: Pick<VoiceHandlerDependencies, 'setRealtimeCaptureActive'>;
     /** The main-process browser. Omitted ⇒ the `browser.*` commands are absent
      *  and the pane reports the browser as unavailable rather than erroring. */
@@ -137,9 +151,10 @@ export function registerIpcHandlers(
     registerWebhookHandlers(undefined, desks);
     registerPrefsHandlers();
     registerSettingsHandlers(pool);
+    registerAgentsHandlers(pool);
     registerVaultHandlers();
     registerChatHandlers(pool, desks);
-    registerMobileGatewayHandlers(opts.mobileGateway ?? null);
+    registerChatMediaHandlers(desks, chatMediaStore(), electronFiles);
     registerChannelsHandlers({
       attachChat: async (sessionId, socketPath) => void (await pool.attach(sessionId, socketPath)),
       activateProvider: providerActivator(pool),
@@ -178,10 +193,6 @@ export function bindWindow(
   });
   const send = <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void => {
     sendEvent(window, channel, payload);
-    // Mirror `connection.changed` to non-Electron transports — but only from
-    // the PRIMARY binding, so a secondary surface (focus widget) doesn't emit a
-    // duplicate WS copy of the same workspace phase. No-op without a WS bridge.
-    if (claimGlobal) wsEventBus.broadcast(channel, payload);
   };
 
   // Maintain one SessionDriver per workspace for the lifetime of its

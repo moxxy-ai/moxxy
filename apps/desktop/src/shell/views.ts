@@ -6,19 +6,14 @@
  * `chat` is the Runs view. `automations` holds Workflows / Schedules / Webhooks;
  * `apps` is the app gallery.
  *
- * `channels` is the catalog, one page per channel. `mobile` sits apart from it:
- * pairing this machine with a phone is a property of the install, not another
- * chat surface to configure, and it has no catalog entry, no dedicated runner
- * and no secrets of its own.
+ * `channels` is the catalog, one page per channel.
  */
 export type View =
   | 'chat'
   | 'extensions'
-  | 'collaborate'
   | 'automations'
   | 'apps'
   | 'channels'
-  | 'mobile'
   | 'settings';
 
 const OWN_INDEX: ReadonlySet<View> = new Set(['automations', 'channels', 'extensions', 'settings']);

@@ -2,9 +2,8 @@
  * `@moxxy/plugin-tunnel-proxy` — the self-hosted `proxy` tunnel provider.
  *
  * Registers the `proxy` provider so registry-driven channels (the web/preview
- * channel) can activate it. The mobile channel imports {@link proxyTunnel} /
- * {@link createProxyTunnel} directly, mirroring how it used to import the
- * cloudflared/ngrok providers.
+ * channel) can activate it. Other users (the webhooks listener, Slack) import
+ * {@link proxyTunnel} / {@link createProxyTunnel} directly.
  */
 import { definePlugin, type Plugin } from '@moxxy/sdk';
 import { proxyTunnel } from './provider.js';

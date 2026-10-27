@@ -50,8 +50,7 @@ await agent.ask('Now from Claude');
 
 ```ts
 import { setupAgent, openaiPreset } from '@moxxy/agent';
-import { defineTool } from '@moxxy/sdk';
-import { z } from 'zod';
+import { defineTool, z } from '@moxxy/sdk';
 
 const agent = setupAgent(openaiPreset({ apiKey: process.env.OPENAI_API_KEY }));
 

@@ -12,6 +12,8 @@ export interface FramePumpLogger {
 export interface FramePumpOptions {
   readonly editFrameMs: number;
   readonly logger?: FramePumpLogger;
+  /** The name of the agent of the session's active agent connection ("Codex"), read when a frame is drawn. */
+  readonly agentName?: () => string | undefined;
 }
 
 /**
@@ -31,12 +33,13 @@ export class FramePump {
   private readonly editFrameMs: number;
   private readonly logger?: FramePumpLogger;
   private bot: Bot | null = null;
-  private renderer: TurnRenderer = new TurnRenderer();
+  private readonly renderer: TurnRenderer;
   private pump: StreamPump<number> | null = null;
 
   constructor(opts: FramePumpOptions) {
     this.editFrameMs = opts.editFrameMs;
     if (opts.logger) this.logger = opts.logger;
+    this.renderer = new TurnRenderer(opts.agentName ? { agentName: opts.agentName } : {});
   }
 
   attachBot(bot: Bot | null): void {
@@ -59,7 +62,7 @@ export class FramePump {
       editFrameMs: this.editFrameMs,
       // Only the FINAL frame collapses the activity trace into its expandable
       // box — mid-stream frames keep it open so the user watches work land live.
-      frame: (final) => composeFrame(this.renderer.snapshot({ collapse: final })),
+      frame: (final) => composeFrame(this.renderer.snapshot({ final })),
       // The final flush must produce at least one message so the user isn't
       // left with the typing indicator dangling.
       emptyFinalText: '<i>(no output)</i>',

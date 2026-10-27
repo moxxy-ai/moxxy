@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** Per-frame byte ceiling shared by every native helper. */
 export const MAX_FRAME_BYTES = 3_000_000;

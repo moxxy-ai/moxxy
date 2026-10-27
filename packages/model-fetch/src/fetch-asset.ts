@@ -123,6 +123,13 @@ function deriveFileName(url: string): string {
   return name;
 }
 
+/** Whether `abs` is a file an earlier {@link fetchModelAsset} verified against
+ *  `sha256`: its `.ok` marker records that hash and the file is still there. */
+export async function isVerifiedAsset(abs: string, sha256: string): Promise<boolean> {
+  const recorded = await readOkMarker(`${abs}${OK_SUFFIX}`);
+  return recorded === sha256.trim().toLowerCase() && (await fileExists(abs));
+}
+
 async function readOkMarker(markerPath: string): Promise<string | null> {
   try {
     return (await readFile(markerPath, 'utf8')).trim().toLowerCase();
@@ -161,8 +168,7 @@ export async function fetchModelAsset(
 
   // Idempotent skip: a recorded matching hash + the file present ⇒ done. We
   // trust the marker rather than re-hash a ~64 MB file on every first-use check.
-  const recorded = await readOkMarker(marker);
-  if (recorded === expected && (await fileExists(abs))) {
+  if (await isVerifiedAsset(abs, expected)) {
     const bytes = await fileSize(abs);
     onProgress?.({ phase: 'done', receivedBytes: bytes, totalBytes: bytes });
     return { path: abs, bytes, sha256: expected, skipped: true };

@@ -1329,6 +1329,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   50%      { box-shadow: 0 0 0 4px var(--color-primary-soft); }
 }
 .led[data-state='awaiting'] { background: var(--color-amber); }
+/* Still working, but this row no longer follows it: the light holds still. */
+.led[data-state='background'] { background: var(--color-primary); }
 .led[data-state='done']     { background: var(--color-green); }
 .led[data-state='failed']   { background: var(--color-red); }
 
@@ -1405,6 +1407,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 
 /* The tabs get the leftover room and scroll inside it. */
 .bench__tablist {
+  container: bench-tabs / inline-size;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -1446,6 +1449,14 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-weight: 600;
   font-size: var(--type-label);
   color: var(--color-text-dim);
+}
+
+/* Five labelled tabs need about 362 px and the strip has 295 at the panel's
+ * default width, where the last one scrolled out of sight. Below the labelled
+ * width an inactive tab is its icon alone (named by aria-label and its tooltip);
+ * the open one keeps its word, so the strip still says where you are. */
+@container bench-tabs (max-width: 380px) {
+  .bench__tab:not([data-active='true']) .bench__tab-label { display: none; }
 }
 
 .bench__body {
@@ -2173,6 +2184,14 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   margin: var(--space-4) 0 var(--space-8) var(--space-16);
 }
 .activity-detail-row__body--root { margin-left: var(--space-16); }
+/* The image a tool returned (a screenshot an agent looked at), drawn like an attached image. */
+.tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin: var(--space-4) 0 var(--space-8) var(--space-16);
+  line-height: 0;
+}
 .activity-preview {
   overflow: hidden;
   margin: 1px 0 0 var(--space-16);
@@ -2692,6 +2711,21 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 /* A tool group is drawn straight into the row, without an entry around it. */
 .transcript__row > .activity-block { padding-bottom: var(--space-8); }
 
+/* A turn's folded work. The header keeps to a work line's width; opened, the
+ * steps are drawn as the conversation draws them, hung off a quiet rule so they
+ * read as part of the group and not as the answer under it. */
+.transcript__row > .work-group { max-width: none; padding-bottom: var(--space-12); }
+.work-group > .activity-row { max-width: min(100%, 640px); }
+.work-group__steps {
+  display: flex;
+  flex-direction: column;
+  margin: var(--space-8) 0 0 var(--space-4);
+  padding-left: var(--space-12);
+  border-left: 1px solid var(--color-border);
+}
+.work-group__step { display: flex; flex-direction: column; min-width: 0; }
+.work-group__step > .activity-block { padding-bottom: var(--space-8); max-width: min(100%, 640px); }
+
 .tr {
   display: flex;
   flex-direction: column;
@@ -2954,6 +2988,16 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text-muted);
 }
 .reasoning__label { font-weight: 500; }
+/* How many thoughts a folded run of them holds. */
+.reasoning__count {
+  color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.reasoning__thoughts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
 .reasoning__body {
   margin-top: var(--space-4);
   padding-left: var(--space-12);
@@ -2988,6 +3032,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: inline-flex;
   align-items: center;
   gap: var(--space-8);
+  max-width: 100%;
   padding: var(--space-4) var(--space-12);
   border: 1px solid var(--color-card-border);
   border-radius: var(--radius-pill);
@@ -2997,6 +3042,24 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   background: var(--color-surface);
 }
 .trigger__chip b { font-weight: 600; color: var(--color-text); }
+/* The chip is a pill: a name long enough to wrap (an agent's background work
+   can be named by a whole shell command) would turn it into an oval. One line,
+   cut with an ellipsis; the whole name is the title. */
+.trigger__label {
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+}
+.trigger__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trigger__chip > svg,
+.trigger__chip > .disclosure__chevron { flex-shrink: 0; }
+button.trigger__chip { text-align: left; cursor: pointer; }
+/* The Agents pane pointed here: mark it a moment so the eye finds it. */
+.trigger[data-flash='true'] .trigger__chip { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-soft); }
 .trigger__payload {
   max-height: 360px;
   overflow: auto;
@@ -3114,6 +3177,24 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   gap: var(--space-6);
   padding: 0 14px var(--space-12);
 }
+/* What the person writes for a plan to be written again, in place of the answers. */
+.outcome__rewrite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+.outcome__note {
+  margin: 0 14px;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-chip);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--type-ui);
+  resize: vertical;
+}
+.outcome__note:focus-visible { outline: none; border-color: var(--color-action); }
 
 /* A step of the run that neither side said. */
 .mode-note {
@@ -3135,6 +3216,183 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .mode-note[data-tone='warn'] { color: var(--color-amber-text); }
 .mode-note[data-tone='warn'] .mode-note__dot { background: var(--color-amber); opacity: 1; }
 .mode-note[data-tone='good'] .mode-note__dot { background: var(--color-green); opacity: 1; }
+
+/* An agent's own list of steps for a turn: a quiet card, one line per step. */
+.step-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 100%;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-block);
+  background: var(--color-card-bg);
+}
+.step-list__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  font-size: var(--type-label);
+}
+.step-list__title { color: var(--color-text); font-weight: 600; }
+.step-list__count { color: var(--color-text-dim); }
+.step-list__why { margin: 0; font-size: var(--type-label); color: var(--color-text-muted); }
+.step-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  min-width: 0;
+  font-size: var(--type-row);
+  color: var(--color-text);
+}
+.step-list__text { min-width: 0; overflow-wrap: anywhere; }
+.step-list__mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid var(--color-text-dim);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.step-list__item[data-status='completed'] { color: var(--color-text-muted); }
+.step-list__item[data-status='completed'] .step-list__mark {
+  border-color: var(--color-green);
+  color: var(--color-green);
+}
+.step-list__item[data-status='in_progress'] .step-list__mark {
+  border-color: var(--color-primary);
+  background: radial-gradient(circle, var(--color-primary) 0 3px, transparent 3.5px);
+}
+.step-list__item[data-status='cancelled'] { color: var(--color-text-dim); }
+.step-list__item[data-status='cancelled'] .step-list__text { text-decoration: line-through; }
+
+/* Where the agent is in its list while the turn runs, just above the composer card. */
+.turn-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: 0 var(--space-4);
+}
+.turn-steps__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+  min-height: 18px;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+  text-align: left;
+}
+.turn-steps__count { flex: 0 0 auto; color: var(--color-text); }
+.turn-steps__current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turn-steps > .step-list__items { padding-left: var(--space-2); }
+
+/* The agent's account limit in the model and usage window: dim while there is room, amber
+ * while nearly used up, red once it is. */
+.account-limit {
+  margin: 0;
+  color: var(--color-text-dim);
+  font-size: var(--type-label);
+}
+.account-limit[data-state='near'] { color: var(--color-amber-text); }
+.account-limit[data-state='reached'] { color: var(--color-red-text); }
+
+/* The active agent's CLI: missing, too old, or behind the vendor's latest.
+ * One quiet line above the message box, with its fix after the words. */
+.agent-cli-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 0 var(--space-4);
+  color: var(--color-amber-text);
+  font-size: var(--type-label);
+}
+.agent-cli-bar[data-severity='required'] { color: var(--color-red-text); }
+.agent-cli-bar__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-cli-bar__fix {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.agent-cli-bar__close { margin-left: auto; flex-shrink: 0; }
+
+/* What the agent runs in the background and when it comes back by itself, above the message box,
+ * drawn as the steps bar beside it is: the lead in the text colour, the rest muted. Each line opens
+ * the Agents pane. The running dot breathes the way the mark does (opacity only), and holds still
+ * under reduced motion. */
+.background-work {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+}
+.background-work__line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+  max-width: 100%;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--type-label);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--motion-shift) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .background-work__line:hover { color: var(--color-text); filter: none; }
+  .background-work__line:hover .background-work__chevron { opacity: 1; }
+}
+.background-work__dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin: 0 3px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: moxxy-breathe 2.4s ease-in-out infinite;
+}
+.background-work__icon { flex-shrink: 0; color: var(--color-primary-strong); }
+.background-work__lead { flex-shrink: 0; color: var(--color-text); font-variant-numeric: tabular-nums; }
+.background-work__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.background-work__more { flex-shrink: 0; color: var(--color-text-dim); font-variant-numeric: tabular-nums; }
+.background-work__chevron { flex-shrink: 0; opacity: 0.5; transition: opacity var(--motion-shift) ease; }
+@keyframes moxxy-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .background-work__dot { animation: none; }
+}
 
 /* The agents of a fan-out, one row each. */
 .agent-row { display: flex; flex-direction: column; min-width: 0; }
@@ -3161,6 +3419,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   text-overflow: ellipsis;
   color: var(--color-text);
 }
+.agent-row__note,
 .agent-row__meta,
 .agent-row__state {
   flex-shrink: 0;
@@ -3169,7 +3428,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text-dim);
 }
 .agent-row__state { min-width: 46px; text-align: right; }
-.agent-row__state[data-tone='running'] { color: var(--color-primary-strong); }
+.agent-row__state[data-tone='running'],
+.agent-row__state[data-tone='background'] { color: var(--color-primary-strong); }
 .agent-row__state[data-tone='failed'] { color: var(--color-red-text); }
 .agent-row__error {
   margin: 0 0 var(--space-4) 18px;
@@ -3579,6 +3839,34 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .tag--press { border: 0; cursor: pointer; }
 .tag--press:active:not(:disabled) { transform: scale(0.96); }
 
+/* How far an agent CLI's install or update got, under its row. The fill
+ * scales instead of growing, so only `transform` moves. */
+.agent-progress {
+  margin-top: var(--space-8);
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-card-border);
+  overflow: hidden;
+}
+.agent-progress__fill {
+  height: 100%;
+  background: var(--color-primary);
+  transform-origin: left center;
+  transition: transform var(--motion-shift) var(--ease-out);
+}
+/* No percentage yet: a short fill slides across while it works. */
+.agent-progress[data-indeterminate] .agent-progress__fill {
+  width: 30%;
+  animation: agent-progress-slide 1.4s var(--ease-in-out) infinite;
+}
+@keyframes agent-progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-progress[data-indeterminate] .agent-progress__fill { animation: none; transform: none; }
+}
+
 /* The step row's two columns. `name` is a fixed-width cell so the arguments line
  * up down the whole group and the eye reads one ragged-left column of paths
  * instead of hunting for where each detail starts. */
@@ -3842,6 +4130,122 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   .ask-btn:active:not(:disabled) { transform: none; }
 }
 
+/* A Question from the agent: each question in the card is a group of
+ * suggested answers, picked like chips, and a field for an answer of the
+ * person's own. A picked answer takes the accent; nothing is picked for the
+ * person, since a Question has no safe answer. */
+.question__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  min-height: 0;
+}
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.question__ask {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  padding: 0;
+  font-size: var(--type-ui);
+  line-height: 1.55;
+  color: var(--color-text);
+}
+.question__chip {
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-pill);
+  font-size: var(--type-label);
+  font-weight: 600;
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+}
+.question__hint {
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+}
+.question__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
+.question__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 100%;
+  padding: var(--space-6) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-block);
+  text-align: left;
+  color: var(--color-text);
+  background: transparent;
+  transition:
+    border-color var(--motion-shift) ease,
+    background-color var(--motion-shift) ease;
+}
+.question__choice:hover { border-color: var(--color-card-border-strong); }
+.question__choice[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.question__label {
+  font-size: var(--type-ui);
+  font-weight: 500;
+}
+.question__desc {
+  font-size: var(--type-label);
+  color: var(--color-text-muted);
+}
+.question__error {
+  margin: 0;
+  font-size: var(--type-label);
+  color: var(--color-red-text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .question__choice { transition: none; }
+}
+
+/* An answered Question in the transcript: what was asked, quiet, and what the
+ * person chose, in the text colour, so scrolling back shows the decision. */
+.answered {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  align-self: stretch;
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-block);
+}
+.answered__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  font-size: var(--type-label);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.answered__list { display: flex; flex-direction: column; gap: var(--space-6); margin: 0; }
+.answered__ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-6);
+  color: var(--color-text-muted);
+}
+.answered__said { margin: 0; color: var(--color-text); font-weight: 500; }
+.answered__own { font-weight: 400; font-style: italic; }
+
 /* The same card in the focus window. Beside the mark it floats over other
  * windows, so it has a shadow and a fixed frame its parts scroll inside; in
  * the Mini Chat it heads the panel. Both are cut out of the window's drag
@@ -3864,6 +4268,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .ask-dock--toast .ask-dock__cmd { max-height: 46px; flex-shrink: 1; min-height: 30px; }
 .ask-dock--toast .ask-dock__acts { flex-wrap: nowrap; flex-shrink: 0; }
 .ask-dock--toast .ask-btn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A Question's answers scroll inside the frame; Send stays in view below them. */
+.ask-dock--toast .question__list { flex: 1 1 auto; overflow-y: auto; }
 .ask-dock--panel {
   width: 100%;
   flex-shrink: 0;
@@ -4165,12 +4571,118 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-weight: 600;
 }
 .update-banner__dismiss {
-  padding: var(--space-2) var(--space-6);
-  font-size: var(--type-row);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-block);
   color: var(--color-text-dim);
   background: transparent;
   border: none;
   cursor: pointer;
+}
+
+/* --- Toasts ---------------------------------------------------------
+ * Short notes in the top-right corner, under the header bar, about work that
+ * finished while the person was elsewhere in the app: a chat's answer, a model
+ * download. Clear of the composer and its buttons at the bottom. Newest at the
+ * bottom; they leave on their own. Above the chat, below dialogs. */
+
+.toast-stack {
+  position: fixed;
+  right: var(--space-16);
+  top: calc(var(--frame-bar, 44px) + var(--space-16));
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: min(340px, calc(100vw - var(--space-32)));
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-6) var(--space-8) var(--space-12);
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+  color: var(--color-text);
+  pointer-events: auto;
+}
+.toast__dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--color-text-dim);
+}
+.toast[data-tone='success'] .toast__dot { background: var(--color-green); }
+.toast[data-tone='error'] .toast__dot { background: var(--color-red); }
+.toast__open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: none;
+}
+button.toast__open { cursor: pointer; }
+.toast__title {
+  font-size: var(--type-ui);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toast__body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--type-meta);
+  color: var(--color-text-muted);
+}
+/* The close control is an icon on a 24 px target, as in the CLI bar. */
+.toast__dismiss {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-block);
+  color: var(--color-text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+/* The bar a long setup shows (a model download in Settings → Voice). */
+.setup-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--color-input-soft);
+}
+.setup-progress__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-action, var(--color-primary));
+  transform-origin: left center;
+  transition: transform 240ms var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast.anim-fade-up { animation: none; }
+  .setup-progress__fill { transition: none; }
 }
 
 /* --- The installer screen -----------------------------------------
@@ -4508,4 +5020,55 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 @media (prefers-reduced-motion: reduce) {
   .onboard__mark,
   .onboard__step { transition: none; }
+}
+
+/* Settings lists of more than one kind (Providers: coding agents, then the
+ * model providers Moxxy calls itself). Each kind gets a quiet heading with its
+ * count and one line on what sets it apart; a hairline and air separate the
+ * kinds, so the split reads before any row is read. No motion: it is a list. */
+.card-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+  margin-top: var(--space-8);
+}
+.card-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+.card-group + .card-group {
+  padding-top: var(--space-20);
+  border-top: 1px solid var(--color-border);
+}
+.card-group__head {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  column-gap: var(--space-8);
+  row-gap: var(--space-2);
+  padding: 0 var(--space-4);
+}
+.card-group__title {
+  margin: 0;
+  font-size: var(--type-ui);
+  font-weight: 650;
+  color: var(--color-text);
+}
+.card-group__count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  font-size: var(--type-micro);
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-text-dim) 16%, transparent);
+}
+.card-group__description {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--type-meta);
+  color: var(--color-text-dim);
 }

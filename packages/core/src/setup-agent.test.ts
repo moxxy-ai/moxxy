@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { definePlugin, defineProvider, defineTool, type LLMProvider } from '@moxxy/sdk';
 
 import { setupAgent } from './setup-agent.js';

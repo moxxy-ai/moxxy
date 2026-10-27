@@ -1,5 +1,52 @@
 # @moxxy/plugin-tts-local
 
+## 0.45.0
+
+### Patch Changes
+
+- Updated dependencies [71f8aa8]
+- Updated dependencies [db33b95]
+- Updated dependencies [71e90e5]
+- Updated dependencies [84ff880]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [02119e8]
+- Updated dependencies [29841af]
+- Updated dependencies [211f80c]
+- Updated dependencies [49dd789]
+- Updated dependencies [90ab0bb]
+- Updated dependencies [cb494ef]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [887b8b7]
+- Updated dependencies [072b8b5]
+- Updated dependencies [a8e8418]
+- Updated dependencies [322f2ce]
+- Updated dependencies [7868760]
+- Updated dependencies [4af5560]
+- Updated dependencies [ee669b7]
+- Updated dependencies [3c1527c]
+- Updated dependencies [178a215]
+- Updated dependencies [318d476]
+- Updated dependencies [7cc93a2]
+- Updated dependencies [6e54a6b]
+- Updated dependencies [1329245]
+- Updated dependencies [8472068]
+- Updated dependencies [deeeeea]
+- Updated dependencies [46b20d3]
+- Updated dependencies [9bfe644]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [7d718f6]
+- Updated dependencies [a3fbd14]
+- Updated dependencies [6f4d652]
+- Updated dependencies [d118b03]
+- Updated dependencies [2160501]
+- Updated dependencies [2b9c87f]
+- Updated dependencies [332e4c2]
+- Updated dependencies [a06de31]
+- Updated dependencies [066a949]
+- Updated dependencies [fa44b8c]
+  - @moxxy/sdk@0.45.0
+  - @moxxy/model-fetch@0.2.0
+
 ## 0.44.0
 
 ### Patch Changes

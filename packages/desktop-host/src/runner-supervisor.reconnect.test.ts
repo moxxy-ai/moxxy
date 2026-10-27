@@ -24,13 +24,16 @@ function fakeSession(dropAfterMs: number | null): RemoteSession {
   } as unknown as RemoteSession;
 }
 
-function fakeChild(): { proc: ChildProcess; signals: string[] } {
+/** A runner process; one whose start failed (`started: false`) has no `pid`. */
+function fakeChild(started = true): { proc: ChildProcess; signals: string[] } {
   const signals: string[] = [];
   const emitter = new EventEmitter() as EventEmitter & {
+    pid: number | undefined;
     exitCode: number | null;
     signalCode: NodeJS.Signals | null;
     kill: (signal?: NodeJS.Signals | number) => boolean;
   };
+  emitter.pid = started ? 4242 : undefined;
   emitter.exitCode = null;
   emitter.signalCode = null;
   emitter.kill = (signal: NodeJS.Signals | number = 'SIGTERM') => {
@@ -136,6 +139,17 @@ describe('RunnerSupervisor reconnects', () => {
     void sup.run();
     await waitFor(() => sup.snapshot().log.some((entry) => /ENOENT/.test(entry.line)), 8000);
     await sup.stop();
+  });
+
+  // On Node 22 signalling a child that never started could reach kill(0, …): the app's whole process group.
+  it('signals no runner whose start failed, as there is no process to stop', async () => {
+    const sup = supervisor();
+    const child = fakeChild(false);
+    sup.__setChildForTest(child.proc);
+
+    await sup.stop();
+
+    expect(child.signals).toEqual([]);
   });
 
   it('stops the old runner when the workspace folder changes while the link is down', async () => {

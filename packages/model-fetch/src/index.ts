@@ -5,6 +5,8 @@
  *   - {@link fetchModelAsset}  https download → streamed sha256 → atomic publish
  *   - {@link extractTarBz2}    hardened `.tar.bz2` extraction
  *   - {@link ensureModel}      download-if-missing + extract-if-missing convenience
+ *   - {@link ensureModelFiles} a model of plain files, fetched in parallel (also
+ *                              `@moxxy/model-fetch/files`, free of the archive code)
  *   - {@link ModelFetchError}  typed failure with a precise `code`
  */
 
@@ -12,6 +14,7 @@ export { ModelFetchError, type ModelFetchErrorCode } from './errors.js';
 export {
   fetchModelAsset,
   isAllowedAssetUrl,
+  isVerifiedAsset,
   DEFAULT_ALLOWED_HOSTS,
   DEFAULT_MAX_BYTES,
   type FetchLike,
@@ -33,3 +36,11 @@ export {
   type EnsureModelProgress,
   type EnsureModelPhase,
 } from './ensure-model.js';
+export {
+  ensureModelFiles,
+  modelFilesReady,
+  type EnsureModelFilesOptions,
+  type EnsureModelFilesResult,
+  type ModelFile,
+  type ModelFilesProgress,
+} from './ensure-files.js';

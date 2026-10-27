@@ -179,3 +179,46 @@ export async function assertPublicUrl(
   }
   return addrs;
 }
+
+const DEFAULT_PORT: Readonly<Record<string, string>> = { 'http:': '80', 'https:': '443' };
+
+/**
+ * The page on this computer `raw` points at, as `host:port` — `localhost`, a
+ * `*.localhost` name, a 127.x address or `[::1]` — with the scheme's port
+ * filled in when the URL names none. Null for anything else. A page on this
+ * computer is allowed by its exact address and port, so allowing the app the
+ * agent is building on `localhost:5173` does not open every other local server.
+ */
+export function localSiteOf(raw: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  const port = u.port || DEFAULT_PORT[u.protocol];
+  if (!port) return null;
+  const host = u.hostname.toLowerCase();
+  const loopback =
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '[::1]' ||
+    (isIP(host) === 4 && host.startsWith('127.'));
+  return loopback ? `${host}:${port}` : null;
+}
+
+/**
+ * `assertPublicUrl`, except that a page on this computer whose exact
+ * `host:port` is in `localSites` — pages the person allowed — passes. Only a
+ * literal loopback host can pass this way: every other private address stays
+ * closed, and so does a public name that resolves to this computer.
+ */
+export async function assertReachableUrl(
+  raw: string,
+  label = 'request',
+  opts: { failClosed?: boolean; localSites?: readonly string[] } = {},
+): Promise<ReadonlyArray<string> | null> {
+  const local = localSiteOf(raw);
+  if (local && opts.localSites?.includes(local)) return null;
+  return assertPublicUrl(raw, label, opts);
+}

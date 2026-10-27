@@ -15,7 +15,7 @@ export function DisclosureRow({
   open,
   onToggle,
 }: {
-  readonly state: 'running' | 'awaiting' | 'done' | 'failed';
+  readonly state: 'running' | 'background' | 'awaiting' | 'done' | 'failed';
   readonly label: string;
   /** A short qualifier beside the name. */
   readonly detail?: ReactNode;

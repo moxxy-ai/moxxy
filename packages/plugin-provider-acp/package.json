@@ -1,0 +1,84 @@
+{
+  "name": "@moxxy/plugin-provider-acp",
+  "version": "0.45.0",
+  "description": "Agent connections over the Agent Client Protocol for moxxy: OpenCode itself does the work through `opencode acp`, on the person's own OpenCode setup, while Moxxy shows it, answers its permission asks, steers plan and goal mode, and lends its own tools over MCP.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "provider",
+    "acp",
+    "opencode",
+    "llm"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-provider-acp"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "provider"
+    },
+    "catalog": {
+      "label": "OpenCode agent",
+      "description": "OpenCode does the work with your own OpenCode setup and models; Moxxy shows it and lends its browser and tools.",
+      "provides": [
+        {
+          "category": "provider",
+          "name": "opencode"
+        }
+      ],
+      "provider": {
+        "auth": "oauth",
+        "defaultModel": "opencode/big-pickle"
+      }
+    }
+  },
+  "dependencies": {
+    "@moxxy/agent-connection-kit": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@moxxy/core": "workspace:*",
+    "@moxxy/mode-default": "workspace:*",
+    "@moxxy/mode-goal": "workspace:*",
+    "@moxxy/mode-plan": "workspace:*",
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  }
+}

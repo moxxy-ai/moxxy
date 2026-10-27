@@ -34,7 +34,7 @@ description: Typed public surface — event types, define* helpers, all the cont
 
 ### Re-exports
 
-- `z` — re-exported from `zod` so plugin authors don't need to install it
+- `z` — zod 3's API (`zod/v3`), re-exported so plugin authors don't need to install zod. Build tool schemas with it: `zodToJsonSchema` reads zod 3 schemas, and one built with zod 4's API reaches the model with no fields
 - Branded ID types: `EventId`, `TurnId`, `ToolCallId`, `SessionId`, `PluginId`, `SkillId`
 - `skillFrontmatterSchema`, `pluginManifestSchema` — pre-built zod schemas
 

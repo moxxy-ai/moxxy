@@ -35,11 +35,18 @@ describe('settings.providerCatalog', () => {
     await removeDir(home);
   });
 
-  it('offers every provider the desktop ships, including the Claude Pro/Max sign-in', async () => {
+  it('offers every provider the desktop ships, including the Claude Pro/Max sign-in and the Codex and OpenCode agents', async () => {
     const catalog = captureHandlers().get('settings.providerCatalog');
     assertDefined(catalog, 'settings.providerCatalog handler');
 
-    expect(await catalog()).toEqual(['anthropic', 'openai', 'openai-codex', 'claude-code']);
+    expect(await catalog()).toEqual([
+      { name: 'anthropic', kind: 'api' },
+      { name: 'openai', kind: 'api' },
+      { name: 'openai-codex', kind: 'api' },
+      { name: 'claude-code', kind: 'agent' },
+      { name: 'codex-agent', kind: 'agent' },
+      { name: 'opencode', kind: 'agent' },
+    ]);
   });
 });
 
@@ -80,5 +87,49 @@ describe('settings.modelDefaults', () => {
     expect(config).toContain('model: gpt-6-luna');
     expect(config).toContain('effort: medium');
     expect(config).toContain('fast: true');
+  });
+});
+
+describe('settings.providers', () => {
+  const previousHome = process.env.MOXXY_HOME;
+  let home: string;
+
+  beforeEach(async () => {
+    home = await mkdtemp(path.join(tmpdir(), 'moxxy-settings-'));
+    process.env.MOXXY_HOME = home;
+  });
+
+  afterEach(async () => {
+    if (previousHome === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = previousHome;
+    await removeDir(home);
+  });
+
+  it("carries an agent connection's name and the last check of its CLI", async () => {
+    const agentCli = {
+      state: 'update-available',
+      command: 'codex',
+      installed: '0.155.1',
+      latest: '0.162.1',
+      minimum: '0.155.1',
+      checkedAt: 1,
+      signedIn: true,
+      account: 'ChatGPT',
+    };
+    const info = {
+      activeProvider: 'codex-agent',
+      readyProviders: ['codex-agent'],
+      providers: [{ name: 'codex-agent', models: [], authKind: 'oauth', agentName: 'Codex', agentCli }],
+    };
+    const pool = { activeWorkspaceId: () => 'w1', get: () => ({ remote: () => ({ getInfo: () => info }) }) };
+    const handlers = new Map<string, Handler>();
+    setActiveBus({ handle: (channel: string, fn: Handler) => void handlers.set(channel, fn) } as never);
+    registerSettingsHandlers(pool as never);
+    const providers = handlers.get('settings.providers');
+    assertDefined(providers, 'settings.providers handler');
+
+    expect(await providers({}, undefined)).toEqual([
+      expect.objectContaining({ name: 'codex-agent', agentName: 'Codex', agentCli }),
+    ]);
   });
 });

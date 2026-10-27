@@ -1,0 +1,37 @@
+# Reminds the PR author to run the local live check of the agent connections
+# (`pnpm test:agents:live`, real conversations on their own sign-ins, which CI
+# cannot hold) before merging into development. Red until the box in the PR
+# description (.github/pull_request_template.md) is ticked; ticking it edits
+# the PR, which re-runs this check.
+#
+# A warning, not a lock: branch protection does not require this check, so
+# Merge stays possible, and the release workflow (direct pushes, no PR) never
+# meets it. Dependabot is exempt like the changeset gate in ci.yml: its PRs
+# are not merged, and fixes for what it reports land in our own PRs.
+name: Agent live check
+
+on:
+  pull_request:
+    branches: [development]
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: agent-live-confirmed-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  confirmed:
+    name: Agent live check confirmed
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts
+      - name: Is the live check box ticked?
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/agent-live-confirmed.mjs

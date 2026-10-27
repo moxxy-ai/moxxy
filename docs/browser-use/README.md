@@ -337,7 +337,11 @@ the one prompt: the user sees the site and the agent's reason.
 - **What a site is:** the host, lower-cased, without `www.`. Allowing
   `canva.com` covers `www.canva.com` and `static.canva.com`, not
   `canva.com.evil.net`; an IP address covers only itself; a lone label such as
-  `com` cannot be allowed.
+  `com` cannot be allowed. A page on this computer (`localhost`,
+  `*.localhost`, `127.x`, `[::1]`) is the exception: its site keeps the port
+  (`localhost:5173`), and it covers only that address and port. Only then does
+  the browser open it at all — loopback stays closed otherwise, and every
+  other private address stays closed even when "allowed".
 - **What is judged:** a navigation (`goto`, a new tab with a URL) by where it
   goes; every other action by the page it acts on. Reading, capturing,
   scrolling, hovering and waiting go anywhere.

@@ -27,17 +27,16 @@ import { ShellNavProvider } from './shell/navigation/ShellNav';
 import { useShellNavigation } from './shell/navigation/useShellNavigation';
 import { ShellPalette } from './shell/navigation/ShellPalette';
 import { useSections } from './shell/navigation/useSections';
+import type { SectionTarget } from './shell/navigation/places';
 import { Workbench } from './shell/Workbench';
 import { useWorkbench } from './shell/useWorkbench';
 import { showsRuns } from './shell/views';
-import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { AutomationsPanel } from './automations/AutomationsPanel';
 import { AutomationsIndex } from './automations/AutomationsIndex';
 import { ChannelsIndex, ChannelsSurface } from './channels/ChannelsSurface';
 import { SettingsIndex } from './settings/SettingsPanel';
 import { AppsPanel } from './apps/AppsPanel';
-import { MobilePanel } from './mobile/MobilePanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { UpdateFlow } from './update/UpdateFlow';
 import { runnerState } from './update/update-screen-model';
@@ -52,6 +51,8 @@ import {
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
 import { useAttention } from './attention/useAttention';
+import { Toasts } from './notices/ToastStack';
+import { useAppNotices } from './notices/useAppNotices';
 
 /**
  * Top-level shell. Runner startup is non-blocking: persisted desks/history can
@@ -228,8 +229,18 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
     onShowShortcuts: showShortcuts,
     onOpenPalette: openPalette,
     onSection: sections.show,
+    onPane: bench.setTab,
   });
-  const { view, go } = nav;
+  const { view, go, open } = nav;
+  useAppNotices({
+    onOpen: useCallback(
+      (target: SectionTarget) => {
+        open(target);
+        void api().invoke('focus.restoreMain');
+      },
+      [open],
+    ),
+  });
   useAttention({
     desks,
     mainChatId: view === 'chat' ? activeWorkspaceId : null,
@@ -411,11 +422,6 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
           />
         </>
       )}
-      {view === 'collaborate' && (
-        <main className="field">
-          <CollaboratePanel workspaceId={activeWorkspaceId} />
-        </main>
-      )}
       {view === 'settings' && (
         <main className="field">
           <SettingsPanel tab={settingsTab} scope="settings" />
@@ -440,14 +446,6 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
           main process), so it is never runner-locked. It owns its pane: a
           channel's chat is a full chat surface, its setup a field page. */}
       {view === 'channels' && <ChannelsSurface selected={channelId} />}
-      {/* Mobile pairing is a property of the INSTALL, not another chat surface to
-          configure, so it has its own place rather than a row in the channel
-          catalog. Like Channels it never depends on the runner session. */}
-      {view === 'mobile' && (
-        <main className="field">
-          <MobilePanel />
-        </main>
-      )}
       {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
       {paletteOpen && (
         <ShellPalette workspaceId={activeWorkspaceId} onClose={() => setPaletteOpen(false)} />
@@ -459,6 +457,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
           view so an ask is never invisible (and never double-rendered). */}
       {view !== 'chat' && <GlobalAskFallback workspaceId={activeWorkspaceId} />}
       <WorkflowApprovals modal />
+      <Toasts />
     </div>
     </ShellNavProvider>
   );

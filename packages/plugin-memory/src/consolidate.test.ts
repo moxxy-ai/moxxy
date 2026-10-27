@@ -130,6 +130,29 @@ describe('consolidateMemory', () => {
     expect(after.length).toBe(before.length);
   });
 
+  it("merges on the provider's light starter model, not the biggest one it lists first", async () => {
+    const store = new MemoryStore({ dir: tmp, embedder: null });
+    await store.save({ name: 'a', type: 'fact', description: 'A', body: 'aaa', tags: ['api'] });
+    await store.save({ name: 'b', type: 'fact', description: 'B', body: 'bbb', tags: ['api'] });
+    const asked: string[] = [];
+    const merged = fakeProvider(JSON.stringify({ name: 'ab', type: 'fact', description: 'A and B.', body: 'aaa\nbbb', tags: ['api'] }));
+    const descriptor = { contextWindow: 1000, maxOutputTokens: 1000, supportsTools: false, supportsStreaming: true };
+    const provider: LLMProvider = {
+      name: 'fake',
+      models: [{ id: 'big', ...descriptor }, { id: 'light', ...descriptor }],
+      starterModel: 'light',
+      async *stream(req) {
+        asked.push(req.model);
+        yield* merged.stream(req);
+      },
+      countTokens: async () => 0,
+    };
+
+    await consolidateMemory(store, provider);
+
+    expect(asked).toEqual(['light']);
+  });
+
   it('without dryRun: writes the consolidated entry and deletes the merged ones', async () => {
     const store = new MemoryStore({ dir: tmp, embedder: null });
     await store.save({ name: 'a', type: 'fact', description: 'A', body: 'aaa', tags: ['api'] });

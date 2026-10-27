@@ -192,6 +192,21 @@ describe('projectMessagesFromLog', () => {
     }
   });
 
+  it('projects only the text of an answered Question, not the copy kept for the transcript', () => {
+    const output = {
+      forModel: 'The user answered:\n- "Which colour?" → Blue',
+      display: { kind: 'question-answer' as const, questions: [{ question: 'Which colour?', chosen: ['Blue'] }] },
+    };
+    const log = reader([
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'make a button' }),
+      event(1, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: 'c1', name: 'ask_user', input: {} }),
+      event(2, { type: 'tool_result', turnId: t1, source: 'tool', callId: 'c1', ok: true, output }),
+    ]);
+
+    const toolResult = projectMessagesFromLog({ log }).find((m) => m.role === 'tool_result');
+    expect(toolResult?.content[0]).toMatchObject({ type: 'tool_result', content: output.forModel });
+  });
+
   it('projects an image-shaped tool result as an image block, not stringified text', () => {
     // A screenshot/clipboard tool returns { mediaType, base64 }. The model must
     // SEE the pixels (image block), not a giant base64 string JSON-stringified

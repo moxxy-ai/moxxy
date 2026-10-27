@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/chat-model",
-  "version": "0.4.17",
+  "version": "0.5.0",
   "description": "UI-framework-neutral chat model: the event→block fold (tool/result pairing, skill + subagent + live-tool grouping), formatting helpers, a markdown AST, and a chunked append log. Shared by the Ink TUI, the desktop renderer, and future channels.",
   "keywords": [
     "moxxy",
@@ -29,6 +29,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./account-limit": {
+      "types": "./dist/account-limit.d.ts",
+      "import": "./dist/account-limit.js"
+    },
+    "./format": {
+      "types": "./dist/format.d.ts",
+      "import": "./dist/format.js"
     },
     "./markdown": {
       "types": "./dist/markdown/index.d.ts",

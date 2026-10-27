@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { addModelTotals, createMutex, type ModelUsageTotals } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /**
  * Cross-session token usage, persisted at ~/.moxxy/usage.json. A forward-going

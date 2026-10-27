@@ -6,8 +6,8 @@
  * .send`. That welded the contract to Electron. These two tiny interfaces lift
  * the welding out: a {@link CommandBus} registers request handlers and an
  * {@link EventSink} broadcasts events — and *what* sits behind them (Electron
- * IPC, or a WebSocket serving the same contract to a mobile client) is a
- * swappable detail. The per-domain handler bodies register against a
+ * IPC today, or another transport serving the same contract) is a swappable
+ * detail. The per-domain handler bodies register against a
  * `CommandBus` and never see the transport.
  *
  * The matching client primitive is {@link MoxxyApi} (`invoke` / `subscribe`)
@@ -22,9 +22,9 @@ import type {
 } from './index.js';
 
 /**
- * Registers request handlers for renderer→main commands. One implementation
- * wraps `ipcMain.handle` (Electron), another wraps a per-connection
- * `JsonRpcPeer` (WebSocket). The signature mirrors the old `handle()` choke
+ * Registers request handlers for renderer→main commands. The implementation
+ * wraps `ipcMain.handle` (Electron); another transport would wrap its own
+ * connection. The signature mirrors the old `handle()` choke
  * point exactly so the per-domain registrars port over unchanged.
  */
 export interface CommandBus {
@@ -38,7 +38,7 @@ export interface CommandBus {
 
 /**
  * Pushes a main→renderer event to every surface this sink fronts (all Electron
- * windows, or all connected WebSocket clients). Events already carry their
+ * windows). Events already carry their
  * `workspaceId`, so a sink fans the full tagged stream and each client routes
  * by tag — exactly as the desktop renderer already does.
  */
@@ -51,9 +51,7 @@ export interface EventSink {
  * {@link dispatch} core: either a value to return, or a classified
  * {@link MoxxyIpcError}. Each bus serializes this in its own native error shape
  * — the Electron bus re-encodes it into the string envelope the renderer
- * already decodes; the WebSocket bus maps it to a JSON-RPC error whose `data`
- * carries the envelope. The string envelope therefore never leaks onto the wire
- * outside Electron.
+ * already decodes.
  */
 export type IpcDispatchResult =
   | { readonly ok: true; readonly value: unknown }

@@ -166,6 +166,40 @@ describe('recall tool', () => {
   });
 });
 
+describe('recall over the whole conversation', () => {
+  const t2 = asTurnId('t2');
+  const now = asTurnId('t3');
+  const events = [
+    ev(0, { type: 'user_prompt', turnId: t2, source: 'user', text: 'Ustawmy bazę na porcie 5433' }),
+    ev(1, { type: 'tool_call_requested', turnId: t2, source: 'model', callId: asToolCallId('w1'), name: 'Edit', input: { file_path: 'db.ts' } }),
+    ev(2, { type: 'tool_result', turnId: t2, source: 'tool', callId: asToolCallId('w1'), ok: true, output: 'edited db.ts' }),
+    ev(3, { type: 'assistant_message', turnId: t2, source: 'model', content: 'Baza działa na 5433.', stopReason: 'end_turn' }),
+    ev(4, { type: 'user_prompt', turnId: now, source: 'user', text: 'Jaki port bazy?' }),
+  ];
+  const inTurn = (input: unknown) => recallTool.handler(input, { ...ctx(events), turnId: now }) as string;
+
+  it('finds the earlier turn that mentions the words, with its number', () => {
+    const out = inTurn({ query: 'port bazy' });
+
+    expect(out).toContain('Turn 1: Ustawmy bazę na porcie 5433');
+    expect(out).toContain('recall({ turn: <number> })');
+    expect(out).not.toContain('Turn 2');
+  });
+
+  it('reads a turn in full by its number, tool output included', () => {
+    const out = inTurn({ turn: 1 });
+
+    expect(out).toContain('[user] Ustawmy bazę na porcie 5433');
+    expect(out).toContain('edited db.ts');
+    expect(out).toContain('[assistant] Baza działa na 5433.');
+  });
+
+  it('says so when nothing matches or the turn does not exist', () => {
+    expect(inTurn({ query: 'kubernetes' })).toContain('No earlier turn mentions "kubernetes"');
+    expect(() => inTurn({ turn: 9 })).toThrow(/no turn 9/);
+  });
+});
+
 describe('recall of an earlier attachment', () => {
   const prompt = (seq: number, attachments: ReadonlyArray<Record<string, unknown>>): MoxxyEvent =>
     ev(seq, { type: 'user_prompt', turnId: t1, source: 'user', text: 'here', attachments } as never);

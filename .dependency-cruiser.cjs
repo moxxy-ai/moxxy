@@ -4,10 +4,9 @@
  *   2. @moxxy/core must not import from any plugin package
  *      (@moxxy/plugin-*, @moxxy/mode-*, @moxxy/compactor-*, @moxxy/cache-strategy-*,
  *      @moxxy/skills-builtin). Core can only import @moxxy/sdk + @moxxy/tools-builtin.
- *   3. The desktop renderer (apps/desktop/src) and the React-Native PoC
- *      (apps/mobile-poc/src) must never statically reach a `node:*` builtin —
- *      those bundles run under a browser engine / Metro and cannot polyfill
- *      node:child_process etc. (this is why @moxxy/sdk splits Node helpers into
+ *   3. The desktop renderer (apps/desktop/src) must never statically reach a
+ *      `node:*` builtin — that bundle runs under a browser engine and cannot
+ *      polyfill node:child_process etc. (this is why @moxxy/sdk splits Node helpers into
  *      the './server' subpath; value-importing them from the main barrel here
  *      would drag a builtin into the bundle).
  *
@@ -92,14 +91,13 @@ module.exports = {
           // runtime / loaded as a window preload, never imported.
           'apps/desktop/electron/main/index\\.ts$',
           'apps/desktop/electron/preload/index\\.ts$',
-          // The renderer (Vite) and the RN PoC (Metro) are cruised ONLY for the
-          // no-node-builtins-in-renderer rule. Their extensionless, bundler-
+          // The renderer (Vite) is cruised ONLY for the
+          // no-node-builtins-in-renderer rule. Its extensionless, bundler-
           // resolved imports aren't reliably linked by dep-cruiser's resolver, so
           // orphan detection there is false-positive-prone (e.g. lib/asset.ts is
           // imported by 10 components yet reported as an orphan). Skip orphan
-          // checking for them; dead-renderer-code is the bundler's/linter's job.
+          // checking for it; dead-renderer-code is the bundler's/linter's job.
           '^apps/desktop/src/',
-          '^apps/mobile-poc/src/',
         ],
       },
       to: {},
@@ -108,12 +106,12 @@ module.exports = {
   options: {
     doNotFollow: { path: 'node_modules' },
     // Node builtins are kept in the graph (despite the path scoping) so the
-    // `no-node-builtins-in-renderer` rule can actually see a renderer/RN module
+    // `no-node-builtins-in-renderer` rule can actually see a renderer module
     // reaching one — `includeOnly` filters BOTH ends of a dependency, and a core
     // module (dep-cruiser strips the `node:` prefix, so it resolves to a bare
     // name like `fs`/`child_process`) outside this set would be invisible.
     includeOnly:
-      '^(packages/.*/src|apps/desktop/electron|apps/desktop/src|apps/mobile-poc/src|' +
+      '^(packages/.*/src|apps/desktop/electron|apps/desktop/src|' +
       '(node:)?(assert|async_hooks|buffer|child_process|cluster|console|constants|crypto|dgram|diagnostics_channel|dns|domain|events|fs|http|http2|https|inspector|module|net|os|path|perf_hooks|process|punycode|querystring|readline|repl|stream|string_decoder|sys|timers|tls|trace_events|tty|url|util|v8|vm|wasi|worker_threads|zlib)(/|$))',
     exclude: {
       path: '(dist/|node_modules/|\\.turbo/|\\.test\\.ts$|\\.test-d\\.ts$|__fixtures__/)',

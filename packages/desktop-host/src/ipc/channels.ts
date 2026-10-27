@@ -7,10 +7,6 @@
  * vault names the channel plugins actually read (see {@link CHANNEL_CATALOG}).
  * The subprocess lifecycle lives in {@link ChannelSupervisor}; these handlers are
  * the thin IPC + "configured?" (vault) glue.
- *
- * Host-only: these run a local subprocess + read/write the vault, so they are
- * deliberately NOT in REMOTE_ALLOWED_COMMANDS — a paired phone can't start a
- * channel or save its secrets over the WS bridge.
  */
 
 import { channelRunnerSocket, channelSessionId } from '@moxxy/runner';

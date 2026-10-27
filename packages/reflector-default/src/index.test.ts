@@ -243,6 +243,8 @@ describe('REFLECT_SYSTEM_PROMPT', () => {
   });
 });
 
+const model = (id: string) => ({ id, contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true });
+
 // ── reflectorDefaultDef.reflect (the strategy) ──────────────────────────────
 
 describe('reflectorDefaultDef.reflect', () => {
@@ -256,6 +258,18 @@ describe('reflectorDefaultDef.reflect', () => {
     expect(out).toEqual([{ kind: 'skill', title: 'deploy flow', nudge: 'capture it' }]);
     expect(provider.received).toHaveLength(1);
     expect(provider.received[0]!.system).toContain('review a single finished agent turn');
+  });
+
+  it("reflects on the provider's light starter model, not the biggest one it lists first", async () => {
+    const provider = new FakeProvider({
+      name: 'fake',
+      models: [{ ...model('big') }, { ...model('light') }],
+      starterModel: 'light',
+      script: [textReply(replyJson([]))],
+    });
+    const svc = services({ providers: providersStub(provider) });
+    await reflectorDefaultDef.reflect(reflectCtx(busyTurn(), svc));
+    expect(provider.received[0]?.model).toBe('light');
   });
 
   it('skips silently when there is no active provider', async () => {

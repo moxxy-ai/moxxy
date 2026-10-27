@@ -213,10 +213,12 @@ function makeFakeChild(): {
 } {
   const signals: string[] = [];
   const emitter = new EventEmitter() as EventEmitter & {
+    pid: number;
     exitCode: number | null;
     signalCode: NodeJS.Signals | null;
     kill: (signal?: NodeJS.Signals | number) => boolean;
   };
+  emitter.pid = 4242;
   emitter.exitCode = null;
   emitter.signalCode = null;
   emitter.kill = (signal: NodeJS.Signals | number = 'SIGTERM') => {

@@ -22,6 +22,15 @@ function providerResponse(usage: Partial<ProviderResponse>): ProviderResponse {
 }
 
 describe('recordUsage', () => {
+  it("shows the agent's context, not its whole turn's usage, as the size of the conversation", () => {
+    const u = recordUsage(EMPTY_USAGE, providerResponse({ inputTokens: 2_000, cacheReadTokens: 1_498_000, outputTokens: 900, contextTokens: 154_000 }));
+    assertDefined(u, 'a prompt-bearing call folds to a usage snapshot');
+
+    expect(u.latestPrompt).toBe(154_000);
+    expect(u.perCall).toEqual([154_000]);
+    expect(u.totalCacheRead).toBe(1_498_000);
+  });
+
   it('returns null (no re-render) for a usage-less response', () => {
     expect(recordUsage(EMPTY_USAGE, providerResponse({}))).toBeNull();
   });

@@ -6,12 +6,12 @@
  */
 
 export { RunnerPool, UNBOUND_ID } from './runner-pool.js';
+export { initialRunnerTarget } from './initial-runner.js';
 export { bindWindow, registerIpcHandlers } from './ipc.js';
 export { autostartConfiguredChannels } from './ipc/channels.js';
-export { type MobileGatewayController } from './ipc/mobile-gateway.js';
 export { sendEvent } from './send-event.js';
 export { ElectronCommandBus } from './bus/electron-bus.js';
-export { EventBus, wsEventBus } from './event-bus.js';
+export { EventBus } from './event-bus.js';
 export { type UpdateConfig } from './ipc/update.js';
 export { preferredCliEntry } from './cli-resolver.js';
 export {

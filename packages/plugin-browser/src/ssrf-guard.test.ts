@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { assertPublicUrl, isBlockedIp, setSsrfDnsResolver, SsrfBlockedError } from './ssrf-guard.js';
+import { assertPublicUrl, assertReachableUrl, isBlockedIp, localSiteOf, setSsrfDnsResolver, SsrfBlockedError } from './ssrf-guard.js';
 
 afterEach(() => setSsrfDnsResolver(null));
 
@@ -105,5 +105,43 @@ describe('isBlockedIp', () => {
   });
   it('does NOT block a v4-mapped PUBLIC address', () => {
     expect(isBlockedIp('::ffff:5db8:d822')).toBe(false); // 93.184.216.34
+  });
+});
+
+describe('a page on this computer the person allowed', () => {
+  it('names a loopback page by its address and port', () => {
+    expect(localSiteOf('http://localhost:5173/app')).toBe('localhost:5173');
+    expect(localSiteOf('http://LOCALHOST/')).toBe('localhost:80');
+    expect(localSiteOf('https://127.0.0.1/')).toBe('127.0.0.1:443');
+    expect(localSiteOf('http://[::1]:3000/')).toBe('[::1]:3000');
+    expect(localSiteOf('http://app.localhost:5173/')).toBe('app.localhost:5173');
+    expect(localSiteOf('http://192.168.1.10/')).toBeNull();
+    expect(localSiteOf('https://example.com/')).toBeNull();
+    expect(localSiteOf('file:///etc/passwd')).toBeNull();
+  });
+
+  it('opens a loopback page the person allowed, at that address and port only', async () => {
+    setSsrfDnsResolver(async () => {
+      throw new Error('resolver should not be consulted for a loopback page');
+    });
+    await expect(assertReachableUrl('http://localhost:5173/app', 'goto', { localSites: ['localhost:5173'] })).resolves.toBeNull();
+    await expect(assertReachableUrl('http://localhost:8080/', 'goto', { localSites: ['localhost:5173'] })).rejects.toThrow(SsrfBlockedError);
+    await expect(assertReachableUrl('http://127.0.0.1:5173/', 'goto', { localSites: ['localhost:5173'] })).rejects.toThrow(SsrfBlockedError);
+    await expect(assertReachableUrl('http://localhost:5173/', 'goto')).rejects.toThrow(/loopback/);
+  });
+
+  it('keeps every other private address closed, whatever was allowed', async () => {
+    await expect(assertReachableUrl('http://192.168.1.10/', 'goto', { localSites: ['192.168.1.10', '192.168.1.10:80'] })).rejects.toThrow(/private/);
+    await expect(assertReachableUrl('http://169.254.169.254/', 'goto', { localSites: ['169.254.169.254:80'] })).rejects.toThrow(/private/);
+  });
+
+  it('does not let a public name that resolves to this computer through', async () => {
+    setSsrfDnsResolver(async () => ['127.0.0.1']);
+    await expect(assertReachableUrl('http://evil.example:5173/', 'goto', { localSites: ['evil.example:5173', 'localhost:5173'], failClosed: true })).rejects.toThrow(/loopback/);
+  });
+
+  it('checks a public page as before', async () => {
+    setSsrfDnsResolver(async () => ['93.184.216.34']);
+    await expect(assertReachableUrl('https://example.com/', 'goto', { localSites: [] })).resolves.toEqual(['93.184.216.34']);
   });
 });

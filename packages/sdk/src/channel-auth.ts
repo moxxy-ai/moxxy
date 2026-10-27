@@ -14,7 +14,7 @@
  *     cannot set an `Authorization` header (browser / React Native), so the
  *     secret stays out of the URL (query strings leak via logs and QR/stdout).
  *
- * Channels that expose a network surface (mobile WS bridge, HTTP, web) should
+ * Channels that expose a network surface (HTTP, web) should
  * resolve their token with the former and gate connections with the latter,
  * so the `channels.<name>.token` config + `MOXXY_<NAME>_TOKEN` env conventions
  * are uniform across every channel.
@@ -30,9 +30,9 @@ import { bearerTokenMatches } from './http-utils.js';
 export interface ChannelTokenOptions {
   /** Explicit token from channel config (`channels.<name>.token`). */
   readonly configured?: string;
-  /** Env var checked first, e.g. `MOXXY_MOBILE_TOKEN`. */
+  /** Env var checked first, e.g. `MOXXY_HTTP_TOKEN`. */
   readonly envVar?: string;
-  /** File to persist a generated token, e.g. `mobile-token`. */
+  /** File to persist a generated token, e.g. `http-token`. */
   readonly fileName: string;
   /** Directory the token file lives under. Defaults to the moxxy home dir;
    *  the desktop bridge passes its Electron `userData` dir here instead. */

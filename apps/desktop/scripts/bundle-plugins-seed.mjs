@@ -45,6 +45,9 @@ const SEED_PLUGINS = [
   // Claude Pro/Max sign-in — the desktop signs in through it, so it must be
   // registered before the user picks it (not installed on demand).
   'plugin-provider-claude-code',
+  // The other coding agents beside it in Settings: Codex and OpenCode.
+  'plugin-provider-codex-agent',
+  'plugin-provider-acp',
   // Slim-wave batch 1.
   'mode-goal',
   'mode-deep-research',
@@ -74,12 +77,15 @@ const SEED_PLUGINS = [
   'plugin-tts-local',
   // Gemini voice: Settings → Voice offers it, so it must not depend on npm.
   'plugin-tts-gemini',
+  // Local transcription (Whisper turbo): Settings → Voice → Transcription
+  // offers it. Shares sherpa-onnx with Piper; its model downloads on first use.
+  'plugin-stt-local',
 ];
 
 /** First-party runtime deps of seed members — packed so the closure installs
- *  from local tarballs (usage-stats→core, oauth→vault, channel-kit→chat-model, tts-local→model-fetch, computer-control and browser→jev,
- *  everything→sdk). None of these are on npm, so a missing one fails with 404. */
-const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'chat-model', 'jev', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex', 'model-fetch'];
+ *  from local tarballs (usage-stats→core, oauth→vault, channel-kit→chat-model, tts-local and stt-local→model-fetch, computer-control and browser→jev,
+ *  claude-code→agent-connection-kit, everything→sdk). None of these are on npm, so a missing one fails with 404. */
+const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'chat-model', 'jev', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex', 'model-fetch', 'agent-connection-kit'];
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
 
 // fileURLToPath, NOT url.pathname — pathname on Windows is `/D:/a/...`, which

@@ -20,7 +20,7 @@ export function ComputerControlStrip({view,busy,error,onCommand,previewHidden,on
       {previewHidden && onShowPreview && view.canStop && <button type="button" aria-label="Show the live view" onClick={onShowPreview}>Show view</button>}
       {view.canTakeOver && <button type="button" aria-label="Take over from Computer Use" disabled={busy} onClick={()=>onCommand('takeover')}>Take over</button>}
       {view.canResume && <button type="button" aria-label="Resume Computer Use" disabled={busy} onClick={()=>onCommand('resume')}>Resume</button>}
-      {view.canStop && <button type="button" aria-label="Stop Computer Use" onClick={()=>onCommand('stop')}>Stop</button>}
+      {view.canStop && <button type="button" aria-label={view.stopLabel ?? 'Stop Computer Use'} onClick={()=>onCommand('stop')}>Stop</button>}
     </div>
     {error && <span role="alert" className="computer-control-strip__error">{error}</span>}
   </section>;

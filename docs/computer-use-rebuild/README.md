@@ -125,7 +125,7 @@ model ─▶ dispatchToolCall + PermissionEngine + PermissionResolver
    ├─ HelperTransport (JSON-lines stdio, kolejka, bez retry, zdarzenia)
    ├─ zgody: wynik `computer_request_access` w logu sesji → fold `accessFromLog` (jeden stan dla wszystkich powierzchni)
    │   + aplikacje z `computer_run` zatwierdzonego jako to wywołanie (`decidedNow`) → `approvedThroughRun`, poziom domyślny
-   ├─ TurnControls (stan, kursor, cel) ─▶ runner `computer.changed` ─▶ desktop/mobile
+   ├─ TurnControls (stan, kursor, cel) ─▶ runner `computer.changed` ─▶ desktop
    ├─ PreviewController ─▶ Surface `computer-preview` ─▶ `surface.data` ─▶ PiP
    ├─ contract/: schematy, klawisze, obraz, tekst drzewa + diff (wspólne dla helperów)
    └─ narzędzia computer_* (jeden kontrakt, adapter per platforma)

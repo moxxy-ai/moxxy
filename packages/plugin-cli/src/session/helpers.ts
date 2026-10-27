@@ -3,6 +3,7 @@ import {
   type ClientSession as Session,
   type ModeBadge,
   type ModeDef,
+  type SessionInfo,
 } from '@moxxy/sdk';
 import {
   BUILTIN_SLASH_COMMANDS,
@@ -11,17 +12,13 @@ import {
 import type { CommandDef } from '@moxxy/sdk';
 
 export function resolveActiveModel(
-  session: Session,
+  info: Pick<SessionInfo, 'defaultModel'>,
   override: string | null,
   prop: string | undefined,
 ): string {
-  if (override) return override;
-  if (prop) return prop;
-  try {
-    return session.providers.getActive().models[0]?.id ?? 'default';
-  } catch {
-    return 'default';
-  }
+  // A picked model, else the one the runner runs a turn on that names none (a
+  // chosen default, the provider's starter model, …): what will really run.
+  return override || prop || info.defaultModel || 'default';
 }
 
 export function resolveContextWindow(session: Session, activeModel: string): number | null {
@@ -38,13 +35,6 @@ export interface SlashSuggestionCapabilities {
   readonly canSwitchRuns: boolean;
   readonly canManageExtensions: boolean;
 }
-
-const TUI_INTERNAL_COMMANDS = new Set([
-  'collab_say',
-  'collab_direct',
-  'collab_pause',
-  'collab_resume',
-]);
 
 export function buildSlashSuggestions(
   session: Session,
@@ -74,10 +64,8 @@ export function buildSlashSuggestions(
 }
 
 function commandAvailable(name: string, capabilities: SlashSuggestionCapabilities): boolean {
-  if (TUI_INTERNAL_COMMANDS.has(name)) return false;
   if (name === 'new') return capabilities.canSwitchRuns;
   if (name === 'runs') return capabilities.canSwitchRuns;
-  if (name === 'collab') return capabilities.canSwitchRuns;
   if (name === 'extensions') return capabilities.canManageExtensions;
   return true;
 }

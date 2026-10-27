@@ -1,3 +1,4 @@
+import type { AppNoticeTarget } from '@moxxy/desktop-ipc-contract';
 import type { IconName } from '@moxxy/desktop-ui';
 import type { AutomationKind } from '../../automations/kinds';
 import { SETTINGS_SECTIONS, type SettingsSection, type SettingsTab } from '../../settings/sections';
@@ -10,7 +11,16 @@ export type SectionTarget =
   | { readonly destination: 'channels'; readonly section: string };
 
 /** Where a place is: a view, or one section of it. */
-export type PlaceTarget = { readonly destination: DestinationId } | SectionTarget;
+export type PlaceTarget = { readonly destination: DestinationId } | SectionTarget | { readonly destination: 'chat'; readonly pane: 'media' | 'agents' };
+
+const SECTIONS: ReadonlyArray<SettingsSection & { readonly id: SettingsTab }> = SETTINGS_SECTIONS;
+
+/** The section a host notice points at, in the view it belongs to; `null` for
+ *  a section this window does not have. */
+export function noticePlace(target: AppNoticeTarget): SectionTarget | null {
+  const section = SECTIONS.find((candidate) => candidate.id === target.section);
+  return section ? { destination: section.view, section: section.id } : null;
+}
 
 /** Something a person can ask the palette for by name. */
 export interface Place {
@@ -30,11 +40,9 @@ export interface Place {
 const DESTINATION_FINDS: Readonly<Record<DestinationId, { readonly label?: string; readonly keywords: ReadonlyArray<string> }>> = {
   chat: { keywords: ['chat', 'chats', 'conversation', 'conversations', 'sessions', 'messages', 'workspaces'] },
   extensions: { keywords: ['plugins', 'add-ons', 'integrations'] },
-  collaborate: { keywords: ['agents', 'team', 'multi-agent'] },
   automations: { keywords: ['automation', 'automate'] },
   apps: { keywords: ['gallery'] },
   channels: { keywords: ['bots', 'messengers'] },
-  mobile: { keywords: ['phone', 'pairing', 'qr code', 'ios', 'android', 'gateway'] },
   // A call on the run, not a view: its row says what picking it does.
   voice: { label: 'Start a voice call', keywords: ['talk', 'speak'] },
   settings: { keywords: ['options', 'configuration', 'config'] },
@@ -97,6 +105,8 @@ export const STATIC_PLACES: ReadonlyArray<Place> = [
   ...destinationPlaces,
   ...SETTINGS_SECTIONS.flatMap(sectionPlaces),
   ...automationPlaces,
+  { id: 'chat/media', label: 'Media', trail: 'Chat', icon: 'image', keywords: ['photos', 'images', 'shared files', 'shared links', 'library', 'attachments'], target: { destination: 'chat', pane: 'media' } },
+  { id: 'chat/agents', label: 'Agents', trail: 'Chat', icon: 'agent', keywords: ['background work', 'helpers', 'subagents', 'background commands', 'running tasks'], target: { destination: 'chat', pane: 'agents' } },
 ];
 
 export function channelPlace(channel: { readonly id: string; readonly name: string }): Place {

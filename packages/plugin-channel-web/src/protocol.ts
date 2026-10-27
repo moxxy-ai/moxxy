@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { FileDiffDisplay, ViewDoc } from '@moxxy/sdk';
 
 /**

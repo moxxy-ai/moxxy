@@ -40,7 +40,6 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/plugin-telegram            Telegram channel (TOFU pairing)
 @moxxy/plugin-channel-http        HTTP channel (auth + allow-list resolver)
 @moxxy/plugin-channel-web         web surface channel — serves a browser app rendering agent-authored view-spec UIs over a WebSocket
-@moxxy/plugin-channel-mobile      mobile channel — serves the desktop IPC contract over an authenticated WebSocket (`moxxy mobile`)
 @moxxy/plugin-view                present_view tool — agent-authored JSX-like view-spec parsed into a validated AST channels can render
 @moxxy/plugin-mcp                 MCP server bridge
 @moxxy/plugin-embeddings-openai   OpenAI embeddings
@@ -53,7 +52,10 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/isolator-subprocess        subprocess Isolator (kernel-enforced process boundary)
 @moxxy/isolator-wasm              WebAssembly Isolator (zero ambient authority; experimental)
 @moxxy/plugin-provider-openai-codex  ChatGPT OAuth provider (Responses API)
-@moxxy/plugin-provider-claude-code  Claude Pro/Max OAuth provider (Messages API, bearer token)
+@moxxy/plugin-provider-claude-code  "Claude Agent" connection: Claude Code does each turn through the Claude Agent SDK (installed into ~/.moxxy on first use) on the Claude Pro/Max sign-in
+@moxxy/plugin-provider-codex-agent  "ChatGPT — Codex agent" connection: Codex does each turn through `codex app-server` (the person's installed Codex CLI) on the ChatGPT sign-in
+@moxxy/plugin-provider-acp        agent connections over the Agent Client Protocol; first entry "OpenCode agent" (`opencode`): OpenCode does each turn through `opencode acp` with the person's own OpenCode setup and models
+@moxxy/agent-connection-kit       shared parts of agent connections (vendor agent does the turn via `agentStep`): Moxxy tools MCP server, line JSON-RPC client, live agent session pool, mode mapping, CLI version/update checks, turn inbox, one-off transcript
 @moxxy/plugin-provider-admin      register OpenAI-compatible providers at runtime
 @moxxy/plugin-oauth               generic OAuth 2.0 + PKCE / device-code
 @moxxy/plugin-stt-whisper         Whisper transcriber (voice in); `-codex` variant reuses ChatGPT creds
@@ -75,11 +77,9 @@ apps/desktop                 Electron desktop app — attaches to @moxxy/runner,
 @moxxy/desktop-ipc-contract  typed IPC boundary (channel names + payloads + Zod validation) shared by the desktop's main / preload / renderer
 @moxxy/desktop-host          the desktop's Electron main process: runner pool + supervisor, session driver, IPC handlers, append-only NDJSON chat log, security gates, and the self-update gate/stager (the node-only @moxxy/desktop-host/app-update subpath baked into the bootstrap)
 @moxxy/desktop-ui            framework-light, dependency-free React UI primitives (single-file SVG Icon set, Modal/ConfirmModal portal, Skeleton placeholders); shared by the renderer and a future web channel
-@moxxy/client-core           DOM-free headless client layer (chat/connection/ask stores + use* React hooks + transport seam + platform-capability registry); shared by the desktop renderer and the Expo mobile app
+@moxxy/client-core           DOM-free headless client layer (chat/connection/ask stores + use* React hooks + transport seam + platform-capability registry); used by the desktop renderer
 @moxxy/client-platform-web   web implementations of the client-core platform capabilities (mic capture, Web Speech TTS, localStorage KV, window event bus)
-@moxxy/client-transport-ws   MoxxyApi (invoke/subscribe) over a WebSocket JSON-RPC client for remote clients (uses the global WebSocket — Metro/RN-safe)
-@moxxy/ipc-server-ws         serves the desktop IPC contract over an authenticated WebSocket (WebSocketCommandBus; bearer-token handshake; Node-only)
-@moxxy/design-tokens         framework-neutral design tokens (colors/fonts/radii/shadows) + :root CSS-variable generator; consumed by the desktop renderer and React Native
+@moxxy/design-tokens         framework-neutral design tokens (colors/fonts/radii/shadows) + :root CSS-variable generator; consumed by the desktop renderer
 ```
 
 **State model.** Every interaction appends to an immutable event log; derived state is a pure fold. Any session can be replayed from its log.
@@ -153,9 +153,9 @@ requirement automatically.
 - **Use the SDK's shared helpers.** `collectProviderStream`, `projectMessagesFromLog`, `isRetryableError`, `zodToJsonSchema`, `CachedEmbeddingProvider` — all exported from `@moxxy/sdk`. New loops/providers/embedders should compose these instead of reimplementing.
 - **Assume nobody ran it on Windows.** You cannot run it there before pushing; the `Windows test` job is the first time the suite meets Windows, and the installer is exercised only for some paths. A change touching processes, sockets, file paths, permissions, the shell or packaging follows the `windows-parity` skill (`docs/windows-parity.md` has the faults this has already caused).
 - **Guard, don't chain.** State an assumption once with `invariant(cond, 'why')` / `assertDefined(x, 'what')` (both from `@moxxy/sdk`) or an early return, then dereference plainly. No non-null assertions (`x!`) — ever; no optional chains of depth ≥2 (`a?.b?.c`). A single `?.` on a genuinely-optional read is fine. A guard fails loudly at the assumption site; a `?.` chain silently yields `undefined` far from the cause, and `!` hides the assumption entirely.
-- **One state, every surface.** When a feature works in the desktop AND somewhere else (a channel bot, the TUI, mobile, another attached client), decide up front where its state lives and make every surface read and change that one state — never a flag per surface. Put conversation state in the session (recorded in the event log / reported in `SessionInfo`, pushed to clients via `info.changed`), then test that a change made on one surface shows on the others. Per-surface copies drift: auto-approve once lived both on the Discord bot and on the desktop driver, so `/auto-approve` in Discord never showed in the desktop chat with the bot.
+- **One state, every surface.** When a feature works in the desktop AND somewhere else (a channel bot, the TUI, another attached client), decide up front where its state lives and make every surface read and change that one state — never a flag per surface. Put conversation state in the session (recorded in the event log / reported in `SessionInfo`, pushed to clients via `info.changed`), then test that a change made on one surface shows on the others. Per-surface copies drift: auto-approve once lived both on the Discord bot and on the desktop driver, so `/auto-approve` in Discord never showed in the desktop chat with the bot.
 - **Name every new desktop option where the palette can find it.** The ⌘K palette searches a hand-kept index, not the screen: a control added to a settings section is named in that section's `finds` in `apps/desktop/src/settings/sections.ts` (label + the other words people type for it), a new settings section is a new entry in `SETTINGS_SECTIONS`, and a new view or a section of another view goes in `apps/desktop/src/shell/navigation/places.ts`. Then add the words to the query table in `shell/navigation/search-places.test.ts`. Nothing fails when you skip this — the option simply cannot be found by name, which is how Providers once looked lost: they sat in a view nobody thought to open.
-- **Wait on events, not timers.** When code or the agent waits for work to finish, wake it from the work's own completion signal (an emitter, a subscription, a child's `exit`) with `waitFor` / `wakeAfter` from `@moxxy/sdk`: it subscribes before the first check so a finish is never missed, and treats a deadline as "still running", never as "done". A fixed poll interval adds up to one interval of latency to every wait — the collab coordinator once noticed a finished agent only on its next 500 ms tick. For the agent itself, long commands run as background jobs (`Bash` `background: true` → `Wait` / `StopJob`); `Sleep` is only for a real pause.
+- **Wait on events, not timers.** When code or the agent waits for work to finish, wake it from the work's own completion signal (an emitter, a subscription, a child's `exit`) with `waitFor` / `wakeAfter` from `@moxxy/sdk`: it subscribes before the first check so a finish is never missed, and treats a deadline as "still running", never as "done". A fixed poll interval adds up to one interval of latency to every wait — a coordinator once noticed a finished agent only on its next 500 ms tick. For the agent itself, long commands run as background jobs (`Bash` `background: true` → `Wait` / `StopJob`); `Sleep` is only for a real pause.
 - **Filter event-log subscribers by `turnId`** when serving multiple turns on one Session (e.g., HTTP channel). The shared `session.log` fans out to every listener; without the filter, concurrent turns cross-contaminate (see `run-turn.ts`).
 - **Persist atomically.** Vault, permissions, memory, skills — anything writing a whole file does `writeFile(tmp); rename(tmp, final)`. POSIX rename is atomic; crash mid-write leaves the previous file intact.
 - **Serialize file-state mutators per instance.** Stores that read-modify-write the whole file (vault, permissions) need a promise-chain mutex; otherwise two concurrent mutations clobber each other.
@@ -168,6 +168,7 @@ requirement automatically.
 ### Don't
 
 - **Don't add a dependency without justification.** The framework is intended to be light. Built-ins use only Node stdlib + `zod` + `ulid` + `jiti`. Plugin authors can add their own — but core/SDK stays minimal.
+- **Don't import bare `'zod'`.** The catalog is zod 4, but Moxxy's schemas are zod 3 ones: import from `'zod/v3'` or use `z` from `@moxxy/sdk`. `zodToJsonSchema` reads zod 3 internals, so a zod 4 schema reaches the model with no fields. Lint enforces it (`no-restricted-imports` in `eslint.config.js`).
 - **Don't import from `@moxxy/core` inside `@moxxy/sdk` or any plugin that contributes to the loop runtime** (loops, compactors, providers without UI). Channels are the exception.
 - **Don't mutate the event log.** Append-only. Compaction adds a `compaction` event with `replacedRange`; selectors honor it. Selectors must stay pure folds.
 - **Don't introduce features that need importing a plugin from core.** Use lifecycle hooks, or pass services via closure (see `buildSynthesizeSkillPlugin(session)` for the pattern).
@@ -194,6 +195,17 @@ So: **branch off `development`, PR back into `development`. Never target `main`.
 
 > **Why this can never conflict (the old failure, fixed):** advancing `main` is a tree **copy**, not a merge — `commit-tree` makes a commit whose tree is development's and whose parent is `origin/main`, so there is no merge-base, no 3-way, no hunks to reconcile. Conflict-freedom is a property of git's object model, not of any workflow firing. The previous design squash-merged a `development → main` PR and leaned on a `sync-back.yml` (`on: push: main`) to repair the ancestry a squash breaks — but GitHub never fires workflows for `GITHUB_TOKEN` pushes, so the sync-back never ran, `main` drifted out of ancestry, and every `dev → main` PR re-conflicted. There is **no `development → main` PR, no squash-merge, and no sync-back** anymore.
 
+## Agent connections: live check before merging
+
+Claude Code, Codex and OpenCode are other companies' programs, updated on their own schedule, and CI cannot hold anyone's sign-in. So two checks split the work:
+
+- **CI, no sign-in** — `.github/workflows/agent-cli-compat.yml` runs every day and on PRs that touch a connection: the newest and the minimum CLIs from npm must answer their connection's handshake, Codex's protocol kinds must match the fixture, and OpenCode, started as Moxxy starts it, must keep its HTTP API behind Moxxy's password and offer background subagents. It calls no model. Locally: `pnpm test:agents:compat`.
+- **This machine, real conversations** — `pnpm test:agents:live` (one agent: `--agent claude|codex|opencode`). It runs this repo's connection code against the CLIs you are signed in with: a reply, a file change, a Moxxy tool, a follow-up, Stop during a running command, a resumed conversation after a restart, and background work that Moxxy lists and stops: a command Claude or Codex left running, a subagent OpenCode left working (OpenCode has no background commands). It uses a little of each account; the report lands in `.live-reports/`.
+
+**Before merging into `development`, run `pnpm test:agents:live` on the exact code being merged, and before every release.** Put the report's commit, the CLI versions and every result in the PR or the hand-off. An agent that could not be checked (not installed, not signed in) is reported as **not checked** — never as passing — and a `FAIL` blocks the merge until it is fixed or the owner accepts it in writing.
+
+Every PR into `development` carries the box "I ran `pnpm test:agents:live` on this PR's latest commit" from `.github/pull_request_template.md`. An agent opening a PR with its own `--body` copies that line in, unticked; whoever ran the check ticks it. Until then the `Agent live check confirmed` check (`.github/workflows/agent-live-confirmed.yml`) is red. It is a reminder, not a lock: branch protection does not require it, so Merge stays possible and the release workflow, which pushes without a PR, never meets it. Dependabot PRs skip it.
+
 ## Releasing (changesets)
 
 Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every feature PR (→ `development`) must include a changeset — CI (the `Changeset present` job) fails it without one.** A change that releases nothing (docs / CI / tests) still needs one: add an empty changeset with `pnpm changeset --empty`. (There is no separate release PR — the daily Release workflow versions and ships whatever changesets merged to `development` that day.)
@@ -216,6 +228,8 @@ pnpm -r typecheck         # typecheck every package
 pnpm -r test              # run every test suite
 pnpm --filter <pkg> test  # run a single package's tests
 pnpm check:deps           # enforce architectural invariants
+pnpm test:agents:compat   # agent CLIs still speak what the connections expect (no sign-in)
+pnpm test:agents:live     # real turns through Claude Code / Codex / OpenCode — before merging
 
 # Try the CLI:
 node packages/cli/dist/bin.js --help

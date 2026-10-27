@@ -5,7 +5,7 @@ import type { Skill, SkillFrontmatter } from './skill.js';
 import { insertMention, mentionedSkills, mentionOptions, mentionQueryAt, skillAttachment, withoutTools } from './skill-mentions.js';
 import type { SkillInfo } from './session-like.js';
 import { defineTool } from './define.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 const skill = (frontmatter: Omit<SkillFrontmatter, 'description'>, body = 'Do it on the desktop.'): Skill => ({
   id: asSkillId(`plugin/${frontmatter.name}`),

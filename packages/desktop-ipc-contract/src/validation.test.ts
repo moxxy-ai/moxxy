@@ -1,9 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { validateIpcInput, ipcInputSchemas } from './validation.js';
-import { REMOTE_ALLOWED_COMMANDS } from './index.js';
 import type { IpcCommandName } from './index.js';
 
 describe('IPC payload validation', () => {
+  it('has no collaboration commands, since collaborative mode was removed', () => {
+    expect(Object.keys(ipcInputSchemas).filter((name) => name.startsWith('collab.'))).toEqual([]);
+  });
+  it('has no mobile gateway commands, since the mobile app was removed', () => {
+    expect(Object.keys(ipcInputSchemas).filter((name) => name.startsWith('mobileGateway.'))).toEqual([]);
+  });
   it('requires exact workspace, session and turn for Computer Use human commands', () => {
     const command = 'computer.control' as IpcCommandName;
     const args = {workspaceId:'workspace',sessionId:'session',turnId:'turn',command:'stop'};
@@ -26,6 +31,18 @@ describe('IPC payload validation', () => {
       'voice.installLocalPiper' as IpcCommandName,
       { packageName: 'attacker-controlled-package' },
     )).toThrow();
+  });
+
+  it('accepts no payload for the fixed transcription switch commands', () => {
+    for (const command of [
+      'voice.getTranscription',
+      'voice.useLocalTranscription',
+      'voice.cancelLocalTranscription',
+      'voice.useCloudTranscription',
+    ] as IpcCommandName[]) {
+      expect(() => validateIpcInput(command, undefined)).not.toThrow();
+      expect(() => validateIpcInput(command, { packageName: 'attacker-controlled-package' })).toThrow();
+    }
   });
 
   it('requires a strict boolean for the local realtime voice-capture lease', () => {
@@ -78,6 +95,25 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput(command, { ...args, path: '/etc/passwd' })).toThrow();
   });
 
+  it('asks for a chat media library by workspace only', () => {
+    expect(() => validateIpcInput('chat.media', { workspaceId: 'w1' })).not.toThrow();
+    expect(() => validateIpcInput('chat.media', { workspaceId: '' })).toThrow();
+    expect(() => validateIpcInput('chat.media', { workspaceId: 'w1', dir: '/tmp' })).toThrow();
+  });
+
+  it('names a library item by its id, never by a path', () => {
+    for (const command of ['chat.mediaThumbnail', 'chat.openMediaFile'] as const) {
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: 'a:4:0' })).not.toThrow();
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: '' })).toThrow();
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: 'x'.repeat(201) })).toThrow();
+      expect(() => validateIpcInput(command, { workspaceId: 'w1', id: 'a:4:0', path: '/etc/passwd' })).toThrow();
+    }
+    const read = { workspaceId: 'w1', id: 't:9:1', offset: 0 };
+    expect(() => validateIpcInput('chat.readMediaImage', read)).not.toThrow();
+    expect(() => validateIpcInput('chat.readMediaImage', { ...read, offset: -4 })).toThrow();
+    expect(() => validateIpcInput('chat.readMediaImage', { ...read, offset: 0.5 })).toThrow();
+  });
+
   it('rejects non-http(s) openExternal URLs', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'https://ok.com' })).not.toThrow();
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'file:///etc/passwd' })).toThrow();
@@ -88,6 +124,21 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: 'openai-codex' })).not.toThrow();
     expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: '--flag' })).toThrow();
     expect(() => validateIpcInput('onboarding.saveProviderKey', { provider: '../x', secret: 'k' })).toThrow();
+  });
+
+  it("runs only an agent CLI's install or update, by connection name", () => {
+    expect(() => validateIpcInput('agents.run', { provider: 'codex-agent', action: 'install' })).not.toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: 'claude-code', action: 'update' })).not.toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: 'codex-agent', action: 'uninstall' })).toThrow();
+    expect(() => validateIpcInput('agents.run', { provider: '; rm -rf /', action: 'install' })).toThrow();
+    expect(() => validateIpcInput('agents.check', undefined)).not.toThrow();
+    expect(() => validateIpcInput('agents.check', { workspaceId: '' })).toThrow();
+  });
+
+  it('remembers a dismissed agent update by connection and version only', () => {
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { 'codex-agent': '0.162.1' } })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { '../x': '0.162.1' } })).toThrow();
+    expect(() => validateIpcInput('prefs.update', { dismissedAgentUpdates: { opencode: 'v'.repeat(65) } })).toThrow();
   });
 
   it('guards interactive-login ids + bounds the pasted answer', () => {
@@ -147,6 +198,14 @@ describe('IPC payload validation', () => {
     expect(() =>
       validateIpcInput('session.synthesize', { text: 'Hello', language: 'en', sneaky: true }),
     ).toThrow();
+  });
+
+  it('lets read-aloud ask to keep its speech, and asks only a workspace for the plan', () => {
+    expect(() => validateIpcInput('session.synthesize', { text: 'Hello.', cache: true })).not.toThrow();
+    expect(() => validateIpcInput('session.synthesize', { text: 'Hello.', cache: 'yes' })).toThrow();
+    expect(() => validateIpcInput('session.readAloudPlan', undefined)).not.toThrow();
+    expect(() => validateIpcInput('session.readAloudPlan', { workspaceId: 'workspace-1' })).not.toThrow();
+    expect(() => validateIpcInput('session.readAloudPlan', { workspaceId: 'workspace-1', extra: 1 })).toThrow();
   });
 
   it('validates speech cancellation IDs and selected Gemini voice IDs', () => {
@@ -332,20 +391,21 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('session.setAutoApprove', {})).toThrow();
   });
 
-  it('requires a strict boolean for mobileGateway.setEnabled', () => {
-    expect(() => validateIpcInput('mobileGateway.setEnabled', { enabled: true })).not.toThrow();
-    expect(() => validateIpcInput('mobileGateway.setEnabled', { enabled: 'yes' })).toThrow();
-    expect(() => validateIpcInput('mobileGateway.setEnabled', {})).toThrow();
-    // .strict() rejects extra keys (a hostile caller can't smuggle fields).
-    expect(() =>
-      validateIpcInput('mobileGateway.setEnabled', { enabled: true, evil: 1 }),
-    ).toThrow();
+  it('takes an answer to a question as chosen option ids and bounded words of the person own', () => {
+    const answer = (answers: unknown) => () =>
+      validateIpcInput('session.answerQuestion', { workspaceId: 'ws', questionId: 'q-1', answers });
+    expect(answer({ q1: { selected: ['o1'] } })).not.toThrow();
+    expect(answer({ q1: { selected: [], other: 'Teal' } })).not.toThrow();
+    expect(answer({ q1: { selected: 'o1' } })).toThrow();
+    expect(answer({ q1: { selected: [], other: 'x'.repeat(10_001) } })).toThrow();
+    expect(answer({ q1: { selected: ['o1'], extra: true } })).toThrow();
+    expect(() => validateIpcInput('session.answerQuestion', { questionId: '', answers: {} })).toThrow();
   });
 
-  it('pins mobileGateway.status / rotateToken to no payload', () => {
-    expect(() => validateIpcInput('mobileGateway.status', undefined)).not.toThrow();
-    expect(() => validateIpcInput('mobileGateway.rotateToken', undefined)).not.toThrow();
-    expect(() => validateIpcInput('mobileGateway.status', { sneaky: 1 })).toThrow();
+  it('takes the id of one background work to stop', () => {
+    expect(() => validateIpcInput('session.stopBackgroundWork', { workspaceId: 'ws', workId: 'b1' })).not.toThrow();
+    expect(() => validateIpcInput('session.stopBackgroundWork', { workId: '' })).toThrow();
+    expect(() => validateIpcInput('session.stopBackgroundWork', { workId: 'x'.repeat(257) })).toThrow();
   });
 
   it('bounds local focus-window movement and resize payloads', () => {
@@ -407,14 +467,18 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('prefs.update', { systemNotifications: 'banner' })).toThrow();
   });
 
+  it('allows in-app toasts to be switched in prefs.update', () => {
+    expect(() => validateIpcInput('prefs.update', { inAppToasts: false })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { inAppToasts: 'corner' })).toThrow();
+  });
+
   it('takes no arguments for window.presence', () => {
     expect(() => validateIpcInput('window.presence', undefined)).not.toThrow();
     expect(() => validateIpcInput('window.presence', { sneaky: true })).toThrow();
   });
 
-  it('allows mobileGatewayEnabled in prefs.update', () => {
-    expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: true })).not.toThrow();
-    expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: 'x' })).toThrow();
+  it('rejects the removed mobileGatewayEnabled in prefs.update', () => {
+    expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: true })).toThrow();
   });
 
   it('whitelists theme in prefs.update to the three known values', () => {
@@ -447,7 +511,7 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
-  it('bounds the remote-reachable session.abortTurn turnId', () => {
+  it('bounds the session.abortTurn turnId', () => {
     // Valid: a short turn id, with or without an explicit workspaceId.
     expect(() =>
       validateIpcInput('session.abortTurn', { turnId: 't-123' }),
@@ -467,7 +531,7 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
-  it('bounds the remote-reachable session.info workspaceId', () => {
+  it('bounds the session.info workspaceId', () => {
     // Valid: no arg (active workspace) or a bounded workspaceId.
     expect(() => validateIpcInput('session.info', undefined)).not.toThrow();
     expect(() => validateIpcInput('session.info', {})).not.toThrow();
@@ -479,7 +543,7 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('session.info', { workspaceId: '' })).toThrow();
   });
 
-  it('bounds the remote-reachable session.activeTurn workspaceId', () => {
+  it('bounds the session.activeTurn workspaceId', () => {
     expect(() => validateIpcInput('session.activeTurn', undefined)).not.toThrow();
     expect(() => validateIpcInput('session.activeTurn', {})).not.toThrow();
     expect(() =>
@@ -491,7 +555,7 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('session.activeTurn', { workspaceId: '' })).toThrow();
   });
 
-  it('bounds the remote-reachable sessions.list deskId', () => {
+  it('bounds the sessions.list deskId', () => {
     // Valid: no arg (active desk) or a bounded deskId.
     expect(() => validateIpcInput('sessions.list', undefined)).not.toThrow();
     expect(() => validateIpcInput('sessions.list', {})).not.toThrow();
@@ -500,25 +564,6 @@ describe('IPC payload validation', () => {
       validateIpcInput('sessions.list', { deskId: 'd'.repeat(257) }),
     ).toThrow();
     expect(() => validateIpcInput('sessions.list', { deskId: '' })).toThrow();
-  });
-
-  it('schematizes every remote-reachable, arg-carrying command', () => {
-    // Commands reachable over the WS bridge that accept a structured payload
-    // MUST have a bounded schema so a hostile remote can't send garbage. The
-    // few genuinely no-arg ones (probes / non-mutating reads with no payload)
-    // are allow-listed here.
-    const NO_ARG: ReadonlySet<string> = new Set([
-      'connection.snapshotAll',
-      'connection.activeWorkspace',
-      'connection.retry',
-      'session.hasTranscriber',
-      'scheduler.list',
-      'workflows.list',
-    ]);
-    for (const cmd of REMOTE_ALLOWED_COMMANDS) {
-      if (NO_ARG.has(cmd)) continue;
-      expect(ipcInputSchemas[cmd], `missing schema for remote command "${cmd}"`).toBeDefined();
-    }
   });
 
   it('confines apps.* appId to a non-traversing slug', () => {
@@ -655,35 +700,24 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('connection.snapshotAll', undefined)).not.toThrow();
   });
 
-  it('pins the remote-reachable desks.list command to no payload', () => {
+  it('pins desks.list to no payload', () => {
     expect(() => validateIpcInput('desks.list', undefined)).not.toThrow();
     expect(() => validateIpcInput('desks.list', { sneaky: 1 })).toThrow();
   });
 
-  it('bounds the remote-reachable desks.setActive id', () => {
+  it('bounds the desks.setActive id', () => {
     expect(() => validateIpcInput('desks.setActive', { id: 'desk-1' })).not.toThrow();
     expect(() => validateIpcInput('desks.setActive', { id: '' })).toThrow();
     expect(() => validateIpcInput('desks.setActive', { id: 'd'.repeat(257) })).toThrow();
   });
 
-  it('allows remote mobile clients to list/switch desks without destructive workspace access', () => {
-    expect(REMOTE_ALLOWED_COMMANDS.has('desks.list')).toBe(true);
-    expect(REMOTE_ALLOWED_COMMANDS.has('desks.setActive')).toBe(true);
-    expect(REMOTE_ALLOWED_COMMANDS.has('desks.create')).toBe(false);
-    expect(REMOTE_ALLOWED_COMMANDS.has('desks.remove')).toBe(false);
-    expect(REMOTE_ALLOWED_COMMANDS.has('desks.pickFolder')).toBe(false);
-    expect(REMOTE_ALLOWED_COMMANDS.has('sessions.remove')).toBe(false);
-  });
-
-  it('allows paired mobile clients to switch the active model provider', () => {
-    expect(REMOTE_ALLOWED_COMMANDS.has('session.setProvider')).toBe(true);
+  it('accepts a provider switch for a workspace', () => {
     expect(() =>
       validateIpcInput('session.setProvider', { workspaceId: 'workspace-1', provider: 'openai-codex' }),
     ).not.toThrow();
   });
 
-  it('allows paired mobile clients to switch the shared active model', () => {
-    expect(REMOTE_ALLOWED_COMMANDS.has('session.setModel')).toBe(true);
+  it('bounds the model a workspace switches to', () => {
     expect(() =>
       validateIpcInput('session.setModel', { workspaceId: 'workspace-1', model: 'gpt-5.4' }),
     ).not.toThrow();
@@ -705,18 +739,13 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
-  it('allows paired mobile clients to toggle session-scoped auto-approve', () => {
-    expect(REMOTE_ALLOWED_COMMANDS.has('session.setAutoApprove')).toBe(true);
+  it('accepts a session-scoped auto-approve toggle', () => {
     expect(() =>
       validateIpcInput('session.setAutoApprove', { workspaceId: 'workspace-1', enabled: true }),
     ).not.toThrow();
   });
 
-  it('allows paired mobile clients to manage existing scheduler entries with bounded ids', () => {
-    expect(REMOTE_ALLOWED_COMMANDS.has('scheduler.list' as never)).toBe(true);
-    expect(REMOTE_ALLOWED_COMMANDS.has('scheduler.setEnabled' as never)).toBe(true);
-    expect(REMOTE_ALLOWED_COMMANDS.has('scheduler.delete' as never)).toBe(true);
-
+  it('bounds the ids of existing scheduler entries', () => {
     expect(() =>
       validateIpcInput('scheduler.setEnabled' as never, { id: 'daily-summary', enabled: false }),
     ).not.toThrow();

@@ -63,15 +63,12 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/mode-plan': { hardRequirements: false, reason: 'read-only planner owns a mode-local plan_complete contract' },
   '@moxxy/mode-goal': { hardRequirements: false, reason: 'mode ships its own goal_complete/goal_abandon tools; no hard plugin dependency' },
   '@moxxy/mode-deep-research': { hardRequirements: false, reason: 'research mode needs @moxxy/plugin-subagents at runtime; surfaced as fatal error if absent' },
-  '@moxxy/mode-collaborative': { hardRequirements: false, reason: 'coordinator spawns separate agent processes; needs @moxxy/plugin-collab at runtime, surfaced if absent' },
-  '@moxxy/plugin-collab': { hardRequirements: false, reason: 'collaboration hub + tools; inert outside a collaboration' },
   '@moxxy/compactor-summarize': { hardRequirements: false, reason: 'compactor has no plugin dependency' },
   '@moxxy/compactor-segments': { hardRequirements: false, reason: 'compactor has no plugin dependency' },
   '@moxxy/cache-strategy-stable-prefix': { hardRequirements: false, reason: 'cache strategy has no plugin dependency' },
   '@moxxy/plugin-vault': { hardRequirements: false, reason: 'vault is the base secret store' },
   '@moxxy/plugin-cli': { hardRequirements: false, reason: 'TUI channel is standalone' },
   '@moxxy/plugin-channel-http': { hardRequirements: false, reason: 'HTTP channel is standalone' },
-  '@moxxy/plugin-channel-mobile': { hardRequirements: false, reason: 'mobile WS bridge is standalone; token auto-generated' },
   '@moxxy/plugin-computer-control': { hardRequirements: false, reason: 'platform constraints are handled by tools' },
   '@moxxy/plugin-oauth': { hardRequirements: false, reason: 'vault is injected by bootstrap closure' },
   '@moxxy/plugin-commands': { hardRequirements: false, reason: 'slash commands have no plugin dependency' },
@@ -161,7 +158,7 @@ function buildCategoryViews(session: Session): ReadonlyArray<CategoryView> {
       category,
       active,
       floor: r.getFloorName?.() ?? null,
-      // Special modes (e.g. the collaborative system) are not swap-default
+      // Special modes are not swap-default
       // targets — drop them from the swap axis. Harmless for non-mode kinds
       // (their defs carry no `special`).
       items: r.list().filter(isSelectableMode).map((d) => ({ name: d.name, isDefault: d.name === active })),

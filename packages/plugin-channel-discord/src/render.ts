@@ -1,4 +1,22 @@
-import { assertDefined, type MoxxyEvent } from '@moxxy/sdk';
+import {
+  assertDefined,
+  fileDiffSummary,
+  fileDiffVerb,
+  isFileDiffDisplay,
+  type FileDiffDisplay,
+  type MoxxyEvent,
+  type StepListDisplay,
+  type ToolImage,
+} from '@moxxy/sdk';
+import {
+  STEP_MARKS,
+  TurnAgentWork,
+  agentComputerText,
+  imagesLine,
+  stepListHeading,
+  unifiedDiffText,
+  usedUpLimitText,
+} from '@moxxy/channel-kit';
 
 /**
  * Discord messages cap at 2000 chars; leave margin for the fence-reopen text a
@@ -15,10 +33,16 @@ export const DISCORD_MESSAGE_LIMIT = 1_900;
  *
  * Structure of a frame:
  *
+ *   > 🖥 **Codex is using your computer · Arc** — send /cancel to stop
+ *   > 📋 **Steps · 1 of 3 done**
+ *   > ✓ first step …
  *   > -  `tool_name` (args) — done 0.4s
  *   > -  `another_tool` (args) — running…
  *
  *   <assistant body>
+ *
+ *   **Update src/app.ts** — Added 1 line, removed 1 line
+ *   ```diff …```
  *
  *   <error if any>
  */
@@ -29,9 +53,15 @@ type ToolStatus =
   | { kind: 'denied'; reason: string };
 
 interface ToolEntry {
+  readonly id: string;
   readonly name: string;
   readonly inputPreview: string;
   status: ToolStatus;
+}
+
+export interface DiscordTurnRendererOptions {
+  /** The name of the agent of the session's active agent connection ("Codex"), read when a frame is drawn. */
+  readonly agentName?: () => string | undefined;
 }
 
 export class DiscordTurnRenderer {
@@ -39,11 +69,21 @@ export class DiscordTurnRenderer {
   private finalAssistant: string | null = null;
   private readonly tools = new Map<string, ToolEntry>();
   private notices: string[] = [];
+  /** One summary line + diff fence per file-diff tool result, in arrival order. */
+  private diffBlocks: string[] = [];
   private errorLine: string | null = null;
+  /** The step list, images and computer use of the turn, as every channel reads them. */
+  private readonly work = new TurnAgentWork();
+  private readonly agentName: () => string | undefined;
   private lastFrame = '';
+
+  constructor(opts: DiscordTurnRendererOptions = {}) {
+    this.agentName = opts.agentName ?? (() => undefined);
+  }
 
   /** Returns true when the event changed the frame (schedule an edit). */
   accept(event: MoxxyEvent): boolean {
+    this.work.accept(event);
     switch (event.type) {
       case 'assistant_chunk':
         this.chunks.push(event.delta);
@@ -54,6 +94,7 @@ export class DiscordTurnRenderer {
         break;
       case 'tool_call_requested':
         this.tools.set(String(event.callId), {
+          id: String(event.callId),
           name: event.name,
           inputPreview: previewArgs(event.input),
           status: { kind: 'pending', startedAt: Date.now() },
@@ -76,11 +117,24 @@ export class DiscordTurnRenderer {
               ms,
               message: `${event.error?.kind ?? 'error'}: ${event.error?.message ?? ''}`,
             };
+        const display = (event.output as { display?: unknown } | undefined)?.display;
+        if (event.ok && isFileDiffDisplay(display)) this.diffBlocks.push(renderFileDiff(display));
         break;
       }
       case 'skill_invoked':
         this.notices.push(`💡 skill: **${event.name}**`);
         break;
+      case 'plugin_event': {
+        if (event.pluginId === '@moxxy/subagents' && event.subtype === 'subagent_started') {
+          const payload = (event.payload ?? {}) as Record<string, unknown>;
+          const label = typeof payload.label === 'string' ? payload.label : 'agent';
+          this.notices.push(`🤖 spawned agent **${label}**`);
+        }
+        // The agent's used-up account limit ends the turn in place of an error.
+        const limit = usedUpLimitText(event);
+        if (limit) this.errorLine = `⛔ **${limit}**`;
+        break;
+      }
       case 'error':
         this.errorLine = `❗ **${event.kind}**: ${event.message}`;
         break;
@@ -93,12 +147,17 @@ export class DiscordTurnRenderer {
     return changed;
   }
 
-  snapshot(): string {
+  /**
+   * The frame as it stands. `final` (the last flush, once the turn is over)
+   * drops what is only true while the turn runs: the agent using the computer.
+   */
+  snapshot(opts: { final?: boolean } = {}): string {
     const parts: string[] = [];
-    const activity = this.renderActivity();
+    const activity = this.renderActivity(opts.final ?? false);
     if (activity) parts.push(activity);
     const body = this.finalText();
     if (body) parts.push(body);
+    parts.push(...this.diffBlocks);
     if (this.errorLine) parts.push(this.errorLine);
     return parts.join('\n\n').trim();
   }
@@ -109,18 +168,32 @@ export class DiscordTurnRenderer {
     return (this.finalAssistant ?? this.chunks.join('')).trim();
   }
 
+  /** The images tools returned this turn, each once, for the channel to send after the reply. */
+  images(): ReadonlyArray<ToolImage> {
+    return this.work.images;
+  }
+
   reset(): void {
+    this.work.reset();
     this.chunks = [];
     this.finalAssistant = null;
     this.tools.clear();
     this.notices = [];
+    this.diffBlocks = [];
     this.errorLine = null;
     this.lastFrame = '';
   }
 
-  private renderActivity(): string | null {
+  private renderActivity(final: boolean): string | null {
     const lines: string[] = [];
-    const tools = [...this.tools.values()];
+    const computer = this.work.computerUse;
+    if (computer && !final) {
+      lines.push(`🖥 **${agentComputerText(computer, this.agentName())}** — send /cancel to stop`);
+    }
+    const steps = this.work.stepList;
+    if (steps) lines.push(...stepListLines(steps));
+    // A call that changed the list of steps shows in the list, not as a tool line.
+    const tools = [...this.tools.values()].filter((t) => !this.work.isStepListCall(t.id));
     const visible = tools.slice(-10);
     const hidden = tools.length - visible.length;
     if (hidden > 0) lines.push(`… ${hidden} earlier tool call${hidden === 1 ? '' : 's'} hidden`);
@@ -128,10 +201,34 @@ export class DiscordTurnRenderer {
       const args = t.inputPreview ? ` (${t.inputPreview})` : '';
       lines.push(`- \`${t.name}\`${args} — ${statusBadge(t.status)}`);
     }
+    const images = this.work.images.length;
+    if (images > 0) lines.push(`🖼 ${imagesLine(images)}`);
     for (const n of this.notices.slice(-5)) lines.push(n);
     if (lines.length === 0) return null;
     return lines.map((l) => `> ${l}`).join('\n');
   }
+}
+
+/** An agent's list of steps: its heading, an optional reason it changed, then one marked line per step. */
+function stepListLines(list: StepListDisplay): string[] {
+  const lines = [`📋 **${stepListHeading(list)}**`];
+  if (list.explanation) lines.push(`*${list.explanation}*`);
+  for (const step of list.steps) {
+    const shown = step.status === 'in_progress' ? `**${step.text}**` : step.status === 'cancelled' ? `~~${step.text}~~` : step.text;
+    lines.push(`${STEP_MARKS[step.status]} ${shown}`);
+  }
+  return lines;
+}
+
+/**
+ * One file-diff tool result: a bold summary line, then the change as a
+ * ```diff fence (Discord colours its `+`/`-` lines). A diff cut down to its
+ * counts (no hunks) shows the summary line alone.
+ */
+function renderFileDiff(d: FileDiffDisplay): string {
+  const header = `**${fileDiffVerb(d)} ${d.path}** — ${fileDiffSummary(d)}`;
+  const diffText = unifiedDiffText(d);
+  return diffText ? `${header}\n\`\`\`diff\n${diffText}\n\`\`\`` : header;
 }
 
 function statusBadge(status: ToolStatus): string {

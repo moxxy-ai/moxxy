@@ -16,6 +16,7 @@
 
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { PATH_FALLBACK_ENV } from '@moxxy/agent-connection-kit';
 import { compareSemver, z } from '@moxxy/sdk';
 import path from 'node:path';
 import { delimiter } from 'node:path';
@@ -122,19 +123,54 @@ export function augmentedPaths(platform: NodeJS.Platform = process.platform): st
     if (nvmSymlink) out.push(nvmSymlink);
   }
   const home = process.env.HOME;
-  if (home) {
-    const nvmVersions = path.join(home, '.nvm', 'versions', 'node');
-    if (existsSync(nvmVersions)) {
-      try {
-        for (const v of readdirSync(nvmVersions)) {
-          out.push(path.join(nvmVersions, v, 'bin'));
-        }
-      } catch {
-        /* ignore */
-      }
+  const nvmDir = process.env.NVM_DIR?.trim() || (home ? path.join(home, '.nvm') : '');
+  if (nvmDir) out.push(...nvmBinDirs(nvmDir));
+  return out;
+}
+
+/**
+ * The bin folder of every node version nvm installed: the one a new terminal
+ * gets (nvm's `default` alias) first, then the rest newest first. A GUI launch
+ * then finds the same `opencode` / `npm` the terminal would, not whichever
+ * version sorts first by name.
+ */
+function nvmBinDirs(nvmDir: string): string[] {
+  const versionsDir = path.join(nvmDir, 'versions', 'node');
+  let versions: string[];
+  try {
+    versions = readdirSync(versionsDir);
+  } catch {
+    return [];
+  }
+  const byNewest = [...versions].sort((a, b) => compareSemver(bareVersion(b), bareVersion(a)));
+  const preferred = nvmDefaultVersion(nvmDir, byNewest);
+  const ordered = preferred ? [preferred, ...byNewest.filter((v) => v !== preferred)] : byNewest;
+  return ordered.map((v) => path.join(versionsDir, v, 'bin'));
+}
+
+const bareVersion = (version: string): string => (version.startsWith('v') ? version.slice(1) : version);
+
+/**
+ * The installed version nvm's `default` alias stands for. Like nvm, it follows
+ * an alias naming another (`lts/*` → `lts/jod` → `v22.22.0`), reads `node` and
+ * `stable` as the newest, and a partial version (`22`) as its newest install.
+ */
+function nvmDefaultVersion(nvmDir: string, byNewest: readonly string[]): string | undefined {
+  let spec = 'default';
+  for (let hop = 0; hop < 8; hop += 1) {
+    if (spec === 'node' || spec === 'stable') return byNewest[0];
+    if (/^v?\d+(\.\d+){0,2}$/.test(spec)) {
+      const want = bareVersion(spec);
+      return byNewest.find((v) => bareVersion(v) === want || bareVersion(v).startsWith(`${want}.`));
+    }
+    if (spec.split('/').includes('..')) return undefined;
+    try {
+      spec = readFileSync(path.join(nvmDir, 'alias', spec), 'utf8').trim();
+    } catch {
+      return undefined;
     }
   }
-  return out;
+  return undefined;
 }
 
 /**
@@ -160,6 +196,16 @@ export function spawnPath(
     ...augmentedPaths(platform),
   ].filter(Boolean);
   return [...new Set(dirs)].join(delimiter);
+}
+
+/**
+ * The folders {@link spawnPath} adds only for a GUI launch: those of
+ * {@link augmentedPaths} the PATH does not have yet. One the terminal's PATH
+ * already has stays where the terminal put it and is not a fallback.
+ */
+export function fallbackPathDirs(platform: NodeJS.Platform = process.platform): string[] {
+  const have = new Set((process.env.PATH ?? '').split(delimiter).filter(Boolean));
+  return [...new Set(augmentedPaths(platform))].filter((dir) => !have.has(dir));
 }
 
 /**
@@ -224,7 +270,13 @@ export function spawnCli(
   opts: { env?: NodeJS.ProcessEnv; stdio?: SpawnOptions['stdio']; cwd?: string } = {},
 ): ChildProcess {
   const cliDir = cli.kind === 'direct' ? path.dirname(cli.bin) : path.dirname(cli.entry);
-  const env = { ...process.env, ...opts.env, PATH: spawnPath([cliDir]) };
+  const env = {
+    ...process.env,
+    ...opts.env,
+    PATH: spawnPath([cliDir]),
+    // An agent CLI in these is found after the copy its vendor's installer put in place.
+    [PATH_FALLBACK_ENV]: fallbackPathDirs().join(delimiter),
+  };
   const spawnOpts: SpawnOptions = { env, stdio: opts.stdio ?? ['ignore', 'pipe', 'pipe'] };
   if (opts.cwd) spawnOpts.cwd = opts.cwd;
   if (cli.kind === 'direct') {

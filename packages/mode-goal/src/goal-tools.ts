@@ -1,5 +1,5 @@
 import { defineTool } from '@moxxy/sdk';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { GOAL_ABANDON_TOOL, GOAL_COMPLETE_TOOL, GOAL_MODE_NAME } from './constants.js';
 

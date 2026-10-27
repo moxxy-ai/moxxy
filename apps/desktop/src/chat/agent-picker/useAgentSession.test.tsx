@@ -259,7 +259,9 @@ describe("useAgentSession in a bot's chat (the bot owns the model)", () => {
   });
 
   it("saves a model picked in the header as the bot's model", async () => {
-    const invoke = installInfoSequence([info]);
+    const invoke = installInfoSequence([
+      { ...info, providers: [{ name: 'openai-codex', models: [{ id: 'gpt-5' }, { id: 'gpt-5-mini' }], starterModel: 'gpt-5-mini' }] },
+    ]);
     const pick = vi.fn(async () => undefined);
     render(<Probe workspaceId="moxxy-channel-telegram" disabled={false} modelOwner={{ pick }} />);
 
@@ -268,8 +270,8 @@ describe("useAgentSession in a bot's chat (the bot owns the model)", () => {
 
     await waitFor(() => expect(pick).toHaveBeenCalledTimes(2));
     expect(pick).toHaveBeenNthCalledWith(1, 'openai-codex', 'gpt-5');
-    // A provider alone means its first model — a bot's model always names one.
-    expect(pick).toHaveBeenNthCalledWith(2, 'openai-codex', 'gpt-5');
+    // A provider alone means the model a new conversation starts on — a bot's model always names one.
+    expect(pick).toHaveBeenNthCalledWith(2, 'openai-codex', 'gpt-5-mini');
     expect(invoke.mock.calls.map(([cmd]) => cmd)).not.toContain('session.setProvider');
   });
 });

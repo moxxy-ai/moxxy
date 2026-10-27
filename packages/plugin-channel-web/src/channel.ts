@@ -427,7 +427,7 @@ export class WebChannel implements Channel<WebStartOpts> {
     if (!provider || provider.name === 'localhost') return;
     try {
       // Route the preview under the `web` path so the relay can multiplex it
-      // alongside the mobile bridge under one uuid subdomain.
+      // alongside other tunnelled services under one uuid subdomain.
       this.tunnel = await provider.open({ port: this.port, host: this.host, label: 'web' });
       this.tunnelBase = this.tunnel.url;
       this.basePath = basePathFromUrl(this.tunnel.url);

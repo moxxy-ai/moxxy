@@ -286,7 +286,7 @@ export class ImessageChannel implements Channel<ImessageStartOpts> {
    * #8) and while a turn of ours is streaming via the chunked sender.
    */
   private mirrorForeignTurn(event: MoxxyEvent): void {
-    const text = this.turns.mirrorText(event);
+    const text = this.turns.mirrorReply(event);
     if (text == null) return;
     const chatGuid = this.lastChatGuid;
     if (!chatGuid || !this.client) return;

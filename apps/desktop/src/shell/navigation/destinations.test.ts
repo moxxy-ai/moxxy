@@ -6,11 +6,9 @@ import { DESTINATIONS, RUNNER_LOCKED_REASON, isRunnerLocked, viewOf } from './de
 const EVERY_VIEW: Record<View, true> = {
   chat: true,
   extensions: true,
-  collaborate: true,
   automations: true,
   apps: true,
   channels: true,
-  mobile: true,
   settings: true,
 };
 
@@ -25,11 +23,9 @@ describe('destinations', () => {
     expect(DESTINATIONS.map((d) => d.label)).toEqual([
       'Runs',
       'Extensions',
-      'Collaborate',
       'Automations',
       'Apps',
       'Channels',
-      'Mobile',
       'Voice',
       'Settings',
     ]);
@@ -42,7 +38,7 @@ describe('destinations', () => {
 
   it('locks the places that need a loaded session, and says why', () => {
     const locked = DESTINATIONS.filter((d) => isRunnerLocked(d.id)).map((d) => d.id);
-    expect(locked).toEqual(['collaborate', 'automations', 'apps']);
+    expect(locked).toEqual(['automations', 'apps']);
     expect(RUNNER_LOCKED_REASON).toMatch(/loading this session/);
   });
 });

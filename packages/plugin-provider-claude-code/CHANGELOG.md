@@ -1,5 +1,66 @@
 # @moxxy/plugin-provider-claude-code
 
+## 0.45.0
+
+### Patch Changes
+
+- a8e8418: Claude Agent: the times Claude sets itself to come back (ScheduleWakeup, `/loop`, CronCreate) show above the message box ("Back at 22:59 · in 3 min") and under "Scheduled" in the Agents pane, read from Claude's own list (`SessionInfo.scheduledWakeups`, runner protocol 31); the turn it comes back in reads "Scheduled check-in". The Agents pane and the background line are drawn with the app's own pieces, and the desktop's close, warning, check, fit and broadcast marks are icons rather than text glyphs. The cron parser moved to `@moxxy/sdk/cron`.
+- 436496c: Agent connections can lend Moxxy's tools as a catalog of three small tools (`find_tools`, `describe_tools`, `call_tool`) instead of every tool one by one (`moxxyToolsHandler` / `idleToolsHandler` option `{ catalog: true }`). The catalog names the tool groups (an MCP server, or tools sharing a prefix such as `browser`), sorted so it reads the same however the tools were registered and the agent's prompt cache keeps matching; the agent looks a tool up and reads its input only when it wants it, and `call_tool` runs the real tool in the turn, so the chat shows that tool and never the catalog steps.
+
+  ChatGPT — Codex agent: Moxxy's tools now reach Codex as that catalog. Lent one by one, their full descriptions went with every request Codex made, tens of thousands of tokens once the person's MCP servers were set up. Codex's own tools, skills and MCP servers are unchanged.
+
+  Claude Agent: Moxxy's tools now reach Claude as that catalog too. Claude listed every one of them by name in each request, hundreds once the person's MCP servers were set up. Claude's own tools, skills and MCP servers are unchanged.
+
+- e5dfc56: Claude Agent: a turn Claude wakes itself up for (ScheduleWakeup, `/loop`) shows in the chat when it happens. Its result carries no origin, so Moxxy took it for the person's: from the second one on, each reply waited for the person's next message and answered it with the stale one.
+- 6f4d652: A new conversation no longer starts on the provider's biggest model when no default model is chosen. It starts on the provider's light starter model instead: Haiku 5.5 for Claude, GPT-6 Luna for Codex (both the agent connection and the ChatGPT sign-in). A default model chosen in Settings → Default model still comes first, and a conversation keeps the model it last ran on. Settings → Default model, the chat's effort and fast controls, a bot's "Default" model and the terminal's header now show the model that really runs, not the first one listed. The helper calls Moxxy makes by itself, outside the conversation, run on the starter model too instead of the biggest one: merging memories (`memory_consolidate`), drafting a workflow (`workflow_create`, unless the host sets a draft model) and the post-turn reflection.
+
+  The SDK adds `LLMProvider.starterModel`, `ProviderDef.starterModel`, `ProviderInfo.starterModel` and `startingModel()`. The runner protocol goes to v30 (`ProviderInfo.starterModel`, additive); an older runner leaves it out and surfaces fall back to the first listed model.
+
+- Updated dependencies [71f8aa8]
+- Updated dependencies [db33b95]
+- Updated dependencies [71e90e5]
+- Updated dependencies [84ff880]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [02119e8]
+- Updated dependencies [29841af]
+- Updated dependencies [211f80c]
+- Updated dependencies [49dd789]
+- Updated dependencies [90ab0bb]
+- Updated dependencies [cb494ef]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [887b8b7]
+- Updated dependencies [072b8b5]
+- Updated dependencies [a8e8418]
+- Updated dependencies [322f2ce]
+- Updated dependencies [7868760]
+- Updated dependencies [4af5560]
+- Updated dependencies [ee669b7]
+- Updated dependencies [436496c]
+- Updated dependencies [3c1527c]
+- Updated dependencies [178a215]
+- Updated dependencies [318d476]
+- Updated dependencies [7cc93a2]
+- Updated dependencies [6e54a6b]
+- Updated dependencies [1329245]
+- Updated dependencies [8472068]
+- Updated dependencies [deeeeea]
+- Updated dependencies [46b20d3]
+- Updated dependencies [9bfe644]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [7d718f6]
+- Updated dependencies [6f4d652]
+- Updated dependencies [d118b03]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [2160501]
+- Updated dependencies [2b9c87f]
+- Updated dependencies [332e4c2]
+- Updated dependencies [a06de31]
+- Updated dependencies [066a949]
+- Updated dependencies [fa44b8c]
+  - @moxxy/sdk@0.45.0
+  - @moxxy/agent-connection-kit@0.1.0
+  - @moxxy/plugin-browser@0.45.0
+
 ## 0.44.0
 
 ### Patch Changes

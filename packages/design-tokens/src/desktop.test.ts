@@ -80,7 +80,7 @@ describe.each(PALETTES)('desktop %s palette', (_name, desktop, shared) => {
   });
 });
 
-describe('desktop palettes leave the shared (mobile) palettes alone', () => {
+describe('desktop palettes leave the shared palettes alone', () => {
   it('is a separate object from the shared tokens', () => {
     expect(desktopTokens).not.toBe(tokens);
     expect(desktopDarkTokens).not.toBe(darkTokens);
@@ -119,7 +119,7 @@ describe('desktop frame', () => {
     expect(desktopTokens.frame.bar - desktopTokens.frame.control).toBeGreaterThanOrEqual(8);
   });
 
-  it('leaves the shared frame, which the mobile app reads, as it was', () => {
+  it('leaves the shared frame as it was', () => {
     expect(tokens.frame.index).toBe(244);
     expect(tokens.frame.bar).toBe(44);
   });

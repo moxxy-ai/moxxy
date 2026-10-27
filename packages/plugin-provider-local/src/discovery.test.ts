@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { discoverLocalModelDescriptors, discoverLocalModels } from './index.js';
+import { discoverLocalModelDescriptors, discoverLocalModels, localProviderDef } from './index.js';
 
 interface TestServer {
   readonly baseURL: string;
@@ -210,7 +210,7 @@ describe('discoverLocalModelDescriptors (Ollama only)', () => {
           supportsTools: true,
         },
       ]);
-      expect(server.requests).toEqual(['/v1/models', '/api/ps']);
+      expect(server.requests).toEqual(['/v1/models', '/api/ps', '/api/v1/models']);
     } finally {
       await server.close();
     }
@@ -248,6 +248,79 @@ describe('discoverLocalModelDescriptors (Ollama only)', () => {
         contextWindow: 8_192,
         supportsTools: false,
       });
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+// LM Studio 0.4+: `/api/v1/models` reports each loaded instance's real context length.
+describe('discoverLocalModelDescriptors (LM Studio)', () => {
+  const lmStudio = (models: unknown[]) => startServer((request, response) => {
+    if (request.url === '/v1/models') {
+      json(response, { data: [{ id: 'openai/gpt-oss-20b' }, { id: 'qwen/qwen3-vl-30b' }] });
+      return;
+    }
+    if (request.url === '/api/v1/models') {
+      json(response, { models });
+      return;
+    }
+    json(response, { error: 'Unexpected endpoint or method.' }, 404);
+  });
+
+  it('uses the context a model is loaded with, and what it can do, instead of guessing 8192', async () => {
+    const server = await lmStudio([
+      {
+        type: 'llm',
+        key: 'openai/gpt-oss-20b',
+        loaded_instances: [{ id: 'openai/gpt-oss-20b', config: { context_length: 65_536 } }],
+        max_context_length: 131_072,
+        capabilities: { vision: false, trained_for_tool_use: true },
+      },
+      {
+        type: 'llm',
+        key: 'qwen/qwen3-vl-30b',
+        loaded_instances: [],
+        max_context_length: 262_144,
+        capabilities: { vision: true, trained_for_tool_use: false },
+      },
+    ]);
+    try {
+      await expect(discoverLocalModelDescriptors({ baseURL: `${server.baseURL}/v1` })).resolves.toEqual([
+        { id: 'openai/gpt-oss-20b', contextWindow: 65_536, supportsTools: true, supportsStreaming: true },
+        // Not loaded yet: LM Studio picks the context when it loads it, so stay conservative until then.
+        { id: 'qwen/qwen3-vl-30b', contextWindow: 4_096, supportsTools: false, supportsStreaming: true, supportsImages: true },
+      ]);
+      expect(server.requests).toEqual(['/v1/models', '/api/ps', '/api/v1/models']);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('reads the loaded context again before a turn, once the model got loaded', async () => {
+    let loaded = false;
+    const server = await startServer((request, response) => {
+      if (request.url === '/api/v1/models') {
+        json(response, {
+          models: [{
+            type: 'llm',
+            key: 'openai/gpt-oss-20b',
+            loaded_instances: loaded ? [{ id: 'openai/gpt-oss-20b', config: { context_length: 32_768 } }] : [],
+            max_context_length: 131_072,
+            capabilities: { trained_for_tool_use: true },
+          }],
+        });
+        return;
+      }
+      json(response, { error: 'Unexpected endpoint or method.' }, 404);
+    });
+    try {
+      const provider = localProviderDef.createClient({ baseURL: `${server.baseURL}/v1` });
+      await provider.prepareModel?.('openai/gpt-oss-20b');
+      expect(provider.models.find((model) => model.id === 'openai/gpt-oss-20b')?.contextWindow).toBe(4_096);
+      loaded = true;
+      await provider.prepareModel?.('openai/gpt-oss-20b');
+      expect(provider.models.find((model) => model.id === 'openai/gpt-oss-20b')?.contextWindow).toBe(32_768);
     } finally {
       await server.close();
     }

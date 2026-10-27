@@ -57,6 +57,7 @@ export {
 // replaced ~/.moxxy/preferences.json (runtime provider/mode/model/disabled).
 export {
   applyInitConfig,
+  clearCategoryDefault,
   clearPluginState,
   defaultUserConfigPath,
   isPluginDisabled,

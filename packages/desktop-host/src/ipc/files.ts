@@ -31,24 +31,33 @@ export interface FilesHandlerDependencies {
   readonly showItemInFolder: (p: string) => void;
 }
 
-export function registerFilesHandlers(
-  dependencies: FilesHandlerDependencies = {
-    openPath: (p) => shell.openPath(p),
-    showItemInFolder: (p) => shell.showItemInFolder(p),
-  },
-): void {
-  handle('files.open', async ({ path: target }) => {
-    if (!path.isAbsolute(target)) throw new IpcError('invalid-payload', 'expected an absolute path');
-    const full = path.normalize(target);
-    const info = await stat(full).catch(() => null);
-    if (!info) throw new IpcError('runner-error', `file not found: ${full}`);
-    const ext = path.extname(full).slice(1).toLowerCase();
-    if (info.isFile() && OPENABLE.has(ext)) {
-      const error = await dependencies.openPath(full);
-      if (error) throw new IpcError('runner-error', error);
-      return { opened: 'app' as const };
-    }
-    dependencies.showItemInFolder(full);
-    return { opened: 'folder' as const };
-  });
+export const electronFiles: FilesHandlerDependencies = {
+  openPath: (p) => shell.openPath(p),
+  showItemInFolder: (p) => shell.showItemInFolder(p),
+};
+
+export function registerFilesHandlers(dependencies: FilesHandlerDependencies = electronFiles): void {
+  handle('files.open', ({ path: target }) => openLocalPath(target, dependencies));
+}
+
+/**
+ * Open a file on this computer by the rule above: its default app when that
+ * app only views or plays it, otherwise only shown in the file manager.
+ */
+export async function openLocalPath(
+  target: string,
+  dependencies: FilesHandlerDependencies,
+): Promise<{ opened: 'app' | 'folder' }> {
+  if (!path.isAbsolute(target)) throw new IpcError('invalid-payload', 'expected an absolute path');
+  const full = path.normalize(target);
+  const info = await stat(full).catch(() => null);
+  if (!info) throw new IpcError('runner-error', `file not found: ${full}`);
+  const ext = path.extname(full).slice(1).toLowerCase();
+  if (info.isFile() && OPENABLE.has(ext)) {
+    const error = await dependencies.openPath(full);
+    if (error) throw new IpcError('runner-error', error);
+    return { opened: 'app' };
+  }
+  dependencies.showItemInFolder(full);
+  return { opened: 'folder' };
 }

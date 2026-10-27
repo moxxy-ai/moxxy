@@ -11,6 +11,7 @@ import {
   type MoxxyEvent,
   type PluginEvent,
   type SkillInvokedEvent,
+  type StepStatus,
   type ToolCallDeniedEvent,
   type ToolCallRequestedEvent,
   type ToolCompactPresentation,
@@ -23,12 +24,17 @@ import {
   isFileDiffResult,
   isSettled,
   pairToolEvents,
+  questionAnswerOf,
+  stepListOf,
+  toolImagesResultOf,
+  turnStepList,
   type CompactToolMap,
 } from './pair-events.js';
+import { subagentState } from './format.js';
 import type {
-  CollaborationBlock,
   LiveToolBlockData,
   SkillScopeBlock,
+  StepListBlock,
   SubagentBlock,
   SubagentGroupBlock,
   ToolCallBlockData,
@@ -119,16 +125,6 @@ const subagentEvent = (subtype: string, payload: Record<string, unknown>): Plugi
   type: 'plugin_event',
   source: 'plugin',
   pluginId: asPluginId(SUBAGENT_PLUGIN_ID),
-  subtype,
-  payload,
-});
-
-const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
-const collabEvent = (subtype: string, payload: Record<string, unknown>): PluginEvent => ({
-  ...base(),
-  type: 'plugin_event',
-  source: 'plugin',
-  pluginId: asPluginId(COLLAB_PLUGIN_ID),
   subtype,
   payload,
 });
@@ -732,9 +728,41 @@ describe('pairToolEvents — file-edit tools', () => {
     const plain = pairToolEvents([toolRequest('b1', 'bash'), toolResult('b1', 'ok')]);
     expect(isFileDiffResult(asToolCall(plain[0]).outcome)).toBe(false);
   });
+
+  it('questionAnswerOf reads what the person chose from a settled ask_user result', () => {
+    const display = {
+      kind: 'question-answer' as const,
+      questions: [{ header: 'Colour', question: 'Which colour?', chosen: ['Blue'] }],
+    };
+    const blocks = pairToolEvents([
+      toolRequest('a1', 'ask_user'),
+      toolResult('a1', { forModel: 'The user answered: …', display }),
+    ]);
+    expect(questionAnswerOf(asToolCall(blocks[0]).outcome)).toEqual(display);
+    const plain = pairToolEvents([toolRequest('b1', 'bash'), toolResult('b1', 'ok')]);
+    expect(questionAnswerOf(asToolCall(plain[0]).outcome)).toBeNull();
+    expect(questionAnswerOf(null)).toBeNull();
+  });
+
+  it('toolImagesResultOf reads every image a settled result carries, and the text beside them', () => {
+    const blocks = pairToolEvents([
+      toolRequest('i1', 'mcp__cua_repl__js'),
+      toolResult('i1', { forModel: 'Two windows', mediaType: 'image/jpeg', base64: '/9j/AAA', moreImages: [{ mediaType: 'image/png', base64: 'iVBOR' }] }),
+    ]);
+    expect(toolImagesResultOf(asToolCall(blocks[0]).outcome)).toEqual({
+      images: [
+        { mediaType: 'image/jpeg', base64: '/9j/AAA' },
+        { mediaType: 'image/png', base64: 'iVBOR' },
+      ],
+      text: 'Two windows',
+    });
+    const plain = pairToolEvents([toolRequest('b2', 'bash'), toolResult('b2', 'ok')]);
+    expect(toolImagesResultOf(asToolCall(plain[0]).outcome)).toBeNull();
+    expect(toolImagesResultOf(null)).toBeNull();
+  });
 });
 
-describe('pairToolEvents — open live aggregate sealed by a subagent/collab start', () => {
+describe('pairToolEvents — open live aggregate sealed by a subagent start', () => {
   const asLiveBlock = (b: unknown): LiveToolBlockData => {
     const block = b as LiveToolBlockData;
     expect(block.kind).toBe('live-tools');
@@ -766,20 +794,6 @@ describe('pairToolEvents — open live aggregate sealed by a subagent/collab sta
     expect(second.calls.map((c) => c.request.callId)).toEqual(['r2']);
   });
 
-  it('seals the open live block when a collab run starts mid-aggregation', () => {
-    const blocks = pairToolEvents(
-      [
-        toolRequest('r1', 'read', { file_path: '/a.ts' }),
-        toolResult('r1'),
-        collabEvent('collab_started', { task: 'build', parallel: false }),
-        toolRequest('r2', 'read', { file_path: '/b.ts' }),
-        toolResult('r2'),
-      ],
-      compactMap,
-    );
-    expect(blocks.map((b) => b.kind)).toEqual(['live-tools', 'collab', 'live-tools']);
-    expect(asLiveBlock(blocks[0]).closed).toBe(true);
-  });
 });
 
 describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
@@ -799,46 +813,58 @@ describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
     // The stale event produced no new block (no matching started block post-clear).
     expect(blocks.filter((b) => b.kind === 'subagent-group')).toHaveLength(1);
   });
+
+  it("draws nothing for the agent's background work, and keeps the helpers around it in one group", () => {
+    const work = (subtype: string): PluginEvent => ({
+      ...base(),
+      type: 'plugin_event',
+      source: 'system',
+      pluginId: asPluginId('@moxxy/agent-connection'),
+      subtype,
+      payload: { provider: 'claude-code', work: [] },
+    });
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'a', label: 'One' }),
+      work('background_work'),
+      subagentEvent('subagent_message', { childSessionId: 'a', text: 'Looking.' }),
+      subagentEvent('subagent_started', { childSessionId: 'b', label: 'Two' }),
+      work('background_work_ended'),
+    ]);
+
+    expect(blocks.map((b) => b.kind)).toEqual(['subagent-group']);
+    expect(asSubagentGroup(blocks[0]).agents).toHaveLength(2);
+  });
+
+  it("leaves a subagent still running when the turn ends as going on in the background, settled", () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'bg1', label: 'List files' }),
+      userPrompt('next turn'),
+    ]);
+    const agent = asSubagent(blocks[0]);
+    expect(subagentState(agent)).toBe('background');
+    expect(isSettled(agent)).toBe(true);
+  });
+
+  it('shows what a background subagent did later in a row of its own where it happened, and leaves the earlier row as it was', () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'bg1', label: 'List files', agentType: 'general-purpose' }),
+      userPrompt('next turn'),
+      subagentEvent('subagent_tool_call', { childSessionId: 'bg1', name: 'Bash', input: { command: 'ls' } }),
+      subagentEvent('subagent_completed', { childSessionId: 'bg1', stopReason: 'end_turn', text: 'Two files.', tokensUsed: 900 }),
+    ]);
+    const groups = blocks.filter((b) => b.kind === 'subagent-group');
+    expect(groups).toHaveLength(2);
+    const earlier = asSubagent(groups[0]);
+    const later = asSubagent(groups[1]);
+    expect(subagentState(earlier)).toBe('background');
+    expect(earlier.toolCalls).toEqual([]);
+    expect(later).toMatchObject({ label: 'List files', agentType: 'general-purpose', continued: true, toolCallCount: 1, finalPreview: 'Two files.', tokensUsed: 900 });
+    expect(subagentState(later)).toBe('done');
+    expect(blocks.indexOf(groups[1] as (typeof blocks)[number])).toBeGreaterThan(blocks.findIndex((b) => b.kind === 'event'));
+  });
 });
 
-describe('blocksEquivalent — collab content edits + subagent stopReason', () => {
-  const foldCollab = (events: MoxxyEvent[]): CollaborationBlock =>
-    pairToolEvents(events).find((b) => b.kind === 'collab') as CollaborationBlock;
-
-  it('re-renders when a task title/detail edit preserves status + array length', () => {
-    const start = collabEvent('collab_started', { task: 'x', parallel: false });
-    const open = collabEvent('collab_board_update', {
-      item: { id: 't1', title: 'old', status: 'claimed', owner: 'a', detail: 'before' },
-    });
-    const edited = collabEvent('collab_board_update', {
-      item: { id: 't1', title: 'new', status: 'claimed', owner: 'a', detail: 'after' },
-    });
-    const a = foldCollab([start, open]);
-    const b = foldCollab([start, open, edited]);
-    expect(a.tasks).toHaveLength(1);
-    expect(b.tasks).toHaveLength(1);
-    const aTask0 = a.tasks[0];
-    const bTask0 = b.tasks[0];
-    assertDefined(aTask0, 'block a has a first task');
-    assertDefined(bTask0, 'block b has a first task');
-    expect(aTask0.status).toBe(bTask0.status); // status unchanged
-    // Content changed though — comparator must NOT skip the re-render.
-    expect(blocksEquivalent(a, b)).toBe(false);
-  });
-
-  it('re-renders when a contract title/owner edit preserves status + version', () => {
-    const start = collabEvent('collab_started', { task: 'x', parallel: false });
-    const open = collabEvent('collab_contract_published', {
-      contract: { id: 'c1', title: 'old', owner: 'a', status: 'published', version: 1 },
-    });
-    const edited = collabEvent('collab_contract_changed', {
-      contract: { id: 'c1', title: 'new', owner: 'b', status: 'published', version: 1 },
-    });
-    const a = foldCollab([start, open]);
-    const b = foldCollab([start, open, edited]);
-    expect(blocksEquivalent(a, b)).toBe(false);
-  });
-
+describe('blocksEquivalent — subagent stopReason', () => {
   it('subagent: differs when only stopReason changes', () => {
     const a = asSubagent(
       pairToolEvents([
@@ -855,23 +881,61 @@ describe('blocksEquivalent — collab content edits + subagent stopReason', () =
   });
 });
 
-describe('pairToolEvents — collab_completed malformed counts fall back to roster', () => {
-  it('derives done/total from the roster when payload counts are malformed', () => {
+describe("an agent's list of steps", () => {
+  const listed = (forModel: string, ...steps: Array<[string, StepStatus]>) => ({
+    forModel,
+    display: { kind: 'step-list', steps: steps.map(([text, status]) => ({ text, status })) },
+  });
+
+  it('folds every change of a turn into one list where the first change was, the last change being the list', () => {
+    const events = [
+      userPrompt('make three files'),
+      toolRequest('c1', 'TaskCreate', { subject: 'a' }),
+      toolResult('c1', listed('Task #1 created', ['a', 'pending'])),
+      toolRequest('b1', 'Bash', { command: 'echo a > a.txt' }),
+      toolResult('b1', ''),
+      toolRequest('u1', 'TaskUpdate', { taskId: '1', status: 'completed' }),
+      toolResult('u1', listed('Updated task #1 status', ['a', 'completed'])),
+      assistantMessage('Done.'),
+    ];
+
+    const blocks = pairToolEvents(events);
+
+    expect(blocks.map((b) => b.kind)).toEqual(['event', 'step-list', 'tool-call', 'event']);
+    const list = blocks[1] as StepListBlock;
+    expect(list.calls.map((c) => c.request.name)).toEqual(['TaskCreate', 'TaskUpdate']);
+    expect(stepListOf(list)).toEqual({ kind: 'step-list', steps: [{ text: 'a', status: 'completed' }] });
+    expect(countToolCalls(blocks)).toBe(3);
+    expect(isSettled(list)).toBe(false);
+  });
+
+  it('starts a new list in the next turn and settles the one before', () => {
     const blocks = pairToolEvents([
-      collabEvent('collab_started', { task: 'x', parallel: false }),
-      collabEvent('collab_roster_confirmed', {
-        roster: [
-          { id: 'a', name: 'A' },
-          { id: 'b', name: 'B' },
-        ],
-      }),
-      collabEvent('collab_agent_done', { agentId: 'a', summary: 'ok' }),
-      // Buggy coordinator emits non-array/non-number counts.
-      collabEvent('collab_completed', { done: { weird: true }, total: 'two' }),
+      userPrompt('one'),
+      toolRequest('c1', 'TodoWrite'),
+      toolResult('c1', listed('ok', ['a', 'in_progress'])),
+      userPrompt('two'),
+      toolRequest('c2', 'TodoWrite'),
+      toolResult('c2', listed('ok', ['a', 'completed'])),
     ]);
-    const collab = blocks.find((b) => b.kind === 'collab') as CollaborationBlock;
-    // Derived: 1 of 2 agents done — meaningful, not null/null.
-    expect(collab.doneCount).toBe(1);
-    expect(collab.totalCount).toBe(2);
+
+    const lists = blocks.filter((b): b is StepListBlock => b.kind === 'step-list');
+    expect(lists).toHaveLength(2);
+    expect(isSettled(lists[0] as StepListBlock)).toBe(true);
+    expect(stepListOf(lists[1] as StepListBlock)).toMatchObject({ steps: [{ text: 'a', status: 'completed' }] });
+  });
+
+  it('keeps a call that failed or was refused as its own row', () => {
+    const blocks = pairToolEvents([userPrompt('one'), toolRequest('c1', 'TodoWrite'), toolResult('c1', 'boom', false), toolRequest('c2', 'TaskUpdate'), toolDenied('c2', 'no')]);
+
+    expect(blocks.map((b) => b.kind)).toEqual(['event', 'tool-call', 'tool-call']);
+  });
+
+  it('says what the running turn list is, and nothing once the person writes again', () => {
+    const before = [userPrompt('one'), toolRequest('c1', 'TodoWrite'), toolResult('c1', listed('ok', ['a', 'in_progress'], ['b', 'pending']))];
+
+    expect(turnStepList(before)).toMatchObject({ steps: [{ text: 'a' }, { text: 'b' }] });
+    expect(turnStepList([...before, checkpointPrompt('lint')])).not.toBeNull();
+    expect(turnStepList([...before, userPrompt('two')])).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { OF_THE_FOCUS, pointsAtFocus, wordsIn } from '@moxxy/jev';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { parseKeyCombo, type KeyCombo } from './keys.js';
 
 const coordinate = z.number().finite().nonnegative();
@@ -174,7 +174,7 @@ export const computerTools = {
     input: z.object({ query: z.string().max(256).optional().describe('Case-insensitive filter on name and identifier.'), limit: z.number().int().min(1).max(200).default(50) }).strict(),
   },
   computer_request_access: {
-    description: 'Ask the user, in one dialog, to let you control a set of applications for this conversation. Required before the single tools act on an app; computer_run asks for its own app. Browsers default to read-only and terminals to click-only; ask here for full control of them, for the clipboard and for system chords.',
+    description: 'Ask the user, in one dialog, to let you control a set of applications for this conversation. Required before the single tools act on an app; computer_run asks for its own app. Browsers default to read-only and terminals to click-only; ask here for full control of them, for the clipboard and for system chords. A level already granted stays for the conversation; asking again never lowers it.',
     input: z.object({
       apps: z.array(app).min(1).max(32),
       reason: z.string().min(1).max(500).describe('One sentence for the dialog: the task, not the mechanism.'),

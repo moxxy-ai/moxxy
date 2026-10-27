@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/desktop",
   "private": true,
-  "version": "0.44.0",
+  "version": "0.45.0",
   "description": "moxxy desktop — Electron app that connects to moxxy via @moxxy/runner and renders a TUI-equivalent chat surface.",
   "homepage": "https://moxxy.ai",
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
@@ -40,8 +40,6 @@
     "@moxxy/desktop-host": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/desktop-ui": "workspace:*",
-    "@moxxy/ipc-server-ws": "workspace:*",
-    "@moxxy/plugin-channel-mobile": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/runner": "workspace:*",
@@ -60,7 +58,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@moxxy/client-transport-ws": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@testing-library/jest-dom": "^7.0.0",
@@ -73,7 +70,7 @@
     "@types/ws": "catalog:",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^5.0.3",
-    "electron": "^43.7.9",
+    "electron": "^43.8.1",
     "electron-builder": "^26.15.3",
     "electron-builder-squirrel-windows": "^26.17.0",
     "electron-vite": "^5.0.0",

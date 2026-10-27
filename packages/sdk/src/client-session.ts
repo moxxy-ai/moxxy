@@ -3,7 +3,8 @@ import type { CommandDef } from './command.js';
 import type { ModeDef } from './mode.js';
 import type { LLMProvider, ProviderDef } from './provider.js';
 import type { RequirementCheck, MoxxyRequirement } from './requirements.js';
-import type { SessionLike, SessionLogReader } from './session-like.js';
+import type { StandingAllowRule } from './permission.js';
+import type { SessionInfo, SessionLike, SessionLogReader } from './session-like.js';
 import type { Skill } from './skill.js';
 import type { ToolDef } from './tool.js';
 import type { Transcriber } from './transcriber.js';
@@ -80,7 +81,7 @@ export interface RequirementsClientView {
 }
 
 export interface PermissionsClientView {
-  addAllow(rule: { readonly name: string; readonly reason?: string }): Promise<void>;
+  addAllow(rule: StandingAllowRule): Promise<void>;
 }
 
 export interface ClientSession extends SessionLike {
@@ -99,4 +100,10 @@ export interface ClientSession extends SessionLike {
   /** Switch the conversation's auto-approve (read it from `getInfo().autoApprove`).
    *  Optional: a client of a runner without the shared switch has none. */
   setAutoApprove?(enabled: boolean): Promise<void>;
+  /** Stop one work the agent runs in the background (`AgentBackgroundWork.id`); `false` when it runs none such.
+   *  Optional: a client of a runner that cannot pass it on has none. */
+  stopBackgroundWork?(workId: string): Promise<boolean>;
+  /** Called with the new info when it changes outside a turn (e.g. an agent CLI
+   *  was found outdated); returns the unsubscribe. */
+  onInfoChanged?(listener: (info: SessionInfo) => void): () => void;
 }

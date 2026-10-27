@@ -2,7 +2,7 @@
   "name": "@moxxy/design-tokens",
   "private": true,
   "version": "0.5.0",
-  "description": "Framework-neutral design tokens (colors, fonts, radii, gradients, shadows) plus a :root CSS-variable generator. One source of truth consumable as a TS object by React Native StyleSheet and as CSS custom properties by the desktop renderer.",
+  "description": "Framework-neutral design tokens (colors, fonts, radii, gradients, shadows) plus a :root CSS-variable generator. One source of truth, projected to CSS custom properties for the desktop renderer.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

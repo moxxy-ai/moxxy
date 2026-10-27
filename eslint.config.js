@@ -24,6 +24,26 @@ export default [
     ],
   },
   ...base,
+  // Moxxy's schemas are zod 3 schemas: zodToJsonSchema in @moxxy/sdk reads
+  // zod 3's internals, so a schema built with zod 4's API (what bare 'zod'
+  // gives since the catalog moved to zod 4) reaches the model with no fields.
+  {
+    files: ['**/*.{ts,tsx,mts,cts,js,mjs,cjs}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'zod',
+              message:
+                "Import from 'zod/v3' (or use `z` from '@moxxy/sdk'): zodToJsonSchema reads zod 3 schemas, and one built with bare 'zod' (zod 4) reaches the model with no fields.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // React surfaces (desktop renderer, Ink TUI) get the hooks rules. Both
   // are warnings so they guide without failing CI; the desktop already
   // carries intentional `eslint-disable-next-line react-hooks/exhaustive-deps`

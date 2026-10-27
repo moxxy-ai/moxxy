@@ -797,6 +797,9 @@ function isRunning(child: ChildProcess): boolean {
  */
 function terminateChild(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  // A child whose start failed has no pid and no process to stop. Signalling it
+  // anyway reached kill(0, SIGTERM) on Node 22: the app's whole process group.
+  if (child.pid === undefined) return Promise.resolve();
   return new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       try {

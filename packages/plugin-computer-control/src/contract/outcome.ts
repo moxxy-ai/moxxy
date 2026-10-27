@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** Why an action did not go through, with the model's next step. One table for every platform. */
 const hints = {

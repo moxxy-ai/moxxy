@@ -1,6 +1,6 @@
 import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
 import { CodexProvider, type CodexProviderConfig } from './provider.js';
-import { codexModels } from './models.js';
+import { CODEX_STARTER_MODEL, codexModels } from './models.js';
 import {
   codexLogin,
   codexLogout,
@@ -14,6 +14,7 @@ import { PLUGIN_VERSION } from './codex/headers.js';
 export const openaiCodexProviderDef = defineProvider({
   name: 'openai-codex',
   models: [...codexModels],
+  starterModel: CODEX_STARTER_MODEL,
   createClient: (config) => new CodexProvider(config as CodexProviderConfig),
   async resolveCredentials({ vault, providerConfig }) {
     const tokens = await readStoredTokens(vault).catch(() => null);
@@ -55,7 +56,7 @@ export const openaiCodexPlugin = definePlugin({
 export default openaiCodexPlugin;
 
 export { CodexProvider } from './provider.js';
-export { codexModels, DEFAULT_CODEX_MODEL } from './models.js';
+export { CODEX_STARTER_MODEL, codexModels, DEFAULT_CODEX_MODEL } from './models.js';
 export {
   CLIENT_ID,
   ISSUER,

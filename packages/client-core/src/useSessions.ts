@@ -4,7 +4,7 @@
  * Module-level store cloned from the {@link DesksStore} pattern: one
  * shared snapshot for every consumer, optimistic active-id flips, and
  * the same "connectionStore.setActive first, IPC second" switch gesture
- * the desks store (and the mobile app's selectWorkspace) uses. The
+ * the desks store uses. The
  * store tracks ONE desk at a time (the sidebar shows the active desk's
  * sessions); switching desks re-points it via {@link useSessions}'s
  * effect.
@@ -117,7 +117,7 @@ class SessionsStore {
   setActive = async (id: string): Promise<void> => {
     // Optimistic: re-point the connection store (and with it the chat
     // surface + chat store via the activeWorkspaceId mirror) immediately —
-    // exactly the desks-store switch gesture / mobile's selectWorkspace.
+    // exactly the desks-store switch gesture.
     const prevActive = this.state.activeSessionId;
     await runOptimistic(
       connectionStore,

@@ -4,7 +4,7 @@ import type { TelegramApprovalResolver } from '../approval.js';
 import type { TelegramPermissionResolver } from '../permission.js';
 import type { ChannelHandle } from '@moxxy/sdk';
 import type { FramePump } from './frame-pump.js';
-import { applySessionAction } from '@moxxy/channel-kit';
+import { applySessionAction, type ChatQuestions } from '@moxxy/channel-kit';
 import { runSlash } from './slash-handler.js';
 import type { TelegramModel } from './model.js';
 import type { AwaitingApprovalText } from './callback-handler.js';
@@ -24,6 +24,8 @@ export interface TextHandlerDeps {
   readonly approvalResolver: TelegramApprovalResolver;
   readonly permissionResolver: TelegramPermissionResolver;
   readonly framePump: FramePump;
+  /** The conversation's open Questions; a plain reply answers the latest one. */
+  readonly questions: Pick<ChatQuestions, 'typed'>;
 }
 
 export interface TextHandlerCallbacks {
@@ -44,7 +46,7 @@ export interface TextHandlerCallbacks {
 
 /**
  * Top-level dispatch for inbound text messages: authorization gate,
- * awaiting-approval-text capture, /cancel, slash routing, and finally
+ * awaiting-approval-text capture, a reply to an open Question, /cancel, slash routing, and finally
  * the user-turn path.
  */
 export async function handleTextMessage(
@@ -81,6 +83,10 @@ export async function handleTextMessage(
     }
     return;
   }
+
+  // A reply to an open Question answers it; the turn that asked waits on it,
+  // so this too comes before the busy guard.
+  if (!text.startsWith('/') && (await deps.questions.typed(text))) return;
 
   // /cancel works even while busy; everything else routes through
   // runSlash or the user-turn path.

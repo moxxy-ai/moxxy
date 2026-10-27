@@ -75,41 +75,47 @@ Or run it without installing:
 npx @moxxy/cli init
 ```
 
-Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, sign into ChatGPT with `moxxy login openai-codex`, or reuse an authenticated Claude Code Pro/Max subscription as described below.
+Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, sign into ChatGPT with `moxxy login openai-codex`, or reuse an authenticated Claude Code Pro/Max or Codex subscription as described below.
 
 ### Claude Code (Pro/Max subscription, no API key)
 
 1. Install the official Claude CLI so `claude` is on `PATH` (or set `CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude`).
 2. Run `claude auth login` or `moxxy login claude-code`, then confirm with `claude auth status` and `moxxy doctor`.
-3. Select `claude-code` in `moxxy init`. It defaults to `claude-sonnet-5-5`; override per run with `--model`, or persist `plugins.provider.items.claude-code.model`.
+3. Select "Claude Agent" (`claude-code`) in `moxxy init`. It defaults to `claude-sonnet-5-5`; override per run with `--model`, or persist `plugins.provider.items.claude-code.model`.
 
-The default transport disables Claude's internal tools (except WebSearch). moxxy's own tools still work: they are described to the model in the prompt, and each call it makes runs through moxxy's permission resolver like with any other provider. To opt into an isolated coding task, configure the provider item explicitly:
-
-```yaml
-plugins:
-  provider:
-    default: claude-code
-    items:
-      claude-code:
-        model: claude-sonnet-5-5
-        config:
-          mode: native-tools
-          permissionMode: acceptEdits
-          allowedTools: [Read, Write, Edit]
-```
-
-`allowedTools` and `permissionMode` are forwarded to and enforced by Claude CLI. Moxxy's permission resolver, `--allow-tools`, and isolators govern moxxy-registered tools only; they do **not** govern Claude's internal native tools. Claude also owns its login files—moxxy neither reads nor stores subscription credentials in its vault.
+Claude Code itself does each turn, through the Claude Agent SDK (installed into `~/.moxxy/agents/claude-agent-sdk` on first use), with its own tools, skills, settings and MCP servers. Moxxy asks you before each of Claude's tools, with its permission rules applied, shows Claude's questions, and lends Claude its own tools over a local MCP server. Auto-approve shows how your Claude really runs from the moment a conversation starts (on when your Claude settings default to bypass permissions), and switches only the current conversation's Claude; once you turn it off, Claude starts asking even over that default. Claude's own settings are never edited. Claude also owns its login files—moxxy neither reads nor stores subscription credentials in its vault.
 
 Desktop and interactive CLI setup can start sign-in. Headless runners/services generally cannot complete browser or TTY authentication: authenticate first as the same OS account that runs the service, make `claude` available in that account's service `PATH` (or set the executable path), and restart it. Recovery commands are `claude auth status`, `claude auth login`, `moxxy login claude-code`, and `moxxy doctor`.
 
-Contributors with an authenticated subscription can run the opt-in, no-API-key smoke gate after `pnpm build`:
+### Codex (ChatGPT sign-in, no API key)
+
+1. Install the Codex CLI so `codex` is on `PATH` (or set `CODEX_EXECUTABLE=/absolute/path/to/codex`).
+2. Run `codex login` or `moxxy login codex-agent`, then confirm with `codex login status` and `moxxy doctor`.
+3. Select "ChatGPT — Codex agent" (`codex-agent`) in `moxxy init`. It defaults to `gpt-6-astra`; override per run with `--model`, or persist `plugins.provider.items.codex-agent.model`.
+
+Codex itself does each turn through `codex app-server`, with its own instructions, config, tools, skills and MCP servers. Moxxy shows Codex's approvals and questions, shows its plan in plan mode, ends goal mode when Codex's own goal is met, and lends Codex its own tools over a local MCP server. Auto-approve shows how your Codex really runs from the moment a conversation opens (Moxxy asks a short-lived `codex app-server` for the folder's config), gives only the current conversation's Codex full access, and stays as you set it; `~/.codex/config.toml` is never edited. Your reason for declining reaches Codex, fast mode runs it on its fast tier, and Stop interrupts its turn, tools included. "ChatGPT — Moxxy" (`openai-codex`) is the other way round: Moxxy does the work with ChatGPT models.
+
+### OpenCode (your own OpenCode setup)
+
+1. Install OpenCode so `opencode` is on `PATH` (or set `OPENCODE_EXECUTABLE=/absolute/path/to/opencode`).
+2. Its free models work without signing in; for other providers run `opencode auth login` (or `moxxy login opencode`) in a terminal.
+3. Select "OpenCode agent" (`opencode`) in `moxxy init`. Pick any model `opencode models` lists with `--model`, or persist `plugins.provider.items.opencode.model`.
+
+OpenCode itself does each turn through `opencode acp`, with its own instructions, config, tools, skills, permission rules and MCP servers. Moxxy shows what it does and its permission asks; auto-approve shows how OpenCode really runs from the moment a conversation opens (on with OpenCode's defaults, which ask for nothing; turning it off restarts that OpenCode once with your rules made to ask, for that process only), steers plan and goal mode through tools it lends OpenCode over a local MCP server, and never edits OpenCode's config.
+
+### Keeping the agent CLIs up to date
+
+Moxxy checks the three CLIs when the TUI, `moxxy serve` or the desktop starts and every hour after: whether each is installed, signed in, and as new as the vendor's latest release on npm. A CLI older than the oldest version Moxxy was checked against (Claude Code 2.1.296, Codex 0.155.1, OpenCode 1.19.0) must be updated before its connection is used. The TUI says so in one line above the prompt, the desktop above the message box and in Settings → Providers, and `moxxy doctor` lists it. `moxxy agents install <agent>` runs the vendor's installer (Claude `claude.ai/install.sh`, Codex `chatgpt.com/codex/install.sh`, OpenCode `opencode.ai/v2/install`; on Windows their PowerShell installers, and npm for OpenCode); `moxxy agents update <agent>` runs the agent's own update command, which knows how it was installed (for an OpenCode 1 when OpenCode 2 is out, `opencode upgrade --major`, which replaces it with OpenCode 2 the same way). Moxxy never updates a CLI by itself, and the desktop refuses to update one while a turn runs.
+
+Two checks keep the connections honest as the vendors ship new CLIs:
 
 ```sh
-node scripts/e2e-claude-cli-live.mjs
-# optional: MOXXY_CLAUDE_E2E_MODEL=claude-opus-5-5 node scripts/e2e-claude-cli-live.mjs
+pnpm test:agents:compat              # no sign-in: each CLI's handshake and protocol (also daily on CI)
+pnpm test:agents:live                # real conversations with your own sign-ins
+pnpm test:agents:live --agent codex  # one agent
 ```
 
-It skips clearly when `claude` is missing or signed out, streams a real text prompt, and performs its native-tool assertion only inside a generated temporary git repository.
+The live check drives `moxxy serve` the way the desktop does, on a throwaway Moxxy home with this repo's connection packages: a reply, a file change, a Moxxy tool, a follow-up that needs the earlier turn, Stop during a running command, and a restart that must resume the conversation. An agent that is not installed or not signed in is reported as not checked, never as passed; the report is saved under `.live-reports/`.
 
 ## Quickstart
 
@@ -145,6 +151,8 @@ The CLI groups commands the same way `moxxy --help` does.
 | `moxxy login status` | Show stored OAuth credentials. |
 | `moxxy login logout <provider>` | Remove stored OAuth credentials. |
 | `moxxy doctor` | Diagnose your install: provider readiness, vault unlock, missing optional dependencies. |
+| `moxxy agents [status]` | Where the Claude, Codex and OpenCode CLIs stand: installed version, the latest, what to do next (`--json` for scripts). |
+| `moxxy agents install\|update <agent>` | Install the agent's CLI with the vendor's installer, or update it with its own command (`claude update`, `codex update`, `opencode upgrade`). |
 
 ### Run
 

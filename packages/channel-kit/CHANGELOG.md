@@ -1,5 +1,60 @@
 # @moxxy/channel-kit
 
+## 0.45.0
+
+### Patch Changes
+
+- d2de3a1: A question the agent asks can no longer leave the conversation stuck.
+
+  - A question Codex asks while it works is shown at once instead of when its turn ends. An answer given while Codex works goes into its running turn. When Codex finishes without the answer, the question closes with the note that Codex went on. When Codex ends its turn on the question (plan mode), it still waits for the answer as before.
+  - A new message from the person closes any question an earlier turn still waits on, so that turn ends and the new message runs. A message an agent or a trigger started does not.
+  - An open question stays on screen while any turn runs, not only while the turn that asked it runs.
+  - The question card on Telegram and Discord says why a question closed: the agent went on, or a new message was sent.
+  - Desktop and terminal history keep the reason a question closed without an answer. A new message interrupts a Codex turn blocked on native user input before that turn can keep waiting on an empty answer.
+  - `@moxxy/sdk`: `QuestionAsker` callers can pass `{ signal }` to `ModeContext.ask` and `AgentStepHost.ask`; aborting it with `QUESTION_CLOSED_AGENT_WENT_ON` closes the question with that note. A dismissed `QuestionOutcome` and the `question_resolved` record carry an optional `note`. New exports: `QUESTION_CLOSED_AGENT_WENT_ON`, `QUESTION_CLOSED_NEW_MESSAGE`, `questionCloseNote`, `QuestionCloseNote`, `QuestionAskOptions`.
+
+- Updated dependencies [71f8aa8]
+- Updated dependencies [db33b95]
+- Updated dependencies [71e90e5]
+- Updated dependencies [84ff880]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [02119e8]
+- Updated dependencies [29841af]
+- Updated dependencies [211f80c]
+- Updated dependencies [49dd789]
+- Updated dependencies [90ab0bb]
+- Updated dependencies [cb494ef]
+- Updated dependencies [b6c11c4]
+- Updated dependencies [887b8b7]
+- Updated dependencies [072b8b5]
+- Updated dependencies [a8e8418]
+- Updated dependencies [322f2ce]
+- Updated dependencies [7868760]
+- Updated dependencies [4af5560]
+- Updated dependencies [ee669b7]
+- Updated dependencies [3c1527c]
+- Updated dependencies [178a215]
+- Updated dependencies [318d476]
+- Updated dependencies [7cc93a2]
+- Updated dependencies [6e54a6b]
+- Updated dependencies [1329245]
+- Updated dependencies [8472068]
+- Updated dependencies [deeeeea]
+- Updated dependencies [46b20d3]
+- Updated dependencies [9bfe644]
+- Updated dependencies [d2de3a1]
+- Updated dependencies [7d718f6]
+- Updated dependencies [6f4d652]
+- Updated dependencies [d118b03]
+- Updated dependencies [2160501]
+- Updated dependencies [2b9c87f]
+- Updated dependencies [332e4c2]
+- Updated dependencies [a06de31]
+- Updated dependencies [066a949]
+- Updated dependencies [fa44b8c]
+  - @moxxy/sdk@0.45.0
+  - @moxxy/chat-model@0.5.0
+
 ## 0.44.0
 
 ### Patch Changes

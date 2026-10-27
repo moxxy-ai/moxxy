@@ -57,11 +57,12 @@ describe('VoicePresenceRail as a capsule', () => {
 
     const presence = container.querySelector('.voice-rail-presence');
     expect(presence).toContainElement(screen.getByRole('status'));
-    expect(presence?.querySelector('button')).toBeNull();
+    // The microphone lives beside the state, in one place whatever it is set to.
+    expect([...(presence?.querySelectorAll('button') ?? [])].map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Turn the microphone off',
+    ]);
     expect(screen.getByTestId('voice-rail-idle').closest('.voice-rail-side')).not.toBeNull();
-    for (const name of ['Turn the microphone off', 'End voice mode']) {
-      expect(side(name)).not.toBeNull();
-    }
+    expect(side('End voice mode')).not.toBeNull();
     expect(screen.getByRole('region', { name: 'Voice mode' })).not.toHaveAttribute('data-open');
   });
 
@@ -122,11 +123,13 @@ describe('VoicePresenceRail', () => {
     ]);
   });
 
-  it('offers to unmute once the microphone is off, and says so', () => {
-    const { onUnmuteMicrophone } = renderRail({ microphoneMuted: true });
+  it('offers to unmute once the microphone is off, on the mark the pointer is already over', () => {
+    const { container, onUnmuteMicrophone } = renderRail({ microphoneMuted: true });
 
     const control = screen.getByRole('button', { name: 'Turn the microphone on' });
+    expect(container.querySelector('.voice-rail-presence')).toContainElement(control);
     expect(control).toHaveAttribute('aria-pressed', 'false');
+    expect(control.querySelector('svg')).toHaveAttribute('data-icon', 'mic-off');
     fireEvent.click(control);
     expect(onUnmuteMicrophone).toHaveBeenCalledTimes(1);
   });
@@ -308,5 +311,90 @@ describe('VoicePresenceRail', () => {
 
     expect(container.querySelector('canvas')).toBeNull();
     expect(container.querySelector('svg')).not.toBeNull();
+  });
+});
+
+describe('VoicePresenceRail with the microphone off', () => {
+  const capsule = (container: HTMLElement): Element | null => container.querySelector('.voice-rail-presence');
+  const icon = (name: string): string | null | undefined =>
+    screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon');
+
+  it('cuts the microphone beside the state while Moxxy speaks or works, and says so', () => {
+    for (const phase of ['speaking', 'thinking', 'working', 'transcribing'] as const) {
+      const { container, unmount } = renderRail({ phase, status: { title: 'Busy', detail: '' }, microphoneMuted: true });
+
+      expect(capsule(container)).toContainElement(screen.getByRole('button', { name: 'Turn the microphone on' }));
+      expect(icon('Turn the microphone on')).toBe('mic-off');
+      expect(screen.getByRole('status')).toHaveTextContent('Busy, microphone off');
+      unmount();
+    }
+  });
+
+  it('draws the plain microphone in the same place while it is on', () => {
+    const { container } = renderRail({ phase: 'speaking', status: { title: 'Speaking', detail: '' } });
+
+    expect(capsule(container)).toContainElement(screen.getByRole('button', { name: 'Turn the microphone off' }));
+    expect(icon('Turn the microphone off')).toBe('mic');
+    expect(screen.getByRole('status')).toHaveTextContent(/^Speaking$/);
+  });
+
+  it('shows one microphone: none to the right of the card', () => {
+    for (const microphoneMuted of [false, true]) {
+      const { container, unmount } = renderRail({ phase: 'speaking', microphoneMuted });
+
+      const controls = container.querySelector('.voice-rail-controls');
+      expect(controls?.querySelector('[data-icon="mic"], [data-icon="mic-off"]')).toBeNull();
+      expect(controls).toContainElement(screen.getByRole('button', { name: 'End voice mode' }));
+      unmount();
+    }
+  });
+
+  it('flips the same button in place, so the pointer and the keyboard focus stay on it', () => {
+    const view = renderRail({ phase: 'speaking' });
+    const button = screen.getByRole('button', { name: 'Turn the microphone off' });
+    button.focus();
+
+    view.rerender(
+      <VoicePresenceRail
+        phase="speaking"
+        status={{ title: 'Speaking', detail: '' }}
+        rail={EMPTY_RAIL}
+        microphoneMuted
+        localPiperInstallRequired={false}
+        localPiperInstalling={false}
+        localPiperInstallError={null}
+        errorReason={null}
+        inputAnalyser={null}
+        outputAnalyser={null}
+        onRetry={view.onRetry}
+        onInstallLocalPiper={view.onInstallLocalPiper}
+        onMuteMicrophone={view.onMuteMicrophone}
+        onUnmuteMicrophone={view.onUnmuteMicrophone}
+        onClose={view.onClose}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Turn the microphone on' })).toBe(button);
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('keeps the same mark at rest without saying it twice', () => {
+    renderRail({
+      phase: 'paused',
+      status: { title: 'Microphone off', detail: 'Moxxy will not listen until you turn it back on' },
+      microphoneMuted: true,
+    });
+
+    expect(icon('Turn the microphone on')).toBe('mic-off');
+    expect(screen.getByRole('status')).toHaveTextContent(/^Microphone off$/);
+  });
+});
+
+describe('VoicePresenceRail keeps the capsule around its state', () => {
+  it('holds no empty room beside a short state', () => {
+    const { container } = renderRail({ phase: 'listening' });
+
+    expect(container.querySelector('.voice-rail-copy')?.children).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveTextContent(/^Listening$/);
   });
 });

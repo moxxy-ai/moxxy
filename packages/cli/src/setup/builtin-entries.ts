@@ -5,13 +5,10 @@ import type { MoxxyConfig } from '@moxxy/config';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
-import { collaborativeModePlugin } from '@moxxy/mode-collaborative';
-import { collabPlugin } from '@moxxy/plugin-collab';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
 import { segmentsCompactorPlugin } from '@moxxy/compactor-segments';
 import { stablePrefixCacheStrategyPlugin } from '@moxxy/cache-strategy-stable-prefix';
 import { cliPlugin } from '@moxxy/plugin-cli';
-import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import type { VaultStore } from '@moxxy/plugin-vault';
@@ -102,11 +99,6 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // plugin-computer-control / plugin-channel-http / plugin-usage-stats are
     // NOT bundled — they install on demand from npm (INSTALLABLE_PLUGIN_CATALOG;
     // /goal & /mode offer the install at point of use) and load via discovery.
-    // Agentic collaborative: a team of separate agent processes (architect +
-    // implementers) work in parallel git worktrees (or sequentially without
-    // git), coordinated via the @moxxy/plugin-collab hub.
-    { name: '@moxxy/mode-collaborative', plugin: collaborativeModePlugin },
-    { name: '@moxxy/plugin-collab', plugin: collabPlugin },
     { name: '@moxxy/compactor-summarize', plugin: summarizeCompactorPlugin },
     // Sub-session compaction, the default. Records each finished turn as one
     // outcome summary and folds old records into chapters, so a session's
@@ -126,7 +118,6 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // discovery: web serves its own dist/public next to its module, browser
     // resolves its own dist/sidecar.js, terminal carries node-pty as its own
     // optional dep (piped-shell fallback without it).
-    { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
     // plugin-telegram / plugin-channel-slack are NOT bundled — install on
     // demand (`moxxy <channel>` prints the install hint when absent) or ride
     // the desktop plugins-seed; the desktop ChannelSupervisor spawns them on
@@ -169,6 +160,7 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
       // doesn't drop builtin/plugin skills when invoked at runtime.
       plugin: buildSynthesizeSkillPlugin(session, {
         builtinDir: BUILTIN_SKILLS_DIR_RESOLVED,
+        rescanBeforeAgentTurns: true,
         ...(rawConfig.skills?.extraDirs ? { pluginDirs: rawConfig.skills.extraDirs } : {}),
         ...(rawConfig.skills?.projectDir ? { projectDir: rawConfig.skills.projectDir } : {}),
         ...(rawConfig.skills?.userDir ? { userDir: rawConfig.skills.userDir } : {}),

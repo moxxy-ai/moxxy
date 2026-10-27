@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { asToolCallId, autoApproveSwitch, type MoxxyEvent } from '@moxxy/sdk';
+import { asToolCallId, autoApproveSwitch, type MoxxyEvent, type ProviderDef } from '@moxxy/sdk';
 import { withPermissionScope } from './permissions/scope.js';
 import { Session } from './session.js';
 
@@ -35,6 +35,18 @@ describe('conversation auto-approve', () => {
     await s.setAutoApprove(false);
 
     expect(seen.map(autoApproveSwitch)).toEqual([true, false]);
+  });
+
+  it('still asks the person about a call that must be answered by them, while standing rules decide first', async () => {
+    const { s, prompted, ctx } = promptingSession();
+    await s.setAutoApprove(true);
+
+    expect((await s.resolver.check(call(), { ...ctx, askPerson: true })).mode).toBe('deny');
+    expect(prompted).toHaveBeenCalledOnce();
+
+    await s.permissions.addAllow({ name: 'Read' });
+    expect((await s.resolver.check(call('Read'), { ...ctx, askPerson: true })).mode).toBe('allow');
+    expect(prompted).toHaveBeenCalledOnce();
   });
 
   it('switching it off brings the prompts back', async () => {
@@ -89,5 +101,127 @@ describe('conversation auto-approve', () => {
     const { s } = promptingSession();
     await s.setAutoApprove(false);
     expect(s.log.length).toBe(0);
+  });
+});
+
+describe("an agent connection's own setting", () => {
+  /** A connection whose agent, set up by the person, answers `own` for the folder. */
+  function agentSession(own: (cwd: string) => Promise<boolean | undefined>) {
+    const s = new Session({ cwd: '/tmp/project', silent: true });
+    const asked: string[] = [];
+    const def: ProviderDef = {
+      name: 'claude-agent',
+      models: [],
+      createClient: () => ({}) as never,
+      ownAutoApprove: async ({ cwd }) => {
+        asked.push(cwd);
+        return own(cwd);
+      },
+    };
+    s.providers.register(def);
+    s.providers.register({ name: 'anthropic', models: [], createClient: () => ({}) as never });
+    return { s, asked };
+  }
+
+  it('is the conversation auto-approve from the first moment: read as the connection becomes active', async () => {
+    const { s, asked } = agentSession(async () => true);
+
+    s.providers.setActive('claude-agent');
+
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(true));
+    expect(asked).toEqual(['/tmp/project']);
+    const [recorded] = s.log.slice();
+    expect(recorded).toMatchObject({ source: 'system', payload: { enabled: true } });
+  });
+
+  it("never overrides a switch the conversation already recorded, even one the person made while it was read", async () => {
+    let answer: (own: boolean) => void = () => undefined;
+    const { s } = agentSession(() => new Promise((resolve) => (answer = resolve)));
+    s.providers.setActive('claude-agent');
+
+    await s.setAutoApprove(true);
+    await s.setAutoApprove(false);
+    answer(true);
+
+    await vi.waitFor(() => expect(s.log.length).toBe(2));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(s.getInfo().autoApprove).toBe(false);
+    expect(s.log.length).toBe(2);
+  });
+
+  it('reads it again for a new conversation, and records nothing when the agent asks anyway', async () => {
+    let own = false;
+    const { s, asked } = agentSession(async () => own);
+    s.providers.setActive('claude-agent');
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    expect(s.log.length).toBe(0);
+
+    own = true;
+    await s.reset();
+
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(true));
+  });
+
+  /** Two agent connections, each answering its own setting, and one connection without any. */
+  function twoAgents(own: Record<string, boolean | undefined>) {
+    const s = new Session({ cwd: '/tmp/project', silent: true });
+    for (const name of Object.keys(own)) {
+      s.providers.register({ name, models: [], createClient: () => ({}) as never, ownAutoApprove: async () => own[name] });
+    }
+    s.providers.register({ name: 'anthropic', models: [], createClient: () => ({}) as never });
+    return s;
+  }
+
+  it("takes up each agent's own setting as the conversation goes from one to another, while the person never chose", async () => {
+    const s = twoAgents({ 'claude-agent': false, 'codex-agent': true });
+    s.providers.setActive('claude-agent');
+    s.providers.setActive('codex-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(true));
+
+    s.providers.setActive('claude-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(false));
+
+    s.providers.setActive('codex-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(true));
+    s.providers.setActive('anthropic');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(false));
+  });
+
+  it("does not keep another agent's setting on an agent whose own settings say nothing", async () => {
+    const s = twoAgents({ 'claude-agent': undefined, 'codex-agent': true });
+    s.providers.setActive('codex-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(true));
+
+    s.providers.setActive('claude-agent');
+    await vi.waitFor(() => expect(s.getInfo().autoApprove).toBe(false));
+  });
+
+  it("keeps the person's choice on every connection the conversation goes to, both ways", async () => {
+    const s = twoAgents({ 'claude-agent': false, 'codex-agent': true });
+    s.providers.setActive('claude-agent');
+    await s.setAutoApprove(true);
+
+    s.providers.setActive('codex-agent');
+    s.providers.setActive('claude-agent');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(s.getInfo().autoApprove).toBe(true);
+
+    s.providers.setActive('codex-agent');
+    await s.setAutoApprove(false);
+    s.providers.setActive('claude-agent');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(s.getInfo().autoApprove).toBe(false);
+  });
+
+  it('is not read for a connection without one, nor kept when the person switched connection meanwhile', async () => {
+    let answer: (own: boolean) => void = () => undefined;
+    const { s } = agentSession(() => new Promise((resolve) => (answer = resolve)));
+
+    s.providers.setActive('claude-agent');
+    s.providers.setActive('anthropic');
+    answer(true);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(s.getInfo().autoApprove).toBe(false);
   });
 });

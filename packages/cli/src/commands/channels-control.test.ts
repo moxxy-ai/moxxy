@@ -76,12 +76,12 @@ describe('moxxy channels rotate-token', () => {
   });
 
   it('writes a fresh token file (0600) and tells clients to re-pair', async () => {
-    const file = path.join(home, 'mobile-token');
+    const file = path.join(home, 'http-token');
     expect(fs.existsSync(file)).toBe(false);
 
-    const code = await runChannelsCommand(argv('rotate-token', 'mobile'));
+    const code = await runChannelsCommand(argv('rotate-token', 'http'));
     expect(code).toBe(0);
-    expect(out).toContain('mobile');
+    expect(out).toContain('http');
     expect(out).toContain('re-pair');
 
     expect(fs.existsSync(file)).toBe(true);
@@ -93,11 +93,11 @@ describe('moxxy channels rotate-token', () => {
   });
 
   it('replaces the previous secret on each rotation', async () => {
-    await runChannelsCommand(argv('rotate-token', 'mobile'));
-    const file = path.join(home, 'mobile-token');
+    await runChannelsCommand(argv('rotate-token', 'http'));
+    const file = path.join(home, 'http-token');
     const before = (JSON.parse(fs.readFileSync(file, 'utf8')) as { token: string }).token;
 
-    await runChannelsCommand(argv('rotate-token', 'mobile'));
+    await runChannelsCommand(argv('rotate-token', 'http'));
     const after = (JSON.parse(fs.readFileSync(file, 'utf8')) as { token: string }).token;
 
     expect(after).not.toBe(before);

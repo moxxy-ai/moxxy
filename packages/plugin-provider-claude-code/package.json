@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-provider-claude-code",
-  "version": "0.44.0",
-  "description": "Claude Pro/Max subscription provider for moxxy. Streams through the user's authenticated installed Claude CLI, with opt-in native-tool tasks and no Anthropic API key.",
+  "version": "0.45.0",
+  "description": "Claude Agent connection for moxxy: Claude Code itself does the work through the Claude Agent SDK, on the person's Claude subscription sign-in, while Moxxy shows it, asks for approvals and questions, and lends its own tools over MCP.",
   "keywords": [
     "moxxy",
     "agent",
@@ -50,8 +50,8 @@
       "kind": "provider"
     },
     "catalog": {
-      "label": "Claude (Pro/Max sign-in)",
-      "description": "Claude models through an existing Claude Code subscription sign-in.",
+      "label": "Claude Agent",
+      "description": "Claude Code does the work on your Claude Pro/Max sign-in; Moxxy shows it and lends its browser and tools.",
       "provides": [
         {
           "category": "provider",
@@ -65,12 +65,17 @@
     }
   },
   "dependencies": {
+    "@moxxy/agent-connection-kit": "workspace:*",
     "@moxxy/plugin-browser": "workspace:*",
-    "@moxxy/plugin-oauth": "workspace:*",
-    "@moxxy/plugin-provider-anthropic": "workspace:*",
     "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@moxxy/core": "workspace:*",
+    "@moxxy/mode-default": "workspace:*",
+    "@moxxy/mode-goal": "workspace:*",
+    "@moxxy/mode-plan": "workspace:*",
+    "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",

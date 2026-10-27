@@ -9,7 +9,7 @@
  * already-defended-in-depth commands are intentionally absent.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
@@ -72,6 +72,10 @@ const vaultKeyName = z
   .refine((s) => !s.includes('..'), 'vault key name may not contain ".."');
 
 const optionalWorkspace = z.string().min(1).max(256).optional();
+
+const chatMediaItemArgs = z
+  .object({ workspaceId: z.string().min(1).max(256), id: z.string().min(1).max(200) })
+  .strict();
 /** Mirrors the runner's per-side cap for a recorded exchange. */
 const MAX_VOICE_EXCHANGE_TEXT = 100_000;
 /** ~30 MB of base64 — generous for a voice clip, bounded so a renderer
@@ -85,15 +89,15 @@ const speechLanguage = z
 /** Piper's supported range. The conversational planner uses a much narrower
  *  band, but every renderer/remote caller is still bounded at the IPC edge. */
 const speechRate = z.number().finite().min(0.5).max(2);
-/** ~9 MB of payload per inline attachment (the mobile app caps picks at 8 MB
- *  raw; base64 inflates ×4/3). Bounded so a hostile client can't OOM the host. */
+/** ~9 MB of payload per inline attachment (an 8 MB file, as base64 inflates
+ *  ×4/3). Bounded so a hostile client can't OOM the host. */
 const MAX_INLINE_ATTACHMENT_CONTENT = 12_000_000;
 /** Aggregate ceiling across ALL inline-attachment entries on one runTurn so the
  *  per-entry cap × 8 entries can't sum to ~96 MB of base64 (~72 MB decoded) that
  *  the host must buffer + decode at once. Bounds the single-call blast radius;
  *  the per-CONNECTION budget across N concurrent bearer-holding peers is a
  *  cross-package gateway concern (see deferred). 24 MB ≈ ~18 MB decoded — two
- *  full 9 MB picks, which is the practical mobile ceiling. */
+ *  full 9 MB files. */
 const MAX_INLINE_ATTACHMENTS_TOTAL = 24_000_000;
 /** Strict base64 shape (optional `=` padding). Shared between the transcribe
  *  guard and the inline-attachment guard so a non-base64 string never reaches a
@@ -109,7 +113,7 @@ const base64 = z.string().max(MAX_AUDIO_BASE64).regex(BASE64_RE, 'must be base64
 
 /** Inline-attachment kinds whose `content` is base64-encoded BYTES (vs. the
  *  text kinds `stdin`/`file`, which carry inline UTF-8). For these the renderer-
- *  /remote-supplied `content` is decoded host-side (mobile path) or handed to a
+ *  /remote-supplied `content` is decoded host-side or handed to a
  *  provider as image/document/audio data (`project-messages.ts`), so a malformed
  *  base64 string would decode to garbage — reject it at the boundary, one hop
  *  before any decoder, exactly as `session.transcribe` does for `audioBase64`. */
@@ -191,6 +195,12 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }).strict(),
   'voice.useLocalPiper': z.undefined(),
   'voice.getSettings': z.undefined(),
+  // Switching transcription spawns the CLI to install a fixed package and
+  // restarts runners; the renderer supplies nothing.
+  'voice.getTranscription': z.undefined(),
+  'voice.useLocalTranscription': z.undefined(),
+  'voice.cancelLocalTranscription': z.undefined(),
+  'voice.useCloudTranscription': z.undefined(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
   // GPT-Live spends the host's ChatGPT OAuth credential: the renderer supplies
   // only its WebRTC offer; instructions, model and history stay host-owned.
@@ -257,8 +267,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       language: speechLanguage.optional(),
       rate: speechRate.optional(),
       voice: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/).optional(),
+      cache: z.boolean().optional(),
     })
     .strict(),
+  'session.readAloudPlan': z.object({ workspaceId: optionalWorkspace }).strict().optional(),
   'session.cancelSynthesis': z.object({
     workspaceId: optionalWorkspace,
     requestId: z.string().min(1).max(64).regex(/^[A-Za-z0-9-]+$/),
@@ -304,7 +316,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       )
       .max(64)
       .optional(),
-    // Inline attachments cross the wire as payload (remote/mobile clients) —
+    // Inline attachments cross the wire as payload —
     // bound the entry count, the per-entry content size, AND (below) the sum of
     // all entries so 8 × the per-entry cap can't force ~72 MB of transient decode.
     inlineAttachments: z
@@ -414,6 +426,23 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
+  'session.stopBackgroundWork': z.object({ workspaceId: optionalWorkspace, workId: z.string().min(1).max(256) }),
+  // An answer is the person's choice plus their own words: bounded like ask.respond's text.
+  'session.answerQuestion': z
+    .object({
+      workspaceId: optionalWorkspace,
+      questionId: z.string().min(1).max(128),
+      answers: z.record(
+        z.string().min(1).max(64),
+        z
+          .object({
+            selected: z.array(z.string().min(1).max(128)).max(32),
+            other: z.string().max(10_000).optional(),
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
   'workspace.listDir': z.object({
     workspaceId: z.string().min(1).max(256),
     path: z.string().max(4096).optional(),
@@ -436,6 +465,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: z.string().min(1).max(256),
     path: z.string().min(1).max(4096),
   }),
+  // Runs the vendor's installer or the agent's own update on this computer:
+  // only a known action, and a connection name that cannot carry shell text.
+  'agents.run': z.object({ provider: providerName, action: z.enum(['install', 'update']) }),
+  'agents.check': z.object({ workspaceId: optionalWorkspace }).optional(),
   'settings.fetchProviderModels': z.object({ provider: providerName }),
   // Session config mutation — pin the effort to the known enum so a renderer
   // can't push an arbitrary string through to the runner / provider request.
@@ -534,19 +567,15 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       clerkUserId: z.string().max(256).nullable().optional(),
       clerkDisplayName: z.string().max(256).nullable().optional(),
       signedInAt: z.number().nullable().optional(),
-      mobileGatewayEnabled: z.boolean().optional(),
       theme: z.enum(['light', 'dark', 'system']).optional(),
       voiceEngine: z.enum(['local', 'gpt-live']).optional(),
       replySound: z.boolean().optional(),
       systemNotifications: z.boolean().optional(),
+      inAppToasts: z.boolean().optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
+      dismissedAgentUpdates: z.record(providerName, z.string().min(1).max(64)).optional(),
     })
     .strict(),
-  // Mobile-gateway control. Both no-arg variants pin the payload to "nothing"
-  // so a hostile caller can't smuggle args; setEnabled is a strict boolean.
-  'mobileGateway.status': z.undefined(),
-  'mobileGateway.rotateToken': z.undefined(),
-  'mobileGateway.setEnabled': z.object({ enabled: z.boolean() }).strict(),
   // `before` is a session-log `seq` cursor; the page is RAW events. Both the
   // connected runner and host-side startup reader cap at the runner's
   // MAX_HISTORY_PAGE_LIMIT (2000), so bind the renderer to that ceiling.
@@ -564,34 +593,11 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       offset: z.number().int().nonnegative(),
     })
     .strict(),
-  // Collaboration control. All three touch the on-disk collab store
-  // (~/.moxxy/collab/{active.lock,runs}) — a filesystem-touching surface — so
-  // each gets the boundary check the module header promises:
-  //   - active: no-arg → pin the payload to "nothing" so no args smuggle across;
-  //   - history: a positive, bounded page size (matching the handler's 200
-  //     ceiling) so a hostile renderer can't push a non-integer/NaN/huge window;
-  //   - end: an optional, bounded workspace slug (the target runner to abort).
-  'collab.active': z.undefined(),
-  'collab.history': z.object({ limit: z.number().int().positive().max(200) }).partial().optional(),
-  // start: an optional workspace slug (whose cwd the coordinator works in) + a
-  // bounded goal string. snapshot: no-arg. command: a slug-like command name +
-  // bounded args (step-in). respondApproval: a known requestId + strict decision.
-  'collab.start': z
-    .object({ workspaceId: optionalWorkspace, goal: z.string().min(1).max(32_768) })
-    .strict(),
-  'collab.snapshot': z.undefined(),
-  'collab.command': z
-    .object({ name: z.string().min(1).max(64), args: z.string().max(32_768) })
-    .strict(),
-  'collab.respondApproval': z
-    .object({
-      requestId: z.string().min(1).max(128),
-      decision: z
-        .object({ optionId: z.string().max(128), text: z.string().max(10_000).optional() })
-        .strict(),
-    })
-    .strict(),
-  'collab.end': z.object({ workspaceId: optionalWorkspace }).partial().optional(),
+  // The media library names an item by the id the host gave it, never a path.
+  'chat.media': z.object({ workspaceId: z.string().min(1).max(256) }).strict(),
+  'chat.mediaThumbnail': chatMediaItemArgs,
+  'chat.readMediaImage': chatMediaItemArgs.extend({ offset: z.number().int().nonnegative() }).strict(),
+  'chat.openMediaFile': chatMediaItemArgs,
   // Vault writes are security-sensitive: lock the key name to a safe slug
   // (letters/digits + . _ / - , no traversal) and bound the secret size.
   'settings.vaultSet': z.object({

@@ -77,8 +77,31 @@ describe('useAskPrompt — a tool asking leave to run', () => {
     expect(current.prose).toBe('Run a shell command');
     expect(current.actions.map((a) => [a.label, a.tone])).toEqual([
       ['Allow once', 'primary'],
-      ['Always allow Bash', 'neutral'],
+      ['Allow for session', 'neutral'],
+      ['Always allow', 'neutral'],
       ['Deny', 'danger'],
+    ]);
+  });
+
+  it('"Allow once" approves this one call only, and is not a session grant', () => {
+    const { current } = prompt(permission('p4'));
+    act(() => current.actions[0]?.onClick());
+    expect(answered()).toEqual({ requestId: 'p4', response: { mode: 'allow' } });
+  });
+
+  it('"Allow for session" grants the conversation, not just this call', () => {
+    const { current } = prompt(permission('p5'));
+    act(() => current.actions[1]?.onClick());
+    expect(answered()).toEqual({ requestId: 'p5', response: { mode: 'allow_session' } });
+  });
+
+  it('says in the hint of every answer what it allows, naming the tool', () => {
+    const { current } = prompt(permission('p6'));
+    expect(current.actions.map((a) => [a.id, a.title])).toEqual([
+      ['allow', 'Allow Bash for this one call only'],
+      ['session', 'Allow Bash for the rest of this conversation'],
+      ['always', 'Always allow Bash, also in later conversations'],
+      ['deny', 'Do not run this call'],
     ]);
   });
 
@@ -92,7 +115,7 @@ describe('useAskPrompt — a tool asking leave to run', () => {
 
   it('answers with the verdict picked', () => {
     const { current } = prompt(permission('p3'));
-    act(() => current.actions[1]?.onClick());
+    act(() => current.actions[2]?.onClick());
     expect(answered()).toEqual({ requestId: 'p3', response: { mode: 'allow_always' } });
   });
 });

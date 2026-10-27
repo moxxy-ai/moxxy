@@ -13,6 +13,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { api, chatStore, useConnection } from '@moxxy/client-core';
+import { startingModel } from '@moxxy/sdk/starting-model';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 import { isSessionInfoReady } from '../../app-session-readiness';
 import {
@@ -21,14 +22,6 @@ import {
   setModelPreference,
 } from './modelPreferences';
 
-/** Modes hidden from the chat mode picker — collaboration is launched from the
- *  Collaborate tab (single-flight), and its peer modes are internal. */
-const COLLAB_MODES: ReadonlySet<string> = new Set([
-  'collaborative',
-  'collab-architect',
-  'collab-peer',
-]);
-
 const SESSION_INFO_RETRY_MS = 250;
 
 export interface AgentSession {
@@ -36,7 +29,7 @@ export interface AgentSession {
   readonly info: SessionInfo | null;
   /** Shared per-session model override (null = runner's default). */
   readonly selectedModel: string | null;
-  /** Selectable modes (collaboration + internal peers filtered out). */
+  /** Selectable modes. */
   readonly modes: ReadonlyArray<string>;
   /** Optimistically switch the active mode (fire-and-forget RPC + refresh). */
   readonly onMode: (next: string) => void;
@@ -160,8 +153,9 @@ export function useAgentSession(
     contextWindow?: number,
   ): Promise<void> => {
     if (modelOwner) {
-      // An owner's model always names one: a provider alone means its first.
-      const modelId = model ?? info?.providers.find((p) => p.name === provider)?.models[0]?.id;
+      // An owner's model always names one: a provider alone means the one a new conversation starts on.
+      const offered = info?.providers.find((p) => p.name === provider);
+      const modelId = model ?? (offered ? startingModel(offered) : undefined);
       if (modelId) await modelOwner.pick(provider, modelId);
       return;
     }
@@ -186,7 +180,7 @@ export function useAgentSession(
     refresh();
   };
 
-  const modes = info ? info.modes.filter((m) => !COLLAB_MODES.has(m)) : [];
+  const modes = info?.modes ?? [];
 
   return { info, selectedModel, modes, onMode, onPickProviderModel };
 }

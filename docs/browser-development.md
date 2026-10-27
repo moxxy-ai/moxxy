@@ -63,8 +63,17 @@ active recording, and asking for one afterwards says why it ended and to start
 again instead of reporting the request as unknown. After changing viewport, take a fresh snapshot or screenshot: old
 picture coordinates no longer describe the layout.
 
-Browser navigation retains its existing public HTTP(S) restriction. These
-tools do not grant access to loopback or private services.
+Browser navigation stays restricted to public HTTP(S) pages, with one
+exception: a page on this computer (`localhost`, `*.localhost`, `127.x`,
+`[::1]`) opens once the person allows its exact address and port with
+`browser_allow_site`, for example `localhost:5173` for an app the agent is
+building. Allowing `localhost:5173` does not open `localhost:8080` or
+`127.0.0.1:5173`. Every other private, link-local or metadata address stays
+closed whatever was allowed, and so does a public name that resolves to this
+computer. The same check runs in the tools, in the sidecar's goto and in its
+in-page navigation guard, so a redirect cannot reach a local page that was not
+allowed. Under auto-approve the request passes without a prompt, as any site
+does.
 
 For a `browser_run` type step with `submit: true`, the runner reads the typed
 field before pressing Enter, then reads the page again. The native type result

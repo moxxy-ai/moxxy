@@ -73,7 +73,7 @@ plugins           providers, modes, tools, channels, memory, security, UI
       ↓
 @moxxy/runner     session host with Unix socket JSON-RPC
       ↓
-clients           CLI, desktop, mobile, HTTP, Telegram, and other channels
+clients           CLI, desktop, HTTP, Telegram, and other channels
 ```
 
 The hard invariant is that `@moxxy/sdk` has no internal dependencies and `@moxxy/core` does not import plugins. CI enforces this with `pnpm check:deps`.
@@ -84,7 +84,7 @@ Major plugin groups include:
 - default, goal, and research modes
 - encrypted vault, journal memory, embeddings, speech-to-text, browser, OAuth, MCP, workflows, schedules, and webhooks
 - capability security with in-process, worker, subprocess, and experimental WebAssembly isolators
-- TUI, Telegram, HTTP, web, and mobile channels
+- TUI, Telegram, HTTP, and web channels
 - agent skills, subagents, commands, plugin administration, usage statistics, compaction, and prompt caching
 
 Browse `packages/` for the concrete packages and their local documentation.
@@ -93,7 +93,7 @@ Browse `packages/` for the concrete packages and their local documentation.
 
 ```text
 packages/        publishable @moxxy packages
-apps/            desktop, mobile, docs, and fixture applications
+apps/            desktop, docs, and fixture applications
 assets/          project media and demonstrations
 docs/            project and operational documentation
 tooling/         shared TypeScript, ESLint, and Vitest configuration

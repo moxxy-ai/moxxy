@@ -8,6 +8,7 @@ import type { EventLogReader } from './log.js';
 import type { PermissionResolver } from './permission.js';
 import type { LLMProvider, ReasoningEffort } from './provider.js';
 import type { LoopGuardSettings } from './mode/stuck-loop.js';
+import type { QuestionAskOptions, QuestionItem, QuestionOutcome } from './question.js';
 import type { Skill } from './skill.js';
 import type { SubagentSpawner } from './subagent.js';
 import type { ToolDef } from './tool.js';
@@ -89,6 +90,13 @@ export interface ModeContext {
   readonly systemPrompt?: string;
   readonly provider: LLMProvider;
   readonly tools: ToolRegistry;
+  /**
+   * Every tool of the session, in any mode (`tools` is this turn's mode's,
+   * plus any it adds for itself). An agent connection lists these to the
+   * vendor agent, which reads its tool list once, and refuses a call to one
+   * this mode does not offer.
+   */
+  readonly allTools?: ToolRegistry;
   readonly skills: SkillRegistry;
   readonly log: EventLogReader;
   readonly compactor: CompactorDef | null;
@@ -125,6 +133,11 @@ export interface ModeContext {
    * picked the default option, or fail closed depending on the strategy.
    */
   readonly approval?: ApprovalResolver;
+  /**
+   * Ask the person a Question in this turn (the conversation's Questions).
+   * Absent where nobody can be asked (subagents, synthetic test contexts).
+   */
+  readonly ask?: (questions: ReadonlyArray<QuestionItem>, opts?: QuestionAskOptions) => Promise<QuestionOutcome>;
   readonly hooks: HookDispatcher;
   readonly pluginHost: PluginHostHandle;
   /** Inter-plugin service registry (mirrors {@link AppContext.services}). */
@@ -246,14 +259,13 @@ export interface ModeDef {
   readonly badge?: ModeBadge;
   /**
    * Marks a "special" mode — one the user does NOT pick from `/mode`. Set this
-   * and the mode is, uniformly across every surface (TUI, mobile, desktop):
+   * and the mode is, uniformly across every surface (TUI, desktop):
    *   - **hidden** from every mode list / picker (presence), and
    *   - **refused** by the normal mode-switch by name (execution) — it can only
    *     be entered through its own invocation (a slash command, a spawned
    *     agent's `MOXXY_MODE`, …) via the raw registry `setActive`.
    * The mode stays registered + runnable; it's just never *offered* or
-   * name-switched. Extensible: any number of special modes (collaborative today,
-   * more later) opt in the same way. See {@link isSelectableMode}.
+   * name-switched. Extensible: any number of special modes opt in the same way. See {@link isSelectableMode}.
    */
   readonly special?: ModeSpecial;
   /**
@@ -277,16 +289,16 @@ export interface ModeDef {
 /** Descriptor for a {@link ModeDef.special} mode — see that field. */
 export interface ModeSpecial {
   /**
-   * Human-facing entry point that enters this mode, e.g. `'collab'` (the
-   * `/collab` command). Surfaced when the user tries to pick/switch it ("entered
-   * via /collab") so the UI can point at the right action.
+   * Human-facing entry point that enters this mode, e.g. `'goal'` (the
+   * `/goal` command). Surfaced when the user tries to pick/switch it ("entered
+   * via /goal") so the UI can point at the right action.
    */
   readonly invokedBy?: string;
 }
 
 /**
  * Whether a mode is user-selectable — i.e. NOT a {@link ModeDef.special} mode.
- * The single predicate every surface (TUI/mobile/desktop mode lists + the
+ * The single predicate every surface (TUI/desktop mode lists + the
  * by-name mode-switch) uses to filter/refuse special modes uniformly. The
  * parameter is intentionally loose (`{ special? }`) so it also applies to the
  * minimal `{ name }` rows the swap-UI registries expose — non-mode defs simply

@@ -9,7 +9,7 @@
  * shape addition + a main-process handler + a renderer call — no string typos
  * across three places. The shapes are SPLIT into per-domain sibling modules
  * (`connection.ts`, `settings.ts`, `desks.ts`, `chat.ts`, `app-update.ts`,
- * `mobile.ts`, … `commands.ts`/`events.ts` assemble the two big maps) so each
+ * … `commands.ts`/`events.ts` assemble the two big maps) so each
  * domain can be edited atomically; this barrel RE-EXPORTS every one so the
  * surface every consumer imports (`@moxxy/desktop-ipc-contract`) is unchanged.
  *
@@ -84,9 +84,6 @@ export type { ScheduleSource, ScheduleSummary, SchedulerDeleteResult } from './s
 // ---------- Webhooks ------------------------------------------------------
 export type { WebhookLastResult, WebhookSummary, WebhookDeleteResult } from './webhooks.js';
 
-// ---------- Mobile gateway (WebSocket bridge) ------------------------------
-export type { MobileGatewayStatus } from './mobile.js';
-
 // ---------- Communication channels (Slack / Telegram on dedicated runners) -
 export type {
   ChannelConfigField,
@@ -99,13 +96,20 @@ export type {
 // ---------- Settings -------------------------------------------------------
 export type {
   ProviderEntry,
+  ProviderCatalogEntry,
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
+  TranscriptionMode,
+  TranscriptionSettings,
+  TranscriptionSetup,
   SkillFile,
   ReasoningEffort,
   ModelDefaultsChange,
   StoredModelDefaults,
+  AgentCliAction,
+  AgentCliRunResult,
+  AgentCliProgress,
 } from './settings.js';
 
 // ---------- Desks ---------------------------------------------------------
@@ -119,6 +123,16 @@ export type {
   RunTurnVisibility,
   ActiveTurnSnapshot,
 } from './chat.js';
+export type {
+  ChatMediaFile,
+  ChatMediaImage,
+  ChatMediaImageChunk,
+  ChatMediaImageData,
+  ChatMediaItem,
+  ChatMediaLibrary,
+  ChatMediaLink,
+  ChatMediaOwner,
+} from './chat-media.js';
 
 // ---------- Focus window layout ------------------------------------------
 export {
@@ -163,12 +177,10 @@ export type {
 
 // ---------- Events the renderer subscribes to ------------------------------
 export type { IpcEvents } from './events.js';
+export type { AppNotice, AppNoticeTarget } from './notices.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
-export type { IpcCommands, IpcCommandName, CollabRunSummary } from './commands.js';
-
-// ---------- The remote / mobile trust surface -----------------------------
-export { REMOTE_ALLOWED_COMMANDS } from './remote.js';
+export type { IpcCommands, IpcCommandName } from './commands.js';
 
 // ---------- Shape the preload exposes on `window.moxxy` -------------------
 export type { SubscribeFn, InvokeFn, MoxxyApi } from './api.js';

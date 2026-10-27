@@ -216,6 +216,26 @@ describe('PermissionEngine', () => {
     expect(raw.allow[0].name).toBe('Edit');
   });
 
+  // "Always allow" on a tool that grants something by itself (access to an app)
+  // saves the exact request, so a later, wider one still asks.
+  it('persists an exact-values rule that allows only the same request', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
+    const file = path.join(tmp, 'permissions.json');
+    const e = await PermissionEngine.load(file);
+    await e.addAllow({ name: 'grant_access', inputEquals: { apps: ['Safari'], full_access: true, clipboard_read: null } });
+    expect(JSON.parse(await fs.readFile(file, 'utf8')).allow[0]).toEqual({
+      name: 'grant_access',
+      inputEquals: { apps: ['Safari'], full_access: true, clipboard_read: null },
+    });
+
+    const reloaded = await PermissionEngine.load(file);
+    expect(reloaded.check(call('grant_access', { apps: ['Safari'], full_access: true }))?.mode).toBe('allow');
+    expect(reloaded.check(call('grant_access', { apps: ['Terminal'], full_access: true }))).toBeNull();
+    expect(reloaded.check(call('grant_access', { apps: ['Safari', 'Terminal'], full_access: true }))).toBeNull();
+    expect(reloaded.check(call('grant_access', { apps: ['Safari'] }))).toBeNull();
+    expect(reloaded.check(call('grant_access', { apps: ['Safari'], full_access: true, clipboard_read: true }))).toBeNull();
+  });
+
   it('persists inputMatches with addAllow (regression for silent drop)', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
     const file = path.join(tmp, 'permissions.json');

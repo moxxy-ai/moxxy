@@ -1,4 +1,4 @@
-import type { MoxxyEvent, RunTurnOptions, TurnId } from '@moxxy/sdk';
+import { AGENT_NO_REPLY_TEXT, isAgentNoReplyEvent, type MoxxyEvent, type RunTurnOptions, type TurnId } from '@moxxy/sdk';
 
 /**
  * Turn machinery shared by messaging channels that multiplex onto ONE shared
@@ -97,6 +97,8 @@ export class TurnCoordinator {
   private busyFlag = false;
   private active: AbortController | null = null;
   private readonly ownTurnIds = new Set<string>();
+  /** Turns the agent of an agent connection took up by itself, as many as the own turns kept. */
+  private readonly agentTurnIds = new Set<string>();
   private readonly maxOwnTurnIds: number;
 
   constructor(opts: TurnCoordinatorOptions = {}) {
@@ -175,5 +177,50 @@ export class TurnCoordinator {
     if (this.busyFlag) return null;
     const text = event.text.trim();
     return text ? text : null;
+  }
+
+  /**
+   * What a turn the agent of an agent connection took up by itself is about
+   * ("check later finished in the background"), so the channel can say so
+   * before what it did, as the desktop's "Agent continued" does.
+   */
+  mirrorAgentTurn(event: MoxxyEvent): string | null {
+    if (event.type !== 'user_prompt' || event.origin?.kind !== 'agent') return null;
+    if (this.ownTurnIds.has(event.turnId) || this.busyFlag) return null;
+    this.agentTurnIds.add(event.turnId);
+    if (this.agentTurnIds.size > this.maxOwnTurnIds) {
+      const oldest = this.agentTurnIds.values().next().value;
+      if (oldest !== undefined) this.agentTurnIds.delete(oldest);
+    }
+    const name = event.origin.name.trim();
+    return name ? name : null;
+  }
+
+  /**
+   * For a channel that mirrors replies only: the reply, and for a turn the
+   * agent took up by itself what it is about and its helper's answer.
+   */
+  mirrorReply(event: MoxxyEvent): string | null {
+    const agentTurn = this.mirrorAgentTurn(event);
+    if (agentTurn != null) return `Agent continued: ${agentTurn}`;
+    return this.mirrorText(event) ?? this.mirrorHelperAnswer(event) ?? this.mirrorNoReply(event);
+  }
+
+  /** That the agent finished a turn it took up by itself without replying, as the desktop says it. */
+  mirrorNoReply(event: MoxxyEvent): string | null {
+    if (!isAgentNoReplyEvent(event) || !this.agentTurnIds.has(event.turnId) || this.busyFlag) return null;
+    return AGENT_NO_REPLY_TEXT;
+  }
+
+  /**
+   * The answer of a background helper that finished in a turn the agent took
+   * up by itself: often all that turn holds (Codex says nothing then). In a
+   * turn the person started, the reply carries what the helper found.
+   */
+  mirrorHelperAnswer(event: MoxxyEvent): string | null {
+    if (event.type !== 'plugin_event' || event.pluginId !== '@moxxy/subagents' || event.subtype !== 'subagent_completed') return null;
+    if (!this.agentTurnIds.has(event.turnId) || this.busyFlag) return null;
+    const text = (event.payload as { text?: unknown } | undefined)?.text;
+    return typeof text === 'string' && text.trim() ? text.trim() : null;
   }
 }

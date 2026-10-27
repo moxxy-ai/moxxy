@@ -10,7 +10,7 @@ import { BUILTIN_SKILLS_DIR } from './index.js';
  * (`logger.warn` + `continue`) — so a malformed builtin ships green and only
  * manifests as a mysteriously-absent skill at runtime. These tests turn that
  * silent runtime drop into a CI failure: every shipped skill must parse, satisfy
- * the canonical frontmatter schema (name slug + <=240-char description), and
+ * the canonical frontmatter schema (name slug + <=1024-char description), and
  * declare only slug-shaped `allowed-tools`.
  */
 
@@ -23,8 +23,8 @@ async function listSkillFiles(): Promise<string[]> {
 }
 
 const TOOL_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
-// Margin the loader gives us before `description` (<=240) silently drops a skill.
-// Keep some slack so a future copy edit can't blow the limit in one keystroke.
+// Builtins are offered to the model every turn, so they keep a far tighter
+// description budget than the schema's 1024-char cap that third-party skills use.
 const MAX_DESCRIPTION = 240;
 const DESCRIPTION_SAFETY_BUDGET = 230;
 
@@ -48,7 +48,7 @@ describe('shipped builtin skills', () => {
     expect(failures, failures.join('\n')).toEqual([]);
   });
 
-  it('every description stays within a safe margin of the 240-char cap', async () => {
+  it('every description stays within the builtin 240-char budget', async () => {
     const files = await listSkillFiles();
     const tooLong: string[] = [];
     for (const file of files) {

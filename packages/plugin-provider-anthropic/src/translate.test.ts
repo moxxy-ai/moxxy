@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { assertDefined, defineTool } from '@moxxy/sdk';
 import { toAnthropicMessages, toAnthropicTools } from './translate.js';
 

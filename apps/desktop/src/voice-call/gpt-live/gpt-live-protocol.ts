@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /**
  * The GPT-Live data-channel protocol (`oai-events`), reduced to what Voice Mode

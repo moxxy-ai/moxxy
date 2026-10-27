@@ -40,7 +40,7 @@ export interface WorkflowRunCheckpoint {
 
 /**
  * Canonical ulid shape (Crockford base32, 26 chars). `runId` reaches `load`/
- * `remove` straight from the operator/UI across the IPC/WS/mobile trust
+ * `remove` straight from the operator/UI across the IPC trust
  * boundary, so it is untrusted: anything but a real ulid (e.g.
  * `../../../etc/passwd`) is rejected before it touches the filesystem,
  * defeating path traversal through `path.join`.

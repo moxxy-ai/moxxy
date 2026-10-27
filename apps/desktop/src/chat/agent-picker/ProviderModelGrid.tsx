@@ -3,8 +3,9 @@
  *
  *   [ provider list ] │ [ models for the hovered provider ]
  *
- * The left column lists providers (with an active dot); clicking one
- * "browses" it without committing. The right column lists that
+ * The left column lists the connected providers (with an active dot), coding
+ * agents apart from model providers as in Settings; clicking one "browses" it
+ * without committing. The right column lists that
  * provider's models. Providers that advertise live discovery replace their
  * build-time fallback catalog with the current `/v1/models` result. Picking a
  * model commits via the parent's onPick.
@@ -17,13 +18,17 @@ import { useState } from 'react';
 import type { ProviderInfo } from './types';
 import { useLiveProviderModels } from './useLiveProviderModels';
 import { CustomModelForm } from './CustomModelForm';
+import { useConnectedProviders } from './useConnectedProviders';
 
 export function ProviderModelGrid({
+  workspaceId,
   providers,
   activeProvider,
   activeModel,
   onPick,
 }: {
+  /** Whose Settings say which providers are connected; without one every provider shows. */
+  readonly workspaceId?: string | null;
   readonly providers: ReadonlyArray<ProviderInfo>;
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
@@ -33,9 +38,15 @@ export function ProviderModelGrid({
   // workspace's active provider so the grid opens showing the current
   // model set. Decoupled from `activeProvider` because the user may
   // browse without committing.
-  const [hoveredProvider, setHoveredProvider] = useState<string>(
+  const groups = useConnectedProviders(workspaceId, providers, activeProvider);
+  const shown = [...groups.agents, ...groups.models];
+  const [browsed, setHoveredProvider] = useState<string>(
     activeProvider ?? providers[0]?.name ?? '',
   );
+  // A provider that is not offered is never browsed: its models could not be picked.
+  const firstShown = shown[0];
+  const hoveredProvider =
+    firstShown === undefined || shown.some((p) => p.name === browsed) ? browsed : firstShown.name;
   const [customModelOpen, setCustomModelOpen] = useState(false);
   const liveModels = useLiveProviderModels(providers, hoveredProvider);
   const currentModels = liveModels.models.map((id) => ({ id }));
@@ -66,7 +77,7 @@ export function ProviderModelGrid({
           minHeight: 0,
         }}
       >
-        {providers.length === 0 && (
+        {shown.length === 0 && (
           <li
             style={{
               padding: '8px 10px',
@@ -74,49 +85,41 @@ export function ProviderModelGrid({
               color: 'var(--color-text-dim)',
             }}
           >
-            No providers
+            No connected providers
           </li>
         )}
-        {providers.map((p) => {
-          const isActive = p.name === activeProvider;
-          const isHovered = p.name === hoveredProvider;
-          return (
-            <li key={p.name}>
-              <button
-                type="button"
-                role="option"
-                aria-selected={isHovered}
-                onClick={() => setHoveredProvider(p.name)}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '6px 8px',
-                  fontSize: 'var(--type-row)',
-                  borderRadius: 'var(--radius-block)',
-                  color: isHovered ? 'var(--color-text)' : 'var(--color-text-muted)',
-                  background: isHovered ? 'var(--color-surface)' : 'transparent',
-                  fontWeight: isHovered ? 600 : 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <span style={{ flex: 1 }}>{p.name}</span>
-                {isActive && (
-                  <span
-                    title="Active provider"
+        {[
+          { title: 'Coding agents', items: groups.agents },
+          { title: 'Model providers', items: groups.models },
+        ].map(
+          (group) =>
+            group.items.length > 0 && (
+              <li key={group.title}>
+                <ul role="group" aria-label={group.title} style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  <li
+                    role="presentation"
                     style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      background: 'var(--color-green)',
+                      padding: '8px 8px 4px',
+                      fontSize: 'var(--type-label)',
+                      fontWeight: 600,
+                      color: 'var(--color-text-dim)',
                     }}
-                  />
-                )}
-              </button>
-            </li>
-          );
-        })}
+                  >
+                    {group.title}
+                  </li>
+                  {group.items.map((p) => (
+                    <ProviderOption
+                      key={p.name}
+                      name={p.name}
+                      active={p.name === activeProvider}
+                      hovered={p.name === hoveredProvider}
+                      onBrowse={() => setHoveredProvider(p.name)}
+                    />
+                  ))}
+                </ul>
+              </li>
+            ),
+        )}
       </ul>
       <div
         style={{
@@ -298,6 +301,55 @@ export function ProviderModelGrid({
         )}
       </div>
     </div>
+  );
+}
+
+function ProviderOption({
+  name,
+  active,
+  hovered,
+  onBrowse,
+}: {
+  readonly name: string;
+  readonly active: boolean;
+  readonly hovered: boolean;
+  readonly onBrowse: () => void;
+}): JSX.Element {
+  return (
+    <li>
+      <button
+        type="button"
+        role="option"
+        aria-selected={hovered}
+        onClick={onBrowse}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          padding: '6px 8px',
+          fontSize: 'var(--type-row)',
+          borderRadius: 'var(--radius-block)',
+          color: hovered ? 'var(--color-text)' : 'var(--color-text-muted)',
+          background: hovered ? 'var(--color-surface)' : 'transparent',
+          fontWeight: hovered ? 600 : 500,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <span style={{ flex: 1 }}>{name}</span>
+        {active && (
+          <span
+            title="Active provider"
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--color-green)',
+            }}
+          />
+        )}
+      </button>
+    </li>
   );
 }
 

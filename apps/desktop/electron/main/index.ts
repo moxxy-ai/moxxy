@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   RunnerPool,
-  UNBOUND_ID,
+  initialRunnerTarget,
   bindWindow,
   registerIpcHandlers,
   BrowserHost,
@@ -27,9 +27,7 @@ import {
   setRunnerExtraEnv,
   type HostWebContents,
   ElectronCommandBus,
-  wsEventBus,
   DeskStore,
-  cwdForSession,
   watchSessionsForChanges,
   sweepStaleSockets,
   beginFocusWindowDrag,
@@ -68,7 +66,6 @@ import {
   loadOrCreateSelfSignedCert,
   sendEvent,
   readPrefs,
-  updatePrefs,
   autostartConfiguredChannels,
   type LoopbackServer,
   type SelfSignedCert,
@@ -77,20 +74,7 @@ import {
 import type {
   DeepLinkPayload,
   FocusVerticalAnchor,
-  MobileGatewayStatus,
 } from '@moxxy/desktop-ipc-contract';
-// Value imports of @moxxy/ipc-server-ws are lazy + guarded (see the bridge
-// block below): the bridge is opt-in, and a top-level static import would make
-// boot itself depend on the module resolving — the exact failure that bricked
-// the 0.0.33 build when the package wasn't in BUNDLED_WORKSPACE_DEPS.
-// Type-only imports are erased at build time and carry no such risk.
-import type { WebSocketCommandBus, WebSocketBridgeServer } from '@moxxy/ipc-server-ws';
-
-import { resolveWsBridgeConfig, MobileGatewayManager } from './ws-bridge.js';
-import type {
-  E2EProxyHandle,
-  OpenMobileProxyOptions,
-} from '@moxxy/plugin-channel-mobile/e2e-proxy';
 
 import { LOOPBACK_PORTS, LOOPBACK_PORTS_ALT } from '../loopback-ports.js';
 
@@ -196,14 +180,6 @@ app.on('web-contents-created', (_event, contents) => routeGuestPopups(contents, 
  * browser and the pane would be showing a different document entirely.
  */
 const browserBridge = new BrowserBridge(browserHost);
-/** The optional WebSocket bridge server (remote/mobile clients). Closed on quit. */
-// Typed as the bridge server (not the bare TransportServer) so the host can
-// call `rotateWsBridgeToken(userData, wsServer)` to invalidate a leaked token.
-let wsServer: WebSocketBridgeServer | null = null;
-/** Runtime controller for the mobile gateway (Settings → Mobile). Owns the
- *  start/stop/status/rotate lifecycle once the WS bus + module are loaded. */
-let mobileGateway: MobileGatewayManager | null = null;
-
 // In-app loopback HTTPS server the packaged renderer is served from at
 // `https://desktop.moxxy.ai:<port>` (so the Clerk web SDK runs on a moxxy.ai
 // subdomain origin — required by a `pk_live_` production key, which is
@@ -240,7 +216,6 @@ const deepLinks = new DeepLinkRouter(() => mainWindow, focusMain);
 const startupSetup = new StartupSetup({
   onChange: (state) => {
     if (mainWindow && !mainWindow.isDestroyed()) sendEvent(mainWindow, 'app.setup.changed', state);
-    wsEventBus.broadcast('app.setup.changed', state);
   },
   log: (message) => console.log(`[moxxy] ${message}`),
 });
@@ -296,7 +271,6 @@ async function prepareRunnerEnvironment(): Promise<void> {
       },
       onProgress: (message) => {
         if (mainWindow && !mainWindow.isDestroyed()) sendEvent(mainWindow, 'app.update.progress', { phase: 'install', message });
-        wsEventBus.broadcast('app.update.progress', { phase: 'install', message });
       },
       log: (message) => console.log(`[moxxy] ${message}`),
     });
@@ -321,17 +295,9 @@ async function prepareRunnerEnvironment(): Promise<void> {
 }
 
 async function primeInitialRunner(runnerPool: RunnerPool, desks: DeskStore): Promise<void> {
-  const initialActive = await desks.getActive();
-  if (initialActive?.activeSessionId) {
-    await runnerPool.getOrCreate(
-      initialActive.activeSessionId,
-      cwdForSession(initialActive, initialActive.activeSessionId),
-    );
-    runnerPool.setActive(initialActive.activeSessionId);
-    return;
-  }
-  await runnerPool.getOrCreate(UNBOUND_ID, null);
-  runnerPool.setActive(UNBOUND_ID);
+  const { id, cwd } = await initialRunnerTarget(desks);
+  await runnerPool.getOrCreate(id, cwd);
+  runnerPool.setActive(id);
 }
 
 async function createWindow(): Promise<void> {
@@ -962,56 +928,9 @@ app.whenReady().then(async () => {
   // Push live workspace updates to every surface when a runner changes a session
   // file (e.g. the first prompt becomes the session's title).
   watchSessionsForChanges(desks);
-  // The Electron transport is always present. The WebSocket bridge (remote
-  // clients / the mobile app) is now controllable at RUNTIME from Settings →
-  // Mobile (the "mobile gateway"), so the bus + module are loaded unconditionally
-  // here — but the SERVER stays off until the user enables it (or the env-gated
-  // boot path / persisted preference asks for it). Register handlers onto the WS
-  // bus BEFORE any server starts accepting, so an early client connection sees a
-  // populated bus. The bridge module is lazy-imported and fully guarded (the
-  // shell-updater pattern): a module that fails to load degrades to "gateway
-  // unavailable", never takes down the app.
   const electronBus = new ElectronCommandBus();
-  const userData = app.getPath('userData');
-  const wsConfig = resolveWsBridgeConfig(userData); // non-null only when MOXXY_WS_BRIDGE=1
-  let wsBridge: typeof import('@moxxy/ipc-server-ws') | null = null;
-  try {
-    wsBridge = await import('@moxxy/ipc-server-ws');
-  } catch (e) {
-    console.error('[moxxy] WebSocket bridge unavailable (module failed to load):', e);
-  }
-  const wsBus: WebSocketCommandBus | null = wsBridge ? new wsBridge.WebSocketCommandBus() : null;
 
-  // The runtime gateway controller. It owns the server lifecycle (start/stop/
-  // status/rotate); the Settings → Mobile IPC commands delegate to it. Status
-  // changes fan out to the renderer via the `mobileGateway.changed` event.
-  if (wsBridge && wsBus) {
-    mobileGateway = new MobileGatewayManager({
-      wsBridge,
-      wsBus,
-      userDataDir: userData,
-      readEnabledPref: () => readPrefs().mobileGatewayEnabled,
-      writeEnabledPref: async (enabled) => {
-        await updatePrefs({ mobileGatewayEnabled: enabled });
-      },
-      onChange: (status: MobileGatewayStatus) => {
-        if (mainWindow) sendEvent(mainWindow, 'mobileGateway.changed', status);
-      },
-      // Expose the bridge off-LAN through the E2E proxy relay (best-effort; the
-      // manager falls back to a LAN URL if the relay is unreachable). Loaded
-      // LAZILY: the E2E stack (`@noble/*`, the tunnel client, and transitively
-      // `ulid`, whose eager init needs the runtime's `require` shim) must NOT be
-      // pulled into the main entry's static import graph — doing so reorders
-      // module init so `ulid` evaluates before that shim and throws "secure
-      // crypto unusable" at boot (the app fails to start). Deferring to a
-      // dynamic import keeps it out of the startup path; it loads only when the
-      // user enables mobile (post app-ready), in a ulid-free lazy chunk.
-      openProxyTunnel: (opts: OpenMobileProxyOptions): Promise<E2EProxyHandle> =>
-        import('@moxxy/plugin-channel-mobile/e2e-proxy').then((m) => m.openMobileProxyTunnel(opts)),
-    });
-  }
-
-  registerIpcHandlers(wsBus ? [electronBus, wsBus] : [electronBus], pool, desks, {
+  registerIpcHandlers([electronBus], pool, desks, {
     openExternal: (url) => shell.openExternal(url),
     update: {
       publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
@@ -1033,17 +952,11 @@ app.whenReady().then(async () => {
       // not in desktop-host — because this app owns the electron-updater dep.
       installShellUpdate: installFullAppUpdate,
     },
-    // Bridge-control commands (host-only; refused over the WS transport).
-    ...(mobileGateway ? { mobileGateway } : {}),
     voice: {
       setRealtimeCaptureActive: (active) => realtimeCapture.setActive(active),
     },
     browser: browserHost,
   });
-
-  // Events fan out to WS clients once the bus exists — independent of whether the
-  // server is up yet, so a client that connects later still gets the live stream.
-  if (wsBus) wsEventBus.addSink(wsBus);
 
   // The renderer's DeepLinkBridge calls this once on mount: it returns +
   // clears any `moxxy://` links buffered before the renderer was listening
@@ -1084,25 +997,6 @@ app.whenReady().then(async () => {
         console.error('[moxxy] channel autostart failed:', err);
       });
   }
-
-  if (wsBridge && wsBus && wsConfig && mobileGateway) {
-    // The opt-in env bridge is independent of first paint. Hand the running
-    // server to the runtime controller so status/rotate/stop see it too.
-    try {
-      wsServer = await wsBridge.startWsBridge(wsBus, {
-        ...wsConfig,
-        onClientCountChange: () => mobileGateway?.notifyClientCountChanged(),
-      });
-      const host = wsConfig.host ?? '127.0.0.1';
-      const m = /:(\d+)$/.exec(wsServer.address);
-      mobileGateway.adopt(wsServer, host, m ? Number(m[1]) : wsConfig.port);
-      console.log(`[moxxy] WebSocket bridge listening on ${wsServer.address}`);
-    } catch (e) {
-      console.error('[moxxy] WebSocket bridge failed to start:', e);
-    }
-  }
-  // Without the env override the gateway stays off until explicitly enabled;
-  // its token + identity remain persisted, so re-enabling does not re-pair.
 
   // Cold-start deep-link: Windows/Linux pass a `moxxy://` URL as an argv
   // token (macOS uses open-url, already buffered above). Buffer it for the
@@ -1156,27 +1050,14 @@ async function shutdown(): Promise<void> {
     /* nothing worth blocking quit for */
   }
 
-  // Tear the mobile gateway down THROUGH the manager (not just the raw server):
-  // `stop()` also closes the E2E proxy tunnel + shim, so the relay deregisters
-  // this machine's tunnel on quit. Closing only the WS server (the old path)
-  // left the relay holding a stale registration for the key-derived URL — the
-  // next launch's tunnel then collided with the dead one and pairing looked
-  // "unresponsive until you regenerate the code". When the manager is absent
-  // (bridge module failed to load) fall back to closing the env-boot server.
-  const stopGateway = mobileGateway
-    ? mobileGateway.stop().then(() => undefined)
-    : (wsServer?.close() ?? Promise.resolve());
   await Promise.race([
-    // Stop the runner children, the loopback server, AND the mobile gateway
-    // (remote clients + relay tunnel). allSettled never rejects, so one failing
-    // doesn't skip the others.
+    // Stop the runner children and the loopback server. allSettled never
+    // rejects, so one failing doesn't skip the other.
     Promise.allSettled([
       pool?.stopAll() ?? Promise.resolve(),
       loopback?.close() ?? Promise.resolve(),
-      stopGateway,
     ]),
     // Belt-and-braces timeout: don't hang the app on a stuck child.
     new Promise<void>((resolve) => setTimeout(resolve, 3000)),
   ]);
-  wsServer = null;
 }

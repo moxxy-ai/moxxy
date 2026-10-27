@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Context } from 'grammy';
 import type { ChannelHandle } from '@moxxy/sdk';
 import { Session } from '@moxxy/core';
+import { ChatQuestions } from '@moxxy/channel-kit';
+import { defineTool, z, type QuestionOutcome } from '@moxxy/sdk';
 import {
   handleTextMessage,
   type TextHandlerCallbacks,
@@ -72,6 +74,7 @@ const makeHarness = (over: Partial<TextHandlerState> = {}): Harness => {
     } as never,
     permissionResolver: { abortAll: vi.fn() } as never,
     framePump: { resetRenderer: vi.fn() } as never,
+    questions: new ChatQuestions(() => state.session),
   };
   const tryHostPair = vi.fn(async () => false);
   const cb: TextHandlerCallbacks = {
@@ -152,6 +155,37 @@ describe('handleTextMessage — single-flight busy guard', () => {
     await handleTextMessage(ctx, h.state, h.deps, h.cb);
     expect(h.runUserTurn).toHaveBeenCalledTimes(1);
     expect(h.runUserTurn).toHaveBeenCalledWith(ctx, 42, 'do the thing');
+  });
+});
+
+describe('handleTextMessage — a reply to an open Question', () => {
+  it('answers the Question with the reply, even while the turn that asked runs', async () => {
+    const h = makeHarness({ busy: true });
+    const session = h.state.session;
+    if (!session) throw new Error('expected a session');
+    session.tools.register(
+      defineTool({
+        name: 'asks',
+        description: 'Asks the person.',
+        inputSchema: z.object({}),
+        handler: async (_input, ctx) =>
+          ctx.ask
+            ? ctx.ask([
+                { id: 'q1', question: 'Which colour?', options: [{ id: 'red', label: 'Red' }], multiSelect: false, allowOther: true },
+              ])
+            : 'no ask',
+      }),
+    );
+    h.deps.questions.attach(() => undefined);
+    const asked = session.tools.execute('asks', {}, new AbortController().signal, { turnId: 't1' }) as Promise<QuestionOutcome>;
+    await new Promise((resolve) => setImmediate(resolve));
+    const { ctx, replies } = fakeCtx({ text: 'Teal' });
+
+    await handleTextMessage(ctx, h.state, h.deps, h.cb);
+
+    await expect(asked).resolves.toEqual({ kind: 'answered', answers: { q1: { selected: [], other: 'Teal' } } });
+    expect(h.runUserTurn).not.toHaveBeenCalled();
+    expect(replies).toEqual([]);
   });
 });
 

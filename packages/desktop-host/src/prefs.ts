@@ -20,13 +20,14 @@ const DEFAULTS: DesktopPrefs = {
   clerkUserId: null,
   clerkDisplayName: null,
   signedInAt: null,
-  mobileGatewayEnabled: false,
   theme: 'system',
   voiceEngine: 'local',
   replySound: true,
   systemNotifications: true,
+  inAppToasts: true,
   focusMiniTextSize: null,
   channelRunModes: {},
+  dismissedAgentUpdates: {},
   version: 1,
 };
 

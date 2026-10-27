@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readRequestBody, bearerTokenMatches } from '@moxxy/sdk/server';
 import type { ClientSession as Session } from '@moxxy/sdk';

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { JsonLineDecoder, MAX_FRAME_BYTES, TAKEOVER_PROTOCOL_VERSION, controlCommandSchema, controlStateSchemaFor, responseSchemaFor } from './protocol.js';
 
 /** A validated frame the helper emitted on its own (state changes, cursor moves, preview frames). */

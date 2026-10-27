@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { defineTool } from '@moxxy/sdk';
 import { collectTurn } from '@moxxy/core';
-import { createFakeSession, FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
+import { createFakeSession, FakeAgentProvider, FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
 
 import { PLAN_MODE_NAME, planDefinitionSchema, planMode, planModePlugin } from './index.js';
 import { readOnlyTools } from './plan-loop.js';
@@ -90,6 +90,43 @@ describe('plan mode', () => {
     ).toBe(true);
   });
 
+  it('hands in the plan without asking the person, as plan_complete declares', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('plan_complete', firstPlan, 'plan-1')],
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+    const asked: string[] = [];
+    session.setPermissionResolver({
+      name: 'asks',
+      check: async (call) => {
+        asked.push(call.name);
+        return { mode: 'deny', reason: 'the person was asked' };
+      },
+    });
+
+    const events = await collectTurn(session, 'Design a simpler workspace onboarding flow');
+
+    expect(asked).toEqual([]);
+    expect(events.some((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed')).toBe(true);
+  });
+
+  it('still refuses plan_complete where the person denied it', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('plan_complete', firstPlan, 'plan-1'), textReply('Understood.')],
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+    session.permissions.setImmutableRules({ allow: [], deny: [{ name: 'plan_complete', reason: 'no plans here' }] });
+
+    const events = await collectTurn(session, 'Design a simpler workspace onboarding flow');
+
+    expect(events.some((event) => event.type === 'tool_call_denied')).toBe(true);
+    expect(events.some((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed')).toBe(false);
+  });
+
   it('keeps prior plans in context so the next turn can revise them', async () => {
     const revised: PlanDefinition = {
       ...firstPlan,
@@ -173,13 +210,137 @@ describe('plan mode', () => {
         },
       }),
     );
+    session.tools.register(
+      defineTool({
+        name: 'ask_user',
+        description: 'ask',
+        inputSchema: z.object({}),
+        handler: () => 'answered',
+      }),
+    );
     const tools = readOnlyTools(session.tools);
 
-    expect(tools.list().map((tool) => tool.name)).toEqual(['Read', 'plan_complete']);
+    // Asking the person changes nothing, and planning is where a question helps most.
+    expect(tools.list().map((tool) => tool.name)).toEqual(['Read', 'ask_user', 'plan_complete']);
     expect(tools.get('Bash')).toBeUndefined();
     await expect(tools.execute('Bash', {}, new AbortController().signal)).rejects.toThrow(
       'does not allow',
     );
     expect(mutationRan).toBe(false);
+  });
+
+  it('shows an agent connection own plan in the same plan card and ends the turn there', async () => {
+    const plan = '# Fix `add` and cover it\n\n## Summary\n\n`add` subtracts. Make it add.\n';
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'Looking at math.js.', stopReason: 'tool_use' };
+      yield { type: 'plan', text: plan };
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+
+    const events = await collectTurn(session, 'Plan the fix for add');
+
+    expect(provider.steps).toHaveLength(1);
+    expect(provider.steps[0]?.mode).toBe(PLAN_MODE_NAME);
+    const card = events.find((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed');
+    // An agent plan is Markdown: the title comes from its heading, steps and a
+    // suggested mode are not guessed.
+    expect(card).toMatchObject({ type: 'plugin_event', payload: { title: 'Fix `add` and cover it', questions: 0 } });
+    if (card?.type !== 'plugin_event') throw new Error('expected a plan card');
+    expect(card.payload).not.toHaveProperty('steps');
+    expect(card.payload).not.toHaveProperty('recommendedMode');
+    const final = events.filter((event) => event.type === 'assistant_message').at(-1);
+    expect(final).toMatchObject({ type: 'assistant_message', source: 'system', content: plan });
+  });
+
+  it('asks an agent without a plan of its own for its plan through plan_complete, and shows it in the plan card', async () => {
+    const provider = new FakeAgentProvider(async function* (req) {
+      if (provider.steps.length === 1) {
+        yield { type: 'tool_call', callId: 'r1', name: 'Read', input: { file_path: 'README.md' } };
+        yield { type: 'tool_result', callId: 'r1', ok: true, output: '# app' };
+        yield { type: 'message', text: 'Here is my plan: first audit, then build.' };
+        return;
+      }
+      await req.host.runTool({ callId: 'p1', name: 'plan_complete', input: firstPlan });
+      yield { type: 'message', text: 'Plan submitted.' };
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+    const asked: string[] = [];
+    session.setPermissionResolver({ name: 'asks', check: async (call) => (asked.push(call.name), { mode: 'allow' }) });
+
+    const events = await collectTurn(session, 'Plan the onboarding');
+
+    expect(asked).toEqual([]);
+    expect(provider.steps).toHaveLength(2);
+    expect(provider.steps[0]?.tools.map((tool) => tool.name)).toContain('plan_complete');
+    expect(provider.steps[1]?.prompt[0]).toMatchObject({ type: 'text', text: expect.stringContaining('plan_complete') });
+    const card = events.find((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed');
+    expect(card).toMatchObject({ payload: { title: firstPlan.title, steps: firstPlan.steps.length } });
+  });
+
+  it('asks an agent with its own plan mode that wrote its plan as a message to hand it over, once', async () => {
+    const prose = '# Storage plan\n\n1. Add the table\n2. Write the migration\n3. Cover it with a test';
+    const provider = new FakeAgentProvider(
+      async function* () {
+        if (provider.steps.length === 1) {
+          yield { type: 'message', text: prose };
+          return;
+        }
+        yield { type: 'plan', text: prose };
+      },
+      'fake-agent',
+      { agentOwns: { plan: true } },
+    );
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+
+    const events = await collectTurn(session, 'Plan the storage');
+
+    expect(provider.steps).toHaveLength(2);
+    expect(provider.steps[1]?.prompt[0]).toMatchObject({ type: 'text', text: expect.stringContaining('plan hand-off') });
+    expect(events.find((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed')).toMatchObject({
+      payload: { title: 'Storage plan' },
+    });
+    // The nudge rides that one call; it is not a message of the conversation.
+    expect(session.log.ofType('user_prompt')).toHaveLength(1);
+  });
+
+  it('asks only once, and leaves a second prose plan as it is', async () => {
+    const provider = new FakeAgentProvider(
+      async function* () {
+        yield { type: 'message', text: '## Plan\n\n- one\n- two\n- three' };
+      },
+      'fake-agent',
+      { agentOwns: { plan: true } },
+    );
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+
+    const events = await collectTurn(session, 'Plan it');
+
+    expect(provider.steps).toHaveLength(2);
+    expect(events.filter((event) => event.type === 'error')).toEqual([]);
+  });
+
+  it('leaves an agent with its own plan mode to finish its turn without a nudge', async () => {
+    const provider = new FakeAgentProvider(
+      async function* () {
+        yield { type: 'message', text: 'Which database should I plan for?' };
+      },
+      'fake-agent',
+      { agentOwns: { plan: true } },
+    );
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+
+    await collectTurn(session, 'Plan the storage');
+
+    expect(provider.steps).toHaveLength(1);
   });
 });

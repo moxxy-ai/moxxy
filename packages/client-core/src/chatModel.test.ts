@@ -10,7 +10,9 @@ import {
   applyEvent,
   buildRenderNodes,
   createRuntime,
+  groupThinkingNodes,
   groupToolNodes,
+  groupWorkNodes,
   isRenderedEvent,
   registerRenderablePlugin,
   type ChatRuntime,
@@ -398,8 +400,39 @@ describe('isRenderedEvent plugin registry seam', () => {
 
   it('renders the seeded first-party plugin ids and rejects unknown ones', () => {
     expect(isRenderedEvent(pluginEvent('@moxxy/subagents'))).toBe(true);
-    expect(isRenderedEvent(pluginEvent('@moxxy/mode-collaborative'))).toBe(true);
+    // Collaborative mode was removed: events left in old runs stay hidden.
+    expect(isRenderedEvent(pluginEvent('@moxxy/mode-collaborative'))).toBe(false);
     expect(isRenderedEvent(pluginEvent('@moxxy/something-else'))).toBe(false);
+  });
+
+  it("keeps an agent's account limit in the chat, and none of the connection's other bookkeeping", () => {
+    const connection = (subtype: string): MoxxyEvent =>
+      evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype, payload: { provider: 'claude-code', limit: { state: 'near' } } });
+    expect(isRenderedEvent(connection('account_limit'))).toBe(true);
+    expect(isRenderedEvent(connection('agent_session'))).toBe(false);
+  });
+
+  it("keeps the agent's background work, which the Agents panel lists from the chat", () => {
+    const connection = (subtype: string): MoxxyEvent => evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype, payload: {} });
+    expect(isRenderedEvent(connection('background_work'))).toBe(true);
+    expect(isRenderedEvent(connection('background_work_ended'))).toBe(true);
+  });
+
+  it('keeps the note that the agent finished a turn it took up by itself without replying', () => {
+    expect(isRenderedEvent(evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype: 'no_reply', payload: {} }))).toBe(true);
+  });
+
+  it('keeps the same empty-completion note on live delivery and history replay', () => {
+    const prompt = evt('user_prompt', { text: 'Task finished', origin: { kind: 'agent', name: 'Task finished' } });
+    const note = evt('plugin_event', { pluginId: '@moxxy/agent-connection', subtype: 'no_reply', payload: {} });
+    const live = createRuntime();
+    applyEvent(live, prompt);
+    applyEvent(live, note);
+    applyEvent(live, note);
+
+    expect(blocksOf(live)).toEqual(blocksOf(createRuntime([prompt, note])));
+    expect(blocksOf(live)).toHaveLength(2);
+    expect(blocksOf(live)[1]).toMatchObject({ kind: 'event', event: note });
   });
 
   it('registerRenderablePlugin opts a plugin in without editing the core module', () => {
@@ -407,5 +440,108 @@ describe('isRenderedEvent plugin registry seam', () => {
     expect(isRenderedEvent(pluginEvent(id))).toBe(false);
     registerRenderablePlugin(id);
     expect(isRenderedEvent(pluginEvent(id))).toBe(true);
+  });
+});
+
+describe('groupThinkingNodes', () => {
+  const thinking = (): RenderNode =>
+    blockNode({
+      kind: 'event',
+      id: `th${(g += 1)}`,
+      event: { type: 'reasoning_message', id: `th${g}`, content: 'hmm' } as unknown as MoxxyEvent,
+    });
+
+  it('folds thinking one after another into one node keyed on the first, in order', () => {
+    const [a, b, c] = [thinking(), thinking(), thinking()];
+    const out = groupThinkingNodes([eventNode(), a, b, c, toolNode('bash')]);
+    expect(out.map((node) => node.kind)).toEqual(['block', 'thinking', 'block']);
+    const group = out[1];
+    if (group?.kind !== 'thinking') throw new Error('expected a thinking node');
+    expect(group.id).toBe(`thinking:${(a as { block: FoldedBlock }).block.id}`);
+    expect(group.events.map((event) => event.id)).toEqual([a, b, c].map((node) => (node as { block: FoldedBlock }).block.id));
+  });
+
+  it('leaves a lone thinking, and thinking a tool comes between, as they are', () => {
+    const out = groupThinkingNodes([thinking(), toolNode('bash'), thinking()]);
+    expect(out.map((node) => node.kind)).toEqual(['block', 'block', 'block']);
+  });
+});
+
+describe('groupWorkNodes', () => {
+  const at = (type: MoxxyEvent['type'], ts: number, extra: Record<string, unknown> = {}): RenderNode =>
+    blockNode({ kind: 'event', id: `w${(g += 1)}`, event: { type, id: `w${g}`, ts, ...extra } as unknown as MoxxyEvent });
+  const prompt = (ts: number): RenderNode => at('user_prompt', ts, { text: 'do it' });
+  const said = (ts: number): RenderNode => at('assistant_message', ts, { content: 'on it' });
+  const thought = (ts: number): RenderNode => at('reasoning_message', ts, { content: 'hmm' });
+  const tool = (ts: number): RenderNode => {
+    const block = toolBlock('bash');
+    return blockNode({ ...block, request: { ...block.request, ts } as ToolCallBlockData['request'] });
+  };
+  const tools = (ts: number): RenderNode => ({
+    kind: 'tool-group',
+    id: `toolgroup:${(g += 1)}`,
+    tools: [toolBlock('bash'), toolBlock('grep'), toolBlock('read')].map((block) => ({
+      ...block,
+      request: { ...block.request, ts } as ToolCallBlockData['request'],
+    })),
+  });
+  const kinds = (nodes: ReadonlyArray<RenderNode>): string[] => nodes.map((node) => node.kind);
+  const work = (node: RenderNode | undefined) => {
+    if (node?.kind !== 'work') throw new Error(`expected a work node, got ${node?.kind}`);
+    return node;
+  };
+
+  it('folds what a finished turn did before its answer into one group, the answer left under it', () => {
+    const steps = [thought(110), said(120), tools(130), said(150)];
+    const answer = said(400);
+    const out = groupWorkNodes([prompt(100), ...steps, answer]);
+    expect(kinds(out)).toEqual(['block', 'work', 'block']);
+    const group = work(out[1]);
+    expect(group.nodes).toEqual(steps);
+    expect(group.id).toBe(`work:${(steps[0] as { block: FoldedBlock }).block.id}`);
+    expect(group.steps).toBe(6);
+    expect(group.startedAtMs).toBe(100);
+    expect(group.endedAtMs).toBe(400);
+    expect(out[2]).toBe(answer);
+  });
+
+  it('folds each turn on its own', () => {
+    const out = groupWorkNodes([prompt(1), thought(2), tool(3), said(4), prompt(5), tool(6), tool(7), said(8)]);
+    expect(kinds(out)).toEqual(['block', 'work', 'block', 'block', 'work', 'block']);
+    expect(work(out[4]).startedAtMs).toBe(5);
+  });
+
+  it('leaves the turn still running as it is, and the turns before it folded', () => {
+    const running = [prompt(5), thought(6), tool(7), said(8)];
+    const out = groupWorkNodes([prompt(1), thought(2), tool(3), said(4), ...running], { running: true });
+    expect(kinds(out)).toEqual(['block', 'work', 'block', ...running.map(() => 'block')]);
+    expect(out.slice(3)).toEqual(running);
+  });
+
+  it('keeps errors, Stopped, notices, answered questions and what the surface asks for in view, in order', () => {
+    const error = at('error', 5, { message: 'boom' });
+    const stopped = at('abort', 9, { reason: 'user' });
+    const plan = said(7);
+    const notice = extNode();
+    const question = toolBlock('ask');
+    const answered = blockNode({
+      ...question,
+      outcome: {
+        type: 'tool_result',
+        ok: true,
+        output: { display: { kind: 'question-answer', questions: [{ question: 'which?', chosen: ['a'] }] } },
+      } as unknown as ToolCallBlockData['outcome'],
+    });
+    const nodes = [prompt(1), thought(2), tool(3), error, tool(6), tool(6), plan, notice, answered, said(8), tool(8), stopped];
+    const out = groupWorkNodes(nodes, { keep: (node) => node === plan });
+    expect(kinds(out)).toEqual(['block', 'work', 'block', 'work', 'block', 'ext', 'block', 'block', 'block', 'block']);
+    expect(work(out[1]).endedAtMs).toBe(5);
+    expect(out.slice(4)).toEqual([plan, notice, answered, ...nodes.slice(9)]);
+  });
+
+  it('does not make a group of one step, nor fold rows before the first message', () => {
+    const before = [thought(1), tool(2), said(3)];
+    const turn = [prompt(4), tool(5), said(6)];
+    expect(groupWorkNodes([...before, ...turn])).toEqual([...before, ...turn]);
   });
 });

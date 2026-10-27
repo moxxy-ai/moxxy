@@ -1,21 +1,29 @@
 import type { MoxxyEvent, PluginEvent, ToolCompactPresentation } from '@moxxy/sdk';
 import { assertDefined, invariant } from './assert.js';
-import { isFileDiffDisplay } from '@moxxy/sdk/tool-display';
+import {
+  isFileDiffDisplay,
+  isQuestionAnswerDisplay,
+  isStepListDisplay,
+  isToolDisplayResult,
+  toolImagesOf,
+  type QuestionAnswerDisplay,
+  type StepListDisplay,
+  type ToolImage,
+} from '@moxxy/sdk/tool-display';
 import type {
   Block,
-  CollabAgentView,
-  CollaborationBlock,
   LiveToolBlockData,
   LiveToolCall,
   SkillScopeBlock,
+  StepListBlock,
   SubagentBlock,
   SubagentGroupBlock,
   ToolCallBlockData,
 } from './types.js';
-import { oneLine } from './format.js';
+import { oneLine, subagentState } from './format.js';
+import { isAgentWorkEvent } from './agent-work.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
-const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
 
 /**
  * Tools whose results carry a `file-diff` display. They render as their own
@@ -39,6 +47,19 @@ export function isFileDiffResult(
   );
 }
 
+/** What the person chose, when this settled outcome is an answered Question (`ask_user`); else null. */
+export function questionAnswerOf(outcome: ToolCallBlockData['outcome']): QuestionAnswerDisplay | null {
+  if (outcome === null || outcome.type !== 'tool_result' || !outcome.ok) return null;
+  const display = (outcome.output as { display?: unknown } | undefined)?.display;
+  return isQuestionAnswerDisplay(display) ? display : null;
+}
+
+/** The images a settled tool result carries (screenshots, images an agent looked at) and the text beside them; else null. */
+export function toolImagesResultOf(outcome: ToolCallBlockData['outcome']): { readonly images: ReadonlyArray<ToolImage>; readonly text: string } | null {
+  if (outcome === null || outcome.type !== 'tool_result' || !outcome.ok) return null;
+  return toolImagesOf(outcome.output);
+}
+
 /**
  * Fold a subagent `plugin_event` into the `subagents` map / `root` array.
  * Subagent events render as one-line scope blocks so a fleet of children
@@ -49,6 +70,7 @@ export function isFileDiffResult(
 function handleSubagentEvent(
   e: PluginEvent,
   subagents: Map<string, SubagentBlock>,
+  background: Map<string, SubagentBlock>,
   root: Block[],
   groupRef: { current: SubagentGroupBlock | null },
 ): void {
@@ -66,6 +88,7 @@ function handleSubagentEvent(
       startedAtMs: new Date(e.ts).getTime(),
       completedAtMs: null,
       toolCallCount: 0,
+      ...(payload.toolsUnseen === true ? { toolsUnseen: true } : {}),
       tokensUsed: null,
       toolCalls: [],
       stopReason: null,
@@ -73,26 +96,10 @@ function handleSubagentEvent(
       error: null,
     };
     subagents.set(childSessionId, block);
-    // Fold consecutive sibling agents (a dispatch_agent fan-out) into one
-    // group. The run is broken by any non-subagent block (see pushBlock /
-    // boundary resets), so a fresh `subagent_started` after that opens a new
-    // group. A lone agent renders as a group of one.
-    if (groupRef.current) {
-      groupRef.current.agents.push(block);
-      if (groupRef.current.agentType !== agentType) groupRef.current.agentType = 'mixed';
-    } else {
-      const group: SubagentGroupBlock = {
-        kind: 'subagent-group',
-        id: `subagentgroup:${e.id}`,
-        agentType,
-        agents: [block],
-      };
-      groupRef.current = group;
-      root.push(group);
-    }
+    addToGroup(block, e, root, groupRef);
     return;
   }
-  const block = subagents.get(childSessionId);
+  const block = subagents.get(childSessionId) ?? continuedFrom(background.get(childSessionId));
   if (!block) return;
   if (e.subtype === 'subagent_tool_call') {
     block.toolCallCount += 1;
@@ -122,196 +129,54 @@ function handleSubagentEvent(
   }
   // chunk / tool_result / nested-grand-child: ignore at top level;
   // the /agents modal exposes the raw stream when needed.
-}
 
-function collabUpsertAgent(
-  block: CollaborationBlock,
-  id: string,
-  patch: Partial<CollabAgentView>,
-): void {
-  let a = block.agents.find((x) => x.id === id);
-  if (!a) {
-    a = { id, name: id, role: 'implementer', status: 'pending', subtask: null, summary: null };
-    block.agents.push(a);
+  /** A subagent from an earlier turn reporting again: its row there stays as it was, a new one shows what it does now. */
+  function continuedFrom(earlier: SubagentBlock | undefined): SubagentBlock | undefined {
+    if (!earlier) return undefined;
+    background.delete(childSessionId);
+    const block: SubagentBlock = {
+      kind: 'subagent',
+      id: e.id,
+      childSessionId,
+      label: earlier.label,
+      agentType: earlier.agentType,
+      startedAtMs: earlier.startedAtMs,
+      completedAtMs: null,
+      toolCallCount: 0,
+      ...(earlier.toolsUnseen === true ? { toolsUnseen: true } : {}),
+      tokensUsed: null,
+      toolCalls: [],
+      stopReason: null,
+      finalPreview: null,
+      error: null,
+      continued: true,
+    };
+    subagents.set(childSessionId, block);
+    addToGroup(block, e, root, groupRef);
+    return block;
   }
-  Object.assign(a, patch);
-}
-
-function newCollabBlock(id: string, atMs: number, task = ''): CollaborationBlock {
-  return {
-    kind: 'collab',
-    id,
-    task,
-    parallel: false,
-    fallbackReason: null,
-    startedAtMs: atMs,
-    completedAtMs: null,
-    agents: [],
-    messages: [],
-    tasks: [],
-    contracts: [],
-    conflicts: [],
-    control: null,
-    summary: null,
-    doneCount: null,
-    totalCount: null,
-  };
 }
 
 /**
- * Fold a `collab_*` plugin_event (from the collaborative coordinator) into the
- * open {@link CollaborationBlock}. One block per run (opened on collab_started);
- * subsequent events mutate it in place — roster, agent statuses, the message
- * bus, the task board, contracts, human control, and the outcome.
+ * Fold consecutive sibling agents (a dispatch_agent fan-out) into one group.
+ * The run is broken by any non-subagent block (see pushBlock / boundary
+ * resets), so a fresh agent after that opens a new group. A lone agent renders
+ * as a group of one.
  */
-function handleCollabEvent(
-  e: PluginEvent,
-  ref: { current: CollaborationBlock | null },
-  root: Block[],
-): void {
-  const p = (e.payload ?? {}) as Record<string, unknown>;
-  const atMs = new Date(e.ts).getTime();
-  if (e.subtype === 'collab_started') {
-    const block = newCollabBlock(e.id, atMs, String(p.task ?? ''));
-    block.parallel = Boolean(p.parallel);
-    ref.current = block;
-    root.push(block);
+function addToGroup(block: SubagentBlock, e: PluginEvent, root: Block[], groupRef: { current: SubagentGroupBlock | null }): void {
+  if (groupRef.current) {
+    groupRef.current.agents.push(block);
+    if (groupRef.current.agentType !== block.agentType) groupRef.current.agentType = 'mixed';
     return;
   }
-  // Only collab_started opens a run. Stray events with no open block — e.g. a
-  // `collab_blocked` from a refused start (its assistant_message carries the
-  // reason) — never create an empty block.
-  const block = ref.current;
-  if (!block) return;
-  switch (e.subtype) {
-    case 'collab_fallback_sequential':
-      block.fallbackReason = String(p.reason ?? '');
-      break;
-    case 'collab_roster_proposed':
-    case 'collab_roster_confirmed': {
-      const roster = Array.isArray(p.roster) ? (p.roster as Array<Record<string, unknown>>) : [];
-      for (const r of roster) {
-        if (typeof r.id === 'string') {
-          collabUpsertAgent(block, r.id, {
-            name: String(r.name ?? r.id),
-            role: String(r.role ?? 'implementer'),
-            subtask: typeof r.subtask === 'string' ? r.subtask : null,
-          });
-        }
-      }
-      break;
-    }
-    case 'collab_agent_spawned':
-      if (typeof p.id === 'string') {
-        collabUpsertAgent(block, p.id, { role: String(p.role ?? 'implementer'), status: 'working' });
-      }
-      break;
-    case 'collab_agent_status':
-      if (typeof p.agentId === 'string') {
-        collabUpsertAgent(block, p.agentId, { status: String(p.status ?? 'working') });
-      }
-      break;
-    case 'collab_agent_done':
-      if (typeof p.agentId === 'string') {
-        collabUpsertAgent(block, p.agentId, {
-          status: 'done',
-          summary: typeof p.summary === 'string' ? p.summary : null,
-        });
-      }
-      break;
-    case 'collab_message': {
-      const m = (p.message ?? {}) as Record<string, unknown>;
-      if (typeof m.id === 'string') {
-        block.messages.push({
-          id: m.id,
-          from: String(m.from ?? '?'),
-          to: String(m.to ?? 'all'),
-          ...(typeof m.subject === 'string' ? { subject: m.subject } : {}),
-          body: String(m.body ?? ''),
-          atMs: typeof m.ts === 'number' ? m.ts : atMs,
-        });
-      }
-      break;
-    }
-    case 'collab_board_update': {
-      const item = (p.item ?? {}) as Record<string, unknown>;
-      if (typeof item.id === 'string') {
-        const existing = block.tasks.find((x) => x.id === item.id);
-        const owner = typeof item.owner === 'string' ? item.owner : null;
-        const paths = Array.isArray(item.paths) ? item.paths.filter((x): x is string => typeof x === 'string') : undefined;
-        const detail = typeof item.detail === 'string' ? item.detail : undefined;
-        if (!existing) {
-          block.tasks.push({
-            id: item.id,
-            title: String(item.title ?? ''),
-            status: String(item.status ?? 'open'),
-            owner,
-            ...(paths && paths.length > 0 ? { paths } : {}),
-            ...(detail ? { detail } : {}),
-          });
-        } else {
-          existing.title = String(item.title ?? existing.title);
-          existing.status = String(item.status ?? existing.status);
-          existing.owner = owner ?? existing.owner;
-          if (paths && paths.length > 0) existing.paths = paths;
-          if (detail) existing.detail = detail;
-        }
-      }
-      break;
-    }
-    case 'collab_contract_published':
-    case 'collab_contract_change_proposed':
-    case 'collab_contract_changed': {
-      const c = (p.contract ?? {}) as Record<string, unknown>;
-      if (typeof c.id === 'string') {
-        const existing = block.contracts.find((x) => x.id === c.id);
-        if (!existing) {
-          block.contracts.push({
-            id: c.id,
-            title: String(c.title ?? ''),
-            owner: String(c.owner ?? ''),
-            status: String(c.status ?? 'published'),
-            version: typeof c.version === 'number' ? c.version : 1,
-          });
-        } else {
-          existing.title = String(c.title ?? existing.title);
-          existing.owner = String(c.owner ?? existing.owner);
-          existing.status = String(c.status ?? existing.status);
-          existing.version = typeof c.version === 'number' ? c.version : existing.version;
-        }
-      }
-      break;
-    }
-    case 'collab_control': {
-      const ctrl = (p.control ?? {}) as Record<string, unknown>;
-      block.control = {
-        paused: Boolean(ctrl.paused),
-        ...(typeof ctrl.directive === 'string' ? { directive: ctrl.directive } : {}),
-      };
-      break;
-    }
-    case 'collab_conflict':
-      block.conflicts.push({
-        agentId: typeof p.agentId === 'string' ? p.agentId : '?',
-        files: Array.isArray(p.files) ? p.files.filter((f): f is string => typeof f === 'string') : [],
-      });
-      break;
-    case 'collab_completed':
-      block.completedAtMs = atMs;
-      // Prefer the runner-stamped counts; when absent or malformed (object /
-      // string from a buggy/old coordinator), derive from the folded roster so
-      // the summary line shows a real fraction instead of `null/null`.
-      block.doneCount = Array.isArray(p.done)
-        ? p.done.length
-        : typeof p.done === 'number'
-          ? p.done
-          : block.agents.filter((a) => a.status === 'done').length;
-      block.totalCount = typeof p.total === 'number' ? p.total : block.agents.length;
-      break;
-    default:
-      // collab_merge and any future subtypes: no folded view needed
-      break;
-  }
+  const group: SubagentGroupBlock = {
+    kind: 'subagent-group',
+    id: `subagentgroup:${e.id}`,
+    agentType: block.agentType,
+    agents: [block],
+  };
+  groupRef.current = group;
+  root.push(group);
 }
 
 /**
@@ -369,12 +234,14 @@ export interface FoldState {
   // into it until something non-compact closes it.
   openLive: LiveToolBlockData | null;
   readonly subagents: Map<string, SubagentBlock>;
+  // Subagents of earlier turns still running when their turn ended (an agent's
+  // helper going on in the background), by childSessionId.
+  readonly backgroundSubagents: Map<string, SubagentBlock>;
   // Open subagent group, if any. Consecutive `subagent_started` events accrete
   // into it; any non-subagent block (or a turn/scope boundary) closes the run.
   readonly subagentGroup: { current: SubagentGroupBlock | null };
-  // Open collaborative-run block, if any. Opened on collab_started; collab_*
-  // events mutate it in place; reset at the turn boundary.
-  readonly collab: { current: CollaborationBlock | null };
+  // This turn's list of steps, once an agent call returned one; later changes join it.
+  openSteps: StepListBlock | null;
 }
 
 /** A fresh, empty fold state for the given compact-tool map. */
@@ -390,8 +257,9 @@ export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MA
     continuationSkillEvent: null,
     openLive: null,
     subagents: new Map<string, SubagentBlock>(),
+    backgroundSubagents: new Map<string, SubagentBlock>(),
     subagentGroup: { current: null },
-    collab: { current: null },
+    openSteps: null,
   };
 }
 
@@ -402,6 +270,8 @@ export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MA
  * stay byte-identical). `continue` became `return`.
  */
 export function stepFold(s: FoldState, e: MoxxyEvent): void {
+  // The agent's background work shows in the Agents panel, not as rows of the chat.
+  if (isAgentWorkEvent(e)) return;
   const pushBlock = (block: Block): void => {
     // Any non-subagent block breaks a run of sibling subagents.
     s.subagentGroup.current = null;
@@ -482,13 +352,21 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     s.suppressedCallIds.clear();
     s.suppressedSkillScopes.clear();
     s.subagentGroup.current = null;
-    // Subagents run to completion within the turn that dispatched them, so the
-    // lookup map is a within-turn concern like callTargets. Clearing it bounds
-    // the map to one turn and drops a late completion bearing a stale/colliding
-    // childSessionId from an earlier turn (it would otherwise mutate the old
-    // block). The blocks themselves stay reachable from `root`.
+    // Moxxy's own subagents run to completion within the turn that dispatched
+    // them, so the lookup map is a within-turn concern like callTargets.
+    // Clearing it bounds the map to one turn and drops a late completion
+    // bearing a stale/colliding childSessionId from an earlier turn (it would
+    // otherwise mutate the old block). An agent's helper may outlive its turn:
+    // one still running is marked as going on in the background (settled, so
+    // a terminal can freeze it) and what it does later gets a row of its own.
+    for (const [id, agent] of s.subagents) {
+      if (agent.completedAtMs !== null || agent.error !== null) continue;
+      agent.backgrounded = true;
+      s.backgroundSubagents.set(id, agent);
+    }
     s.subagents.clear();
-    s.collab.current = null;
+    if (s.openSteps) s.openSteps.closed = true;
+    s.openSteps = null;
     s.root.push({ kind: 'event', id: e.id, event: e });
     return;
   }
@@ -572,6 +450,7 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     const target = s.callTargets.get(e.callId);
     if (target) {
       target.outcome = e;
+      if (isToolCallBlock(target) && stepListOfCall(target)) joinStepList(s, target);
       return;
     }
   }
@@ -624,22 +503,78 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
   // doesn't drown the main chat. The SubagentSpawner emits them as
   // plugin_event with pluginId='@moxxy/subagents'.
   if (e.type === 'plugin_event' && e.pluginId === SUBAGENT_PLUGIN_ID) {
-    // Seal any open live aggregate first: a subagent/collab block pushes to
+    // Seal any open live aggregate first: a subagent block pushes to
     // `root`, so a still-open live block above it would keep accreting later
     // compact calls and render chronologically out of order (above the agents
     // it actually followed). The verbose-tool path does the same.
     closeOpenLive();
-    handleSubagentEvent(e, s.subagents, s.root, s.subagentGroup);
-    return;
-  }
-  // Collaborative-run events fold into one team-level block (roster, bus,
-  // board, contracts, control, outcome) instead of N generic event rows.
-  if (e.type === 'plugin_event' && e.pluginId === COLLAB_PLUGIN_ID) {
-    closeOpenLive();
-    handleCollabEvent(e, s.collab, s.root);
+    handleSubagentEvent(e, s.subagents, s.backgroundSubagents, s.root, s.subagentGroup);
     return;
   }
   pushBlock({ kind: 'event', id: e.id, event: e });
+}
+
+function isToolCallBlock(target: CallTarget): target is ToolCallBlockData {
+  return (target as { kind?: unknown }).kind === 'tool-call';
+}
+
+/** The list of steps a call's result carries, or null. */
+export function stepListOfCall(call: ToolCallBlockData): StepListDisplay | null {
+  const outcome = call.outcome;
+  if (outcome === null || outcome.type !== 'tool_result' || !outcome.ok) return null;
+  const output = outcome.output;
+  return isToolDisplayResult(output) && isStepListDisplay(output.display) ? output.display : null;
+}
+
+/** The list as it stands: the last call of the turn that returned one. */
+export function stepListOf(block: StepListBlock): StepListDisplay | null {
+  for (let i = block.calls.length - 1; i >= 0; i -= 1) {
+    const call = block.calls[i];
+    const list = call ? stepListOfCall(call) : null;
+    if (list) return list;
+  }
+  return null;
+}
+
+/**
+ * The list of steps of the turn running now (since the person's last prompt),
+ * as it stands, or null when no agent returned one in it.
+ */
+export function turnStepList(events: ReadonlyArray<MoxxyEvent>): StepListDisplay | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i];
+    if (!e) continue;
+    if (e.type === 'user_prompt' && e.origin?.kind !== 'checkpoint') return null;
+    if (e.type !== 'tool_result' || !e.ok) continue;
+    if (isToolDisplayResult(e.output) && isStepListDisplay(e.output.display)) return e.output.display;
+  }
+  return null;
+}
+
+/**
+ * A call whose result is a list of steps leaves its own row: the first of the
+ * turn becomes the turn's list where it stood, later ones join that list.
+ */
+function joinStepList(s: FoldState, call: ToolCallBlockData): void {
+  const open = s.openSteps;
+  if (open) {
+    replaceCallBlock(s.root, call.request.callId, null);
+    open.calls.push(call);
+    return;
+  }
+  const list: StepListBlock = { kind: 'step-list', id: call.id, calls: [call], closed: false };
+  if (replaceCallBlock(s.root, call.request.callId, list)) s.openSteps = list;
+}
+
+/** Swap (or with `null` remove) a call's row, at the top level or inside a skill scope. */
+function replaceCallBlock(list: Block[], callId: string, replacement: Block | null): boolean {
+  const index = list.findIndex((b) => b.kind === 'tool-call' && b.request.callId === callId);
+  if (index >= 0) {
+    if (replacement) list.splice(index, 1, replacement);
+    else list.splice(index, 1);
+    return true;
+  }
+  return list.some((b) => b.kind === 'skill-scope' && replaceCallBlock(b.children, callId, replacement));
 }
 
 export function pairToolEvents(
@@ -856,20 +791,22 @@ export class IncrementalFold {
  * Static-rendered items are frozen, so this gate must be conservative:
  * pending tool calls (animated dot), open skill scopes (children still
  * arriving), and running subagents (live elapsed counter) all stay in
- * the dynamic area until they finish.
+ * the dynamic area until they finish or their turn ends with them going
+ * on in the background.
  */
 export function isSettled(block: Block): boolean {
   if (block.kind === 'event') return true;
   if (block.kind === 'tool-call') return block.outcome !== null;
-  if (block.kind === 'subagent') return block.completedAtMs !== null || block.error !== null;
+  if (block.kind === 'subagent') return subagentState(block) !== 'running';
   if (block.kind === 'subagent-group') return block.agents.every(isSettled);
-  if (block.kind === 'collab') return block.completedAtMs !== null;
   if (block.kind === 'skill-scope') {
     return block.closed && block.children.every(isSettled);
   }
   if (block.kind === 'live-tools') {
     return block.closed && block.calls.every((c) => c.outcome !== null);
   }
+  // A later change in the same turn joins the list.
+  if (block.kind === 'step-list') return block.closed;
   return true;
 }
 
@@ -926,29 +863,12 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
     }
     return true;
   }
-  if (a.kind === 'collab' && b.kind === 'collab') {
-    // Cheap change signals — be conservative (re-render on any team change).
-    // The status/version joins fold in the rendered content fields
-    // (title/detail/owner/subtask) too, so in-place edits that keep array
-    // lengths and statuses constant (collab_board_update / contract_changed
-    // mutating an existing item) still force a repaint.
-    return (
-      a.completedAtMs === b.completedAtMs &&
-      a.fallbackReason === b.fallbackReason &&
-      a.agents.length === b.agents.length &&
-      a.messages.length === b.messages.length &&
-      a.tasks.length === b.tasks.length &&
-      a.contracts.length === b.contracts.length &&
-      a.conflicts.length === b.conflicts.length &&
-      a.control?.paused === b.control?.paused &&
-      a.control?.directive === b.control?.directive &&
-      a.agents.map((x) => `${x.status}|${x.subtask ?? ''}`).join(',') ===
-        b.agents.map((x) => `${x.status}|${x.subtask ?? ''}`).join(',') &&
-      a.tasks.map((x) => `${x.status}|${x.title}|${x.detail ?? ''}|${x.owner ?? ''}`).join(',') ===
-        b.tasks.map((x) => `${x.status}|${x.title}|${x.detail ?? ''}|${x.owner ?? ''}`).join(',') &&
-      a.contracts.map((x) => `${x.status}|${x.version}|${x.title}|${x.owner}`).join(',') ===
-        b.contracts.map((x) => `${x.status}|${x.version}|${x.title}|${x.owner}`).join(',')
-    );
+  if (a.kind === 'step-list' && b.kind === 'step-list') {
+    if (a.closed !== b.closed || a.calls.length !== b.calls.length) return false;
+    return a.calls.every((call, i) => {
+      const other = b.calls[i];
+      return other !== undefined && call.request === other.request && call.outcome === other.outcome;
+    });
   }
   if (a.kind === 'live-tools' && b.kind === 'live-tools') {
     if (a.closed !== b.closed) return false;
@@ -972,6 +892,7 @@ export function countToolCalls(blocks: ReadonlyArray<Block>): number {
     if (b.kind === 'tool-call') n += 1;
     else if (b.kind === 'skill-scope') n += countToolCalls(b.children);
     else if (b.kind === 'live-tools') n += b.calls.length;
+    else if (b.kind === 'step-list') n += b.calls.length;
     else if (b.kind === 'subagent-group') {
       for (const a of b.agents) n += a.toolCallCount;
     }

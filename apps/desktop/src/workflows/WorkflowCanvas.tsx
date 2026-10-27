@@ -8,6 +8,7 @@ import {
   type BuilderState,
   type StepKind,
 } from '@moxxy/workflows-builder';
+import { Icon } from '@moxxy/desktop-ui';
 import { accentHex } from './accents';
 import { isEditableTarget } from '../hotkeys';
 import {
@@ -524,9 +525,9 @@ function ZoomControls({
         title="Zoom to fit all steps"
         aria-label="Zoom to fit"
         onClick={onFit}
-        style={{ ...zoomBtn, fontSize: 'var(--type-meta)' }}
+        style={zoomBtn}
       >
-        ⛶
+        <Icon name="maximize" size={13} />
       </button>
     </div>
   );
@@ -974,9 +975,10 @@ function NodeCard({
         {errors > 0 && (
           <span
             title={`${errors} validation issue(s)`}
-            style={{ fontSize: 'var(--type-label)', fontWeight: 700, color: 'var(--color-red)' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 'var(--type-label)', fontWeight: 700, color: 'var(--color-red)' }}
           >
-            ⚠ {errors}
+            <Icon name="alert" size={12} />
+            {errors}
           </span>
         )}
       </div>
