@@ -5,7 +5,7 @@
  */
 import type { ModelDescriptor } from '@moxxy/sdk';
 import { claudeCodeModels } from './agent-provider.js';
-import type { ClaudeAgentSdk, ClaudeModelInfo, ClaudeUserMessage } from './sdk-types.js';
+import type { ClaudeAgentSdk, ClaudeUserMessage } from './sdk-types.js';
 
 /** `supportedModels` says nothing of the window; a model Moxxy does not know gets this one. */
 const UNKNOWN_MODEL: Omit<ModelDescriptor, 'id'> = {
@@ -38,7 +38,7 @@ export async function claudeOfferedModels(opts: {
     for (const info of await query.supportedModels()) {
       const id = info.resolvedModel ?? info.value;
       if (info.value === 'default' || models.some((model) => model.id === id)) continue;
-      models.push(describe(id, info));
+      models.push(describe(id));
     }
     return models;
   } finally {
@@ -46,9 +46,12 @@ export async function claudeOfferedModels(opts: {
   }
 }
 
-function describe(id: string, info: ClaudeModelInfo): ModelDescriptor {
+// No `supportsFast`, even where Claude reports `supportsFastMode`: Moxxy does
+// not drive Claude's fast mode (it bills usage credits on its own), so the
+// picker offers no Fast switch for Claude Code.
+function describe(id: string): ModelDescriptor {
   const known = claudeCodeModels.find((model) => model.id === id);
-  return { ...(known ?? UNKNOWN_MODEL), id, ...(info.supportsFastMode ? { supportsFast: true } : {}) };
+  return { ...(known ?? UNKNOWN_MODEL), id };
 }
 
 /** A prompt that never sends: the query stays open only to answer the model list. */

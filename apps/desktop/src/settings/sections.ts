@@ -40,7 +40,8 @@ export const SETTINGS_SECTIONS = [
         label: PROVIDER_KINDS.agents.title,
         keywords: [
           'coding agents',
-          'sdk',
+          'sdk agents',
+          'oauth',
           'agent connections',
           'claude code',
           'codex',
@@ -55,7 +56,7 @@ export const SETTINGS_SECTIONS = [
           'agent account',
         ],
       },
-      { label: PROVIDER_KINDS.models.title, keywords: ['model providers', 'api providers', 'api key', 'oauth', 'moxxy loop'] },
+      { label: PROVIDER_KINDS.models.title, keywords: ['model providers', 'api models', 'api providers', 'api key', 'moxxy loop'] },
       {
         label: 'Default model',
         keywords: ['starting model', 'new conversation', 'reasoning effort', 'thinking', 'fast mode', 'fast tier'],

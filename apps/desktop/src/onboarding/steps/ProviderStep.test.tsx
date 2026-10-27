@@ -74,8 +74,8 @@ describe('ProviderStep', () => {
     } as never);
     render(<ProviderStep onNext={() => undefined} onBack={() => undefined} />);
 
-    const agents = await screen.findByRole('group', { name: 'SDK agents' });
-    const apis = screen.getByRole('group', { name: 'API models' });
+    const agents = await screen.findByRole('group', { name: 'SDK · OAuth login' });
+    const apis = screen.getByRole('group', { name: 'API · API key login' });
     const names = (group: HTMLElement): string[] =>
       within(group).getAllByRole('option').map((option) => option.textContent ?? '');
     expect(names(agents)).toEqual(['claude-code', 'opencode']);

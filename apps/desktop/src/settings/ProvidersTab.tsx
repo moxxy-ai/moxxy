@@ -101,7 +101,6 @@ export function ProvidersTab({
               id="provider-group-agents"
               title={PROVIDER_KINDS.agents.title}
               count={agents.rows.length}
-              description={PROVIDER_KINDS.agents.description}
             >
               {agents.rows.map((row) => (
                 <AgentConnectionRow
@@ -123,7 +122,6 @@ export function ProvidersTab({
               id="provider-group-models"
               title={PROVIDER_KINDS.models.title}
               count={others.length}
-              description={PROVIDER_KINDS.models.description}
             >
               {others.map((p) => {
                 const { bg, fg } = tintFor(p.name);

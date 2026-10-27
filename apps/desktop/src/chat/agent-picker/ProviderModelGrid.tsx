@@ -3,9 +3,9 @@
  *
  *   [ provider list ] │ [ models for the hovered provider ]
  *
- * The left column lists the connected providers (with an active dot), SDK
- * agents apart from API models as in Settings, each kind under a heading that
- * says in a few words what it is; clicking one "browses" it
+ * The left column lists the connected providers (with an active dot), the
+ * OAuth-login agents apart from the API-key models as in Settings, each kind
+ * under a heading with its name; clicking one "browses" it
  * without committing. The right column lists that
  * provider's models. Providers that advertise live discovery replace their
  * build-time fallback catalog with the current `/v1/models` result. Picking a
@@ -103,26 +103,16 @@ export function ProviderModelGrid({
               style={index > 0 ? { marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--color-card-border)' } : undefined}
             >
               <ul role="group" aria-label={group.title} style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                <li role="presentation" style={{ padding: '8px 8px 6px' }}>
-                  <div
-                    style={{
-                      fontSize: 'var(--type-label)',
-                      fontWeight: 650,
-                      color: 'var(--color-text)',
-                    }}
-                  >
-                    {group.title}
-                  </div>
-                  <div
-                    style={{
-                      marginTop: 2,
-                      fontSize: 'var(--type-micro)',
-                      lineHeight: 1.35,
-                      color: 'var(--color-text-dim)',
-                    }}
-                  >
-                    {group.short}
-                  </div>
+                <li
+                  role="presentation"
+                  style={{
+                    padding: '8px 8px 6px',
+                    fontSize: 'var(--type-label)',
+                    fontWeight: 650,
+                    color: 'var(--color-text)',
+                  }}
+                >
+                  {group.title}
                 </li>
                 {group.items.map((p) => (
                   <ProviderOption

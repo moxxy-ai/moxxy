@@ -51,8 +51,16 @@ describe("the models the person's Claude offers", () => {
     const [opus, next] = await claudeOfferedModels({ sdk, cwd: '/work/app' });
 
     expect(opus).toMatchObject({ id: 'claude-opus-5-5', contextWindow: 1_000_000, supportsTools: true });
-    expect(next).toMatchObject({ id: 'claude-opus-6', supportsTools: true, supportsImages: true, supportsReasoning: true, supportsFast: true });
+    expect(next).toMatchObject({ id: 'claude-opus-6', supportsTools: true, supportsImages: true, supportsReasoning: true });
     expect(next?.contextWindow).toBe(400_000);
+  });
+
+  it('offers no Fast switch, even for a model Claude can run fast: Moxxy does not drive that mode', async () => {
+    const sdk = claude([{ value: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5', description: '', supportsFastMode: true }]);
+
+    const [opus] = await claudeOfferedModels({ sdk, cwd: '/work/app' });
+
+    expect(opus?.supportsFast).toBeUndefined();
   });
 
   it('knows Haiku 5.5 has a 1M window and 128k of output', async () => {

@@ -261,11 +261,11 @@ describe('ProviderModelGrid providers', () => {
     });
     renderGrid(invoke);
 
-    const agents = await screen.findByRole('group', { name: 'SDK agents' });
-    const models = screen.getByRole('group', { name: 'API models' });
-    // Each heading says in a few words what the kind is.
-    expect(within(agents).getByText('An app on this computer does the work')).toBeInTheDocument();
-    expect(within(models).getByText('Moxxy calls the model')).toBeInTheDocument();
+    const agents = await screen.findByRole('group', { name: 'SDK · OAuth login' });
+    const models = screen.getByRole('group', { name: 'API · API key login' });
+    // Each heading is only the kind's name: no line explaining it.
+    expect(within(agents).getByRole('presentation').textContent).toBe('SDK · OAuth login');
+    expect(within(models).getByRole('presentation').textContent).toBe('API · API key login');
     expect(within(agents).getAllByRole('option').map((o) => o.textContent)).toEqual(['opencode', 'claude-code']);
     expect(within(models).getAllByRole('option').map((o) => o.textContent)).toEqual(['openai']);
     expect(screen.queryByRole('option', { name: 'anthropic' })).toBeNull();
@@ -285,7 +285,7 @@ describe('ProviderModelGrid providers', () => {
       return [];
     });
 
-    const models = await screen.findByRole('group', { name: 'API models' });
+    const models = await screen.findByRole('group', { name: 'API · API key login' });
     expect(within(models).getAllByRole('option')).toHaveLength(4);
   });
 });
