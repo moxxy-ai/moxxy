@@ -86,8 +86,43 @@ describe('Claude messages as Moxxy events', () => {
     expect(t.translate(toolResult('toolu_1', 'spike-ok', false))).toEqual([
       { type: 'tool_result', callId: 'toolu_1', ok: true, output: 'spike-ok' },
     ]);
-    expect(t.translate(assistant([{ type: 'text', text: 'The output was `spike-ok`.' }]))).toEqual([
-      { type: 'message', text: 'The output was `spike-ok`.', stopReason: 'end_turn' },
+    // A sentence on its own may still be followed by a call: it is marked once the turn ends.
+    expect(t.translate(assistant([{ type: 'text', text: 'The output was `spike-ok`.' }]))).toEqual([]);
+    expect(t.finish()).toEqual([{ type: 'message', text: 'The output was `spike-ok`.', stopReason: 'end_turn' }]);
+    expect(t.finish()).toEqual([]);
+  });
+
+  // Claude Code sends each block of a reply as a message of its own, with no stop reason
+  // yet: a sentence and the call after it arrive apart (seen live with Claude Code 2.1.311).
+  it('marks a sentence Claude sends apart from the call after it as part of the work', () => {
+    const t = new TurnTranslator();
+
+    expect(t.translate(assistant([{ type: 'text', text: 'Building the package.' }]))).toEqual([]);
+    expect(t.translate(assistant([{ type: 'tool_use', id: 'toolu_b', name: 'Bash', input: { command: 'pnpm build' } }]))).toEqual([
+      { type: 'message', text: 'Building the package.', stopReason: 'tool_use' },
+      { type: 'tool_call', callId: 'toolu_b', name: 'Bash', input: { command: 'pnpm build' } },
+    ]);
+  });
+
+  it('marks a sentence by how Claude says its reply stopped', () => {
+    const t = new TurnTranslator();
+    const stopped = (stopReason: string): ClaudeMessage =>
+      ({ type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: stopReason } }, parent_tool_use_id: null }) as ClaudeMessage;
+
+    t.translate(assistant([{ type: 'text', text: 'Checking.' }]));
+    expect(t.translate(stopped('tool_use'))).toEqual([{ type: 'message', text: 'Checking.', stopReason: 'tool_use' }]);
+    t.translate(assistant([{ type: 'text', text: 'Done.' }]));
+    expect(t.translate(stopped('end_turn'))).toEqual([{ type: 'message', text: 'Done.', stopReason: 'end_turn' }]);
+    expect(t.translate(stopped('end_turn'))).toEqual([]);
+  });
+
+  it('marks a sentence before a call the approval asked about first as part of the work', () => {
+    const t = new TurnTranslator();
+
+    t.translate(assistant([{ type: 'text', text: 'Editing it.' }]));
+    expect(t.announce('toolu_e', 'Edit', { file_path: 'a.ts' })).toEqual([
+      { type: 'message', text: 'Editing it.', stopReason: 'tool_use' },
+      { type: 'tool_call', callId: 'toolu_e', name: 'Edit', input: { file_path: 'a.ts' } },
     ]);
   });
 
