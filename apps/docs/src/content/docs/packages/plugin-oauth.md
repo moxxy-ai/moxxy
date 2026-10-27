@@ -4,7 +4,7 @@ description: Generic OAuth 2.0 + PKCE + device-code client. Powers `moxxy login`
 ---
 
 `@moxxy/plugin-oauth` is a generic OAuth 2.0 client with PKCE and
-RFC 8628 device-code support. Other plugins (e.g. the Codex provider)
+RFC 8628 device-code support. Integrations that implement an OAuth profile
 delegate their `auth.login` to it; the `moxxy login` CLI command
 discovers them automatically.
 
@@ -50,8 +50,7 @@ import {
 
 A provider plugin's `auth.login` typically just imports these helpers
 and wraps them with the provider's specific authorize URL + token URL.
-See `packages/plugin-provider-openai-codex/src/login.ts` for a worked
-example.
+Agent connections use their installed CLI's own sign-in; this generic OAuth service is for other integrations.
 
 ## Storage
 

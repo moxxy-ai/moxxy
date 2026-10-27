@@ -4,7 +4,13 @@ description: OpenAI LLM provider for moxxy.
 ---
 
 `@moxxy/plugin-provider-openai` is the OpenAI provider plugin.
-API-key auth; ships the OpenAI model list.
+API-key auth, the OpenAI model list, and streaming Responses API. Moxxy keeps
+conversation state locally (`store: false`), including tool calls and encrypted reasoning.
+Images and PDF inputs, cancellation, cached-token usage and parallel function calls are supported.
+
+The compatibility adapter also serves xAI and Ollama through Responses. Google
+and Z.ai continue to use Chat Completions. For other compatible servers, set
+`api: "responses"` or `api: "chat-completions"` explicitly.
 
 ## Install
 
@@ -46,5 +52,5 @@ provider: {
 
 ## See also
 
-- For ChatGPT Pro/Plus OAuth sign-in (no API key needed), use
-  [@moxxy/plugin-provider-openai-codex](./plugin-provider-openai-codex.md).
+- To work on your ChatGPT sign-in, use `@moxxy/plugin-provider-codex-agent`: your installed Codex runs each turn.
+- GPT-Live and OpenAI transcription use `OPENAI_API_KEY`, independently of a ChatGPT plan.

@@ -67,12 +67,17 @@ export const SETTINGS_SECTIONS = [
     view: 'settings',
     keywords: ['speech', 'tts', 'voice mode', 'read aloud'],
     finds: [
-      { label: 'Voice engine', keywords: ['voice mode', 'local'] },
+      { label: 'OpenAI API key', keywords: ['openai voice key', 'gpt-live key', 'transcription key'] },
+      { label: 'Voice engine', keywords: ['voice mode', 'local', 'classic voice', 'voice conversation'] },
       {
         label: 'Transcription',
-        keywords: ['speech to text', 'whisper', 'local transcription', 'cloud transcription', 'dictation', 'microphone'],
+        keywords: [
+          'speech to text', 'whisper', 'local transcription', 'openai transcription', 'gpt-transcribe',
+          'dictation', 'microphone',
+        ],
       },
-      { label: 'GPT-Live', keywords: ['chatgpt voice', 'realtime'] },
+      { label: 'GPT-Live', keywords: ['openai voice', 'realtime'] },
+      { label: 'Read aloud', keywords: ['speaker', 'spoken voice', 'reply voice'] },
       { label: 'Gemini Flash-Lite', keywords: ['gemini tts', 'google', 'cloud voice', 'gemini api key'] },
       { label: 'Local Piper', keywords: ['on-device voice', 'offline voice'] },
     ],

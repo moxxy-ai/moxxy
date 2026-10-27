@@ -18,7 +18,7 @@ const sample: ScheduleSummary = {
   runAt: null,
   timeZone: 'Europe/Warsaw',
   channel: 'inbox',
-  model: 'openai-codex/gpt-5.4',
+  model: 'codex-agent/gpt-5.4',
   promptPreview: 'Prepare the daily summary',
   source: 'manual',
   skillName: null,

@@ -39,7 +39,6 @@ page link to it; the rest are summarized here.
 |---|---|
 | [`@moxxy/plugin-provider-anthropic`](/packages/plugin-provider-anthropic/) | Anthropic Messages API (API key). |
 | [`@moxxy/plugin-provider-openai`](/packages/plugin-provider-openai/) | OpenAI Chat Completions (API key). |
-| [`@moxxy/plugin-provider-openai-codex`](/packages/plugin-provider-openai-codex/) | "ChatGPT — Moxxy": Moxxy does the work with ChatGPT models on your ChatGPT Pro/Plus sign-in (Responses API). |
 | `@moxxy/plugin-provider-claude-code` | "Claude Agent": Claude Code does the work through the Claude Agent SDK on your Claude Pro/Max sign-in. |
 | `@moxxy/plugin-provider-codex-agent` | "ChatGPT — Codex agent": Codex does the work through `codex app-server` on your ChatGPT sign-in. |
 | `@moxxy/plugin-provider-acp` | "OpenCode agent": OpenCode does the work through `opencode acp` (Agent Client Protocol) with your own OpenCode setup and models. |
@@ -74,7 +73,6 @@ page link to it; the rest are summarized here.
 | [`@moxxy/plugin-embeddings-openai`](/packages/plugin-embeddings-openai/) | OpenAI embeddings. |
 | [`@moxxy/plugin-embeddings-transformers`](/packages/plugin-embeddings-transformers/) | On-device embeddings (transformers.js). |
 | `@moxxy/plugin-stt-whisper` | OpenAI Whisper transcriber (voice in). |
-| `@moxxy/plugin-stt-whisper-codex` | Whisper transcriber via the ChatGPT OAuth credentials. |
 | [`@moxxy/plugin-computer-control`](/packages/plugin-computer-control/) | macOS native input (screenshot, click, type). |
 | `@moxxy/plugin-commands` | Channel-agnostic slash commands (`/info`, `/clear`, `/new`, `/help`). |
 | [`@moxxy/plugin-plugins-admin`](/packages/plugin-plugins-admin/) | Install / enable / disable plugins at runtime (+ `moxxy plugins`, `/plugins`). |

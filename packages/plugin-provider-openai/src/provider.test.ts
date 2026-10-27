@@ -15,14 +15,14 @@ function fakeOpenAI(chunks: ReadonlyArray<unknown>): { chat: { completions: { cr
   };
 }
 
-describe('OpenAIProvider.stream', () => {
+describe('OpenAIProvider Chat Completions compatibility', () => {
   it('emits message_start, text_delta(s), message_end for a plain text completion', async () => {
     const fake = fakeOpenAI([
       { choices: [{ index: 0, delta: { content: 'Hello, ' } }] },
       { choices: [{ index: 0, delta: { content: 'world!' } }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
     ]);
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
     expect(events[0]).toMatchObject({ type: 'message_start' });
@@ -63,7 +63,7 @@ describe('OpenAIProvider.stream', () => {
       },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
     ]);
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
     const start = events.find((e) => e.type === 'tool_use_start');
@@ -81,7 +81,7 @@ describe('OpenAIProvider.stream', () => {
       { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"path":"/x"}' } }] } }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
     ]);
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
     expect(events.some((e) => e.type === 'tool_use_end')).toBe(false);
@@ -96,7 +96,7 @@ describe('OpenAIProvider.stream', () => {
       { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'Read', arguments: '{"path":' } }] } }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
     ]);
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
     // No tool_use_end carrying a salvaged junk object.
@@ -114,7 +114,7 @@ describe('OpenAIProvider.stream', () => {
       { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_9', function: { name: 'Glob', arguments: '{"pattern":"*.ts"}' } }] } }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
     ]);
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
     expect(events.find((e) => e.type === 'tool_use_start')).toMatchObject({ id: 'call_9', name: 'Glob' });
@@ -131,7 +131,7 @@ describe('OpenAIProvider.stream', () => {
       { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_B', function: { arguments: '1}' } }] } }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
     ]);
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
     const start = events.find((e) => e.type === 'tool_use_start') as { id: string };
@@ -154,7 +154,7 @@ describe('OpenAIProvider.stream', () => {
     ];
     for (const [reason, expected] of cases) {
       const fake = fakeOpenAI([{ choices: [{ delta: {}, finish_reason: reason }] }]);
-      const p = new OpenAIProvider({ client: fake as never });
+      const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
       const events = [];
       for await (const e of p.stream({ model: 'gpt-4o', messages: [] })) events.push(e);
       expect(events[events.length - 1]).toMatchObject({ type: 'message_end', stopReason: expected });
@@ -186,7 +186,7 @@ describe('OpenAIProvider.stream', () => {
         },
       },
     };
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
     expect(captured?.stream_options).toEqual({ include_usage: true });
@@ -206,7 +206,7 @@ describe('OpenAIProvider.stream', () => {
         },
       },
     };
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o', messages: [] })) events.push(e);
     const err = events.find((e) => e.type === 'error');
@@ -220,7 +220,7 @@ describe('OpenAIProvider.stream', () => {
       { choices: [{ index: 0, delta: { content: 'answer' } }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
     ]);
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({
       model: 'gpt-5.4-mini',
@@ -241,7 +241,7 @@ describe('OpenAIProvider.stream', () => {
       { choices: [{ index: 0, delta: { reasoning: 'alt-field' } }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
     ]);
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-5.4-mini', messages: [], reasoning: true })) {
       events.push(e);
@@ -256,7 +256,7 @@ describe('OpenAIProvider.stream', () => {
         { choices: [{ index: 0, delta: { reasoning_content: 'should be dropped' } }] },
         { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
       ]);
-      const p = new OpenAIProvider({ client: fake as never });
+      const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
       const events = [];
       for await (const e of p.stream({ model: 'gpt-5.4-mini', messages: [], reasoning })) {
         events.push(e);
@@ -279,7 +279,7 @@ describe('OpenAIProvider.stream', () => {
         },
       },
     };
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({
       model: 'gpt-5.4-mini',
@@ -308,7 +308,7 @@ describe('OpenAIProvider.stream', () => {
         },
       },
     };
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     for await (const _ of p.stream({
       model: 'glm-4.6',
       messages: [],
@@ -336,7 +336,7 @@ describe('OpenAIProvider.stream', () => {
         },
       },
     };
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o', messages: [], signal: controller.signal })) {
       events.push(e);
@@ -357,7 +357,7 @@ describe('OpenAIProvider.stream', () => {
         },
       },
     };
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({ model: 'gpt-4o', messages: [], signal: controller.signal })) {
       events.push(e);
@@ -367,7 +367,7 @@ describe('OpenAIProvider.stream', () => {
   });
 
   it('countTokens returns a positive estimate', async () => {
-    const p = new OpenAIProvider({ client: fakeOpenAI([]) as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fakeOpenAI([]) as never });
     const n = await p.countTokens({
       model: 'gpt-4o',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hello world' }] }],
@@ -376,7 +376,7 @@ describe('OpenAIProvider.stream', () => {
   });
 
   it('countTokens does not stringify or over-count multi-MB base64 image/document blocks', async () => {
-    const p = new OpenAIProvider({ client: fakeOpenAI([]) as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fakeOpenAI([]) as never });
     // ~3MB base64 blob — JSON.stringify-ing this and counting its length would
     // produce ~750k tokens. With the fixed per-block charge it stays bounded.
     const bigData = 'A'.repeat(3_000_000);
@@ -400,10 +400,10 @@ describe('OpenAIProvider.stream', () => {
 
   it('configures an explicit timeout on the default client (no SDK 10-minute default)', () => {
     // No injected client → real OpenAI ctor; assert the timeout is bounded.
-    const p = new OpenAIProvider({ apiKey: 'sk-test', timeoutMs: 5_000 });
+    const p = new OpenAIProvider({ api: 'chat-completions', apiKey: 'sk-test', timeoutMs: 5_000 });
     const client = (p as unknown as { client: { timeout?: number } }).client;
     expect(client.timeout).toBe(5_000);
-    const dflt = new OpenAIProvider({ apiKey: 'sk-test' });
+    const dflt = new OpenAIProvider({ api: 'chat-completions', apiKey: 'sk-test' });
     const dfltClient = (dflt as unknown as { client: { timeout?: number } }).client;
     expect(dfltClient.timeout).toBeLessThan(600_000);
   });
@@ -422,7 +422,7 @@ describe('OpenAIProvider.stream', () => {
         },
       },
     };
-    const p = new OpenAIProvider({ client: fake as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fake as never });
     const events = [];
     for await (const e of p.stream({
       model: 'gpt-4o',
@@ -447,11 +447,11 @@ describe('OpenAIProvider.stream', () => {
     const models = [
       { id: 'glm-4.6', contextWindow: 200_000, supportsTools: true, supportsStreaming: true, supportsDocuments: true },
     ];
-    const p = new OpenAIProvider({ client: fakeOpenAI([]) as never, name: 'zai', models });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: fakeOpenAI([]) as never, name: 'zai', models });
     expect(p.name).toBe('zai');
     expect(p.models).toEqual(models);
     // Defaults stay 'openai' + the OpenAI catalog.
-    const plain = new OpenAIProvider({ client: fakeOpenAI([]) as never });
+    const plain = new OpenAIProvider({ api: 'chat-completions', client: fakeOpenAI([]) as never });
     expect(plain.name).toBe('openai');
     expect(plain.models.length).toBeGreaterThan(0);
   });
@@ -472,7 +472,7 @@ describe('GPT-6 request shape (Chat Completions)', () => {
         },
       },
     };
-    const p = new OpenAIProvider({ client: client as never });
+    const p = new OpenAIProvider({ api: 'chat-completions', client: client as never });
     for await (const _ of p.stream({ model, messages: [], maxTokens: 1000, ...extra })) {
       // drain
     }

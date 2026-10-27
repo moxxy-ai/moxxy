@@ -3,7 +3,7 @@ import type { GptLiveRole } from './gpt-live-protocol';
 /**
  * Pairs finished GPT-Live turns into the exchanges moxxy records in the chat.
  * The call is full-duplex, so a reply can start before the user's turn closes;
- * pairing on `turn.done` keeps each exchange in the order it was spoken.
+ * pairing on finished turns keeps each exchange in the order it was spoken.
  *
  * Only conversation GPT-Live answered itself is recorded here. A user turn it
  * delegates is claimed for the agent (the agent turn records it), and speech

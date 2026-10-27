@@ -8,7 +8,7 @@ afterEach(() => __setApiOverride(null));
 
 const CLOUD: TranscriptionSettings = {
   mode: 'cloud',
-  active: 'openai-codex-transcribe',
+  active: 'openai-gpt-transcribe',
   modelReady: false,
   modelBytes: 1_036_613_791,
   setup: null,
@@ -64,7 +64,7 @@ describe('useTranscriptionSettings', () => {
 
     expect(result.current).toMatchObject({
       mode: 'cloud',
-      active: 'openai-codex-transcribe',
+      active: 'openai-gpt-transcribe',
       modelReady: false,
       modelBytes: 1_036_613_791,
       setup: null,

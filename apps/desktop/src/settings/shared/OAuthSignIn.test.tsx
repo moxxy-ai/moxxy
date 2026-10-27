@@ -60,9 +60,9 @@ describe('OAuthSignIn', () => {
     const { api } = fakeApi(invoke);
     __setApiOverride(api);
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-prepare' as `${string}-${string}-${string}-${string}-${string}`);
-    const { unmount } = render(<OAuthSignIn provider="openai-codex" />);
+    const { unmount } = render(<OAuthSignIn provider="codex-agent" />);
 
-    fireEvent.click(screen.getByText('Sign in with openai-codex'));
+    fireEvent.click(screen.getByText('Sign in with codex-agent'));
 
     expect(await screen.findByText('Preparing Moxxy for first use…')).toBeTruthy();
     expect(screen.queryByText(/Opening your browser/)).toBeNull();
@@ -80,20 +80,20 @@ describe('OAuthSignIn', () => {
     __setApiOverride(api);
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-activate' as `${string}-${string}-${string}-${string}-${string}`);
     const onSignedIn = vi.fn(() => activation.promise);
-    render(<OAuthSignIn provider="openai-codex" onSignedIn={onSignedIn} />);
+    render(<OAuthSignIn provider="codex-agent" onSignedIn={onSignedIn} />);
 
-    fireEvent.click(screen.getByText('Sign in with openai-codex'));
+    fireEvent.click(screen.getByText('Sign in with codex-agent'));
     await waitFor(() => expect(api.invoke).toHaveBeenCalledWith('provider.login.start', {
       loginId: 'login-activate',
-      provider: 'openai-codex',
+      provider: 'codex-agent',
     }));
     act(() => emit('provider.login.done', { loginId: 'login-activate', code: 0 }));
 
-    expect(await screen.findByText('Activating openai-codex…')).toBeTruthy();
-    expect(screen.queryByText('Signed in to openai-codex.')).toBeNull();
+    expect(await screen.findByText('Activating codex-agent…')).toBeTruthy();
+    expect(screen.queryByText('Signed in to codex-agent.')).toBeNull();
 
     activation.resolve();
-    expect(await screen.findByText('Signed in to openai-codex.')).toBeTruthy();
+    expect(await screen.findByText('Signed in to codex-agent.')).toBeTruthy();
   });
 
   it('reports successful CLI readiness and fires the latest onSignedIn', async () => {
@@ -160,9 +160,9 @@ describe('OAuthSignIn', () => {
     const { api, emit } = fakeApi();
     __setApiOverride(api);
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-browser' as `${string}-${string}-${string}-${string}-${string}`);
-    render(<OAuthSignIn provider="openai-codex" />);
+    render(<OAuthSignIn provider="codex-agent" />);
 
-    fireEvent.click(screen.getByText('Sign in with openai-codex'));
+    fireEvent.click(screen.getByText('Sign in with codex-agent'));
     act(() =>
       emit('provider.login.authUrl', {
         loginId: 'login-browser',

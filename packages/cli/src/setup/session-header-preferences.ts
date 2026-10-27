@@ -1,5 +1,6 @@
 import { readSessionIndex, type Session } from '@moxxy/core';
 import type { CredentialResolver } from './activate-provider.js';
+import { RETIRED_PROVIDER, RETIRED_PROVIDER_REPLACEMENT, RETIRED_PROVIDER_NOTICE, RETIRED_PROVIDER_NO_CODEX } from './retired-provider.js';
 
 type Logger = {
   warn(msg: string, meta?: Record<string, unknown>): void;
@@ -24,6 +25,21 @@ export async function applySessionHeaderPreferences(
     return;
   }
   if (!meta) return;
+
+  if (meta.provider === RETIRED_PROVIDER) {
+    try {
+      const cfg = await credentialResolver(RETIRED_PROVIDER_REPLACEMENT);
+      session.providers.setActive(RETIRED_PROVIDER_REPLACEMENT, cfg);
+      logger.warn(RETIRED_PROVIDER_NOTICE);
+    } catch {
+      logger.warn(RETIRED_PROVIDER_NO_CODEX);
+    }
+    // Private backend model ids are not Codex CLI model ids. Start with the
+    // replacement connection's own default instead of replaying the old one.
+    session.lastResolvedModel = null;
+    session.lastResolvedProvider = null;
+    return;
+  }
 
   if (meta.provider && session.providers.list().some((p) => p.name === meta.provider)) {
     try {

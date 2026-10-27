@@ -238,7 +238,7 @@ async function prepareOfflineVoice(moxxyHome: string, seeded: ReadonlyArray<stri
 
 /** Connections the installer replaces through their own journal (the previous
  *  copy is kept); the plugin seed leaves them to it. */
-const BUNDLED_PROVIDER_UPDATES = ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const;
+const BUNDLED_PROVIDER_UPDATES = ['@moxxy/plugin-provider-openai'] as const;
 /** Computer Use goes the same way on Windows x64, where its helper is replaced in place. */
 const MANAGED_COMPUTER_UPDATE = process.platform === 'win32' && process.arch === 'x64';
 

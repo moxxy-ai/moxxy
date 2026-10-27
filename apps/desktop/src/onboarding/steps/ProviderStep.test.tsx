@@ -62,7 +62,7 @@ describe('ProviderStep', () => {
         if (cmd === 'settings.providerCatalog') {
           return [
             { name: 'anthropic', kind: 'api' },
-            { name: 'openai-codex', kind: 'api' },
+            { name: 'openai', kind: 'api' },
             { name: 'claude-code', kind: 'agent' },
             { name: 'opencode', kind: 'agent' },
           ];
@@ -79,6 +79,6 @@ describe('ProviderStep', () => {
     const names = (group: HTMLElement): string[] =>
       within(group).getAllByRole('option').map((option) => option.textContent ?? '');
     expect(names(agents)).toEqual(['claude-code', 'opencode']);
-    expect(names(apis)).toEqual(['anthropic', 'openai-codex · OAuth']);
+    expect(names(apis)).toEqual(['anthropic', 'openai']);
   });
 });

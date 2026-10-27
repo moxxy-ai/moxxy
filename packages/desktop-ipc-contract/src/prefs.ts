@@ -6,8 +6,8 @@ import type { ChannelRunMode } from './channels.js';
 export type ThemePreference = 'light' | 'dark' | 'system';
 
 /** Which engine Voice Mode talks through. `local` is the transcribe → agent →
- *  Local Piper loop; `gpt-live` is a full-duplex GPT-Live call over the
- *  existing ChatGPT OAuth login. */
+ *  spoken-voice loop (shown as Classic); `gpt-live` is a full-duplex GPT-Live
+ *  call on the person's OpenAI API key. */
 export type VoiceEnginePreference = 'local' | 'gpt-live';
 
 export interface FocusMiniTextSize {

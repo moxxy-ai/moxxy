@@ -62,18 +62,18 @@ describe('useChannels — channel model', () => {
     const { hook, invoke } = await mounted(discord());
 
     await act(async () => {
-      await hook.result.current.setModel('discord', 'openai-codex::gpt-5.6-luna');
+      await hook.result.current.setModel('discord', 'codex-agent::gpt-5.6-luna');
     });
 
     expect(invoke).toHaveBeenCalledWith('channels.setModel', {
       channelId: 'discord',
-      model: 'openai-codex::gpt-5.6-luna',
+      model: 'codex-agent::gpt-5.6-luna',
     });
-    expect(modelOf(hook.result.current.list)).toBe('openai-codex::gpt-5.6-luna');
+    expect(modelOf(hook.result.current.list)).toBe('codex-agent::gpt-5.6-luna');
   });
 
   it('setModel(null) resets to the default model', async () => {
-    const { hook } = await mounted(discord({ model: 'openai-codex::gpt-5.6-luna' }));
+    const { hook } = await mounted(discord({ model: 'codex-agent::gpt-5.6-luna' }));
 
     await act(async () => {
       await hook.result.current.setModel('discord', null);
@@ -83,12 +83,12 @@ describe('useChannels — channel model', () => {
   });
 
   it('keeps the known model when a runtime-only status push (start/stop/crash) arrives', async () => {
-    const { hook, push } = await mounted(discord({ model: 'openai-codex::gpt-5.6-luna' }));
+    const { hook, push } = await mounted(discord({ model: 'codex-agent::gpt-5.6-luna' }));
 
     act(() => push({ id: 'discord', configured: true, running: true, pid: 42 }));
 
     expect(hook.result.current.list[0]?.status.running).toBe(true);
-    expect(modelOf(hook.result.current.list)).toBe('openai-codex::gpt-5.6-luna');
+    expect(modelOf(hook.result.current.list)).toBe('codex-agent::gpt-5.6-luna');
   });
 });
 

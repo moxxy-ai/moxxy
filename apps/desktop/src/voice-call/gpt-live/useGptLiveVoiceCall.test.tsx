@@ -11,7 +11,7 @@ import type {
 import { useGptLiveVoiceCall } from './useGptLiveVoiceCall';
 
 // Two boundaries are stood in: desktop IPC to the main process (which owns the
-// OAuth token and the runner) and the browser WebRTC transport. The hook, the
+// OpenAI API key and the runner) and the browser WebRTC transport. The hook, the
 // protocol parser, exchange pairing and chat mirroring all run for real.
 type PushHandler = (payload: never) => void;
 
@@ -19,7 +19,7 @@ function createApi(options: { readonly authenticated?: boolean; readonly recordE
   const subscribers = new Map<string, Set<PushHandler>>();
   const invoke = vi.fn(async (channel: string, _args?: unknown) => {
     if (channel === 'voice.live.preflight') return { authenticated: options.authenticated ?? true };
-    if (channel === 'voice.live.start') return { sdp: 'v=0\r\no=answer\r\n', callId: 'rtc_1' };
+    if (channel === 'voice.live.start') return { sdp: 'v=0\r\no=answer\r\n', callId: 'live_1' };
     if (channel === 'session.recordVoiceExchange') {
       if (options.recordError) throw new Error(options.recordError);
       return undefined;
@@ -66,8 +66,21 @@ class InMemoryGptLiveTransport implements GptLiveTransport {
   }
 }
 
-function turnDone(role: 'user' | 'assistant', transcript: string, id = `turn_${role}_${transcript.length}`) {
-  return { type: 'turn.done', turn: { id, role, transcript } };
+/** One spoken fragment, as the Live API streams it. A turn ends when the other
+ *  side speaks, a delegation arrives, or the model goes quiet (`quiet()`). */
+function said(role: 'user' | 'assistant', delta: string) {
+  return {
+    type: role === 'user' ? 'session.input_transcript.delta' : 'session.output_transcript.delta',
+    event_id: `evt_${role}_${delta.length}`,
+    delta,
+    start_ms: 0,
+    end_ms: 100,
+  };
+}
+
+/** Let the model's quiet window (0 ms in these tests) end its turn. */
+async function quiet(): Promise<void> {
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 }
 
 function runnerEvent(turnId: string, body: Record<string, unknown>): MoxxyEvent {
@@ -97,6 +110,7 @@ async function openCall(
       chat: props.chat,
       inputRequired: props.inputRequired,
       transport,
+      speechQuietMs: 0,
     }),
     { initialProps: { inputRequired: false, chat } },
   );
@@ -104,38 +118,27 @@ async function openCall(
   return { ipc, transport, hook, chat };
 }
 
-function delegate(
-  transport: InMemoryGptLiveTransport,
-  userTurnId: string,
-  paraphrase: string,
-  itemId = 'item_1',
-): void {
+function delegate(transport: InMemoryGptLiveTransport, itemId = 'del_1'): void {
   act(() => transport.receive({
-    type: 'delegation.created',
-    item: {
-      id: itemId,
-      type: 'delegation',
-      target: 'client',
-      content: [{ type: 'input_text', text: paraphrase }],
-      user_bidi_turn_id: userTurnId,
-    },
+    type: 'session.delegation.created',
+    event_id: `evt_${itemId}`,
+    offset_ms: 3600,
+    delegation: { id: itemId, type: 'delegation', target: 'client' },
   }));
 }
 
-function delegationTexts(transport: InMemoryGptLiveTransport, channel: string, itemId?: string): string[] {
-  return transport.sent
-    .filter((message): message is {
-      type: string;
-      channel: string;
-      delegation_item_id: string;
-      content: Array<{ text: string }>;
-    } => (message as { type?: string }).type === 'delegation.context.append')
-    .filter((message) => message.channel === channel && (!itemId || message.delegation_item_id === itemId))
-    .map((message) => message.content.map((part) => part.text).join(''));
+function sentOfType(transport: InMemoryGptLiveTransport, type: string): Array<{ delegation_id: string | null; content: string }> {
+  return transport.sent.filter((message): message is {
+    type: string;
+    delegation_id: string | null;
+    content: string;
+  } => (message as { type?: string }).type === type);
 }
 
 function speakableResults(transport: InMemoryGptLiveTransport, itemId?: string): string[] {
-  return delegationTexts(transport, 'speakable', itemId);
+  return sentOfType(transport, 'session.commentary.append')
+    .filter((message) => !itemId || message.delegation_id === itemId)
+    .map((message) => message.content);
 }
 
 function finishAgentTurn(
@@ -175,11 +178,11 @@ describe('useGptLiveVoiceCall', () => {
     });
   });
 
-  it('asks for the ChatGPT login instead of connecting when it is missing', async () => {
+  it('asks for the OpenAI API key instead of connecting when it is missing', async () => {
     const { transport, hook } = await openCall(false);
 
     await waitFor(() => expect(hook.result.current.phase).toBe('error'));
-    expect(hook.result.current.errorReason).toMatch(/Sign in with ChatGPT/);
+    expect(hook.result.current.errorReason).toMatch(/OpenAI API key.*Settings → Voice/);
     expect(transport.options).toBeNull();
   });
 
@@ -187,11 +190,13 @@ describe('useGptLiveVoiceCall', () => {
     const { ipc, transport, hook } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
 
-    act(() => transport.receive(turnDone('user', ' Jaka jest stolica Francji?')));
+    act(() => transport.receive(said('user', ' Jaka jest')));
+    act(() => transport.receive(said('user', ' stolica Francji?')));
+    act(() => transport.receive(said('assistant', 'Stolicą')));
     expect(hook.result.current.lastTranscript).toBe('Jaka jest stolica Francji?');
-    act(() => transport.receive({ type: 'turn.created', turn: { id: 't2', role: 'assistant', transcript: 'Sto' } }));
     expect(hook.result.current.phase).toBe('speaking');
-    act(() => transport.receive(turnDone('assistant', ' Stolicą Francji jest Paryż.')));
+    act(() => transport.receive(said('assistant', ' Francji jest Paryż.')));
+    await quiet();
 
     expect(hook.result.current.phase).toBe('listening');
     await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('session.recordVoiceExchange', {
@@ -204,8 +209,9 @@ describe('useGptLiveVoiceCall', () => {
   it('keeps the model current with the chat without echoing its own exchanges', async () => {
     const { ipc, transport, hook } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    act(() => transport.receive(turnDone('user', 'Halo?')));
-    act(() => transport.receive(turnDone('assistant', 'Słucham.')));
+    act(() => transport.receive(said('user', 'Halo?')));
+    act(() => transport.receive(said('assistant', 'Słucham.')));
+    await quiet();
     transport.sent.length = 0;
 
     act(() => {
@@ -224,9 +230,9 @@ describe('useGptLiveVoiceCall', () => {
     });
 
     expect(transport.sent).toEqual([{
-      type: 'session.context.append',
-      channel: 'developer',
-      content: [{ type: 'input_text', text: 'The user wrote in the Moxxy chat: Mój kolor to zielony.' }],
+      type: 'session.thinking.append',
+      delegation_id: null,
+      content: 'The user wrote in the Moxxy chat: Mój kolor to zielony.',
     }]);
   });
 
@@ -234,13 +240,14 @@ describe('useGptLiveVoiceCall', () => {
     const { ipc, transport, hook, chat } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
 
-    delegate(transport, 'turn_u1', 'run the project tests');
+    act(() => transport.receive(said('user', ' Uruchom testy w projekcie.')));
     expect(chat.send).not.toHaveBeenCalled();
-    act(() => transport.receive(turnDone('user', ' Uruchom testy w projekcie.', 'turn_u1')));
+    delegate(transport);
 
     expect(chat.send).toHaveBeenCalledWith('Uruchom testy w projekcie.');
     expect(hook.result.current.phase).toBe('working');
-    act(() => transport.receive(turnDone('assistant', 'Jasne, już to przekazuję.')));
+    act(() => transport.receive(said('assistant', 'Jasne, już to przekazuję.')));
+    await quiet();
     expect(hook.result.current.phase).toBe('working');
     expect(speakableResults(transport)).toEqual([]);
 
@@ -264,18 +271,19 @@ describe('useGptLiveVoiceCall', () => {
     expect(speakableResults(transport)).toEqual([
       'The Moxxy agent finished. Its reply: Wszystkie testy przeszły.',
     ]);
-    expect(transport.sent).not.toContainEqual(expect.objectContaining({ channel: 'developer' }));
+    expect(sentOfType(transport, 'session.thinking.append')).toEqual([]);
     expect(ipc.invoke).not.toHaveBeenCalledWith('session.recordVoiceExchange', expect.anything());
   });
 
   it('keeps the voice record for conversation it answers itself while a task runs', async () => {
     const { ipc, transport, hook } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    delegate(transport, 'turn_u1', 'run tests');
-    act(() => transport.receive(turnDone('user', 'Uruchom testy.', 'turn_u1')));
+    act(() => transport.receive(said('user', 'Uruchom testy.')));
+    delegate(transport);
 
-    act(() => transport.receive(turnDone('user', 'Jaka jest stolica Francji?', 'turn_u2')));
-    act(() => transport.receive(turnDone('assistant', 'Paryż.')));
+    act(() => transport.receive(said('user', 'Jaka jest stolica Francji?')));
+    act(() => transport.receive(said('assistant', 'Paryż.')));
+    await quiet();
 
     await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('session.recordVoiceExchange', {
       workspaceId: 'workspace-1',
@@ -291,8 +299,8 @@ describe('useGptLiveVoiceCall', () => {
     });
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
 
-    delegate(transport, 'turn_u1', 'deploy');
-    act(() => transport.receive(turnDone('user', 'Zrób deploy.', 'turn_u1')));
+    act(() => transport.receive(said('user', 'Zrób deploy.')));
+    delegate(transport);
 
     await waitFor(() => expect(speakableResults(transport)).toEqual([
       'The Moxxy agent could not finish the task: runner not connected',
@@ -302,30 +310,28 @@ describe('useGptLiveVoiceCall', () => {
   it('tells GPT-Live when the agent is waiting for an approval on screen', async () => {
     const { transport, hook, chat } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    delegate(transport, 'turn_u1', 'edit file');
-    act(() => transport.receive(turnDone('user', 'Popraw plik README.', 'turn_u1')));
+    act(() => transport.receive(said('user', 'Popraw plik README.')));
+    delegate(transport);
 
     hook.rerender({ inputRequired: true, chat });
 
     expect(hook.result.current.phase).toBe('waiting-for-input');
-    expect(transport.sent).toContainEqual(expect.objectContaining({
-      channel: 'developer',
-      content: [expect.objectContaining({ text: expect.stringMatching(/approv/i) })],
+    expect(sentOfType(transport, 'session.thinking.append')).toContainEqual(expect.objectContaining({
+      content: expect.stringMatching(/approv/i),
     }));
   });
 
   it('refuses a new task while the agent is still working on one, and never runs it later', async () => {
     const { ipc, transport, hook, chat } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    delegate(transport, 'turn_u1', 'run tests', 'item_1');
-    act(() => transport.receive(turnDone('user', 'Uruchom testy.', 'turn_u1')));
+    act(() => transport.receive(said('user', 'Uruchom testy.')));
+    delegate(transport, 'item_1');
 
-    delegate(transport, 'turn_u2', 'deploy', 'item_2');
-    act(() => transport.receive(turnDone('user', 'Zrób deploy.', 'turn_u2')));
+    act(() => transport.receive(said('user', 'Zrób deploy.')));
+    delegate(transport, 'item_2');
 
     expect(chat.send).toHaveBeenCalledTimes(1);
     expect(speakableResults(transport, 'item_2')).toEqual([expect.stringMatching(/Not started.*must finish/i)]);
-    expect(delegationTexts(transport, 'commentary')).toEqual([]);
     await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('session.recordVoiceExchange', {
       workspaceId: 'workspace-1',
       userText: 'Zrób deploy.',
@@ -345,20 +351,20 @@ describe('useGptLiveVoiceCall', () => {
     const busyChat = { ...chat, sending: true, activeTurnId: 'typed_turn' };
     hook.rerender({ inputRequired: false, chat: busyChat });
 
-    delegate(transport, 'turn_u1', 'run tests');
-    act(() => transport.receive(turnDone('user', 'Uruchom testy.', 'turn_u1')));
+    act(() => transport.receive(said('user', 'Uruchom testy.')));
+    delegate(transport);
     hook.rerender({ inputRequired: false, chat: { ...busyChat, sending: false, activeTurnId: null } });
 
     expect(chat.send).not.toHaveBeenCalled();
-    expect(speakableResults(transport, 'item_1')).toEqual([expect.stringMatching(/Not started/i)]);
+    expect(speakableResults(transport, 'del_1')).toEqual([expect.stringMatching(/Not started/i)]);
   });
 
   it('never talks over GPT-Live: context waits until it has finished speaking', async () => {
     const { ipc, transport, hook } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    delegate(transport, 'turn_u1', 'run tests');
-    act(() => transport.receive(turnDone('user', 'Uruchom testy.', 'turn_u1')));
-    act(() => transport.receive({ type: 'turn.created', turn: { id: 't_ack', role: 'assistant', transcript: '' } }));
+    act(() => transport.receive(said('user', 'Uruchom testy.')));
+    delegate(transport);
+    act(() => transport.receive(said('assistant', 'Jasne,')));
 
     act(() => {
       ipc.emit('runner.event', {
@@ -384,21 +390,22 @@ describe('useGptLiveVoiceCall', () => {
 
     expect(transport.sent).toEqual([]);
 
-    act(() => transport.receive(turnDone('assistant', 'Jasne, przekazuję.', 't_ack')));
+    act(() => transport.receive(said('assistant', ' przekazuję.')));
+    await quiet();
 
-    expect(transport.sent.map((message) => (message as { channel?: string }).channel)).toEqual([
-      'developer',
-      'developer',
-      'speakable',
+    expect(transport.sent.map((message) => (message as { type?: string }).type)).toEqual([
+      'session.thinking.append',
+      'session.thinking.append',
+      'session.commentary.append',
     ]);
-    expect(speakableResults(transport, 'item_1')).toEqual(['The Moxxy agent finished. Its reply: Testy przeszły.']);
+    expect(speakableResults(transport, 'del_1')).toEqual(['The Moxxy agent finished. Its reply: Testy przeszły.']);
   });
 
   it('keeps GPT-Live and the rail informed about what the agent is doing', async () => {
     const { ipc, transport, hook } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    delegate(transport, 'turn_u1', 'run tests');
-    act(() => transport.receive(turnDone('user', 'Uruchom testy.', 'turn_u1')));
+    act(() => transport.receive(said('user', 'Uruchom testy.')));
+    delegate(transport);
 
     act(() => {
       ipc.emit('runner.event', {
@@ -418,9 +425,9 @@ describe('useGptLiveVoiceCall', () => {
     });
 
     expect(transport.sent).toContainEqual({
-      type: 'session.context.append',
-      channel: 'developer',
-      content: [{ type: 'input_text', text: 'Progress of the running Moxxy task: the agent is running checks or tests.' }],
+      type: 'session.thinking.append',
+      delegation_id: null,
+      content: expect.stringMatching(/^Progress of the running Moxxy task "Uruchom testy\." \(running for under a minute\): step 1, the agent is running checks or tests \(pnpm test\)\.$/),
     });
     expect(hook.result.current.activeOperations.map((operation) => operation.kind)).toEqual(['verification']);
   });
@@ -441,7 +448,7 @@ describe('useGptLiveVoiceCall', () => {
   it('closes the session and keeps speech the model never answered', async () => {
     const { ipc, transport, hook } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    act(() => transport.receive(turnDone('user', 'Halo, jesteś tam?')));
+    act(() => transport.receive(said('user', 'Halo, jesteś tam?')));
 
     act(() => hook.result.current.close());
 
@@ -458,8 +465,9 @@ describe('useGptLiveVoiceCall', () => {
     const { transport, hook } = await openCall(true, 'Recording a voice conversation requires runner protocol v20');
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
 
-    act(() => transport.receive(turnDone('user', 'Halo?')));
-    act(() => transport.receive(turnDone('assistant', 'Słucham.')));
+    act(() => transport.receive(said('user', 'Halo?')));
+    act(() => transport.receive(said('assistant', 'Słucham.')));
+    await quiet();
 
     await waitFor(() => expect(hook.result.current.phase).toBe('error'));
     expect(hook.result.current.errorReason).toMatch(/save.*chat.*protocol v20/i);
@@ -470,10 +478,22 @@ describe('useGptLiveVoiceCall', () => {
     const { transport, hook } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
 
-    act(() => transport.receive({ type: 'session.closed', reason: 'usage_limit_reached' }));
+    act(() => transport.receive({ type: 'session.closed', event_id: 'evt_closed', reason: 'expired', session: {} }));
 
     expect(hook.result.current.phase).toBe('error');
-    expect(hook.result.current.errorReason).toMatch(/usage_limit_reached/);
+    expect(hook.result.current.errorReason).toMatch(/expired/);
     expect(transport.closed).toBe(true);
   });
+});
+
+it('refreshes status for a typed task when the person starts asking about progress', async () => {
+  const { ipc, transport, hook } = await openCall();
+  await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
+  act(() => {
+    ipc.emit('runner.event', { workspaceId: 'workspace-1', event: runnerEvent('typed', { type: 'user_prompt', text: 'Run the tests', source: 'user' }) });
+    ipc.emit('runner.event', { workspaceId: 'workspace-1', event: runnerEvent('typed', { type: 'tool_call_requested', callId: 'c', name: 'Bash', input: { command: 'pnpm test' }, source: 'model' }) });
+  });
+  const before = transport.sent.length;
+  act(() => transport.receive({ type: 'session.input_transcript.delta', delta: 'How is it going?' }));
+  expect(JSON.stringify(transport.sent.slice(before))).toMatch(/pnpm test/);
 });

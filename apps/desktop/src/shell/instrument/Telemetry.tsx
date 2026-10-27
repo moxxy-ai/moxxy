@@ -115,7 +115,7 @@ export function Telemetry({
             </span>
           </span>
         )}
-        {/* No label. A model name says what it is; `agent openai-codex` spends a
+        {/* No label. A model name says what it is; `agent codex-agent` spends a
             word on something the value already tells you. The numeric cells keep
             theirs because `12.4k` on its own does not. */}
         <span className="tele__cell" data-cell="agent">

@@ -1,7 +1,7 @@
 /**
  * Transcription card in Settings → Voice — picks where speech becomes text for
- * the chat microphone and Voice Mode's Local engine: in the cloud over the
- * ChatGPT login, or with Whisper turbo on this computer. The first switch to
+ * the chat microphone and Voice Mode's Classic engine: by OpenAI on the
+ * person's OpenAI API key, or with Whisper turbo on this computer. The first switch to
  * Local asks before it downloads the model, then shows the download with a way
  * to stop it. Render-only; IPC and the switch's lifecycle live in
  * `useTranscriptionSettings`.
@@ -13,13 +13,13 @@ import { Segmented } from '../shell/Segmented';
 import type { TranscriptionSettingsState } from './useTranscriptionSettings';
 
 const MODE_OPTIONS: ReadonlyArray<{ id: TranscriptionMode; label: string }> = [
-  { id: 'cloud', label: 'Cloud' },
+  { id: 'cloud', label: 'OpenAI' },
   { id: 'local', label: 'Local' },
 ];
 const ALL_MODES: ReadonlyArray<TranscriptionMode> = MODE_OPTIONS.map((option) => option.id);
 
 const MODE_DETAIL: Readonly<Record<TranscriptionMode, string>> = {
-  cloud: 'Your speech is transcribed by OpenAI over your ChatGPT login.',
+  cloud: 'Your speech is transcribed by OpenAI with your OpenAI API key (gpt-transcribe).',
   local: 'Whisper turbo runs on this computer: your speech never leaves it, and transcription works offline.',
 };
 
@@ -36,8 +36,11 @@ function gigabytes(bytes: number): string {
 
 export function TranscriptionSection({
   transcription,
+  hasOpenAiKey,
 }: {
   readonly transcription: TranscriptionSettingsState;
+  /** Without it, OpenAI transcription cannot run until a key is added. */
+  readonly hasOpenAiKey: boolean;
 }): JSX.Element {
   const { loading, mode, active, setup, switching, error, choose } = transcription;
   const localNotRunning = !loading && !switching && mode === 'local' && active !== LOCAL_TRANSCRIBER;
@@ -66,14 +69,19 @@ export function TranscriptionSection({
       <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-muted)' }}>
         {MODE_DETAIL[switching ?? mode]}
       </div>
+      {!loading && !switching && mode === 'cloud' && !hasOpenAiKey && (
+        <div role="status" style={NOTE_STYLE}>
+          Add your OpenAI API key above to use OpenAI transcription, or switch to Local.
+        </div>
+      )}
       {setup ? (
         <SetupProgress setup={setup} onCancel={() => void transcription.cancel()} />
       ) : (
-        switching === 'cloud' && <div role="status" style={NOTE_STYLE}>Switching to Cloud…</div>
+        switching === 'cloud' && <div role="status" style={NOTE_STYLE}>Switching to OpenAI…</div>
       )}
       {localNotRunning && (
         <div role="status" style={NOTE_STYLE}>
-          Local is selected but not running yet. Restart Moxxy, or switch to Cloud.
+          Local is selected but not running yet. Restart Moxxy, or switch to OpenAI.
         </div>
       )}
       {error && (

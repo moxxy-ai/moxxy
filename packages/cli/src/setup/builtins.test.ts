@@ -52,7 +52,7 @@ describe('builtin plugin requirement inventory', () => {
     expect(built.entries.map((entry) => entry.name)).not.toContain('@moxxy/plugin-channel-mobile');
     // memory(+consolidate, merged into one plugin) is no longer a builtin
     // entry — the slim wave's last unbundle.
-    // stt-whisper-codex is no longer a builtin entry (slim wave) — its
+    // stt-whisper is no longer a builtin entry (slim wave) — its
     // requirements gate now reads from the on-disk package.json at discovery.
   });
 });

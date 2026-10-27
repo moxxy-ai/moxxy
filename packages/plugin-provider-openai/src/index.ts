@@ -36,3 +36,12 @@ export const openaiPlugin = definePlugin({
 });
 
 export default openaiPlugin;
+
+export { GPT_LIVE_MODEL, GptLiveSessionClient } from './live/gpt-live-session.js';
+export type {
+  GptLiveSessionAnswer,
+  GptLiveSessionClientOptions,
+  GptLiveSessionStart,
+} from './live/gpt-live-session.js';
+export { buildGptLiveHistory } from './live/gpt-live-history.js';
+export type { GptLiveHistoryItem } from './live/gpt-live-history.js';

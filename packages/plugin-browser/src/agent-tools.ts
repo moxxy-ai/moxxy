@@ -29,7 +29,7 @@ import type { Region } from './page/host.js';
  * Models routinely fill in every field a schema declares, and on an optional
  * field an empty string means "I have nothing for this" — not "the empty
  * string". Read literally it fails `.url()` or `.min(1)` and the whole call is
- * refused before it reaches the browser. Observed live: openai-codex called
+ * refused before it reaches the browser. Observed live: a model called
  * browser_tabs with `{action:"list", tab_id:"", url:""}`, got back
  * "url: Invalid url", and went off looking for some other browser to use.
  */

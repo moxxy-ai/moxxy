@@ -41,8 +41,8 @@ const sessionWith = (provider: FakeProvider): Session => {
 describe('defaultMode end-to-end', () => {
   it('persists all provider-owned reasoning items and replays them before the next tool continuation', async () => {
     const replayItems = [
-      { provider: 'openai-codex', item: { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'opaque-one' } },
-      { provider: 'openai-codex', item: { type: 'reasoning', id: 'rs_2', summary: [], encrypted_content: 'opaque-two' } },
+      { provider: 'codex-agent', item: { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'opaque-one' } },
+      { provider: 'codex-agent', item: { type: 'reasoning', id: 'rs_2', summary: [], encrypted_content: 'opaque-two' } },
     ];
     const provider = new FakeProvider({ script: [
       [

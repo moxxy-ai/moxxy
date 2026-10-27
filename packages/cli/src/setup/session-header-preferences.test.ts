@@ -5,6 +5,7 @@ import path from 'node:path';
 import { readSessionIndex, Session, silentLogger } from '@moxxy/core';
 import { definePlugin, defineProvider } from '@moxxy/sdk';
 import { describe, expect, it } from 'vitest';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 import { applySessionHeaderPreferences } from './session-header-preferences';
 
@@ -137,3 +138,30 @@ function providerDef(name: string, modelIds: string[]) {
     }),
   });
 }
+
+
+it('reopens a retired ChatGPT conversation on Codex without reusing its private model id', async () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), 'moxxy-retired-session-'));
+  const previous = process.env.MOXXY_HOME;
+  process.env.MOXXY_HOME = home;
+  const session = new Session({ cwd: home, logger: silentLogger });
+  try {
+    mkdirSync(path.join(home, 'sessions'));
+    const id = '01RETIREDSESSION000000000';
+    writeFileSync(path.join(home, 'sessions', `${id}.meta.json`), JSON.stringify({ id, cwd: home, startedAt: '2026-10-20T00:00:00Z', lastActivity: '2026-10-20T00:00:00Z', eventCount: 5, provider: 'openai-codex', model: 'gpt-old-codex' }));
+    writeFileSync(path.join(home, 'sessions', `${id}.jsonl`), '');
+    session.pluginHost.registerStatic(definePlugin({ name: '@test/migration', providers: [providerDef('codex-agent', ['gpt-6-sol']), providerDef('other', ['other'])] }));
+    session.providers.setActive('other');
+    const warnings: string[] = [];
+    await applySessionHeaderPreferences(session, id, async () => ({}), { warn: message => { warnings.push(message); } });
+    expect(session.providers.getActiveName()).toBe('codex-agent');
+    expect(session.lastResolvedProvider).not.toBe('openai-codex');
+    expect(session.lastResolvedModel).not.toBe('gpt-old-codex');
+    expect(warnings.join(' ')).toMatch(/ChatGPT sign-in was removed/);
+  } finally {
+    await session.close();
+    if (previous === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = previous;
+    removeDirSync(home);
+  }
+});

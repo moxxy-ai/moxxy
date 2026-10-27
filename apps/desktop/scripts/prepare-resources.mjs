@@ -28,7 +28,7 @@ runNode([path.join(desktopDir, 'scripts', 'bundle-runtimes-seed.mjs')]);
 
 const report = await verifyDesktopResources(resourcesDir);
 console.log(
-  `Desktop resources prepared: CLI ${report.cliVersion}, ${report.seedPackageCount} seed packages, ${report.voiceCount} voices, OpenAI Codex provider ${report.providerVersion}`,
+  `Desktop resources prepared: CLI ${report.cliVersion}, ${report.seedPackageCount} seed packages, ${report.voiceCount} voices, Claude Agent provider ${report.providerVersion}`,
 );
 
 function runNode(args) {

@@ -9,7 +9,7 @@ import {
 } from '@moxxy/sdk';
 import { normalizeWhisperUpload } from './audio.js';
 
-export type WhisperModel = 'whisper-1' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe';
+export type WhisperModel = 'whisper-1' | 'gpt-transcribe' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe';
 
 /** Provider tag attached to classified errors for logs/debug context. */
 const WHISPER_PROVIDER_ID = 'openai';
@@ -67,8 +67,8 @@ export class WhisperTranscriber implements Transcriber {
     // an `Uploadable`.
     const file = new File([upload.bytes], upload.filename, { type: upload.mimeType });
     const language = opts.language ?? this.defaultLanguage;
-    // verbose_json is only supported by whisper-1; the gpt-4o family
-    // returns plain JSON. Branch so callers get rich segments when
+    // verbose_json is only supported by whisper-1; gpt-transcribe and the
+    // gpt-4o family return plain JSON. Branch so callers get rich segments when
     // available, and a graceful text-only result when not.
     if (this.model === 'whisper-1') {
       const response = await this.run(() =>

@@ -62,7 +62,7 @@ const skillName = z
   .refine((s) => !s.includes('..'), 'skill name may not contain ".."');
 
 /** Vault key — letters/digits then letters/digits/dot/underscore/slash/hyphen
- *  (slashes allow namespaced keys like `oauth/openai-codex/refresh_token`),
+ *  (slashes allow namespaced keys like `oauth/google/refresh_token`),
  *  no `..` traversal. */
 const vaultKeyName = z
   .string()
@@ -202,7 +202,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'voice.cancelLocalTranscription': z.undefined(),
   'voice.useCloudTranscription': z.undefined(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
-  // GPT-Live spends the host's ChatGPT OAuth credential: the renderer supplies
+  // GPT-Live spends the host's OpenAI API key: the renderer supplies
   // only its WebRTC offer; instructions, model and history stay host-owned.
   'voice.live.preflight': z.undefined(),
   'voice.live.start': z

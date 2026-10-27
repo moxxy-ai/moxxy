@@ -1,3 +1,4 @@
+import { useProviderMigrationNotice } from './onboarding/useProviderMigrationNotice';
 import { useCallback, useEffect, useState } from 'react';
 import type { DesktopPrefs } from '@moxxy/desktop-ipc-contract';
 import { MoxxyMark } from '@/components/MoxxyMark';
@@ -119,6 +120,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
   const activeWorkspaceId = useActiveWorkspaceId();
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const phase = snapshot?.phase;
+  const providerMigrationNotice = useProviderMigrationNotice(phase);
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const bench = useWorkbench(activeWorkspaceId);
   // Each destination remembers what it was showing, so switching away and back
@@ -325,6 +327,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
         <ChatStoreBridge />
         <Onboarding
           phase={shell.phase}
+          notice={providerMigrationNotice}
           // A successful CLI/provider repair still drops this gate through the
           // connection phase. The explicit callback also handles the optional
           // provider step's "Skip for now" action.

@@ -50,10 +50,10 @@ it('keeps a newer installed provider instead of offering the older bundled one',
 });
 
 const bundledResources = process.env.MOXXY_TEST_PROVIDER_RESOURCES;
-it.skipIf(!bundledResources)('updates both actual installer providers in an isolated existing profile without npm or credentials', async () => {
+it.skipIf(!bundledResources)('updates the installer\'s OpenAI provider in an isolated existing profile without npm or credentials', async () => {
   if (!bundledResources) throw new Error('Installer resources are required');
   const root = await mkdtemp(join(tmpdir(), 'provider-installer-smoke-')); roots.push(root);
-  for (const name of ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const) {
+  for (const name of ['@moxxy/plugin-provider-openai'] as const) {
     const target = join(root, 'plugins/node_modules', name);
     await mkdir(join(target, 'dist'), { recursive: true });
     await writeFile(join(target, 'package.json'), JSON.stringify({ name, version: '0.1.0', type: 'module' }));

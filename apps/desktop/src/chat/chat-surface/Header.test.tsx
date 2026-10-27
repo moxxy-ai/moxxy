@@ -9,7 +9,7 @@ const connectedPhase = {
   phase: 'connected',
   socket: '/tmp/moxxy.sock',
   sessionId: 'ws-test',
-  activeProvider: 'openai-codex',
+  activeProvider: 'codex-agent',
   activeMode: 'default',
 } as const;
 

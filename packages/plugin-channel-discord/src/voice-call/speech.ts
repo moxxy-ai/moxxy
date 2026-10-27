@@ -11,7 +11,7 @@ export async function transcribeForCall(
 ): Promise<string> {
   const transcriber = session.transcribers.tryGetActive();
   if (!transcriber) {
-    throw new Error('no speech-to-text backend is configured — voice calls need one (e.g. `moxxy login openai-codex`)');
+    throw new Error('no speech-to-text backend is configured — voice calls need one (save OPENAI_API_KEY with `/vault set` for OpenAI transcription)');
   }
   const pcm = await decodeUtterance(packets);
   if (pcm.byteLength === 0) return '';

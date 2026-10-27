@@ -1,7 +1,11 @@
 import { Button, TextInput } from '@moxxy/desktop-ui';
 import { useVoiceEnginePreference } from '@/voice-call/useVoiceEngine';
+import { Segmented } from '../shell/Segmented';
+import { OpenAiKeyCard } from './OpenAiKeyCard';
 import { Section } from './settings-primitives';
 import { useTranscriptionSettings } from './useTranscriptionSettings';
+import { useVaultKey } from './useVaultKey';
+import { useVoiceSection, VOICE_SECTIONS } from './useVoiceSection';
 import { useVoiceSettings, type VoiceSettingsState } from './useVoiceSettings';
 import { TranscriptionSection } from './TranscriptionSection';
 import { VoiceEngineSection } from './VoiceEngineSection';
@@ -31,27 +35,35 @@ const noteStyle: React.CSSProperties = {
   fontSize: 'var(--type-meta)',
 };
 
-/** Render-only surface for everything voice: the Voice Mode engine, where speech
- *  is transcribed and, for the Local engine, the spoken voice. IPC and lifecycle
- *  live in the hooks. */
+/** Render-only surface for everything voice: the shared OpenAI key, then tabs
+ *  for the Voice Mode engine, the voice that reads replies aloud and where
+ *  speech is transcribed. IPC and lifecycle live in the hooks. */
 export function VoiceTab(): JSX.Element {
   const engine = useVoiceEnginePreference();
   const voice = useVoiceSettings();
   const transcription = useTranscriptionSettings();
+  const openAiKey = useVaultKey('OPENAI_API_KEY');
+  const { section, setSection } = useVoiceSection();
 
   return (
     <Section
       title="Voice"
-      description="Choose how Voice Mode talks with you, where your speech is transcribed and which voice reads replies aloud."
+      description="Choose how Voice Mode talks with you, which voice reads replies aloud and where your speech is transcribed."
     >
-      <VoiceEngineSection />
-      <TranscriptionSection transcription={transcription} />
-      {engine === 'gpt-live' ? (
+      <OpenAiKeyCard openAiKey={openAiKey} />
+      <div>
+        <Segmented items={VOICE_SECTIONS} value={section} onChange={setSection} testIdPrefix="voice-section-" />
+      </div>
+      {section === 'conversation' && <VoiceEngineSection />}
+      {section === 'read-aloud' && (engine === 'gpt-live' ? (
         <p style={noteStyle}>
-          GPT-Live speaks with its own voice. Switch to Local to choose a Gemini or Piper voice.
+          GPT-Live speaks with its own voice. Switch Conversation to Classic to choose a Gemini or Piper voice.
         </p>
       ) : (
         <SpokenVoicePicker voice={voice} />
+      ))}
+      {section === 'transcription' && (
+        <TranscriptionSection transcription={transcription} hasOpenAiKey={openAiKey.loading || openAiKey.hasKey} />
       )}
       {voice.error && (
         <div role="alert" style={{ color: 'var(--color-red)', fontSize: 'var(--type-meta)' }}>{voice.error}</div>
@@ -71,7 +83,7 @@ function SpokenVoicePicker({ voice }: { readonly voice: VoiceSettingsState }): J
   return (
     <>
       <p style={noteStyle}>
-        Spoken voice for the Local engine. Speech is played one sentence at a time, with up to two upcoming sentences prepared ahead to reduce pauses.
+        Spoken voice for the Classic engine and the speaker button on replies. Speech is played one sentence at a time, with up to two upcoming sentences prepared ahead to reduce pauses.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
         <section style={cardStyle} aria-labelledby="voice-cloud-title">

@@ -36,13 +36,13 @@ const anthropic: ProviderEntry = {
 };
 
 const codex: ProviderEntry = {
-  name: 'openai-codex',
+  name: 'codex-agent',
   ready: false,
   enabled: true,
   active: false,
   authKind: 'oauth',
   kind: 'builtin',
-  keyName: 'OPENAI_CODEX_API_KEY',
+  keyName: 'CODEX_AGENT_API_KEY',
 };
 
 const zai: ProviderEntry = {
@@ -214,11 +214,11 @@ describe('ProvidersTab', () => {
     // configure sheet needs a transport even though the buttons aren't clicked.
     __setApiOverride({ invoke: vi.fn(() => Promise.resolve()), subscribe: vi.fn(() => () => {}) } as never);
     renderTab();
-    fireEvent.click(screen.getByRole('button', { name: /configure openai-codex/i }));
+    fireEvent.click(screen.getByRole('button', { name: /configure codex-agent/i }));
     expect(screen.getByText(/signs in with OAuth/i)).toBeTruthy();
     expect(screen.queryByTestId('provider-key-input')).toBeNull();
     // The dead "run moxxy login in a terminal" hint is gone — there's a button.
-    expect(screen.getByRole('button', { name: /sign in with openai-codex/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /sign in with codex-agent/i })).toBeTruthy();
   });
 
   it('activates the OAuth provider before reporting the settings sign-in complete', async () => {
@@ -233,16 +233,16 @@ describe('ProvidersTab', () => {
     } as never);
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('settings-login' as `${string}-${string}-${string}-${string}-${string}`);
     const { onActivate } = renderTab({ providers: [codex] });
-    fireEvent.click(screen.getByRole('button', { name: /configure openai-codex/i }));
-    fireEvent.click(screen.getByRole('button', { name: /sign in with openai-codex/i }));
+    fireEvent.click(screen.getByRole('button', { name: /configure codex-agent/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in with codex-agent/i }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('provider.login.start', {
       loginId: 'settings-login',
-      provider: 'openai-codex',
+      provider: 'codex-agent',
     }));
 
     handlers.get('provider.login.done')?.({ loginId: 'settings-login', code: 0 });
 
-    await waitFor(() => expect(onActivate).toHaveBeenCalledWith('openai-codex'));
+    await waitFor(() => expect(onActivate).toHaveBeenCalledWith('codex-agent'));
   });
 });
 
@@ -335,7 +335,7 @@ describe('ProvidersTab — agent connections', () => {
     expect(within(agents).getByTestId('agent-row-opencode')).toBeInTheDocument();
     expect(within(agents).queryByTestId('provider-row-anthropic')).toBeNull();
     expect(within(models).getByTestId('provider-row-anthropic')).toBeInTheDocument();
-    expect(within(models).getByTestId('provider-row-openai-codex')).toBeInTheDocument();
+    expect(within(models).getByTestId('provider-row-codex-agent')).toBeInTheDocument();
     expect(agents).toHaveTextContent('1');
     expect(models).toHaveTextContent('2');
     expect(agents.compareDocumentPosition(models) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

@@ -83,3 +83,65 @@ describe('activateProvider', () => {
     expect(createClient).toHaveBeenCalledWith(expected);
   });
 });
+
+describe('activateProvider after ChatGPT sign-in was removed', () => {
+  it('moves a configured ChatGPT sign-in to the Codex agent and says why', async () => {
+    const codexAgent = defineProvider({
+      ...testProvider('codex-agent'),
+      resolveCredentials: async ({ providerConfig }) => ({ ...providerConfig, executable: 'codex' }),
+    });
+    const session = makeSession([codexAgent]);
+    const warn = vi.fn();
+
+    const result = await activateProvider({
+      ...baseArgs,
+      logger: { ...silentLogger, warn },
+      session,
+      config: { plugins: { provider: { default: 'openai-codex' } } },
+      providerConfig: {},
+    });
+
+    expect(result.activated?.name).toBe('codex-agent');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/ChatGPT sign-in was removed.*ChatGPT — Codex agent/),
+      expect.anything(),
+    );
+  });
+
+  it('explains the removal, and asks for another provider, when the Codex agent cannot start', async () => {
+    const codexAgent = defineProvider({
+      name: 'codex-agent',
+      models: [],
+      createClient: () => { throw new Error('unused'); },
+      resolveCredentials: async () => { throw new Error('Codex is not installed.'); },
+    });
+    const session = makeSession([codexAgent]);
+    const progress = vi.fn();
+
+    await activateProvider({
+      ...baseArgs,
+      progress,
+      tolerateNoProvider: true,
+      session,
+      config: { plugins: { provider: { default: 'openai-codex' } } },
+      providerConfig: {},
+    });
+
+    expect(session.providers.getActiveName()).toBeNull();
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'provider-failed',
+      error: expect.stringMatching(/ChatGPT sign-in was removed.*choose another provider/),
+    }));
+  });
+});
+
+
+it('does not carry retired backend options into the Codex agent', async () => {
+  const received: unknown[] = [];
+  const session = makeSession([defineProvider({
+    ...testProvider('codex-agent'),
+    resolveCredentials: async ({ providerConfig }) => { received.push(providerConfig); return providerConfig; },
+  })]);
+  await activateProvider({ ...baseArgs, session, config: { plugins: { provider: { default: 'openai-codex', items: { 'codex-agent': { config: { executable: 'codex' } } } } } }, providerConfig: { baseURL: 'https://chatgpt.com/backend-api', model: 'private-model' } });
+  expect(received[0]).toEqual({ executable: 'codex' });
+});

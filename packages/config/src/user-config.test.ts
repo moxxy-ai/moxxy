@@ -220,16 +220,16 @@ describe('model defaults', () => {
   });
 
   it('set the provider, its model, the effort and the fast tier where every surface reads them', async () => {
-    await setModelDefaults({ model: { provider: 'openai-codex', model: 'gpt-6-luna' }, effort: 'medium', fast: true }, { configPath });
+    await setModelDefaults({ model: { provider: 'codex-agent', model: 'gpt-6-luna' }, effort: 'medium', fast: true }, { configPath });
 
     const parsed = await readParsed();
     expect(parsed).toEqual({
-      plugins: { provider: { default: 'openai-codex', items: { 'openai-codex': { model: 'gpt-6-luna' } } } },
+      plugins: { provider: { default: 'codex-agent', items: { 'codex-agent': { model: 'gpt-6-luna' } } } },
       context: { reasoning: { effort: 'medium' }, fast: true },
     });
     expect(moxxyConfigSchema.safeParse(parsed).success).toBe(true);
     await expect(loadModelDefaults({ configPath })).resolves.toEqual({
-      provider: 'openai-codex',
+      provider: 'codex-agent',
       model: 'gpt-6-luna',
       effort: 'medium',
       fast: true,
@@ -261,7 +261,7 @@ describe('model defaults', () => {
         '    items:',
         '      anthropic:',
         '        model: claude-sonnet-5-5',
-        '      openai-codex:',
+        '      codex-agent:',
         '        enabled: true',
         'context:',
         '  lazyTools: true',
@@ -269,16 +269,16 @@ describe('model defaults', () => {
       ].join('\n'),
     );
 
-    await setModelDefaults({ model: { provider: 'openai-codex', model: 'gpt-6-luna' }, effort: 'high', fast: true }, { configPath });
+    await setModelDefaults({ model: { provider: 'codex-agent', model: 'gpt-6-luna' }, effort: 'high', fast: true }, { configPath });
 
     const raw = await fs.readFile(configPath, 'utf8');
     expect(raw).toContain('# my setup');
     expect(await readParsed()).toEqual({
       plugins: {
         provider: {
-          default: 'openai-codex',
+          default: 'codex-agent',
           fallbacks: ['openai'],
-          items: { anthropic: { model: 'claude-sonnet-5-5' }, 'openai-codex': { enabled: true, model: 'gpt-6-luna' } },
+          items: { anthropic: { model: 'claude-sonnet-5-5' }, 'codex-agent': { enabled: true, model: 'gpt-6-luna' } },
         },
       },
       context: { lazyTools: true, reasoning: { effort: 'high' }, fast: true },
@@ -288,9 +288,9 @@ describe('model defaults', () => {
   it('change only what is named: a new model leaves the effort as it was, a new effort leaves the model', async () => {
     await fs.writeFile(configPath, 'context:\n  reasoning: true\n  fast: true\n');
 
-    await setModelDefaults({ model: { provider: 'openai-codex', model: 'gpt-6-luna' } }, { configPath });
+    await setModelDefaults({ model: { provider: 'codex-agent', model: 'gpt-6-luna' } }, { configPath });
     await expect(loadModelDefaults({ configPath })).resolves.toEqual({
-      provider: 'openai-codex',
+      provider: 'codex-agent',
       model: 'gpt-6-luna',
       effort: 'default',
       fast: true,
@@ -299,7 +299,7 @@ describe('model defaults', () => {
     await setModelDefaults({ effort: 'low' }, { configPath });
     await setModelDefaults({ fast: false }, { configPath });
     await expect(loadModelDefaults({ configPath })).resolves.toEqual({
-      provider: 'openai-codex',
+      provider: 'codex-agent',
       model: 'gpt-6-luna',
       effort: 'low',
       fast: false,
@@ -308,11 +308,11 @@ describe('model defaults', () => {
 
   it('do not lose a change made at the same moment', async () => {
     await Promise.all([
-      setModelDefaults({ model: { provider: 'openai-codex', model: 'gpt-6-luna' } }, { configPath }),
+      setModelDefaults({ model: { provider: 'codex-agent', model: 'gpt-6-luna' } }, { configPath }),
       setProviderEnabled('anthropic', false, { configPath }),
     ]);
 
     const parsed = (await readParsed()) as { plugins: { provider: { items: Record<string, unknown> } } };
-    expect(parsed.plugins.provider.items).toEqual({ 'openai-codex': { model: 'gpt-6-luna' }, anthropic: { enabled: false } });
+    expect(parsed.plugins.provider.items).toEqual({ 'codex-agent': { model: 'gpt-6-luna' }, anthropic: { enabled: false } });
   });
 });

@@ -203,7 +203,7 @@ describe('ChatSurface session readiness', () => {
           phase: 'connected',
           socket: '/tmp/fresh-session.sock',
           sessionId: 'fresh-session',
-          activeProvider: 'openai-codex',
+          activeProvider: 'codex-agent',
           activeMode: 'default',
         }}
         workspaceId="fresh-session"
@@ -273,7 +273,7 @@ describe('ChatSurface session readiness', () => {
         phase: 'connected',
         socket: '/tmp/voice-session.sock',
         sessionId: 'voice-session',
-        activeProvider: 'openai-codex',
+        activeProvider: 'codex-agent',
         activeMode: 'default',
       } as const,
       workspaceId: 'voice-session',
@@ -334,7 +334,7 @@ describe('ChatSurface, docked', () => {
     phase: 'connected',
     socket: '/tmp/s.sock',
     sessionId: 's',
-    activeProvider: 'openai-codex',
+    activeProvider: 'codex-agent',
     activeMode: 'default',
   } as const;
 

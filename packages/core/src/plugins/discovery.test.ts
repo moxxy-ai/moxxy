@@ -74,6 +74,29 @@ describe('discoverPlugins + createPluginLoader (end-to-end)', () => {
     expect(plugin.version).toBe('1.2.3');
   });
 
+  it('skips retired plugins still left in a plugins folder, and says so', async () => {
+    for (const name of ['plugin-provider-openai-codex', 'plugin-stt-whisper-codex']) {
+      const pkgRoot = path.join(cwd, 'node_modules', '@moxxy', name);
+      await fs.mkdir(pkgRoot, { recursive: true });
+      await makePkg(pkgRoot, {
+        name: `@moxxy/${name}`,
+        entry: 'index.mjs',
+        entryContent: `export default Object.freeze({ __moxxy: 'plugin', name: '@moxxy/${name}', version: '1.0.0' });\n`,
+      });
+    }
+    const info = vi.fn();
+    const logger = { ...silentLogger, info };
+
+    const manifests = await discoverPlugins({ cwd, logger });
+
+    expect(manifests.map((m) => m.packageName)).not.toContain('@moxxy/plugin-provider-openai-codex');
+    expect(manifests.map((m) => m.packageName)).not.toContain('@moxxy/plugin-stt-whisper-codex');
+    expect(info).toHaveBeenCalledWith(
+      'discovery: skipping a retired plugin',
+      expect.objectContaining({ package: '@moxxy/plugin-provider-openai-codex' }),
+    );
+  });
+
   it('ignores packages without a moxxy.plugin manifest', async () => {
     const pkgRoot = path.join(cwd, 'node_modules', 'plain-pkg');
     await fs.mkdir(pkgRoot, { recursive: true });

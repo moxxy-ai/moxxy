@@ -25,7 +25,7 @@ async function fixture(code = 'export const ready = true;', plugin = '@moxxy/plu
   return {resourcesPath:resources,moxxyHome:home,target};
 }
 
-it.each(['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const)(
+it.each(['@moxxy/plugin-provider-openai'] as const)(
   'updates %s with private dependencies and its own ledger, leaving credentials and other packages intact', async (plugin) => {
     const options = { ...await fixture('export { revision } from "@moxxy/sdk";', plugin), plugin };
     const plugins = join(options.moxxyHome, 'plugins');

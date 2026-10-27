@@ -97,7 +97,7 @@ jobs:
           fi
           changed="$(git diff --name-only "$base"...HEAD)"
           printf '%s\n' "$changed"
-          if printf '%s\n' "$changed" | grep -Eq '^(apps/desktop/|packages/(cli|sdk|desktop-host|desktop-ipc-contract|plugin-oauth|plugin-provider-openai-codex|plugin-plugins-admin)/|scripts/desktop-|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.github/workflows/(ci|release)\.yml$)'; then
+          if printf '%s\n' "$changed" | grep -Eq '^(apps/desktop/|packages/(cli|sdk|desktop-host|desktop-ipc-contract|plugin-oauth|plugin-provider-openai|plugin-stt-whisper|plugin-plugins-admin)/|scripts/desktop-|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.github/workflows/(ci|release)\.yml$)'; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"

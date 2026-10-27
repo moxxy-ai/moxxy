@@ -588,3 +588,14 @@ above are reimplemented here in Moxxy's own components.
 9. **Found by name** (done): the palette finds every option by its own name
    and opens the section that holds it; Providers are the first section of
    Settings; first run is one form with no sidebar.
+
+## Voice settings and connection migration
+
+Voice uses the existing segmented control for Conversation, Read aloud and
+Transcription, with immediate switching. A shared OpenAI key card stays above
+these sections; the password field and save action use the existing input and
+button primitives, card border and text tokens. Saved-key state and failures
+are written in text, not conveyed only by colour. Each option is indexed for
+⌘K. Existing read-aloud choices remain available. API billing is explained inline;
+there is no paid-use modal. Recovery from the retired ChatGPT sign-in shows an
+inline explanation in the provider form; a successful move uses the normal toast.

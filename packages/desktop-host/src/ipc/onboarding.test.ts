@@ -17,15 +17,15 @@ function captureHandlers(): Map<string, Handler> {
 }
 
 describe('onboarding.providerAuthKind before a runner is reachable', () => {
-  it.each(['openai-codex', 'claude-code', 'codex-agent', 'opencode'])('signs in to %s rather than asking for a key', async (provider) => {
+  it.each(['claude-code', 'codex-agent', 'opencode'])('signs in to %s rather than asking for a key', async (provider) => {
     const authKind = captureHandlers().get('onboarding.providerAuthKind');
     assertDefined(authKind, 'onboarding.providerAuthKind handler');
     expect(await authKind({ provider })).toBe('oauth');
   });
 
-  it('asks for a key for an API provider', async () => {
+  it.each(['anthropic', 'openai'])('asks for an API key for %s', async (provider) => {
     const authKind = captureHandlers().get('onboarding.providerAuthKind');
     assertDefined(authKind, 'onboarding.providerAuthKind handler');
-    expect(await authKind({ provider: 'anthropic' })).toBe('api-key');
+    expect(await authKind({ provider })).toBe('api-key');
   });
 });

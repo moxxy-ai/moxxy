@@ -1,15 +1,18 @@
 import { z } from 'zod/v3';
 
 /**
- * The GPT-Live data-channel protocol (`oai-events`), reduced to what Voice Mode
- * reads and sends. Shapes are the ones the live service emits; see
- * docs/voice-gpt-live.md for the captured contract.
+ * The GPT-Live data-channel protocol (`oai-events`) of OpenAI's Live API,
+ * reduced to what Voice Mode reads and sends; see docs/voice-gpt-live.md.
+ *
+ * The service streams transcript fragments with no turn boundaries, so
+ * {@link GptLiveEventReader} folds them into the turns the call logic works
+ * with: a turn ends when the other side speaks, a delegation arrives, the
+ * session closes, or (for the model) it has gone quiet — see `settle()`.
  */
 export type GptLiveRole = 'user' | 'assistant';
 
 export type GptLiveEvent =
   | { readonly type: 'session-started' }
-  | { readonly type: 'transcript'; readonly role: GptLiveRole; readonly text: string }
   | { readonly type: 'turn-started'; readonly role: GptLiveRole }
   | {
       readonly type: 'turn-done';
@@ -26,17 +29,16 @@ export type GptLiveEvent =
   | { readonly type: 'session-closed'; readonly reason: string }
   | { readonly type: 'error'; readonly message: string };
 
-export interface GptLiveContextAppend {
-  readonly type: 'session.context.append';
-  readonly channel: 'developer';
-  readonly content: readonly [{ readonly type: 'input_text'; readonly text: string }];
+export interface GptLiveThinkingAppend {
+  readonly type: 'session.thinking.append';
+  readonly delegation_id: null;
+  readonly content: string;
 }
 
-export interface GptLiveDelegationAppend {
-  readonly type: 'delegation.context.append';
-  readonly delegation_item_id: string;
-  readonly channel: 'speakable';
-  readonly content: readonly [{ readonly type: 'input_text'; readonly text: string }];
+export interface GptLiveCommentaryAppend {
+  readonly type: 'session.commentary.append';
+  readonly delegation_id: string;
+  readonly content: string;
 }
 
 export const GPT_LIVE_SESSION_CLOSE = Object.freeze({ type: 'session.close' });
@@ -44,23 +46,17 @@ export const GPT_LIVE_SESSION_CLOSE = Object.freeze({ type: 'session.close' });
 const MAX_EVENT_CHARS = 256_000;
 const MAX_CONTEXT_APPEND_BYTES = 500;
 
-const id = z.string().min(1).max(256);
 const text = z.string().max(100_000);
-const role = z.enum(['user', 'assistant']);
-const transcriptAdded = z.object({
-  type: z.enum(['input_transcript.added', 'output_transcript.added']),
-  item: z.object({ text }),
+const transcriptDelta = z.object({
+  type: z.enum(['session.input_transcript.delta', 'session.output_transcript.delta']),
+  delta: text,
 });
-const turn = z.object({ id, role, transcript: text });
-const turnCreated = z.object({ type: z.literal('turn.created'), turn: turn.pick({ role: true }) });
-const turnDone = z.object({ type: z.literal('turn.done'), turn });
 const delegationCreated = z.object({
-  type: z.literal('delegation.created'),
-  item: z.object({
-    id,
+  type: z.literal('session.delegation.created'),
+  delegation: z.object({
+    id: z.string().min(1).max(256),
     type: z.literal('delegation'),
     target: z.literal('client'),
-    user_bidi_turn_id: id.optional(),
   }),
 });
 const sessionStarted = z.object({ type: z.literal('session.started') });
@@ -70,66 +66,95 @@ const protocolError = z.object({
   error: z.object({ message: z.string().min(1).max(2_048) }),
 });
 
-export function parseGptLiveEvent(raw: string): GptLiveEvent | null {
-  if (raw.length > MAX_EVENT_CHARS) return null;
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-
-  const added = transcriptAdded.safeParse(value);
-  if (added.success) {
-    return {
-      type: 'transcript',
-      role: added.data.type === 'input_transcript.added' ? 'user' : 'assistant',
-      text: added.data.item.text,
-    };
-  }
-  const created = turnCreated.safeParse(value);
-  if (created.success) return { type: 'turn-started', role: created.data.turn.role };
-  const done = turnDone.safeParse(value);
-  if (done.success) {
-    return {
-      type: 'turn-done',
-      role: done.data.turn.role,
-      turnId: done.data.turn.id,
-      text: done.data.turn.transcript.trim(),
-    };
-  }
-  const delegation = delegationCreated.safeParse(value);
-  if (delegation.success) {
-    return {
-      type: 'delegation',
-      itemId: delegation.data.item.id,
-      userTurnId: delegation.data.item.user_bidi_turn_id ?? null,
-    };
-  }
-  if (sessionStarted.safeParse(value).success) return { type: 'session-started' };
-  const closed = sessionClosed.safeParse(value);
-  if (closed.success) return { type: 'session-closed', reason: closed.data.reason };
-  const error = protocolError.safeParse(value);
-  if (error.success) return { type: 'error', message: error.data.error.message };
-  return null;
+interface OpenTurn {
+  readonly role: GptLiveRole;
+  readonly turnId: string;
+  text: string;
 }
 
-/** Silent context: the `developer` channel informs the model without making it speak. */
-export function buildGptLiveDeveloperContext(value: string): GptLiveContextAppend[] {
+/** Folds the Live API's server frames into Voice Mode's turn events. One per call. */
+export class GptLiveEventReader {
+  private open: OpenTurn | null = null;
+  private lastUserTurnId: string | null = null;
+  private readonly counts: Record<GptLiveRole, number> = { user: 0, assistant: 0 };
+
+  /** The model is mid-turn; its turn ends on `settle()` once it goes quiet. */
+  get speaking(): boolean {
+    return this.open?.role === 'assistant';
+  }
+
+  read(raw: string): GptLiveEvent[] {
+    if (raw.length > MAX_EVENT_CHARS) return [];
+    let value: unknown;
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+
+    const delta = transcriptDelta.safeParse(value);
+    if (delta.success) {
+      const role: GptLiveRole = delta.data.type === 'session.input_transcript.delta' ? 'user' : 'assistant';
+      return this.append(role, delta.data.delta);
+    }
+    const delegation = delegationCreated.safeParse(value);
+    if (delegation.success) {
+      return [...this.finish(), { type: 'delegation', itemId: delegation.data.delegation.id, userTurnId: this.lastUserTurnId }];
+    }
+    if (sessionStarted.safeParse(value).success) return [{ type: 'session-started' }];
+    const closed = sessionClosed.safeParse(value);
+    if (closed.success) return [...this.finish(), { type: 'session-closed', reason: closed.data.reason }];
+    const error = protocolError.safeParse(value);
+    if (error.success) return [{ type: 'error', message: error.data.error.message }];
+    return [];
+  }
+
+  /** The model has stopped speaking: end its turn. */
+  settle(): GptLiveEvent[] {
+    return this.speaking ? this.finish() : [];
+  }
+
+  /** The call ends on this side: end whichever turn is still open. */
+  end(): GptLiveEvent[] {
+    return this.finish();
+  }
+
+  private append(role: GptLiveRole, fragment: string): GptLiveEvent[] {
+    const events: GptLiveEvent[] = [];
+    if (this.open && this.open.role !== role) events.push(...this.finish());
+    if (!this.open) {
+      this.counts[role] += 1;
+      this.open = { role, turnId: `${role}_${this.counts[role]}`, text: '' };
+      if (role === 'user') this.lastUserTurnId = this.open.turnId;
+      events.push({ type: 'turn-started', role });
+    }
+    this.open.text += fragment;
+    return events;
+  }
+
+  private finish(): GptLiveEvent[] {
+    const turn = this.open;
+    this.open = null;
+    if (!turn) return [];
+    return [{ type: 'turn-done', role: turn.role, turnId: turn.turnId, text: turn.text.trim() }];
+  }
+}
+
+/** Silent context: `session.thinking.append` informs the model without making it speak. */
+export function buildGptLiveDeveloperContext(value: string): GptLiveThinkingAppend[] {
   return chunkUtf8(value, MAX_CONTEXT_APPEND_BYTES).map((chunk) => ({
-    type: 'session.context.append',
-    channel: 'developer',
-    content: [{ type: 'input_text', text: chunk }],
+    type: 'session.thinking.append',
+    delegation_id: null,
+    content: chunk,
   }));
 }
 
-/** The delegation's result, which GPT-Live then tells the user (speakable). */
-export function buildGptLiveDelegationResult(itemId: string, value: string): GptLiveDelegationAppend[] {
+/** The delegation's result, which GPT-Live then tells the user. */
+export function buildGptLiveDelegationResult(itemId: string, value: string): GptLiveCommentaryAppend[] {
   return chunkUtf8(value, MAX_CONTEXT_APPEND_BYTES).map((chunk) => ({
-    type: 'delegation.context.append',
-    delegation_item_id: itemId,
-    channel: 'speakable',
-    content: [{ type: 'input_text', text: chunk }],
+    type: 'session.commentary.append',
+    delegation_id: itemId,
+    content: chunk,
   }));
 }
 

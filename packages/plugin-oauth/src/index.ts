@@ -93,8 +93,8 @@ export interface BuildOauthPluginOpts {
  *      Model-callable; suits ad-hoc usage and MCP server wiring.
  *   2. **Provider framework** — declare an `OAuthProviderProfile`, plug in
  *      (or write) a `DeviceFlowAdapter`, drive with `runOauthLogin(profile, ctx)`
- *      and `ensureFreshTokens(profile, vault)`. Suits LLM providers (e.g.
- *      `@moxxy/plugin-provider-openai-codex`) that own their auth lifecycle.
+ *      and `ensureFreshTokens(profile, vault)`. Suits LLM providers that own
+ *      their auth lifecycle.
  *
  * Tokens persist in the vault under `oauth/<provider>/*`. Bundled device
  * adapters: `rfc8628DeviceFlow` (standards-compliant), `openaiDeviceFlow`

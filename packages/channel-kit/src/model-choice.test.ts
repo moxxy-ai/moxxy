@@ -43,7 +43,7 @@ beforeEach(() => {
 
 describe('parseModelChoice / formatModelChoice', () => {
   it('round-trips provider::model', () => {
-    const choice = { provider: 'openai-codex', model: 'gpt-5.6-luna' };
+    const choice = { provider: 'codex-agent', model: 'gpt-5.6-luna' };
     expect(parseModelChoice(formatModelChoice(choice))).toEqual(choice);
   });
 

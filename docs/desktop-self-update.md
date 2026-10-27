@@ -157,7 +157,7 @@ A packaged app prepares itself in `prepareInstalledApp`
 | Step | What it does | Shown as |
 |---|---|---|
 | `extensions` | unpacks the bundled runtimes and copies the installer's `plugins-seed` into `~/.moxxy/plugins` | Extensions and tools |
-| `connections` | puts the app-managed packages in place (OpenAI API, ChatGPT sign-in; Computer Use on Windows x64) | Model connections |
+| `connections` | puts the app-managed packages in place (OpenAI API; Computer Use on Windows x64) | Model connections |
 | `components` | brings the runner and registry-installed `@moxxy/*` extensions that are still behind to the built-with version, from npm | Agent runtime |
 
 - A **setup stamp** (`~/.moxxy/desktop/setup-stamp.json`) records the installer

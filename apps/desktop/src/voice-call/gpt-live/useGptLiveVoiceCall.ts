@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
+  chatStore,
   toErrorMessage,
   useQueuedTurns,
   type UseVoiceCall,
@@ -24,7 +25,7 @@ import {
   GPT_LIVE_SESSION_CLOSE,
   buildGptLiveDelegationResult,
   buildGptLiveDeveloperContext,
-  parseGptLiveEvent,
+  GptLiveEventReader,
   type GptLiveEvent,
 } from './gpt-live-protocol';
 import {
@@ -41,7 +42,12 @@ export interface UseGptLiveVoiceCallOptions {
   /** True while the agent waits for the user to answer a prompt on screen. */
   readonly inputRequired: boolean;
   readonly transport?: GptLiveTransport;
+  /** How long the model must stay silent before its turn counts as finished:
+   *  the Live API streams transcript fragments with no end-of-turn event. */
+  readonly speechQuietMs?: number;
 }
+
+const DEFAULT_SPEECH_QUIET_MS = 1_500;
 
 interface TaskState {
   readonly inFlight: number;
@@ -93,6 +99,7 @@ export function useGptLiveVoiceCall({
   chat,
   inputRequired,
   transport: transportOverride,
+  speechQuietMs = DEFAULT_SPEECH_QUIET_MS,
 }: UseGptLiveVoiceCallOptions): UseVoiceCall {
   const transport = useMemo(
     () => transportOverride ?? new BrowserGptLiveTransport(),
@@ -111,6 +118,8 @@ export function useGptLiveVoiceCall({
   const mirrorRef = useRef(new GptLiveChatMirror());
   const delegationsRef = useRef(new GptLiveDelegations());
   const outboxRef = useRef(new GptLiveOutbox());
+  const readerRef = useRef(new GptLiveEventReader());
+  const quietTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mutedRef = useRef(false);
   const failRef = useRef<(message: string) => void>(NOOP);
   const chatRef = useRef(chat);
@@ -190,11 +199,19 @@ export function useGptLiveVoiceCall({
 
   const release = useCallback((): void => {
     generationRef.current += 1;
+    if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+    quietTimerRef.current = null;
     const connection = connectionRef.current;
     connectionRef.current = null;
     if (connection) {
       connection.send(GPT_LIVE_SESSION_CLOSE);
       connection.close();
+    }
+    for (const event of readerRef.current.end()) {
+      if (event.type !== 'turn-done') continue;
+      const step = acceptGptLiveTurn(exchangeRef.current, event);
+      exchangeRef.current = step.state;
+      record(step.exchange, false);
     }
     record(flushGptLiveExchange(exchangeRef.current), false);
     exchangeRef.current = EMPTY_GPT_LIVE_EXCHANGE;
@@ -224,7 +241,12 @@ export function useGptLiveVoiceCall({
   const handleEvent = useCallback((event: GptLiveEvent): void => {
     switch (event.type) {
       case 'turn-started':
-        if (event.role !== 'assistant') return;
+        if (event.role === 'user') {
+          if (delegationsRef.current.inFlight > 0 || chatBusyRef.current) {
+            send(buildGptLiveDeveloperContext(delegationsRef.current.status(inputRequiredRef.current)));
+          }
+          return;
+        }
         outboxRef.current.speakingStarted();
         setState((current) => ({ ...current, phase: 'speaking' }));
         return;
@@ -253,14 +275,26 @@ export function useGptLiveVoiceCall({
         handleDelegation(event.itemId, event.userTurnId);
         return;
       case 'session-closed':
-        if (event.reason !== 'client_request') fail(`GPT-Live ended the call (${event.reason}).`);
+        if (event.reason !== 'close_requested') fail(`GPT-Live ended the call (${event.reason}).`);
         return;
       case 'error':
         fail(event.message);
         return;
       default:
     }
-  }, [fail, handleDelegation, record, requestTask, rest, transmit]);
+  }, [fail, handleDelegation, record, requestTask, rest, send, transmit]);
+
+  /** The Live API never says a reply is over; silence long enough ends it. */
+  const armQuiet = useCallback((generation: number): void => {
+    if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+    quietTimerRef.current = null;
+    if (!readerRef.current.speaking) return;
+    quietTimerRef.current = setTimeout(() => {
+      quietTimerRef.current = null;
+      if (generation !== generationRef.current) return;
+      for (const event of readerRef.current.settle()) handleEvent(event);
+    }, speechQuietMs);
+  }, [handleEvent, speechQuietMs]);
 
   const open = useCallback((): void => {
     release();
@@ -269,6 +303,7 @@ export function useGptLiveVoiceCall({
     mirrorRef.current = new GptLiveChatMirror();
     delegationsRef.current = new GptLiveDelegations();
     outboxRef.current = new GptLiveOutbox();
+    readerRef.current = new GptLiveEventReader();
     mutedRef.current = false;
     setLastTranscript(null);
     setState({ active: true, phase: 'checking', errorReason: null, microphoneMuted: false });
@@ -280,15 +315,19 @@ export function useGptLiveVoiceCall({
       const { authenticated } = await api().invoke('voice.live.preflight');
       if (generation !== generationRef.current) return;
       if (!authenticated) {
-        fail('Sign in with ChatGPT in Settings → Providers to use GPT-Live.');
+        fail('Add your OpenAI API key in Settings → Voice to use GPT-Live.');
         return;
       }
+      const activeTurnId = chatRef.current.activeTurnId;
+      if (activeTurnId) delegationsRef.current.restore(chatStore.getChat(workspaceId).events, activeTurnId);
+      syncTasks();
       setState((current) => ({ ...current, phase: 'arming' }));
       const connection = await transport.connect({
         negotiate: (sdp) => api().invoke('voice.live.start', { workspaceId, sdp }),
         onEvent: (raw) => {
-          const event = parseGptLiveEvent(raw);
-          if (event && generation === generationRef.current) handleEvent(event);
+          if (generation !== generationRef.current) return;
+          for (const event of readerRef.current.read(raw)) handleEvent(event);
+          armQuiet(generation);
         },
         onInputAnalyser: setInputAnalyser,
         onOutputAnalyser: setOutputAnalyser,
@@ -305,7 +344,7 @@ export function useGptLiveVoiceCall({
     })().catch((error: unknown) => {
       if (generation === generationRef.current) fail(toErrorMessage(error));
     });
-  }, [fail, handleEvent, ready, release, rest, transport, workspaceId]);
+  }, [armQuiet, fail, handleEvent, ready, release, rest, syncTasks, transport, workspaceId]);
 
   const close = useCallback((): void => {
     release();
@@ -337,6 +376,7 @@ export function useGptLiveVoiceCall({
     const offComplete = api().subscribe('runner.turn.complete', (payload) => {
       if (payload.workspaceId !== workspaceId) return;
       deliver(delegationsRef.current.complete(payload.turnId, payload.error ?? null));
+      syncTasks();
     });
     return () => {
       offEvent();

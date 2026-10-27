@@ -8,8 +8,10 @@ import type {
 } from '@moxxy/sdk';
 import { assertDefined, estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
 import { toOpenAIMessages, toOpenAITools } from './translate.js';
+import { streamResponses } from './responses.js';
 
 export interface OpenAIProviderConfig {
+  readonly api?: 'responses' | 'chat-completions';
   readonly apiKey?: string;
   readonly baseURL?: string;
   readonly defaultModel?: string;
@@ -101,9 +103,11 @@ export class OpenAIProvider implements LLMProvider {
   readonly models: ReadonlyArray<ModelDescriptor>;
   private readonly client: OpenAI;
   private readonly defaultModel: string;
+  private readonly api: 'responses' | 'chat-completions';
 
   constructor(config: OpenAIProviderConfig = {}) {
     this.name = config.name ?? 'openai';
+    this.api = config.api ?? (this.name === 'openai' ? 'responses' : 'chat-completions');
     this.models = config.models ?? openAIModels;
     this.client =
       config.client ??
@@ -118,6 +122,12 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
+    if (this.api === 'responses') {
+      const model = req.model || this.defaultModel;
+      yield { type: 'message_start', model };
+      yield* streamResponses(this.client, req, model, this.name);
+      return;
+    }
     const messages = toOpenAIMessages(req.messages);
     // `req.system` is the hook-injection side channel (e.g. the memory
     // consolidation nudge): extra system text delivered IN ADDITION to any

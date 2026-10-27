@@ -15,7 +15,6 @@ import { useAgentConnections } from '../settings/agents/useAgentConnections';
 const FALLBACK_CATALOG: ReadonlyArray<ProviderCatalogEntry> = [
   { name: 'anthropic', kind: 'api' },
   { name: 'openai', kind: 'api' },
-  { name: 'openai-codex', kind: 'api' },
   { name: 'claude-code', kind: 'agent' },
   { name: 'codex-agent', kind: 'agent' },
   { name: 'opencode', kind: 'agent' },
@@ -24,7 +23,7 @@ const FALLBACK_CATALOG: ReadonlyArray<ProviderCatalogEntry> = [
 /** Providers known to authenticate via OAuth — a best-effort visual hint for the
  *  *non-selected* options (the selected one's tag is driven by the authoritative
  *  `authKind` the backend resolves, so the two can never disagree there). */
-const OAUTH_PROVIDER_IDS = new Set(['openai-codex', 'claude-code', 'codex-agent', 'opencode']);
+const OAUTH_PROVIDER_IDS = new Set(['claude-code', 'codex-agent', 'opencode']);
 
 /** The picker's groups, in the order Settings lists them: agents first. */
 const GROUPS: ReadonlyArray<{ readonly kind: ProviderCatalogEntry['kind']; readonly label: string }> = [

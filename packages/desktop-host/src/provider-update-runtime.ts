@@ -7,7 +7,7 @@ import {
   prepareComputerUpdate, recoverComputerUpdates, type PreparedComputerUpdate,
 } from './computer-update.js';
 
-const providerPackage = z.enum(['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex']);
+const providerPackage = z.enum(['@moxxy/plugin-provider-openai']);
 const versionSchema = z.object({ version: z.string().regex(/^\d+\.\d+\.\d+(?:[-+].+)?$/) });
 export interface ProviderUpdateOffer {
   plugin: z.infer<typeof providerPackage>;

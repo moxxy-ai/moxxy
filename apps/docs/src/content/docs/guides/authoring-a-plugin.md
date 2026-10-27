@@ -89,9 +89,9 @@ export default definePlugin({
       requirements: [
         {
           kind: 'runtime',
-          name: 'auth:provider:openai-codex',
+          name: 'auth:provider:openai',
           state: 'ready',
-          hint: 'Run `moxxy login openai-codex`.',
+          hint: 'Configure your OpenAI API key.',
         },
       ],
       handler: async ({ topic }) => `Report for ${topic}`,

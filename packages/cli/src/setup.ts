@@ -1,3 +1,4 @@
+import { RETIRED_PROVIDER, RETIRED_PROVIDER_REPLACEMENT, RETIRED_PROVIDER_NO_CODEX, replaceRetiredProvider } from './setup/retired-provider.js';
 import type { Session } from '@moxxy/core';
 import {
   createAllowListResolver,
@@ -227,20 +228,27 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // provider-owned catalog manifest, install it into the normal user plugin
   // directory and reload before activation. This is generic for every catalog
   // provider (not a special case for the formerly bundled OAuth pair).
-  const configuredProviders = [
+  const configuredProviders = replaceRetiredProvider([
     config.plugins?.provider?.default,
     ...(config.plugins?.provider?.fallbacks ?? []),
-  ].filter((name): name is string => typeof name === 'string' && name.length > 0);
+  ].filter((name): name is string => typeof name === 'string' && name.length > 0)).candidates;
   for (const name of new Set(configuredProviders)) {
     if (session.providers.list().some((provider) => provider.name === name)) continue;
     const entry = findCatalogEntryForContribution('provider', name);
     if (!entry || config.plugins?.packages?.[entry.packageName]?.enabled === false) continue;
     logger.info('installing configured provider on first use', { provider: name, package: entry.packageName });
-    await installPluginPackagePinned({
-      packageName: entry.installSpec,
-      ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
-      onWarn: (message) => logger.warn(message),
-    });
+    const installedCliVersion = cliVersion();
+    try {
+      await installPluginPackagePinned({
+        packageName: entry.installSpec,
+        ...(installedCliVersion ? { cliVersion: installedCliVersion } : {}),
+        onWarn: (message) => logger.warn(message),
+      });
+    } catch (error) {
+      if (config.plugins?.provider?.default !== RETIRED_PROVIDER || name !== RETIRED_PROVIDER_REPLACEMENT) throw error;
+      logger.warn(RETIRED_PROVIDER_NO_CODEX, { reason: error instanceof Error ? error.message : String(error) });
+      continue;
+    }
     await session.pluginHost.reload();
     pluginRegistration = {
       registered: new Set(session.pluginHost.list().map((plugin) => plugin.name)),

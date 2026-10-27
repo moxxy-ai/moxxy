@@ -47,10 +47,10 @@ const call = async (name, input) => {
 };
 const text = output => (typeof output === 'string' ? output : (output.forModel ?? JSON.stringify(output)));
 
-const codexTranslator = path.join(resources, 'plugins-seed', 'node_modules', '@moxxy', 'plugin-provider-openai-codex', 'dist', 'translate.js');
-const { toResponsesTools } = await import(pathToFileURL(codexTranslator).href);
-const outgoing = toResponsesTools(plugin.tools).find(item => item.name === 'computer_get_app_state');
-assert.deepEqual(outgoing.parameters, tool('computer_get_app_state').inputJsonSchema, 'Provider discarded the bundled tool schema');
+const openaiTranslator = path.join(resources, 'plugins-seed', 'node_modules', '@moxxy', 'plugin-provider-openai', 'dist', 'translate.js');
+const { toOpenAITools } = await import(pathToFileURL(openaiTranslator).href);
+const outgoing = toOpenAITools(plugin.tools).find(item => item.function.name === 'computer_get_app_state');
+assert.deepEqual(outgoing.function.parameters, tool('computer_get_app_state').inputJsonSchema, 'Provider discarded the bundled tool schema');
 let fixture;
 let directory;
 try {
