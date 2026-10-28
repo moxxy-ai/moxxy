@@ -187,3 +187,6 @@ export type { SubscribeFn, InvokeFn, MoxxyApi } from './api.js';
 
 // ---------- Agent browser (main-process Chromium view) --------------------
 export type { BrowserControlState, BrowserCursor, BrowserTabInfo } from './browser.js';
+
+// ---------- The person's terminal tabs (main-owned shells) ----------------
+export type { TerminalTabInfo, TerminalTabSnapshot } from './terminal.js';

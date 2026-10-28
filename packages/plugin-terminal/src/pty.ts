@@ -49,6 +49,7 @@ interface NodePtyModule {
   ): NodePtyProcess;
 }
 interface NodePtyProcess {
+  readonly pid: number;
   onData(cb: (data: string) => void): void;
   onExit(cb: (e: { exitCode: number }) => void): void;
   write(data: string): void;
@@ -76,8 +77,21 @@ export function resolveNodePtyModule(m: unknown): NodePtyModule | null {
 }
 
 let nodePtyPromise: Promise<NodePtyModule | null> | undefined;
-/** Lazy-load node-pty; resolves to null when it isn't installed/usable. */
-function loadNodePty(): Promise<NodePtyModule | null> {
+const nodePtyFrom = new Map<string, NodePtyModule | null>();
+/** Lazy-load node-pty (from `from` when given); resolves to null when it isn't installed/usable. */
+function loadNodePty(from?: string): Promise<NodePtyModule | null> {
+  if (from !== undefined) {
+    if (!nodePtyFrom.has(from)) {
+      let loaded: NodePtyModule | null = null;
+      try {
+        loaded = resolveNodePtyModule(createRequire(from)('node-pty'));
+      } catch {
+        /* not installed there */
+      }
+      nodePtyFrom.set(from, loaded);
+    }
+    return Promise.resolve(nodePtyFrom.get(from) ?? null);
+  }
   if (!nodePtyPromise) {
     nodePtyPromise = import('node-pty' as string)
       .then((m) => resolveNodePtyModule(m))
@@ -110,10 +124,10 @@ export function makeExecutable(filePath: string): boolean {
  * dead) piped fallback. So before we spawn, ensure the helper is executable.
  * Best-effort: never throws; the spawn itself is the real test.
  */
-function ensureSpawnHelperExecutable(): void {
+function ensureSpawnHelperExecutable(from?: string): void {
   if (process.platform === 'win32') return; // Windows uses conpty/winpty, no spawn-helper
   try {
-    const root = nodePtyPackageRoot();
+    const root = nodePtyPackageRoot(from);
     if (!root) return;
     const candidates = [
       // prebuildify layout (the published npm package)
@@ -128,11 +142,11 @@ function ensureSpawnHelperExecutable(): void {
 }
 
 /** Resolve node-pty's package directory (the one containing `prebuilds/`),
- *  resolving from THIS module so it works whether node-pty sits in a hoisted
- *  root, a nested, or a pnpm store layout. */
-function nodePtyPackageRoot(): string | null {
+ *  resolving from THIS module (or `from`) so it works whether node-pty sits in
+ *  a hoisted root, a nested, or a pnpm store layout. */
+function nodePtyPackageRoot(from: string = import.meta.url): string | null {
   try {
-    const require = createRequire(import.meta.url);
+    const require = createRequire(from);
     try {
       return nodePath.dirname(require.resolve('node-pty/package.json'));
     } catch {
@@ -197,6 +211,8 @@ export interface PromptSignal {
 
 export interface TerminalProcess {
   readonly backend: TerminalBackend;
+  /** The shell's process id (the leader of the PTY's session); absent when it never started. */
+  readonly pid?: number;
   /** Absent for a shell that cannot report its prompt (cmd, PowerShell, fish). */
   readonly prompt?: PromptSignal;
   /** When `backend === 'pipe'`, the reason the real PTY couldn't start (so the
@@ -228,6 +244,10 @@ export class TerminalProcessImpl implements TerminalProcess {
   private buffer = '';
   private warnedListenerLeak = false;
   alive = true;
+
+  get pid(): number | undefined {
+    return this.pty?.pid ?? this.child?.pid;
+  }
 
   constructor(
     readonly backend: TerminalBackend,
@@ -441,8 +461,19 @@ export class TerminalProcessImpl implements TerminalProcess {
   }
 }
 
+export interface TerminalProcessOptions {
+  /** Added to the shell's environment, so every command typed into it carries them (a tag that finds them later). */
+  readonly env?: Readonly<Record<string, string>>;
+  /**
+   * A file path node-pty is looked up from, instead of this module: a host
+   * bundled without `node_modules` (the desktop's main process) points it at
+   * the installed plugin, beside which the runner finds node-pty too.
+   */
+  readonly nodePtyFrom?: string;
+}
+
 /** Spawn a fresh shared terminal in `cwd`, preferring a real PTY. */
-export async function createTerminalProcess(cwd: string): Promise<TerminalProcess> {
+export async function createTerminalProcess(cwd: string, options: TerminalProcessOptions = {}): Promise<TerminalProcess> {
   const shell = defaultShell();
   const cols = 80;
   const rows = 24;
@@ -454,11 +485,11 @@ export async function createTerminalProcess(cwd: string): Promise<TerminalProces
   // terminal is a deliberately user-facing, user-controllable surface. Do NOT
   // strip vars here (it would silently break legitimate commands); gate any
   // scrubbing behind an explicit opt-in if ever needed.
-  const env: NodeJS.ProcessEnv = { ...process.env, TERM: 'xterm-256color' };
+  const env: NodeJS.ProcessEnv = { ...process.env, ...options.env, TERM: 'xterm-256color' };
   const hooks = installShellHooks(shell, env);
   const shellArgs = hooks ? hooks.args : [];
   const shellEnv = hooks ? hooks.env : env;
-  const pty = await loadNodePty();
+  const pty = await loadNodePty(options.nodePtyFrom);
   let ptyError: string | null = pty ? null : 'node-pty is not installed';
   if (pty) {
     const trySpawn = (): NodePtyProcess =>
@@ -466,11 +497,11 @@ export async function createTerminalProcess(cwd: string): Promise<TerminalProces
     // Make sure the prebuilt spawn-helper is executable, then spawn. If the first
     // spawn still fails (e.g. the bit was only just lost), repair + retry ONCE
     // before giving up — most "posix_spawnp failed" cases clear on the retry.
-    ensureSpawnHelperExecutable();
+    ensureSpawnHelperExecutable(options.nodePtyFrom);
     try {
       return new TerminalProcessImpl('pty', trySpawn(), null, null, hooks);
     } catch {
-      ensureSpawnHelperExecutable();
+      ensureSpawnHelperExecutable(options.nodePtyFrom);
       try {
         return new TerminalProcessImpl('pty', trySpawn(), null, null, hooks);
       } catch (err2) {

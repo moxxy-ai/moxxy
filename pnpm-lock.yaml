@@ -911,6 +911,9 @@ importers:
       '@moxxy/plugin-stt-whisper':
         specifier: workspace:*
         version: link:../plugin-stt-whisper
+      '@moxxy/plugin-terminal':
+        specifier: workspace:*
+        version: link:../plugin-terminal
       '@moxxy/plugin-tts-gemini':
         specifier: workspace:*
         version: link:../plugin-tts-gemini
