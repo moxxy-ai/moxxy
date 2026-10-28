@@ -34,6 +34,7 @@ Use this skill when the user wants a prompt to fire automatically — recurring 
    - "Every 15 minutes" → cron `*/15 * * * *`
    - "In one hour" → `runAt: <epoch-ms now + 3_600_000>` (or ISO timestamp)
    - "Tomorrow at 10" → `runAt: <ISO timestamp>` in the user's local zone
+   - "Every 30 minutes from 23:00 tonight until 07:00, then stop" → cron `*/30 * * * *` + `startAt: <ISO 23:00>` + `endAt: <ISO 07:00>`. Never put the start time in `runAt` next to `cron` — the call is rejected. The schedule turns itself off after `endAt`. If the window the user names is already over, say so and ask for new dates.
 
 2. **Pick the schedule name** — slug-like (`morning-briefing`, `weekly-standup`). The user-facing name; appears in the inbox filename.
 
@@ -43,7 +44,7 @@ Use this skill when the user wants a prompt to fire automatically — recurring 
    - "Remind me about <X>. Call `telegram_send_message` with a short reminder."
    - "Check the CI status of <repo>; if a build failed, call `discord_send_message` with the failing job and a one-line cause."
 
-4. **Call `schedule_create`** with `{ name, prompt, cron | runAt, channel?, model? }`. The tool returns `nextFireIso` so you can confirm the schedule will fire when expected.
+4. **Call `schedule_create`** with `{ name, prompt, cron | runAt, startAt?, endAt?, channel?, model? }`. The tool returns `nextFireIso` so you can confirm the schedule will fire when expected.
 
 5. **Confirm to the user** — name, next fire time, where output goes. Offer to fire it once with `schedule_run_now` for a smoke test.
 

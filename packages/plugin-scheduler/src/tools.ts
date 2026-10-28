@@ -17,17 +17,24 @@ const blankStringToUndefined = (value: unknown): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 const optionalText = z.preprocess(blankStringToUndefined, z.string().min(1).optional());
-const optionalRunAt = z.preprocess(
-  blankStringToUndefined,
+const optionalTimestamp = (field: string, description: string) =>
   z
-    .union([
-      z.number().int(),
-      z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
-        message: 'runAt must be an ISO timestamp or epoch-ms',
-      }),
-    ])
-    .optional(),
-);
+    .preprocess(
+      blankStringToUndefined,
+      z
+        .union([
+          z.number().int(),
+          z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
+            message: `${field} must be an ISO timestamp or epoch-ms`,
+          }),
+        ])
+        .optional(),
+    )
+    .describe(description);
+
+/** Epoch ms of a validated `runAt`/`startAt`/`endAt` value. */
+const toEpochMs = (value: number | string | undefined): number | undefined =>
+  typeof value === 'string' ? Date.parse(value) : value;
 
 const scheduleCreateInputSchema = z
   .object({
@@ -43,16 +50,44 @@ const scheduleCreateInputSchema = z
       'Session id to fire this schedule in (where its run executes + displays). ' +
         'Defaults to the session that created the schedule.',
     ),
-    cron: optionalText,
-    runAt: optionalRunAt,
+    cron: optionalText.describe(
+      'Recurring trigger: 5-field POSIX cron, e.g. "*/30 * * * *". Omit when using runAt.',
+    ),
+    runAt: optionalTimestamp(
+      'runAt',
+      'One-shot trigger: the single moment to run (ISO timestamp or epoch-ms). Omit when using cron.',
+    ),
+    startAt: optionalTimestamp(
+      'startAt',
+      'Only with cron: the recurring schedule does not run before this moment (ISO timestamp or epoch-ms).',
+    ),
+    endAt: optionalTimestamp(
+      'endAt',
+      'Only with cron: the last moment the recurring schedule may run (inclusive); ' +
+        'after it the schedule turns itself off (ISO timestamp or epoch-ms).',
+    ),
     timeZone: optionalText,
   })
   .refine((value) => value.cron !== undefined || value.runAt !== undefined, {
     message: 'provide either `cron` or `runAt`',
   })
   .refine((value) => !(value.cron !== undefined && value.runAt !== undefined), {
-    message: 'provide either `cron` or `runAt`, not both',
-  });
+    message:
+      'provide either `cron` or `runAt`, not both. For a recurring schedule limited to a ' +
+      'time window, send `cron` with `startAt` and/or `endAt` and omit `runAt`.',
+  })
+  .refine(
+    (value) => value.cron !== undefined || (value.startAt === undefined && value.endAt === undefined),
+    { message: '`startAt` and `endAt` only work with `cron`', path: ['cron'] },
+  )
+  .refine(
+    (value) => {
+      const startAt = toEpochMs(value.startAt);
+      const endAt = toEpochMs(value.endAt);
+      return startAt === undefined || endAt === undefined || endAt > startAt;
+    },
+    { message: '`endAt` must be later than `startAt`', path: ['endAt'] },
+  );
 
 export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unknown> {
   let nextFireAt: number | null = null;
@@ -62,7 +97,7 @@ export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unkn
     // here used to hide a created-during-downtime catch-up the poller fires
     // immediately.
     const next = nextCronFire(entry);
-    nextFireAt = next ? next.getTime() : null;
+    nextFireAt = next && (entry.endAt === undefined || next.getTime() <= entry.endAt) ? next.getTime() : null;
   } else if (entry.runAt && entry.enabled) {
     nextFireAt = entry.runAt;
   }
@@ -72,6 +107,8 @@ export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unkn
     enabled: entry.enabled,
     cron: entry.cron ?? null,
     runAt: entry.runAt ?? null,
+    startAt: entry.startAt ?? null,
+    endAt: entry.endAt ?? null,
     timeZone: entry.timeZone ?? null,
     channel: entry.channel ?? null,
     model: entry.model ?? null,
@@ -122,6 +159,8 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         'Create a scheduled prompt with exactly one trigger. For a recurring schedule, ' +
         'set `cron` and omit `runAt` entirely. For a one-shot schedule, set `runAt` and ' +
         'omit `cron` entirely. Never send an empty placeholder for the unused trigger. ' +
+        'To limit a recurring schedule to a time window ("every 30 min from 23:00 to ' +
+        '07:00"), set `cron` plus `startAt` and/or `endAt`; it stops by itself after `endAt`. ' +
         'The prompt runs in an isolated session at fire time; the final ' +
         "assistant message is appended to the user's inbox. Cron uses 5-field POSIX " +
         "syntax in the user's local timezone (override via `timeZone`). For Telegram or " +
@@ -137,8 +176,15 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         },
       },
       handler: async (input) => {
-        const runAt =
-          typeof input.runAt === 'string' ? Date.parse(input.runAt) : input.runAt;
+        const runAt = toEpochMs(input.runAt);
+        const startAt = toEpochMs(input.startAt);
+        const endAt = toEpochMs(input.endAt);
+        if (endAt !== undefined && endAt <= Date.now()) {
+          throw new Error(
+            `this time window already ended at ${new Date(endAt).toISOString()}; ` +
+              'ask the user for new dates instead of creating a schedule that never runs',
+          );
+        }
         if (input.cron && !isValidCron(input.cron)) {
           throw new Error(`invalid cron expression "${input.cron}"`);
         }
@@ -152,6 +198,8 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           prompt: input.prompt,
           ...(input.cron ? { cron: input.cron } : {}),
           ...(runAt !== undefined ? { runAt } : {}),
+          ...(startAt !== undefined ? { startAt } : {}),
+          ...(endAt !== undefined ? { endAt } : {}),
           ...(input.timeZone ? { timeZone: input.timeZone } : {}),
           ...(input.channel ? { channel: input.channel } : {}),
           ...(input.model ? { model: input.model } : {}),

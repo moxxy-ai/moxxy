@@ -34,6 +34,11 @@ export const scheduleEntrySchema = z
     cron: z.string().optional(),
     /** Epoch ms for one-shot schedules. Cleared once fired. */
     runAt: z.number().int().optional(),
+    /** Epoch ms: a cron schedule does not fire before this instant. */
+    startAt: z.number().int().optional(),
+    /** Epoch ms: a cron schedule fires at most up to this instant (inclusive),
+     *  then turns itself off. */
+    endAt: z.number().int().optional(),
     /** IANA timezone for cron interpretation. Default = system local. */
     timeZone: z.string().optional(),
     /** Soft hint for delivery target — e.g. "telegram", "inbox". The

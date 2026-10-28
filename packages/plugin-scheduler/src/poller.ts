@@ -22,7 +22,18 @@ import type { ScheduleEntry, ScheduleStore } from './store.js';
  */
 export function cronBaseline(entry: ScheduleEntry): number {
   const baseline = entry.lastRunAt ?? entry.createdAt;
-  return Math.max(baseline, entry.timingChangedAt ?? baseline, entry.lastStartedAt ?? baseline, entry.lastSkippedAt ?? baseline);
+  // nextFireTime looks from the next whole minute after the baseline, so one
+  // minute before `startAt` makes the window's opening minute the first fire.
+  const windowOpen = entry.startAt !== undefined ? entry.startAt - 60_000 : baseline;
+  return Math.max(baseline, entry.timingChangedAt ?? baseline, entry.lastStartedAt ?? baseline, entry.lastSkippedAt ?? baseline, windowOpen);
+}
+
+/** True once a windowed schedule can never fire again. */
+export function isWindowOver(entry: ScheduleEntry, now: number): boolean {
+  if (entry.endAt === undefined) return false;
+  if (now > entry.endAt) return true;
+  const next = nextCronFire(entry);
+  return next !== null && next.getTime() > entry.endAt;
 }
 
 /**
@@ -66,6 +77,7 @@ export function isDue(entry: ScheduleEntry, now: number): boolean {
     return entry.runAt <= now;
   }
   if (!entry.cron) return false;
+  if (isWindowOver(entry, now)) return false;
   const next = nextCronFire(entry);
   if (!next) return false;
   return next.getTime() <= now;
@@ -244,6 +256,12 @@ export class SchedulerPoller {
       // so any future throw in the firing decision is contained per-entry.
       let due: boolean;
       try {
+        if (entry.enabled && isWindowOver(entry, now)) {
+          // The window has closed: turn the schedule off so lists stop showing
+          // it as active. Idempotent, so any runner may do it.
+          await this.opts.store.update(entry.id, { enabled: false });
+          continue;
+        }
         due = isDue(entry, now);
       } catch (err) {
         const log = this.opts.logger;
