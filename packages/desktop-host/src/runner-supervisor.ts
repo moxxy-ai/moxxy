@@ -25,7 +25,6 @@ import { Socket } from 'node:net';
 
 import { deleteSession } from '@moxxy/core';
 import { sleepWithAbort } from '@moxxy/sdk';
-import { killProcessesWithEnv, stopProcessTree } from '@moxxy/sdk/server';
 import {
   connectRemoteSession,
   isNamedPipe,
@@ -42,6 +41,7 @@ import type {
 import { augmentedPaths, resolveMoxxyCli, spawnCli, type CliInvocation } from './cli-resolver';
 import { redactSecrets } from './security';
 import { runnerExtraEnv } from './runner-env';
+import { RUNNER_SOCKET_ENV, stopRunnerProcess } from './runner-process';
 
 const PROBE_TIMEOUT_MS = 250;
 const SOCKET_WAIT_MS = 20_000;
@@ -132,8 +132,8 @@ export class RunnerSupervisor extends EventEmitter {
       if (this.child) {
         // Graceful SIGTERM→SIGKILL: a bare kill() returns before the child has
         // released its socket, so the run loop's immediate respawn would race
-        // it and hit EADDRINUSE. terminateChild waits for the child to go.
-        await terminateChild(this.child, this.socketPath);
+        // it and hit EADDRINUSE. stopRunnerProcess waits for the child to go.
+        await stopRunnerProcess(this.child, this.socketPath, { detachedWork: false });
         this.child = null;
       }
       this.forceRetry();
@@ -169,7 +169,7 @@ export class RunnerSupervisor extends EventEmitter {
     if (this.child) {
       // Wait for the child to release its socket before deleting + respawning,
       // mirroring setCwd — a bare kill races the respawn into EADDRINUSE.
-      await terminateChild(this.child, this.socketPath);
+      await stopRunnerProcess(this.child, this.socketPath, { detachedWork: false });
       this.child = null;
     }
     if (this.sessionId) {
@@ -273,7 +273,7 @@ export class RunnerSupervisor extends EventEmitter {
       // kill() returns before the child has released its socket, so the run
       // loop's immediate respawn would race the dying process and hit
       // EADDRINUSE — the exact race every other teardown path guards against.
-      await terminateChild(this.child, this.socketPath);
+      await stopRunnerProcess(this.child, this.socketPath, { detachedWork: false });
       this.child = null;
     }
     this.forceRetry();
@@ -340,7 +340,7 @@ export class RunnerSupervisor extends EventEmitter {
 
   private async stopOwnRunner(): Promise<void> {
     if (!this.child) return;
-    await terminateChild(this.child, this.socketPath);
+    await stopRunnerProcess(this.child, this.socketPath, { detachedWork: false });
     this.child = null;
   }
 
@@ -356,7 +356,9 @@ export class RunnerSupervisor extends EventEmitter {
       this.session = null;
     }
     if (this.child) {
-      await terminateChild(this.child, this.socketPath);
+      // Quitting the app (or removing the workspace): also end what the
+      // runner's agents cut loose, so nothing keeps serving on localhost.
+      await stopRunnerProcess(this.child, this.socketPath, { detachedWork: true });
       this.child = null;
     }
   }
@@ -393,7 +395,7 @@ export class RunnerSupervisor extends EventEmitter {
         await this.attachAndHold({ recoverMismatch: true });
         return;
       } catch (err) {
-        await terminateChild(own, this.socketPath);
+        await stopRunnerProcess(own, this.socketPath, { detachedWork: false });
         if (this.child === own) this.child = null;
         throw err;
       }
@@ -784,26 +786,6 @@ function protocolIncompatiblePhase(msg: string): ConnectionPhase {
   };
 }
 
-const SIGKILL_GRACE_MS = 2_000;
-
 function isRunning(child: ChildProcess): boolean {
   return child.exitCode === null && child.signalCode === null;
-}
-
-/**
- * Every process a runner starts inherits this variable with the runner's
- * socket, also work an agent detaches on purpose (`(nohup npx vite &)`).
- */
-const RUNNER_SOCKET_ENV = 'MOXXY_RUNNER_SOCKET';
-
-/**
- * SIGTERM the child, then SIGKILL if it hasn't exited within the grace
- * window — so a wedged `moxxy serve` can't survive as a zombie holding
- * the socket after the desktop quits. What the runner started (agent CLIs
- * and the dev servers they run, in the background or detached) goes with
- * it, so nothing keeps serving on localhost after Cmd+Q.
- */
-async function terminateChild(child: ChildProcess, socketPath: string): Promise<void> {
-  await stopProcessTree(child, SIGKILL_GRACE_MS);
-  await killProcessesWithEnv(RUNNER_SOCKET_ENV, socketPath);
 }

@@ -109,7 +109,10 @@ real Claude Code, Codex or OpenCode. What is handled:
   macOS and Linux the runner gets SIGTERM, then SIGKILL after the grace; every
   descendant listed by `ps` before it ended is killed after it, and so is every
   process whose environment still holds the runner's `MOXXY_RUNNER_SOCKET`,
-  which catches work an agent detached on purpose (`(nohup npx vite &)`). On
+  which catches work an agent detached on purpose (`(nohup npx vite &)`).
+  That last sweep runs only when the app quits or a workspace is removed
+  (`stopRunnerProcess` in `packages/desktop-host/src/runner-process.ts`): a
+  new chat restarts the runner but keeps such a dev server running. On
   Windows it is `taskkill /T /F` on the runner at once; detached work is not
   found there yet (no environment scan), so it can outlive the app.
 - **Claude's plan file** is recognised under `.claude\plans\` as well as
