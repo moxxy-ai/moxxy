@@ -7,39 +7,11 @@
 
 import { useScheduler } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
-import type { ScheduleSummary } from '@moxxy/desktop-ipc-contract';
 import { StateToggle } from '../components/StateToggle';
 import { TargetSessionPicker } from './TargetSessionPicker';
 import { InstrumentBar } from '../shell/InstrumentBar';
 import { ScheduleHistory } from './ScheduleHistory';
-
-function whenLabel(s: ScheduleSummary): string {
-  if (s.cron) return `cron ${s.cron}${s.timeZone ? ` (${s.timeZone})` : ''}`;
-  if (s.runAt) return `once @ ${new Date(s.runAt).toLocaleString()}`;
-  return 'on demand';
-}
-
-/** The soonest upcoming fire across all enabled schedules, or nothing when none
- *  is pending. Measured from `nextFireAt`, which the scheduler already reports. */
-function nextFireSummary(list: ReadonlyArray<ScheduleSummary>): string {
-  const times = list
-    .filter((s) => s.enabled && s.nextFireAt !== null)
-    .map((s) => s.nextFireAt as number)
-    .sort((a, b) => a - b);
-  const soonest = times[0];
-  if (soonest === undefined) return 'None pending';
-  const mins = Math.round((soonest - Date.now()) / 60_000);
-  if (mins <= 0) return 'due now';
-  if (mins < 60) return `in ${mins}m`;
-  const hours = Math.floor(mins / 60);
-  return hours < 24 ? `in ${hours}h ${mins % 60}m` : `in ${Math.floor(hours / 24)}d`;
-}
-
-function nextLabel(s: ScheduleSummary): string | null {
-  if (!s.enabled) return null;
-  if (s.nextFireAt) return `next ${new Date(s.nextFireAt).toLocaleString()}`;
-  return null;
-}
+import { nextFireSummary, scheduleWhen, type ScheduleWhen } from './schedule-labels';
 
 export function SchedulesPanel(): JSX.Element {
   const sched = useScheduler();
@@ -154,10 +126,7 @@ export function SchedulesPanel(): JSX.Element {
                     {s.name}
                     <ScheduleHistory schedule={s} />
                   </span>
-                  <span className="data-row__meta" role="cell">
-                    {whenLabel(s)}
-                    {nextLabel(s) ? ` · ${nextLabel(s)}` : ''}
-                  </span>
+                  <ScheduleWhenCell when={scheduleWhen(s, Date.now())} />
                   <span role="cell">
                     {s.source === 'manual' ? (
                       <TargetSessionPicker
@@ -189,5 +158,14 @@ export function SchedulesPanel(): JSX.Element {
         )}
       </div>
     </>
+  );
+}
+
+function ScheduleWhenCell({ when }: { readonly when: ScheduleWhen }): JSX.Element {
+  return (
+    <span className="data-row__meta data-row__when" role="cell" title={when.full}>
+      {when.trigger}
+      {when.detail ? <small>{when.detail}</small> : null}
+    </span>
   );
 }

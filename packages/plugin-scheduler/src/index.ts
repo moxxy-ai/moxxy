@@ -15,6 +15,7 @@ import {
   type ScheduleStoreOptions,
 } from './store.js';
 import { buildSchedulerTools, describeScheduleEntry, type SchedulerToolDeps } from './tools.js';
+import { windowEndedProblem, windowShapeProblem } from './window.js';
 
 export {
   FiringLock,
@@ -33,6 +34,8 @@ export {
   scheduleEntrySchema,
   scheduleSourceSchema,
   syncSkillSchedules,
+  windowEndedProblem,
+  windowShapeProblem,
   type InboxOptions,
   type ScheduleEntry,
   type ScheduleSource,

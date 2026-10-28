@@ -1,10 +1,10 @@
-import { isValidCron, runSchedule } from '@moxxy/plugin-scheduler';
+import { isValidCron, runSchedule, windowEndedProblem, windowShapeProblem } from '@moxxy/plugin-scheduler';
 import type { ScheduleStore } from '@moxxy/plugin-scheduler';
 import type { ParsedArgv } from '../../argv.js';
 import { colors } from '../../colors.js';
 import { setupSessionWithConfig } from '../../setup.js';
 import { closeSession } from '../../setup/close-session.js';
-import { fmtNext, flag } from './format.js';
+import { fmtNext, fmtWindow, flag } from './format.js';
 
 /**
  * Parse an `--at` value, requiring an ISO-8601 instant rather than relying on
@@ -31,7 +31,7 @@ export async function listSchedules(store: ScheduleStore): Promise<number> {
   for (const s of all) {
     const status = s.enabled ? 'on' : 'off';
     const src = s.source === 'skill' ? `skill:${s.skillName}` : 'manual';
-    const trig = s.cron ? `cron "${s.cron}"` : `at ${new Date(s.runAt!).toISOString()}`;
+    const trig = s.cron ? `cron "${s.cron}"${fmtWindow(s)}` : `at ${new Date(s.runAt!).toISOString()}`;
     process.stdout.write(
       `${colors.bold(s.name.padEnd(nameCol))}  ${colors.dim(status)}  ${colors.dim(trig)}\n` +
         `${' '.repeat(nameCol + 2)}${colors.dim(`id ${s.id} · ${src} · next ${fmtNext(s)}`)}\n` +
@@ -50,6 +50,7 @@ export async function addSchedule(store: ScheduleStore, argv: ParsedArgv): Promi
     process.stderr.write(
       colors.red('missing required args') +
         '\n  usage: moxxy schedule add <name> --cron "<expr>" --prompt "<text>"\n' +
+        '         moxxy schedule add <name> --cron "<expr>" --from "<iso>" --until "<iso>" --prompt "<text>"\n' +
         '         moxxy schedule add <name> --at "<iso>" --prompt "<text>"\n',
     );
     return 2;
@@ -75,11 +76,18 @@ export async function addSchedule(store: ScheduleStore, argv: ParsedArgv): Promi
         '\n',
     );
   }
+  const window = parseWindow(argv, cron);
+  if (typeof window === 'string') {
+    process.stderr.write(colors.red(window) + '\n');
+    return 2;
+  }
   const created = await store.create({
     name,
     prompt,
     ...(cron ? { cron } : {}),
     ...(runAt !== undefined ? { runAt } : {}),
+    ...(window.startAt !== undefined ? { startAt: window.startAt } : {}),
+    ...(window.endAt !== undefined ? { endAt: window.endAt } : {}),
     ...(flag(argv, 'timezone') ? { timeZone: flag(argv, 'timezone')! } : {}),
     ...(flag(argv, 'channel') ? { channel: flag(argv, 'channel')! } : {}),
     ...(flag(argv, 'model') ? { model: flag(argv, 'model')! } : {}),
@@ -89,6 +97,27 @@ export async function addSchedule(store: ScheduleStore, argv: ParsedArgv): Promi
       `         ${colors.dim('next: ' + fmtNext(created))}\n`,
   );
   return 0;
+}
+
+/**
+ * `--from` / `--until` → the schedule's time window, checked by the same rules
+ * as the `schedule_create` tool. Returns the problem as text when it is refused.
+ */
+function parseWindow(
+  argv: ParsedArgv,
+  cron: string | undefined,
+): { startAt?: number; endAt?: number } | string {
+  const from = flag(argv, 'from');
+  const until = flag(argv, 'until');
+  const startAt = from !== undefined ? parseIsoAt(from) : undefined;
+  if (from !== undefined && startAt === undefined) return `invalid --from timestamp: "${from}"`;
+  const endAt = until !== undefined ? parseIsoAt(until) : undefined;
+  if (until !== undefined && endAt === undefined) return `invalid --until timestamp: "${until}"`;
+  const problem =
+    windowShapeProblem({ cron, startAt, endAt }, { cron: '--cron', startAt: '--from', endAt: '--until' }) ??
+    windowEndedProblem(endAt, Date.now());
+  if (problem) return problem;
+  return { ...(startAt !== undefined ? { startAt } : {}), ...(endAt !== undefined ? { endAt } : {}) };
 }
 
 export async function removeSchedule(store: ScheduleStore, argv: ParsedArgv): Promise<number> {

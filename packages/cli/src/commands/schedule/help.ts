@@ -32,6 +32,8 @@ export const SCHEDULE_HELP = formatHelp({
         ['--channel <name>', "soft hint, e.g. 'telegram' (prompt calls the matching send tool)"],
         ['--model <id>', 'override the active model just for this schedule'],
         ['--timezone <zone>', 'IANA zone for cron interpretation (default: system local)'],
+        ['--from <iso>', 'with --cron: do not run before this moment'],
+        ['--until <iso>', 'with --cron: last moment to run, then the schedule turns itself off'],
       ],
     },
   ],

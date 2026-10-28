@@ -4,6 +4,7 @@ import type { FiringLock } from './firing-lock.js';
 import { nextCronFire } from './poller.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
+import { windowEndedProblem, windowShapeProblem } from './window.js';
 
 /**
  * Capability glob for the schedule store (`isolation.capabilities.fs`). Ends
@@ -76,18 +77,14 @@ const scheduleCreateInputSchema = z
       'provide either `cron` or `runAt`, not both. For a recurring schedule limited to a ' +
       'time window, send `cron` with `startAt` and/or `endAt` and omit `runAt`.',
   })
-  .refine(
-    (value) => value.cron !== undefined || (value.startAt === undefined && value.endAt === undefined),
-    { message: '`startAt` and `endAt` only work with `cron`', path: ['cron'] },
-  )
-  .refine(
-    (value) => {
-      const startAt = toEpochMs(value.startAt);
-      const endAt = toEpochMs(value.endAt);
-      return startAt === undefined || endAt === undefined || endAt > startAt;
-    },
-    { message: '`endAt` must be later than `startAt`', path: ['endAt'] },
-  );
+  .superRefine((value, ctx) => {
+    const problem = windowShapeProblem({
+      cron: value.cron,
+      startAt: toEpochMs(value.startAt),
+      endAt: toEpochMs(value.endAt),
+    });
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem, path: ['endAt'] });
+  });
 
 export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unknown> {
   let nextFireAt: number | null = null;
@@ -179,10 +176,10 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         const runAt = toEpochMs(input.runAt);
         const startAt = toEpochMs(input.startAt);
         const endAt = toEpochMs(input.endAt);
-        if (endAt !== undefined && endAt <= Date.now()) {
+        const ended = windowEndedProblem(endAt, Date.now());
+        if (ended) {
           throw new Error(
-            `this time window already ended at ${new Date(endAt).toISOString()}; ` +
-              'ask the user for new dates instead of creating a schedule that never runs',
+            `${ended}; ask the user for new dates instead of creating a schedule that never runs`,
           );
         }
         if (input.cron && !isValidCron(input.cron)) {

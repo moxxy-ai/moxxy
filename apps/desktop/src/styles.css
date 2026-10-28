@@ -4465,6 +4465,16 @@ button.trigger__chip { text-align: left; cursor: pointer; }
 
 .data-row__acts { display: inline-flex; gap: var(--space-6); }
 
+/* A schedule's "When": the trigger, and under it the time window and next fire.
+ * Each line is cut on its own; the cell's title holds the whole text. */
+.data-row__when small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
 /* --- Summary tiles ----------------------------------------------
  * The reading above a list: a few numbers that say what is in it before you read
  * the rows. Same seams and geometry as everything else — a tile is a card, not a
@@ -4513,7 +4523,7 @@ button.trigger__chip { text-align: left; cursor: pointer; }
 }
 
 /* Schedules and webhooks carry fewer columns than workflows. */
-.data-table--sched .data-row { grid-template-columns: 10px minmax(0, 1.4fr) minmax(0, 1fr) 200px 68px; }
+.data-table--sched .data-row { grid-template-columns: 10px minmax(0, 1fr) minmax(0, 1.3fr) 200px 68px; }
 .data-table--hooks .data-row { grid-template-columns: 10px minmax(0, 1.2fr) minmax(0, 1.4fr) 200px 68px; }
 
 /* --- Approvals ---------------------------------------------------

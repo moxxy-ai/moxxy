@@ -8,6 +8,10 @@ export interface ScheduleSummary {
   readonly enabled: boolean;
   readonly cron: string | null;
   readonly runAt: number | null;
+  /** Time window of a cron schedule: no run before `startAt`, none after
+   *  `endAt` (then it turns itself off). Optional for older summary producers. */
+  readonly startAt?: number | null;
+  readonly endAt?: number | null;
   readonly timeZone: string | null;
   readonly channel: string | null;
   readonly model: string | null;
