@@ -240,11 +240,11 @@ describe('buildSessionConfigApplier', () => {
     const session = makeSession();
     const apply = buildSessionConfigApplier(session, {});
 
-    const set = await apply({ plugins: { provider: { items: { 'openai-codex': { model: 'gpt-6-luna' } } } } });
+    const set = await apply({ plugins: { provider: { items: { 'codex-agent': { model: 'gpt-6-luna' } } } } });
     expect(set.applied).toContain('defaultModel');
-    expect(session.defaultModels).toEqual({ 'openai-codex': 'gpt-6-luna' });
+    expect(session.defaultModels).toEqual({ 'codex-agent': 'gpt-6-luna' });
 
-    const same = await apply({ plugins: { provider: { items: { 'openai-codex': { model: 'gpt-6-luna' } } } } });
+    const same = await apply({ plugins: { provider: { items: { 'codex-agent': { model: 'gpt-6-luna' } } } } });
     expect(same.applied).not.toContain('defaultModel');
 
     await apply({});

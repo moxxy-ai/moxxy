@@ -1,5 +1,34 @@
 # @moxxy/desktop
 
+## 0.46.0
+
+### Minor Changes
+
+- 546836d: Replace the retired ChatGPT-token connection and transcription with official OpenAI API-key voice and Codex agent migration. Add shared Voice settings sections, concrete agent progress, and the stateless Responses API: always on OpenAI's own API; every other OpenAI-compatible server tries it first and falls back to Chat Completions when the server has no Responses route (Z.ai stays on Chat Completions; `api` in a provider's config pins either protocol). No paid-use confirmation dialog.
+
+  A config that still names the retired ChatGPT sign-in is saved as "ChatGPT — Codex agent" once the Codex agent starts, so the move and its notice happen once; without Codex the config is left alone and provider recovery explains the removal with the real reason. Startup no longer stops when installing the Codex agent fails offline for a profile that had the sign-in only as a fallback.
+
+  Expose the existing shared secret redactor at `@moxxy/sdk/redact` for browser consumers; voice progress masks credentials in commands, task descriptions and plan steps before shortening them.
+
+  Wait for the first plugin preparation before provisioning a provider, so saving an OpenAI key on first launch cannot race the installer's writes.
+
+### Patch Changes
+
+- 2a266cc: Split providers by how the person signs in, named the same everywhere: "SDK · OAuth login" (agent apps such as Claude Code, Codex and OpenCode) and "API · API key login" (models Moxxy calls with an API key), in the model picker, Settings → Providers and the first-run provider step. The model picker's headings stand apart from the providers under them, with a hairline between the kinds. The first place in the app is called "Workspaces" instead of "Runs"; ⌘K still finds it by "runs".
+- 546836d: One hook saves any API key to the vault without reading it back; the Gemini key in Settings → Voice now uses it, with no visible change.
+- 6833c5c: Coming back to a chat while its agent still works keeps showing it at work. The app read a reply marked as the end of the turn as the end, even with the turn's tool calls after it in the log; a turn now ends on a reply only when no work of the turn follows it.
+- Updated dependencies [546836d]
+  - @moxxy/cli@0.46.0
+  - @moxxy/sdk@0.46.0
+  - @moxxy/chat-model@0.5.1
+  - @moxxy/client-core@0.14.1
+  - @moxxy/client-platform-web@0.1.76
+  - @moxxy/desktop-host@0.15.1
+  - @moxxy/desktop-ipc-contract@0.15.1
+  - @moxxy/plugin-vault@0.46.0
+  - @moxxy/runner@0.2.62
+  - @moxxy/workflows-builder@0.1.59
+
 ## 0.45.0
 
 ### Minor Changes

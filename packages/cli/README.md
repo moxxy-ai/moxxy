@@ -75,7 +75,7 @@ Or run it without installing:
 npx @moxxy/cli init
 ```
 
-Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, sign into ChatGPT with `moxxy login openai-codex`, or reuse an authenticated Claude Code Pro/Max or Codex subscription as described below.
+Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, or reuse an authenticated Claude Code Pro/Max or Codex subscription as described below.
 
 ### Claude Code (Pro/Max subscription, no API key)
 
@@ -93,7 +93,7 @@ Desktop and interactive CLI setup can start sign-in. Headless runners/services g
 2. Run `codex login` or `moxxy login codex-agent`, then confirm with `codex login status` and `moxxy doctor`.
 3. Select "ChatGPT — Codex agent" (`codex-agent`) in `moxxy init`. It defaults to `gpt-6-astra`; override per run with `--model`, or persist `plugins.provider.items.codex-agent.model`.
 
-Codex itself does each turn through `codex app-server`, with its own instructions, config, tools, skills and MCP servers. Moxxy shows Codex's approvals and questions, shows its plan in plan mode, ends goal mode when Codex's own goal is met, and lends Codex its own tools over a local MCP server. Auto-approve shows how your Codex really runs from the moment a conversation opens (Moxxy asks a short-lived `codex app-server` for the folder's config), gives only the current conversation's Codex full access, and stays as you set it; `~/.codex/config.toml` is never edited. Your reason for declining reaches Codex, fast mode runs it on its fast tier, and Stop interrupts its turn, tools included. "ChatGPT — Moxxy" (`openai-codex`) is the other way round: Moxxy does the work with ChatGPT models.
+Codex itself does each turn through `codex app-server`, with its own instructions, config, tools, skills and MCP servers. Moxxy shows Codex's approvals and questions, shows its plan in plan mode, ends goal mode when Codex's own goal is met, and lends Codex its own tools over a local MCP server. Auto-approve shows how your Codex really runs from the moment a conversation opens (Moxxy asks a short-lived `codex app-server` for the folder's config), gives only the current conversation's Codex full access, and stays as you set it; `~/.codex/config.toml` is never edited. Your reason for declining reaches Codex, fast mode runs it on its fast tier, and Stop interrupts its turn, tools included.
 
 ### OpenCode (your own OpenCode setup)
 
@@ -147,7 +147,7 @@ The CLI groups commands the same way `moxxy --help` does.
 | Command | What it does |
 |---|---|
 | `moxxy init` | Interactive first-time setup. Picks a provider, captures the key, writes it into the vault. |
-| `moxxy login <provider>` | OAuth sign-in for providers that do not use API keys (for example `openai-codex`). |
+| `moxxy login <provider>` | OAuth sign-in for providers that do not use API keys (for example `codex-agent`). |
 | `moxxy login status` | Show stored OAuth credentials. |
 | `moxxy login logout <provider>` | Remove stored OAuth credentials. |
 | `moxxy doctor` | Diagnose your install: provider readiness, vault unlock, missing optional dependencies. |

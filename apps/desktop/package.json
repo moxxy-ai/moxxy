@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/desktop",
   "private": true,
-  "version": "0.45.0",
+  "version": "0.46.0",
   "description": "moxxy desktop — Electron app that connects to moxxy via @moxxy/runner and renders a TUI-equivalent chat surface.",
   "homepage": "https://moxxy.ai",
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
@@ -40,7 +40,6 @@
     "@moxxy/desktop-host": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/desktop-ui": "workspace:*",
-    "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",

@@ -1,5 +1,12 @@
 # @moxxy/compactor-segments
 
+## 0.0.18
+
+### Patch Changes
+
+- Updated dependencies [546836d]
+  - @moxxy/sdk@0.46.0
+
 ## 0.0.17
 
 ### Patch Changes

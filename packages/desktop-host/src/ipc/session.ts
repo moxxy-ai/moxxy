@@ -42,6 +42,7 @@ import {
 } from './shared';
 import { channelOfChat, syncChannelChatModel, type ChannelChatModelDeps } from '../channel-chat-model';
 import { loadCategoryItemConfig } from '@moxxy/config';
+import { OPENAI_API_KEY_NAME } from '../openai-transcriber';
 import {
   DEFAULT_VOICE,
   GEMINI_TTS_MODEL,
@@ -235,7 +236,7 @@ export function registerSessionHandlers(
     //      as the local Whisper `@moxxy/plugin-stt-local`, adopted via the
     //      `plugins.transcriber.default` config) — read straight off the
     //      RemoteSession's info snapshot, no extra RPC; or
-    //   2. stored Codex OAuth creds exist for the in-process fallback path.
+    //   2. an OpenAI API key is saved, for the in-process cloud transcriber.
     // Checking `activeTranscriber` (not the "any registered" `hasTranscriber`
     // flag) keeps this in lockstep with `session.transcribe` below, which
     // routes through `transcribers.tryGetActive()` — also keyed on the ACTIVE
@@ -244,12 +245,7 @@ export function registerSessionHandlers(
     if (remote?.getInfo().activeTranscriber) return true;
     try {
       const { vault } = getInProcessPlugins();
-      // Stored Codex creds are written under `oauth/openai-codex/...`
-      // by `moxxy login openai-codex`. We check the canonical
-      // refresh-token key; the transcriber's own resolver does the
-      // detailed validation when transcribe() is called.
-      const refresh = await vault.get('oauth/openai-codex/refresh_token');
-      return refresh != null;
+      return (await vault.get(OPENAI_API_KEY_NAME)) != null;
     } catch {
       return false;
     }
@@ -276,9 +272,8 @@ export function registerSessionHandlers(
       const result = await runnerTranscriber.transcribe(new Uint8Array(audio), opts);
       return result.text;
     }
-    // No active runner transcriber → in-process Codex transcriber: same plugin
-    // class, same vault, identical to the TUI's self-host voice path. This is
-    // byte-identical to the behavior before local-STT routing.
+    // No active runner transcriber → in-process OpenAI transcriber on the
+    // person's own API key; without a key it says how to set one up.
     const { transcriber } = getInProcessPlugins();
     const result = await transcriber.transcribe(audio, opts);
     return result.text;

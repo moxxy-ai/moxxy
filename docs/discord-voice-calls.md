@@ -58,7 +58,7 @@ the agent answers, and the answer is read aloud. You can interrupt it.
 - The bot needs the **Connect** and **Speak** permissions in the voice channel.
   The invite link includes them; a bot invited earlier needs them granted in
   the server settings (or a fresh invite).
-- A speech-to-text backend (e.g. `moxxy login openai-codex`) and a voice
+- A speech-to-text backend (OpenAI transcription with an API key, or local transcription) and a voice
   (Settings → Voice). Reading replies aloud uses ffmpeg to encode Opus.
 - Node.js 22.12 or newer (the Discord voice library requires it; the rest of
   the bot runs on older versions).

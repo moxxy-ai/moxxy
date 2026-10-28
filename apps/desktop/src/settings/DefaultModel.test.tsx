@@ -7,9 +7,9 @@ const state = (over: Partial<ModelDefaultsState> = {}): ModelDefaultsState => ({
   loading: false,
   providers: [
     { name: 'anthropic', models: ['claude-sonnet-5-5'] },
-    { name: 'openai-codex', models: ['gpt-plain', 'gpt-6-luna'] },
+    { name: 'codex-agent', models: ['gpt-plain', 'gpt-6-luna'] },
   ],
-  provider: 'openai-codex',
+  provider: 'codex-agent',
   model: 'gpt-6-luna',
   effort: 'medium',
   effortLevels: ['off', 'low', 'medium', 'high', 'xhigh'],
@@ -28,8 +28,8 @@ describe('DefaultModel', () => {
   it('shows the model, the effort and the fast tier new conversations start with', () => {
     render(<DefaultModel defaults={state()} />);
 
-    expect(screen.getByLabelText('Default model')).toHaveValue('openai-codex/gpt-6-luna');
-    expect(screen.getByTestId('default-model')).toHaveTextContent('openai-codex');
+    expect(screen.getByLabelText('Default model')).toHaveValue('codex-agent/gpt-6-luna');
+    expect(screen.getByTestId('default-model')).toHaveTextContent('codex-agent');
     expect(screen.getByLabelText('Default reasoning effort')).toHaveValue('medium');
     expect(screen.getByRole('switch', { name: 'Fast mode by default' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByText(/terminal and in channels/)).toBeInTheDocument();
@@ -41,7 +41,7 @@ describe('DefaultModel', () => {
     const groups = [...screen.getByLabelText('Default model').querySelectorAll('optgroup')];
     expect(groups.map((group) => [group.label, [...group.querySelectorAll('option')].map((option) => option.textContent)])).toEqual([
       ['anthropic', ['claude-sonnet-5-5']],
-      ['openai-codex', ['gpt-plain', 'gpt-6-luna']],
+      ['codex-agent', ['gpt-plain', 'gpt-6-luna']],
     ]);
   });
 

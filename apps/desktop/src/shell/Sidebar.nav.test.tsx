@@ -39,14 +39,14 @@ function nav(view: View, go = vi.fn()): ShellNav {
 }
 
 describe('the sidebar frame', () => {
-  it('leads back to the runs from any other view', () => {
+  it('leads back to the workspaces from any other view', () => {
     const go = vi.fn();
     render(
       <ShellNavProvider value={nav('settings', go)}>
         <IndexColumn title="settings">rows</IndexColumn>
       </ShellNavProvider>,
     );
-    fireEvent.click(screen.getByTestId('sidebar-back'));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to workspaces' }));
     expect(go).toHaveBeenCalledWith('chat');
   });
 

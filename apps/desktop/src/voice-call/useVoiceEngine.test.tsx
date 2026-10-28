@@ -64,6 +64,6 @@ describe('voice engine preference', () => {
     act(() => screen.getByTestId('voice-engine-gpt-live').click());
 
     await waitFor(() => expect(updates).toEqual([{ voiceEngine: 'gpt-live' }]));
-    expect(screen.getByText(/ChatGPT login/i)).toBeTruthy();
+    expect(screen.getByText(/OpenAI API key/i)).toBeTruthy();
   });
 });

@@ -314,6 +314,7 @@ export class ClaudeAgentSession implements LiveSession {
       for (;;) {
         const item = await this.inbox.next();
         if (item.kind === 'ended') {
+          yield* translator.finish();
           yield this.endedError(item.error);
           return;
         }
@@ -323,12 +324,14 @@ export class ClaudeAgentSession implements LiveSession {
             this.finishedTask = undefined;
             this.finishedWork = undefined;
             if (ownTurn) {
+              yield* translator.finish();
               yield* resultEvents(item.message, req.signal.aborted, this.model);
               break;
             }
           }
           if (isPersonResult(item.message, this.owesResult)) {
             this.owesResult = false;
+            yield* translator.finish();
             yield* resultEvents(item.message, req.signal.aborted, this.model);
             break;
           }

@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
-export const fixturePlugin = '@moxxy/plugin-provider-openai-codex' as const;
-export const fixtureProviderCode = `export default {name:'${fixturePlugin}', providers:[{name:'openai-codex',models:[{id:'gpt-6-astra'}],createClient(){throw Error('Must not authenticate during import')}}]};`;
+export const fixturePlugin = '@moxxy/plugin-provider-openai' as const;
+export const fixtureProviderCode = `export default {name:'${fixturePlugin}', providers:[{name:'openai',models:[{id:'gpt-6-astra'}],createClient(){throw Error('Must not authenticate during import')}}]};`;
 
 const roots: string[] = [];
 

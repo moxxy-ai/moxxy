@@ -1,7 +1,5 @@
-import {
-  buildGptLiveHistory,
-  readStoredTokens,
-} from '@moxxy/plugin-provider-openai-codex';
+import { buildGptLiveHistory } from '@moxxy/plugin-provider-openai';
+import { OPENAI_API_KEY_NAME } from '../openai-transcriber';
 import type { InProcessPlugins } from '../in-process-plugins';
 import type { RunnerPool } from '../runner-pool';
 import {
@@ -138,7 +136,7 @@ export function registerVoiceHandlers(
   });
   handle('voice.live.preflight', async () => {
     try {
-      return { authenticated: (await readStoredTokens(inProcessPlugins().vault)) !== null };
+      return { authenticated: Boolean((await inProcessPlugins().vault.get(OPENAI_API_KEY_NAME))?.trim()) };
     } catch {
       return { authenticated: false };
     }

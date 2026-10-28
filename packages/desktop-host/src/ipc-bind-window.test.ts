@@ -45,7 +45,7 @@ const connectedPhase = {
   phase: 'connected',
   socket: '/tmp/fresh-session.sock',
   sessionId: 'fresh-session',
-  activeProvider: 'openai-codex',
+  activeProvider: 'codex-agent',
   activeMode: 'default',
 } as const;
 

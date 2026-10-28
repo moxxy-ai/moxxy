@@ -35,13 +35,13 @@ function deps() {
 
 describe("the desktop's chat with a bot runs the bot's model", () => {
   it("takes the bot's saved model and makes its provider active", async () => {
-    await vault.set('telegram_model', 'openai-codex::gpt-5.6-luna');
+    await vault.set('telegram_model', 'codex-agent::gpt-5.6-luna');
     const { deps: d, activated } = deps();
 
     await syncChannelChatModel('telegram', d);
 
     expect(getSessionModel('moxxy-channel-telegram')).toBe('gpt-5.6-luna');
-    expect(activated).toEqual([['moxxy-channel-telegram', 'openai-codex']]);
+    expect(activated).toEqual([['moxxy-channel-telegram', 'codex-agent']]);
   });
 
   it('runs the default model when the bot has none of its own', async () => {
@@ -71,11 +71,11 @@ describe('channelOfChat', () => {
 
 describe('watchChannelModels', () => {
   it('fires when another process (the bot) writes the vault', async () => {
-    await vault.set('telegram_model', 'openai-codex::gpt-5.5');
+    await vault.set('telegram_model', 'codex-agent::gpt-5.5');
     const onChange = vi.fn();
     const stop = watchChannelModels(path.join(tmp, 'vault.json'), onChange);
     try {
-      await openVault().set('telegram_model', 'openai-codex::gpt-5.6-luna');
+      await openVault().set('telegram_model', 'codex-agent::gpt-5.6-luna');
       await vi.waitFor(() => expect(onChange).toHaveBeenCalled(), { timeout: 3000 });
     } finally {
       stop();

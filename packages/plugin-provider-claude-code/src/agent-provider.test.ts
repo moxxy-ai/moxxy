@@ -87,6 +87,26 @@ describe('a turn on the Claude agent connection', () => {
     expect(events).toContainEqual(expect.objectContaining({ type: 'provider_response', inputTokens: 3, outputTokens: 7 }));
   });
 
+  it('records a sentence Claude says before a call as part of the work, and only its last words as the end of the turn', async () => {
+    const { session } = connect(async function* () {
+      yield assistantText('Building it.');
+      yield assistantToolUse('toolu_1', 'Bash', { command: 'echo ok' });
+      yield toolResult('toolu_1', 'ok');
+      yield assistantText('Built.');
+    });
+
+    const events = await collectTurn(session, 'Build it');
+
+    const replies = events.flatMap((e) => (e.type === 'assistant_message' && e.source === 'model' ? [[e.content, e.stopReason]] : []));
+    expect(replies).toEqual([
+      ['Building it.', 'tool_use'],
+      ['Built.', 'end_turn'],
+    ]);
+    const sentence = events.findIndex((e) => e.type === 'assistant_message' && e.content === 'Building it.');
+    const call = events.findIndex((e) => e.type === 'tool_call_requested');
+    expect(sentence).toBeLessThan(call);
+  });
+
   it('keeps the same Claude running for the next message of the conversation', async () => {
     const { claude, session } = connect(async function* (turn) {
       yield assistantText(turn.text === 'first' ? 'one' : 'two');

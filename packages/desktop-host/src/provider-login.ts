@@ -7,7 +7,7 @@
  * paste that `claude-code` needs) as a NUL-bracketed marker, which the shared
  * {@link createLoginStreamScanner} pulls out. We forward output + prompts to the
  * renderer as `provider.login.*` events and write the user's typed answers back
- * as stdin lines. Loopback providers (openai-codex) emit no prompts — the CLI
+ * as stdin lines. Loopback providers emit no prompts — the CLI
  * opens the browser, catches the callback, and exits; the renderer just shows
  * waits for the callback, and exits. In a desktop-hosted run, the CLI emits a
  * validated authorization-URL marker without opening the browser itself; main

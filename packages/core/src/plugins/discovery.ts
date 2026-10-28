@@ -41,6 +41,17 @@ async function mapWithConcurrency<T, R>(
   return out;
 }
 
+/**
+ * Plugins Moxxy no longer loads, though an older install may have left them in
+ * a plugins folder: the ChatGPT sign-in provider and its transcribers used a
+ * private ChatGPT route rather than an official API.
+ */
+export const RETIRED_PLUGIN_PACKAGES: ReadonlySet<string> = new Set([
+  '@moxxy/plugin-provider-openai-codex',
+  '@moxxy/plugin-stt-whisper-codex',
+  '@moxxy/plugin-stt-openai-codex',
+]);
+
 export interface DiscoveryOptions {
   readonly cwd: string;
   readonly logger: Logger;
@@ -149,6 +160,10 @@ async function readPluginManifest(
   }
   if (!pkg.moxxy) return null;
   if (!pkg.name) return null;
+  if (RETIRED_PLUGIN_PACKAGES.has(pkg.name)) {
+    logger.info('discovery: skipping a retired plugin', { package: pkg.name, path: packagePath });
+    return null;
+  }
 
   const parsedMoxxy = moxxyPackageSchema.safeParse(pkg.moxxy);
   if (!parsedMoxxy.success) {

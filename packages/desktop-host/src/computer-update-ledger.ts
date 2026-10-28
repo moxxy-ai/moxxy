@@ -21,7 +21,7 @@ async function read(file:string):Promise<Buffer|null> {
 }
 
 export async function prepareComputerLedgers(home:string,staged:string,transaction:string,plugin='@moxxy/plugin-computer-control'):Promise<ComputerLedger[]> {
-  z.enum(['@moxxy/plugin-computer-control','@moxxy/plugin-provider-openai','@moxxy/plugin-provider-openai-codex']).parse(plugin);
+  z.enum(['@moxxy/plugin-computer-control','@moxxy/plugin-provider-openai']).parse(plugin);
   const prefix='node_modules/'+plugin;
   const bytes=await read(path.join(staged,'package.json'));
   if (!bytes) throw new Error('Staged manifest missing');

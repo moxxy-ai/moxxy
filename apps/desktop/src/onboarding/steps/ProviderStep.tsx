@@ -16,9 +16,11 @@ import { useProviderConnect } from '../useProviderConnect';
 export function ProviderStep({
   onNext,
   onBack,
+  notice,
 }: {
   readonly onNext: () => void;
   readonly onBack: () => void;
+  readonly notice?: string | null;
 }): JSX.Element {
   const connect = useProviderConnect();
   const { authKind, agent } = connect;
@@ -33,6 +35,7 @@ export function ProviderStep({
       }
     >
       <Fields>
+        {notice && <p role="status" style={{ margin: 0, color: 'var(--color-text-muted)' }}>{notice}</p>}
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Provider

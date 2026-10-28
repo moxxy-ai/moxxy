@@ -18,7 +18,7 @@ import { assertDefined } from '@moxxy/sdk';
 
 describe('provider-name validation', () => {
   it('accepts well-formed slugs', () => {
-    for (const ok of ['openai', 'openai-codex', 'anthropic', 'z-ai', 'a', 'a0']) {
+    for (const ok of ['openai', 'codex-agent', 'anthropic', 'z-ai', 'a', 'a0']) {
       expect(isSafeProviderName(ok)).toBe(true);
     }
   });

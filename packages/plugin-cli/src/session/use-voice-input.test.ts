@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { Session, silentLogger } from '@moxxy/core';
-import { definePlugin, defineProvider, defineTranscriber } from '@moxxy/sdk';
+import { definePlugin, defineTranscriber } from '@moxxy/sdk';
 import {
-  checkCodexVoiceInputReady,
+  checkVoiceInputReady,
   combineVoiceInputReadiness,
   formatVoiceReadinessNotice,
-  resolveCodexTranscriber,
+  resolveVoiceTranscriber,
 } from './use-voice-input.js';
 
 function makeSession(): Session {
@@ -13,26 +13,14 @@ function makeSession(): Session {
   session.pluginHost.registerStatic(
     definePlugin({
       name: '@test/voice',
-      providers: [
-        defineProvider({
-          name: 'anthropic',
-          models: [],
-          createClient: () => ({ name: 'anthropic', models: [], stream: async function* () {}, countTokens: async () => 0 }),
-        }),
-        defineProvider({
-          name: 'openai-codex',
-          models: [],
-          createClient: () => ({ name: 'openai-codex', models: [], stream: async function* () {}, countTokens: async () => 0 }),
-        }),
-      ],
       transcribers: [
         defineTranscriber({
-          name: 'other-transcriber',
-          createClient: () => ({ name: 'other-transcriber', transcribe: async () => ({ text: 'other' }) }),
+          name: 'openai-gpt-transcribe',
+          createClient: () => ({ name: 'openai-gpt-transcribe', transcribe: async () => ({ text: 'openai' }) }),
         }),
         defineTranscriber({
-          name: 'openai-codex-transcribe',
-          createClient: () => ({ name: 'openai-codex-transcribe', transcribe: async () => ({ text: 'codex' }) }),
+          name: 'local-whisper',
+          createClient: () => ({ name: 'local-whisper', transcribe: async () => ({ text: 'local' }) }),
         }),
       ],
     }),
@@ -40,46 +28,33 @@ function makeSession(): Session {
   return session;
 }
 
-describe('Codex voice input readiness', () => {
-  it('is unavailable on non-Codex providers', () => {
+describe('TUI voice input readiness', () => {
+  it('is unavailable until a transcriber is active, and says how to set one up', () => {
     const session = makeSession();
-    session.providers.setActive('anthropic');
 
-    const check = checkCodexVoiceInputReady(session);
+    const check = checkVoiceInputReady(session);
 
     expect(check.ready).toBe(false);
     expect(formatVoiceReadinessNotice(check)).toBe(
-      'voice: Codex voice requires active provider openai-codex',
+      'voice: no transcription is set up. Save OPENAI_API_KEY with /vault set, or set plugins.transcriber.default, then restart',
     );
+    expect(() => resolveVoiceTranscriber(session)).toThrow(/no transcription is set up/);
   });
 
-  it('is unavailable on Codex provider until OAuth is ready', () => {
+  it('uses whichever transcriber is active, with any provider', () => {
     const session = makeSession();
-    session.providers.setActive('openai-codex');
+    session.transcribers.setActive('local-whisper');
 
-    const check = checkCodexVoiceInputReady(session);
-
-    expect(check.ready).toBe(false);
-    expect(formatVoiceReadinessNotice(check)).toBe(
-      'voice: run moxxy login openai-codex to enable Codex voice',
-    );
-  });
-
-  it('is ready with active Codex provider and ready OAuth runtime fact', () => {
-    const session = makeSession();
-    session.providers.setActive('openai-codex');
-    session.requirements.setRuntime('auth:provider:openai-codex', 'ready');
-
-    expect(checkCodexVoiceInputReady(session)).toEqual({ ready: true, issues: [] });
-    expect(resolveCodexTranscriber(session).name).toBe('openai-codex-transcribe');
+    expect(checkVoiceInputReady(session)).toEqual({ ready: true, issues: [] });
+    expect(resolveVoiceTranscriber(session).name).toBe('local-whisper');
+    expect(session.transcribers.getActiveName()).toBe('local-whisper');
   });
 
   it('is unavailable when local ffmpeg capture is not ready', () => {
     const session = makeSession();
-    session.providers.setActive('openai-codex');
-    session.requirements.setRuntime('auth:provider:openai-codex', 'ready');
+    session.transcribers.setActive('openai-gpt-transcribe');
 
-    const check = combineVoiceInputReadiness(checkCodexVoiceInputReady(session), {
+    const check = combineVoiceInputReadiness(checkVoiceInputReady(session), {
       ready: false,
       issues: [
         {
@@ -98,18 +73,5 @@ describe('Codex voice input readiness', () => {
     // depends on the host running the test, so just assert structure.
     expect(notice.split('\n')).toHaveLength(2);
     expect(notice).toMatch(/Install via .+:\s+/);
-  });
-
-  it('does not overwrite another active transcriber', () => {
-    const session = makeSession();
-    session.providers.setActive('openai-codex');
-    session.requirements.setRuntime('auth:provider:openai-codex', 'ready');
-    session.transcribers.setActive('other-transcriber');
-
-    const check = checkCodexVoiceInputReady(session);
-
-    expect(check.ready).toBe(false);
-    expect(() => resolveCodexTranscriber(session)).toThrow(/active transcriber openai-codex-transcribe/);
-    expect(session.transcribers.getActiveName()).toBe('other-transcriber');
   });
 });

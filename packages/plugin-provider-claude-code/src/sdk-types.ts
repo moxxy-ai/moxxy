@@ -109,7 +109,8 @@ export type ClaudeMessage =
       readonly type: 'stream_event';
       readonly event: {
         readonly type: string;
-        readonly delta?: { readonly type: string; readonly text?: string; readonly thinking?: string };
+        /** A block's delta (`type` set), or a reply's (`message_delta`): how the reply stopped. */
+        readonly delta?: { readonly type?: string; readonly text?: string; readonly thinking?: string; readonly stop_reason?: string | null };
       };
       readonly parent_tool_use_id: string | null;
     }

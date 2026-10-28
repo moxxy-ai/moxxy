@@ -107,7 +107,8 @@ export function CardGroup({
   readonly id: string;
   readonly title: string;
   readonly count: number;
-  readonly description: string;
+  /** One line on what sets the group apart; left out when the name says enough. */
+  readonly description?: string;
   readonly children: React.ReactNode;
 }): JSX.Element {
   const headingId = `${id}-title`;
@@ -120,7 +121,7 @@ export function CardGroup({
         <span className="card-group__count" aria-hidden="true">
           {count}
         </span>
-        <p className="card-group__description">{description}</p>
+        {description && <p className="card-group__description">{description}</p>}
       </header>
       <CardList>{children}</CardList>
     </section>

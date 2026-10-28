@@ -47,8 +47,15 @@ describe('usePalettePlaces', () => {
     const { result } = renderHook(() => usePalettePlaces(), { wrapper: within(nav()) });
     const labels = (): string[] => result.current.places.map((place) => place.label);
 
-    expect(labels()).toEqual(expect.arrayContaining(['Runs', 'Providers', 'GPT-Live', 'Webhooks', 'Document anonymizer']));
+    expect(labels()).toEqual(expect.arrayContaining(['Workspaces', 'Providers', 'GPT-Live', 'Webhooks', 'Document anonymizer']));
     await waitFor(() => expect(labels()).toContain('Telegram'));
+  });
+
+  it('still finds Workspaces by its old name, Runs', () => {
+    const { result } = renderHook(() => usePalettePlaces(), { wrapper: within(nav()) });
+    const workspaces = result.current.places.find((place) => place.label === 'Workspaces');
+
+    expect(workspaces?.keywords).toContain('runs');
   });
 
   it('opens the place that was picked, section and all', () => {

@@ -161,7 +161,7 @@ its first launch, with no manual step:
   installer the package is left alone, whatever was done to it since.
 - Kept as installed: a package newer than the installer's (updated from npm
   since), a plugin the user added that the installer does not carry, and the
-  two connections (OpenAI API, ChatGPT sign-in) and, on Windows x64, Computer
+  the OpenAI API connection and, on Windows x64, Computer
   Use, which the installer updates through their own path with a backup and,
   when they were changed locally, a question first.
 - A package another process holds open (Windows) keeps its old copy for that

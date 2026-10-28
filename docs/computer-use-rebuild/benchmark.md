@@ -1,5 +1,8 @@
 # Benchmark Computer Use
 
+
+> Historical measurement: the `openai-codex` connection used here has been retired. These results do not measure the current OpenAI API or Codex agent connection.
+
 ## Próg (ustalony w planie przed pomiarem)
 
 - co najmniej 90% zadań zakończonych sukcesem,

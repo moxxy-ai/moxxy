@@ -29,12 +29,10 @@ it('lists only current models: GPT-6 and GPT-5.6, each with its documented windo
 it('defaults to a model that is still listed', async () => {
   let sent: string | undefined;
   const client = {
-    chat: {
-      completions: {
-        create: async (body: { model: string }) => {
-          sent = body.model;
-          return (async function* () {})();
-        },
+    responses: {
+      create: async (body: { model: string }) => {
+        sent = body.model;
+        return (async function* () { yield { type: 'response.completed', response: { output: [] } }; })();
       },
     },
   };

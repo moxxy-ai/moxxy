@@ -21,6 +21,8 @@ export interface BuildWhisperPluginOptions {
    * without an explicit config. Defaults to `whisper-1`.
    */
   readonly model?: WhisperModel;
+  /** Register one transcriber per model instead (overrides `model`). */
+  readonly models?: ReadonlyArray<WhisperModel>;
   /**
    * Optional default config baked into the transcriber def. Callers can
    * still override per-`setActive(name, config)`.
@@ -29,17 +31,14 @@ export interface BuildWhisperPluginOptions {
 }
 
 /**
- * Build the @moxxy/plugin-stt-whisper plugin. Each instance registers
- * exactly one transcriber, named `openai-<model>`.
+ * Build the @moxxy/plugin-stt-whisper plugin: one transcriber per model, each
+ * named `openai-<model>` (one model unless `models` lists several).
  *
- * To run several Whisper-family models at once, build the plugin once per
- * model — the transcriber names won't collide (`openai-whisper-1` vs
- * `openai-gpt-4o-transcribe`), but each registration carries the SAME
- * plugin name, so the host must register them under DISTINCT plugin names
- * (the name-keyed plugin registry would otherwise clobber the first).
+ * To run several models at once, pass `models` — the transcriber names
+ * won't collide (`openai-gpt-transcribe` vs `openai-whisper-1`).
  *
  * Activation:
- *   session.transcribers.setActive('openai-whisper-1', { apiKey: ... });
+ *   session.transcribers.setActive('openai-gpt-transcribe', { apiKey: ... });
  *
  * The plugin is intentionally side-effect free — registering it does
  * NOT activate the transcriber. The host (CLI / config loader) chooses
@@ -47,14 +46,13 @@ export interface BuildWhisperPluginOptions {
  * outbound calls to OpenAI.
  */
 export function buildWhisperPlugin(opts: BuildWhisperPluginOptions = {}): Plugin {
-  const model = opts.model ?? 'whisper-1';
-  const name = `openai-${model}`;
+  const models = opts.models ?? [opts.model ?? 'whisper-1'];
   return definePlugin({
     name: '@moxxy/plugin-stt-whisper',
     version: '0.0.0',
-    transcribers: [
+    transcribers: models.map((model) =>
       defineTranscriber({
-        name,
+        name: `openai-${model}`,
         displayName: `OpenAI ${model}`,
         createClient: (config) => {
           const merged: WhisperTranscriberOptions = {
@@ -65,9 +63,11 @@ export function buildWhisperPlugin(opts: BuildWhisperPluginOptions = {}): Plugin
           return new WhisperTranscriber(merged);
         },
       }),
-    ],
+    ),
   });
 }
 
 // Discovery entry: `createPluginLoader` requires a default Plugin export.
-export default buildWhisperPlugin();
+// `gpt-transcribe` is OpenAI's current model; `whisper-1` (deprecated by
+// OpenAI) stays registered for configs that already name it.
+export default buildWhisperPlugin({ models: ['gpt-transcribe', 'whisper-1'] });

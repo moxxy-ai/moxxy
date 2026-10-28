@@ -28,7 +28,7 @@ interface SynthesizeOptions {
 }
 ```
 
-There is **no shipped synthesizer plugin yet** — TTS is wired end-to-end (the SDK type, `SynthesizerRegistry`, the desktop `session.synthesize` IPC, the `set_voice`/`list_voices` admin tools) but ships with zero backends, so the OS voice is the default. You are writing the first one. The `Transcriber` siblings — `@moxxy/plugin-stt-whisper` and `@moxxy/plugin-stt-whisper-codex` — are the closest reference for the HTTP + auth shape.
+Use the existing `plugin-tts-openai`, `plugin-tts-gemini`, `plugin-tts-elevenlabs` and `plugin-tts-local` backends as synthesizer references. `@moxxy/plugin-stt-whisper` is the API-key transcription counterpart; the retired ChatGPT-token transcriber is no longer shipped.
 
 ## The `SynthesizerDef` + `create(ctx)` factory
 
@@ -155,7 +155,7 @@ If the plugin needs a credential to work, declare a `synthesizer` requirement (p
 
 ## Tests
 
-Mirror `plugin-stt-whisper-codex/src/index.test.ts`: stand up a local `http.createServer`, point the synthesizer at it via injected config/baseURL, drive `synthesize('hello')`, and assert (a) the request shape (auth header, body), (b) the returned `{ audio, mimeType }`, and (c) that a non-2xx maps to a classified `MoxxyError` rather than leaking the raw body. No real vendor account needed.
+Use `desktop-host/src/openai-transcriber.test.ts` as a reference for the network boundary: stand up a local `http.createServer`, point the synthesizer at it via injected config/baseURL, drive `synthesize('hello')`, and assert (a) the request shape (auth header, body), (b) the returned `{ audio, mimeType }`, and (c) that a non-2xx maps to a classified `MoxxyError` rather than leaking the raw body. No real vendor account needed.
 
 ## Don't
 

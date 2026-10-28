@@ -19,13 +19,13 @@ describe('ProviderModelGrid layout', () => {
       <ProviderModelGrid
         providers={[
           {
-            name: 'openai-codex',
+            name: 'openai',
             models: Array.from({ length: 20 }, (_, index) => ({
               id: `gpt-${index}`,
             })),
           },
         ]}
-        activeProvider="openai-codex"
+        activeProvider="openai"
         activeModel={null}
         onPick={() => {}}
       />,
@@ -227,7 +227,7 @@ describe('ProviderModelGrid providers', () => {
     { name: 'claude-code', agentName: 'Claude', models: [{ id: 'claude-opus-5-5' }] },
     { name: 'codex-agent', agentName: 'Codex', models: [{ id: 'gpt-6-sol' }] },
     { name: 'anthropic', models: [{ id: 'claude-opus-5-5' }] },
-    { name: 'openai-codex', models: [{ id: 'gpt-6-luna' }] },
+    { name: 'openai', models: [{ id: 'gpt-6-luna' }] },
     { name: 'local', models: [{ id: 'llama3.3' }] },
     { name: 'xai', models: [{ id: 'grok-5' }] },
   ];
@@ -236,7 +236,7 @@ describe('ProviderModelGrid providers', () => {
     entry({ name: 'claude-code', agentName: 'Claude', authKind: 'oauth', agentCli: { ...signedIn, command: 'claude' } }),
     entry({ name: 'codex-agent', agentName: 'Codex', authKind: 'oauth', agentCli: { ...signedIn, command: 'codex', signedIn: false } }),
     entry({ name: 'anthropic', ready: false }),
-    entry({ name: 'openai-codex', authKind: 'oauth' }),
+    entry({ name: 'openai', authKind: 'oauth' }),
     entry({ name: 'local', connected: false }),
     entry({ name: 'xai', ready: false }),
   ];
@@ -261,10 +261,13 @@ describe('ProviderModelGrid providers', () => {
     });
     renderGrid(invoke);
 
-    const agents = await screen.findByRole('group', { name: 'Coding agents' });
-    const models = screen.getByRole('group', { name: 'Model providers' });
+    const agents = await screen.findByRole('group', { name: 'SDK · OAuth login' });
+    const models = screen.getByRole('group', { name: 'API · API key login' });
+    // Each heading is only the kind's name: no line explaining it.
+    expect(within(agents).getByRole('presentation').textContent).toBe('SDK · OAuth login');
+    expect(within(models).getByRole('presentation').textContent).toBe('API · API key login');
     expect(within(agents).getAllByRole('option').map((o) => o.textContent)).toEqual(['opencode', 'claude-code']);
-    expect(within(models).getAllByRole('option').map((o) => o.textContent)).toEqual(['openai-codex']);
+    expect(within(models).getAllByRole('option').map((o) => o.textContent)).toEqual(['openai']);
     expect(screen.queryByRole('option', { name: 'anthropic' })).toBeNull();
     expect(screen.queryByRole('option', { name: 'local' })).toBeNull();
     expect(invoke).toHaveBeenCalledWith('settings.providers', { workspaceId: 'ws-1' });
@@ -282,7 +285,7 @@ describe('ProviderModelGrid providers', () => {
       return [];
     });
 
-    const models = await screen.findByRole('group', { name: 'Model providers' });
+    const models = await screen.findByRole('group', { name: 'API · API key login' });
     expect(within(models).getAllByRole('option')).toHaveLength(4);
   });
 });

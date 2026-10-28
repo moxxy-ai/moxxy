@@ -95,7 +95,7 @@ test('desktop resource verifier rejects the shipped Windows failure shape', asyn
   }
 });
 
-test('desktop resource verifier starts the embedded CLI and finds the Codex provider', async () => {
+test('desktop resource verifier starts the embedded CLI and finds the bundled model connections', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'moxxy-valid-resources-'));
   try {
     await writeValidResources(root);
@@ -113,7 +113,7 @@ test('desktop resource verifier starts the embedded CLI and finds the Codex prov
 test('desktop resource verifier rejects a plugin seed without the Claude sign-in provider', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-claude-resources-'));
   try {
-    await writeValidResources(root, { seedProviders: ['@moxxy/plugin-provider-openai-codex'] });
+    await writeValidResources(root, { seedProviders: ['@moxxy/plugin-provider-openai'] });
 
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false }),
@@ -127,13 +127,13 @@ test('desktop resource verifier rejects a plugin seed without the Claude sign-in
 test('desktop resource verifier rejects a plugin seed without the Codex and OpenCode agent connections', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-agents-resources-'));
   try {
-    await writeValidResources(root, { seedProviders: SIGN_IN_PROVIDERS });
+    await writeValidResources(root, { seedProviders: BASE_PROVIDERS });
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false }),
       /plugins-seed manifest does not include @moxxy\/plugin-provider-codex-agent/,
     );
 
-    await writeValidResources(root, { seedProviders: [...SIGN_IN_PROVIDERS, '@moxxy/plugin-provider-codex-agent'] });
+    await writeValidResources(root, { seedProviders: [...BASE_PROVIDERS, '@moxxy/plugin-provider-codex-agent'] });
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false }),
       /plugins-seed manifest does not include @moxxy\/plugin-provider-acp/,
@@ -499,14 +499,14 @@ async function writePackage(packageDir, name, extra = {}) {
 const OFFLINE_VOICE = '@moxxy/plugin-tts-local';
 const CLOUD_VOICE = '@moxxy/plugin-tts-gemini';
 const OFFLINE_TRANSCRIPTION = '@moxxy/plugin-stt-local';
-const SIGN_IN_PROVIDERS = ['@moxxy/plugin-provider-openai-codex', '@moxxy/plugin-provider-claude-code'];
+const BASE_PROVIDERS = ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-claude-code'];
 const AGENT_CONNECTIONS = ['@moxxy/plugin-provider-codex-agent', '@moxxy/plugin-provider-acp'];
 
 async function writeValidResources(
   root,
   {
     includeSeedLock = true,
-    seedProviders = [...SIGN_IN_PROVIDERS, ...AGENT_CONNECTIONS],
+    seedProviders = [...BASE_PROVIDERS, ...AGENT_CONNECTIONS],
     offlineVoice = true,
     cloudVoice = true,
     offlineTranscription = true,

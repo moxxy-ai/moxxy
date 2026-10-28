@@ -9,10 +9,10 @@ const plain = { id: 'gpt-plain' };
 const sonnet = { id: 'claude-sonnet-5-5', supportsReasoning: true };
 const info = {
   activeProvider: 'anthropic',
-  readyProviders: ['anthropic', 'openai-codex'],
+  readyProviders: ['anthropic', 'codex-agent'],
   providers: [
     { name: 'anthropic', models: [sonnet], enabled: true },
-    { name: 'openai-codex', models: [plain, luna], starterModel: 'gpt-6-luna', enabled: true },
+    { name: 'codex-agent', models: [plain, luna], starterModel: 'gpt-6-luna', enabled: true },
     { name: 'openai', models: [{ id: 'gpt-key' }], enabled: true },
   ],
 };
@@ -56,9 +56,9 @@ describe('useModelDefaults', () => {
   });
 
   it("shows the provider's light starter model, the one a new conversation starts on, while no model is set for it", async () => {
-    const { result } = await loaded({ provider: 'openai-codex' });
+    const { result } = await loaded({ provider: 'codex-agent' });
 
-    expect(result.current).toMatchObject({ provider: 'openai-codex', model: 'gpt-6-luna' });
+    expect(result.current).toMatchObject({ provider: 'codex-agent', model: 'gpt-6-luna' });
   });
 
   it('offers the models of the providers that are connected', async () => {
@@ -66,29 +66,29 @@ describe('useModelDefaults', () => {
 
     expect(result.current.providers).toEqual([
       { name: 'anthropic', models: ['claude-sonnet-5-5'] },
-      { name: 'openai-codex', models: ['gpt-plain', 'gpt-6-luna'] },
+      { name: 'codex-agent', models: ['gpt-plain', 'gpt-6-luna'] },
     ]);
   });
 
   it('shows the set default, and offers a model the provider does not list (a custom one)', async () => {
-    const { result } = await loaded({ provider: 'openai-codex', model: 'my-own-model', effort: 'medium', fast: true });
+    const { result } = await loaded({ provider: 'codex-agent', model: 'my-own-model', effort: 'medium', fast: true });
 
-    expect(result.current).toMatchObject({ provider: 'openai-codex', model: 'my-own-model', effort: 'medium', fast: true });
-    expect(result.current.providers[1]).toEqual({ name: 'openai-codex', models: ['my-own-model', 'gpt-plain', 'gpt-6-luna'] });
+    expect(result.current).toMatchObject({ provider: 'codex-agent', model: 'my-own-model', effort: 'medium', fast: true });
+    expect(result.current.providers[1]).toEqual({ name: 'codex-agent', models: ['my-own-model', 'gpt-plain', 'gpt-6-luna'] });
   });
 
   it('saves a picked model with its provider and nothing else', async () => {
     const { result, invoke, stored } = await loaded({ effort: 'default', fast: true });
 
-    await act(() => result.current.setModel('openai-codex', 'gpt-6-luna'));
+    await act(() => result.current.setModel('codex-agent', 'gpt-6-luna'));
 
-    expect(invoke).toHaveBeenCalledWith('settings.setModelDefaults', { model: { provider: 'openai-codex', model: 'gpt-6-luna' } });
-    expect(stored()).toEqual({ provider: 'openai-codex', model: 'gpt-6-luna', effort: 'default', fast: true });
-    expect(result.current).toMatchObject({ provider: 'openai-codex', model: 'gpt-6-luna', effort: 'default', fast: true });
+    expect(invoke).toHaveBeenCalledWith('settings.setModelDefaults', { model: { provider: 'codex-agent', model: 'gpt-6-luna' } });
+    expect(stored()).toEqual({ provider: 'codex-agent', model: 'gpt-6-luna', effort: 'default', fast: true });
+    expect(result.current).toMatchObject({ provider: 'codex-agent', model: 'gpt-6-luna', effort: 'default', fast: true });
   });
 
   it('saves the effort and the fast tier each on its own', async () => {
-    const { result, invoke } = await loaded({ provider: 'openai-codex', model: 'gpt-6-luna' });
+    const { result, invoke } = await loaded({ provider: 'codex-agent', model: 'gpt-6-luna' });
 
     await act(() => result.current.setEffort('medium'));
     await act(() => result.current.setFast(true));
@@ -99,10 +99,10 @@ describe('useModelDefaults', () => {
   });
 
   it('offers the effort and the fast tier only for a model that has them', async () => {
-    const { result } = await loaded({ provider: 'openai-codex', model: 'gpt-6-luna' });
+    const { result } = await loaded({ provider: 'codex-agent', model: 'gpt-6-luna' });
     expect(result.current).toMatchObject({ canSetEffort: true, canSetFast: true });
 
-    await act(() => result.current.setModel('openai-codex', 'gpt-plain'));
+    await act(() => result.current.setModel('codex-agent', 'gpt-plain'));
     expect(result.current).toMatchObject({ canSetEffort: false, canSetFast: false });
 
     await act(() => result.current.setModel('anthropic', 'claude-sonnet-5-5'));
@@ -110,7 +110,7 @@ describe('useModelDefaults', () => {
   });
 
   it("shows reasoning that is on at the provider's own effort as Default, a level that cannot be picked", async () => {
-    const { result, invoke } = await loaded({ provider: 'openai-codex', model: 'gpt-6-luna', effort: 'default' });
+    const { result, invoke } = await loaded({ provider: 'codex-agent', model: 'gpt-6-luna', effort: 'default' });
 
     expect(result.current.effortLevels).toEqual(['off', 'default', 'low', 'medium', 'high', 'xhigh']);
     await act(() => result.current.setEffort('default'));
@@ -119,9 +119,9 @@ describe('useModelDefaults', () => {
 
   it('once the effort or the fast tier is set here, drops the choice older versions carried from chat to chat', async () => {
     localStorage.setItem('moxxy.model.tuning', JSON.stringify({ effort: 'high', fast: true }));
-    const { result } = await loaded({ provider: 'openai-codex', model: 'gpt-6-luna' });
+    const { result } = await loaded({ provider: 'codex-agent', model: 'gpt-6-luna' });
 
-    await act(() => result.current.setModel('openai-codex', 'gpt-plain'));
+    await act(() => result.current.setModel('codex-agent', 'gpt-plain'));
     expect(localStorage.getItem('moxxy.model.tuning')).not.toBeNull();
 
     await act(() => result.current.setFast(false));
@@ -129,7 +129,7 @@ describe('useModelDefaults', () => {
   });
 
   it('says why a save did not happen and keeps the old value', async () => {
-    const { result } = await loaded({ provider: 'openai-codex', model: 'gpt-6-luna' }, { fail: true });
+    const { result } = await loaded({ provider: 'codex-agent', model: 'gpt-6-luna' }, { fail: true });
 
     await act(() => result.current.setFast(true));
 

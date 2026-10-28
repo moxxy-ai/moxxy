@@ -33,9 +33,9 @@ import type { MoxxyRequirement } from '@moxxy/sdk';
 
 const requirement: MoxxyRequirement = {
   kind: 'provider',
-  name: 'openai-codex',
+  name: 'openai',
   state: 'active',
-  hint: 'Switch provider to openai-codex.',
+  hint: 'Switch provider to openai.',
 };
 ```
 
@@ -65,8 +65,8 @@ Runtime facts are named pieces of process state. Core does not know what they
 mean; plugins and bootstrap code set or clear them:
 
 ```ts
-session.requirements.setRuntime('auth:provider:openai-codex', 'ready');
-session.requirements.clearRuntime('auth:provider:openai-codex');
+session.requirements.setRuntime('auth:provider:openai', 'ready');
+session.requirements.clearRuntime('auth:provider:openai');
 ```
 
 Use runtime facts for state that is not represented by a registry entry:
@@ -121,15 +121,15 @@ export default definePlugin({
       requirements: [
         {
           kind: 'provider',
-          name: 'openai-codex',
+          name: 'openai',
           state: 'active',
-          hint: 'Switch provider to openai-codex.',
+          hint: 'Switch provider to openai.',
         },
         {
           kind: 'runtime',
-          name: 'auth:provider:openai-codex',
+          name: 'auth:provider:openai',
           state: 'ready',
-          hint: 'Run `moxxy login openai-codex`.',
+          hint: 'Configure your OpenAI API key.',
         },
       ],
       createClient: () => ({
@@ -161,7 +161,7 @@ readiness checks.
 Use the shared resolver instead of duplicating preflight logic:
 
 ```ts
-const check = session.requirements.isReady('transcriber', 'openai-codex-transcribe');
+const check = session.requirements.isReady('transcriber', 'openai-gpt-transcribe');
 
 if (!check.ready) {
   const hint = check.issues[0]?.hint ?? check.issues[0]?.message;
@@ -172,27 +172,12 @@ if (!check.ready) {
 `isReady(kind, name)` checks that the target exists and also evaluates the
 target's own nested requirements.
 
-## Codex voice example
+## Voice availability
 
-The Codex voice path uses requirements as a production example:
-
-- `@moxxy/plugin-stt-whisper-codex` requires the Codex provider plugin to be
-  registered.
-- `openai-codex-transcribe` requires active provider `openai-codex`.
-- It also requires runtime fact `auth:provider:openai-codex` to be `ready`.
-- The TUI separately checks local capture readiness (`ffmpeg`) before showing
-  `Ctrl+R voice`.
-
-That means:
-
-- with Anthropic active, `Ctrl+R voice` is not advertised and pressing the
-  shortcut shows a clear notice;
-- without Codex OAuth, the UI points the user to
-  `moxxy login openai-codex`;
-- without `ffmpeg`, local recording is unavailable but the TUI does not crash.
-
-The transcriber still refreshes OAuth tokens at call time. Requirements improve
-availability and UX, but they do not replace final handler-level validation.
+The TUI checks recording readiness (`ffmpeg`) and the active transcriber before
+advertising `Ctrl+R voice`. Without a transcriber it asks you to select one.
+OpenAI transcription uses an API key; local transcription works independently
+of the model connection. No ChatGPT token is used for audio uploads.
 
 ## Optional requirements
 

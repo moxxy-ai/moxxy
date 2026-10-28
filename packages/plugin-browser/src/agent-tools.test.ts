@@ -289,7 +289,7 @@ describe('the tool set', () => {
 
 describe('optional fields the model leaves empty', () => {
   /**
-   * Observed live: openai-codex called browser_tabs with
+   * Observed live: codex-agent called browser_tabs with
    * `{action:"list", tab_id:"", url:""}` and the call was refused with
    * "url: Invalid url" before it ever reached the browser — after which the
    * model went looking for some other browser to use. Filling every declared

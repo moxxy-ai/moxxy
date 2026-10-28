@@ -5,7 +5,7 @@
  * relays the flow: streamed progress goes to a log box; when the provider asks
  * for a pasted value (the out-of-band token / `code#state` claude-code needs)
  * a `provider.login.prompt` event surfaces an input we answer with
- * `provider.login.answer`. Loopback providers (openai-codex) never prompt —
+ * `provider.login.answer`. Loopback providers never prompt —
  * the browser opens, the callback lands, and `provider.login.done` arrives.
  *
  * Shared by Settings → Providers and the onboarding wizard so both get the

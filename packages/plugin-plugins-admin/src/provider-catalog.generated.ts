@@ -119,22 +119,6 @@ export const PROVIDER_PLUGIN_CATALOG = [
     }
   },
   {
-    "id": "provider-openai-codex",
-    "packageName": "@moxxy/plugin-provider-openai-codex",
-    "installSpec": "@moxxy/plugin-provider-openai-codex",
-    "label": "ChatGPT — Moxxy",
-    "description": "Moxxy does the work with ChatGPT models on your ChatGPT sign-in.",
-    "provides": [
-      {
-        "category": "provider",
-        "name": "openai-codex"
-      }
-    ],
-    "provider": {
-      "auth": "oauth"
-    }
-  },
-  {
     "id": "provider-xai",
     "packageName": "@moxxy/plugin-provider-xai",
     "installSpec": "@moxxy/plugin-provider-xai",

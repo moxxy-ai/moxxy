@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@moxxy/client-core';
 import type { GeminiVoiceInfo } from '@moxxy/desktop-ipc-contract';
+import { useVaultKey } from './useVaultKey';
 
 const GEMINI_API_KEY = 'GEMINI_API_KEY';
 
@@ -28,8 +29,8 @@ export interface VoiceSettingsState {
 export function useVoiceSettings(): VoiceSettingsState {
   const [loading, setLoading] = useState(true);
   const [backend, setBackend] = useState<string | null>(null);
-  const [hasGeminiKey, setHasGeminiKey] = useState(false);
-  const [apiKeyDraft, setApiKeyDraft] = useState('');
+  const geminiKey = useVaultKey(GEMINI_API_KEY);
+  const hasGeminiKey = geminiKey.hasKey;
   const [voices, setVoices] = useState<ReadonlyArray<GeminiVoiceInfo>>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState('Fola');
   const [localPiperInstalled, setLocalPiperInstalled] = useState(false);
@@ -41,13 +42,11 @@ export function useVoiceSettings(): VoiceSettingsState {
     let current = true;
     void Promise.all([
       api().invoke('voice.getSettings'),
-      api().invoke('settings.vaultEntries'),
       api().invoke('voice.isLocalPiperInstalled'),
-    ]).then(([settings, entries, installed]) => {
+    ]).then(([settings, installed]) => {
       if (!current) return;
       setBackend(settings.backend);
       setSelectedVoiceId(settings.voiceId);
-      setHasGeminiKey(entries.some((entry) => entry.name === GEMINI_API_KEY));
       setLocalPiperInstalled(installed);
     }).catch((reason: unknown) => {
       if (current) setError(errorMessage(reason));
@@ -72,24 +71,6 @@ export function useVoiceSettings(): VoiceSettingsState {
       setLoadingVoices(false);
     }
   }, [selectedVoiceId]);
-
-  const saveGeminiApiKey = useCallback(async () => {
-    if (!apiKeyDraft.trim()) {
-      setError('Paste a Gemini API key first.');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await api().invoke('settings.vaultSet', { name: GEMINI_API_KEY, value: apiKeyDraft.trim() });
-      setHasGeminiKey(true);
-      setApiKeyDraft('');
-    } catch (reason) {
-      setError(errorMessage(reason));
-    } finally {
-      setBusy(false);
-    }
-  }, [apiKeyDraft]);
 
   const useGeminiVoice = useCallback(async () => {
     if (!hasGeminiKey) {
@@ -127,19 +108,19 @@ export function useVoiceSettings(): VoiceSettingsState {
   }, []);
 
   return {
-    loading,
+    loading: loading || geminiKey.loading,
     backend,
     hasGeminiKey,
-    apiKeyDraft,
+    apiKeyDraft: geminiKey.draft,
     voices,
     selectedVoiceId,
     localPiperInstalled,
     loadingVoices,
-    busy,
-    error,
-    setApiKeyDraft,
+    busy: busy || geminiKey.busy,
+    error: error ?? geminiKey.error,
+    setApiKeyDraft: geminiKey.setDraft,
     setSelectedVoiceId,
-    saveGeminiApiKey,
+    saveGeminiApiKey: geminiKey.save,
     loadVoices,
     useGeminiVoice,
     useLocalPiper,

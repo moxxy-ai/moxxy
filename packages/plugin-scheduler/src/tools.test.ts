@@ -52,7 +52,7 @@ describe('schedule_create tool — input validation hardening', () => {
     expect(r.success).toBe(false);
   });
 
-  it('creates a recurring schedule from the blank placeholders emitted by openai-codex', async () => {
+  it('creates a recurring schedule from the blank placeholders emitted by codex-agent', async () => {
     const out = await executeCreate({
       name: 'daily-summary',
       prompt: 'Prepare the daily summary',

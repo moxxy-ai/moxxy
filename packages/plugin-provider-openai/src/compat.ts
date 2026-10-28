@@ -10,6 +10,7 @@ import { validateKey as validateOpenAICompatKey } from './validate.js';
  * meaningful to the underlying {@link OpenAIProvider}, so we narrow to them.
  */
 export interface OpenAICompatConfig {
+  readonly api?: OpenAIProviderConfig['api'];
   readonly apiKey?: string;
   readonly baseURL?: string;
   readonly defaultModel?: string;
@@ -41,6 +42,7 @@ export function openAICompatModelsURL(baseURL: string): string {
 export function pickOpenAICompatConfig(config: Record<string, unknown>): OpenAICompatConfig {
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
   return {
+    ...(config.api === 'responses' || config.api === 'chat-completions' ? { api: config.api } : {}),
     apiKey: str(config.apiKey),
     baseURL: str(config.baseURL),
     defaultModel: str(config.defaultModel),
@@ -48,6 +50,12 @@ export function pickOpenAICompatConfig(config: Record<string, unknown>): OpenAIC
 }
 
 export interface DefineOpenAICompatProviderSpec {
+  /**
+   * Pin a protocol for a vendor whose behaviour on the other route is
+   * unknown (e.g. Z.ai documents only Chat Completions). Unset: try
+   * Responses, fall back to Chat Completions. A user's `api` config wins.
+   */
+  readonly api?: OpenAIProviderConfig['api'];
   /**
    * Vendor slug (e.g. `xai`, `zai`, `google`, `local`). Stamped onto the
    * underlying client so usage stats, provider_request/response events and
@@ -129,6 +137,7 @@ export function defineOpenAICompatProvider(spec: DefineOpenAICompatProviderSpec)
         );
       }
       return new OpenAIProvider({
+        ...(cfg.api ?? spec.api ? { api: cfg.api ?? spec.api } : {}),
         apiKey,
         name: spec.name,
         baseURL: resolveBaseURL(cfg),

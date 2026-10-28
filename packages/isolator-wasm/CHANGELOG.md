@@ -1,5 +1,13 @@
 # @moxxy/isolator-wasm
 
+## 0.0.70
+
+### Patch Changes
+
+- Updated dependencies [546836d]
+  - @moxxy/sdk@0.46.0
+  - @moxxy/plugin-security@0.46.0
+
 ## 0.0.69
 
 ### Patch Changes

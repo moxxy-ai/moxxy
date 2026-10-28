@@ -23,7 +23,8 @@ const SHOWN: Record<string, ReadonlyArray<ClaudeMessage>> = {
   'system/init': [message({ type: 'system', subtype: 'init', session_id: 's-1', permissionMode: 'default' })],
   'system/status': [message({ type: 'system', subtype: 'status', status: null, permissionMode: 'acceptEdits' })],
   stream_event: [message({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hi' } }, parent_tool_use_id: null })],
-  assistant: [assistant([{ type: 'text', text: 'Done.' }])],
+  // A sentence on its own is marked by what follows it (see translate.test.ts); with its call it shows at once.
+  assistant: [assistant([{ type: 'text', text: 'Reading it.' }, { type: 'tool_use', id: 't0', name: 'Read', input: { file_path: '/w/a.txt' } }])],
   user: [assistant([{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/w/a.txt' } }]), toolResult('t1', 'hello')],
   rate_limit_event: [message({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', utilization: 0.9 } })],
   'system/task_notification': [

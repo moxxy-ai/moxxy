@@ -1,5 +1,8 @@
 # Moxxy Browser — baseline (before the browser-use update)
 
+
+> Historical measurement: the `openai-codex` connection used here has been retired. These results do not measure the current OpenAI API or Codex agent connection.
+
 Measured on 2026-10-03, on branch `internal-browser-use-update` at `56fb8fc3`,
 before any change to the browser host or tools. This is what every later stage
 is compared against.

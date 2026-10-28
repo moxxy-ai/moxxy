@@ -179,6 +179,8 @@ export interface IpcCommands {
   'app.updateDiagnostics': () => Promise<AppUpdateDiagnostics>;
 
   'onboarding.status': () => Promise<OnboardingStatus>;
+  /** The provider-migration notice in `onboarding.status` was shown; forget it. */
+  'onboarding.dismissProviderMigration': () => Promise<void>;
   /** Probe Node.js — used by the first wizard step before we offer
    *  the install. */
   'onboarding.probeNode': () => Promise<NodeProbe>;
@@ -370,11 +372,11 @@ export interface IpcCommands {
   /** Keep the local main renderer realtime while it owns an active Voice Mode
    * capture. Local desktop IPC only; no audio or workspace data crosses here. */
   'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;
-  /** Whether GPT-Live can reuse the existing ChatGPT OAuth login. Never starts
-   *  a login and never returns credential material. Local desktop IPC only. */
+  /** Whether an OpenAI API key is saved for GPT-Live. Never returns
+   *  credential material. Local desktop IPC only. */
   'voice.live.preflight': () => Promise<{ readonly authenticated: boolean }>;
   /** Exchange a renderer-created WebRTC offer for a GPT-Live call answer. The
-   *  host pins the endpoint, OAuth token, instructions and the workspace's chat
+   *  host pins the endpoint, API key, instructions and the workspace's chat
    *  history; the renderer only ever sees the SDP answer and call id. */
   'voice.live.start': (args: {
     readonly workspaceId: string;
@@ -848,8 +850,7 @@ export interface IpcCommands {
    *  stored provider entry didn't enumerate models upfront. */
   'settings.fetchProviderModels': (args: { provider: string }) => Promise<ReadonlyArray<string>>;
   /** Lists every provider the user could realistically pick from during
-   *  onboarding — built-ins (anthropic, openai, openai-codex, the coding
-   *  agents) plus the stored vendors in the unified config
+   *  onboarding — built-ins (anthropic, openai, the coding agents) plus the stored vendors in the unified config
    *  (plugins.provider.items) — each tagged agent or api. */
   'settings.providerCatalog': () => Promise<ReadonlyArray<ProviderCatalogEntry>>;
   /** Subset of providers that the user added via `provider_add` — the

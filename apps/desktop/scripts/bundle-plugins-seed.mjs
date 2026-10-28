@@ -66,7 +66,6 @@ const SEED_PLUGINS = [
   'plugin-channel-web',
   // Slim-wave batches 5+6 (desktop voice, Settings panels, Apps→Channels).
   'plugin-stt-whisper',
-  'plugin-stt-whisper-codex',
   'plugin-telegram',
   'plugin-channel-slack',
   'plugin-channel-whatsapp',
@@ -85,7 +84,7 @@ const SEED_PLUGINS = [
 /** First-party runtime deps of seed members — packed so the closure installs
  *  from local tarballs (usage-stats→core, oauth→vault, channel-kit→chat-model, tts-local and stt-local→model-fetch, computer-control and browser→jev,
  *  claude-code→agent-connection-kit, everything→sdk). None of these are on npm, so a missing one fails with 404. */
-const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'chat-model', 'jev', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex', 'model-fetch', 'agent-connection-kit'];
+const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'chat-model', 'jev', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'model-fetch', 'agent-connection-kit'];
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
 
 // fileURLToPath, NOT url.pathname — pathname on Windows is `/D:/a/...`, which

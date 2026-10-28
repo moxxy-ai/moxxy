@@ -405,6 +405,37 @@ export async function setModelDefaults(change: ModelDefaultsChange, opts: UserCo
   });
 }
 
+/**
+ * Rename a provider wherever it is chosen (`plugins.provider.default` and
+ * `.fallbacks`, without duplicates), e.g. when a provider is retired and its
+ * replacement has started. Item options stay. Returns whether the file
+ * changed; a file that does not name `from` is left byte for byte.
+ */
+export async function replaceProviderName(
+  from: string,
+  to: string,
+  opts: UserConfigOptions = {},
+): Promise<boolean> {
+  const configPath = opts.configPath ?? defaultUserConfigPath();
+  return configMutex.run(async () => {
+    const doc = await readUserConfigDoc(configPath);
+    const slot = readRawEntry(doc, ['plugins', 'provider']);
+    const fallbacks = Array.isArray(slot.fallbacks) ? slot.fallbacks : [];
+    if (slot.default !== from && !fallbacks.includes(from)) return false;
+    if (slot.default === from) doc.setIn(['plugins', 'provider', 'default'], to);
+    if (fallbacks.includes(from)) {
+      const chosen = doc.getIn(['plugins', 'provider', 'default']);
+      const renamed = fallbacks.map((name) => (name === from ? to : name));
+      doc.setIn(
+        ['plugins', 'provider', 'fallbacks'],
+        renamed.filter((name, index) => name !== chosen && renamed.indexOf(name) === index),
+      );
+    }
+    await writeUserConfigDoc(configPath, doc);
+    return true;
+  });
+}
+
 /** Provider names disabled via `plugins.provider.items.<name>.enabled: false`. */
 export async function loadDisabledProviders(
   opts: UserConfigOptions = {},

@@ -520,6 +520,57 @@ describe('chatStore history loading', () => {
     });
   });
 
+  // An agent connection once recorded the sentence before a call as `end_turn`, and logs
+  // written then still hold such rows: work after it means the turn went on.
+  it('keeps a turn running when work follows a message marked as its end', async () => {
+    const id = ws();
+    const turnId = 'went-on-turn';
+    const prompt = userPrompt('build the package', turnId);
+    const sentence = assistant('Building the package.', turnId);
+    const toolRequest = evt('tool_call_requested', {
+      turnId,
+      callId: 'call-build',
+      name: 'Bash',
+      input: { command: 'pnpm build' },
+    });
+
+    chatStore.setPersistence(pagerFor([prompt, sentence, toolRequest]).persistence);
+    chatStore.dispatch(id, { type: 'send_started', turnId });
+    chatStore.dispatch(id, { type: 'event', event: prompt });
+
+    await chatStore.refreshLatest(id, turnId);
+
+    expect(chatStore.getChat(id)).toMatchObject({
+      sending: true,
+      activeTurnId: turnId,
+    });
+  });
+
+  // The runner named the turn just before it ended: the log already holds its last words.
+  it('clears a turn the runner still names once the log holds its last words', async () => {
+    const id = ws();
+    const turnId = 'just-ended-turn';
+    const prompt = userPrompt('build the package', turnId);
+    const toolRequest = evt('tool_call_requested', {
+      turnId,
+      callId: 'call-build',
+      name: 'Bash',
+      input: { command: 'pnpm build' },
+    });
+    const toolResult = evt('tool_result', { turnId, callId: 'call-build', ok: true, output: 'done' });
+    const lastWords = assistant('Built.', turnId);
+
+    chatStore.setPersistence(pagerFor([prompt, toolRequest, toolResult, lastWords]).persistence);
+    chatStore.dispatch(id, { type: 'event', event: prompt });
+
+    await chatStore.refreshLatest(id, turnId);
+
+    expect(chatStore.getChat(id)).toMatchObject({
+      sending: false,
+      activeTurnId: null,
+    });
+  });
+
   it('walks raw pages bounded, stopping once enough rendered rows are gathered', async () => {
     const id = ws();
     // An ascending raw log: 600 events, every other one rendered, so a single

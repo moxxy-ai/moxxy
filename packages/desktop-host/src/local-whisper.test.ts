@@ -196,12 +196,12 @@ describe('transcription switch', () => {
 
     const cloud = switchWith({
       loadChoice: async () => null,
-      runner: async () => fakeRunner('openai-codex-transcribe'),
+      runner: async () => fakeRunner('openai-gpt-transcribe'),
       model: fakeModel({ present: false }),
     });
     await expect(cloud.transcription.get()).resolves.toMatchObject({
       mode: 'cloud',
-      active: 'openai-codex-transcribe',
+      active: 'openai-gpt-transcribe',
       modelReady: false,
     });
 

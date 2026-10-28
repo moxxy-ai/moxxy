@@ -82,7 +82,7 @@ afterEach(() => {
 describe('builtinProviderKeyName', () => {
   it('uppercases and hyphen→underscore, suffixing _API_KEY', () => {
     expect(builtinProviderKeyName('openai')).toBe('OPENAI_API_KEY');
-    expect(builtinProviderKeyName('openai-codex')).toBe('OPENAI_CODEX_API_KEY');
+    expect(builtinProviderKeyName('codex-agent')).toBe('CODEX_AGENT_API_KEY');
     expect(builtinProviderKeyName('z-ai')).toBe('Z_AI_API_KEY');
   });
 });

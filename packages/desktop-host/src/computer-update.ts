@@ -7,7 +7,7 @@ import { readBoundedFile } from './bounded-read.js';
 import { applyComputerLedgers, computerLedgerSchema, prepareComputerLedgers, type ComputerLedger } from './computer-update-ledger.js';
 
 const pluginName = '@moxxy/plugin-computer-control';
-const managedPackageSchema = z.enum([pluginName, '@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex']);
+const managedPackageSchema = z.enum([pluginName, '@moxxy/plugin-provider-openai']);
 export type ManagedPackage = z.infer<typeof managedPackageSchema>;
 export const isManagedPackage = (name: string): name is ManagedPackage => managedPackageSchema.safeParse(name).success;
 interface UpdateOptions { resourcesPath: string; moxxyHome: string; plugin?: ManagedPackage }

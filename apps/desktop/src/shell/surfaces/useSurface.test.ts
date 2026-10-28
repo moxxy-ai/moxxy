@@ -154,7 +154,7 @@ describe('useSurface and the workspace runner', () => {
     host.runnerUp(true);
     setPhase('ws-restart', CONNECTED);
 
-    await waitFor(() => expect(host.opens()).toBe(2));
-    expect(result.current.ready).toBe(true);
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(host.opens()).toBe(2);
   });
 });

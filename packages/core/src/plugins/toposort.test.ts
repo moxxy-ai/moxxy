@@ -40,7 +40,7 @@ describe('toposortPluginManifests', () => {
   it('ignores non-plugin requirement kinds', () => {
     const ordered = toposortPluginManifests([
       m('only-runtime', [], [{ kind: 'runtime', name: 'auth:ready' }]),
-      m('only-provider', [], [{ kind: 'provider', name: 'openai-codex' }]),
+      m('only-provider', [], [{ kind: 'provider', name: 'codex-agent' }]),
     ]);
 
     expect(ordered.map((p) => p.packageName).sort()).toEqual(['only-provider', 'only-runtime']);

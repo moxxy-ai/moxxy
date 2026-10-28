@@ -21,6 +21,12 @@ export class TurnTranslator {
   private readonly handedOver = new Set<string>();
   /** The plan limit Claude last reported, whose reset its own limit message leaves out. */
   private limit: AgentAccountLimit | undefined;
+  /**
+   * A sentence Claude sent on its own, not yet marked. Claude Code sends each block
+   * of a reply as a message of its own, with no stop reason yet, so a sentence and
+   * the call after it arrive apart: it is marked by what comes next.
+   */
+  private unmarked: string | undefined;
 
   /**
    * `cwd`: the project folder, which the paths of file diffs are shown relative to.
@@ -39,8 +45,21 @@ export class TurnTranslator {
     if (from.inSubagent || this.announced.has(callId) || name.startsWith(MOXXY_TOOL_PREFIX)) return [];
     if (this.subagents.ownerOf(callId) !== undefined || this.subagents.isSubagent(callId)) return [];
     this.announced.set(callId, { name, input });
-    if (this.subagents.isSubagentTool(name)) return this.subagents.started(callId, input);
-    return [{ type: 'tool_call', callId, name, input }];
+    // The sentence before the call goes first, as part of the work.
+    const before = this.mark('tool_use');
+    if (this.subagents.isSubagentTool(name)) return [...before, ...this.subagents.started(callId, input)];
+    return [...before, { type: 'tool_call', callId, name, input }];
+  }
+
+  /** The turn ended: a sentence still unmarked is what Claude ended it with. */
+  finish(): AgentStepEvent[] {
+    return this.mark('end_turn');
+  }
+
+  private mark(stopReason: 'tool_use' | 'end_turn'): AgentStepEvent[] {
+    const text = this.unmarked;
+    this.unmarked = undefined;
+    return text === undefined ? [] : [{ type: 'message', text, stopReason }];
   }
 
   /** The call is done on Moxxy's side, whatever Claude is told: it reads as gone through, not as refused. */
@@ -58,7 +77,12 @@ export class TurnTranslator {
         // Claude reports every change of mode, whoever made it, so the switch follows it at once.
         return isModeChange(message) ? autoApproveEvents(message.permissionMode) : [];
       case 'stream_event':
-        return isMainThread(message) ? fromDelta(message) : [];
+        if (!isMainThread(message)) return [];
+        // The reply's end says how it stopped: a call comes next, or the turn is over.
+        if (message.event.type === 'message_delta' && message.event.delta?.stop_reason) {
+          return this.mark(message.event.delta.stop_reason === 'tool_use' ? 'tool_use' : 'end_turn');
+        }
+        return fromDelta(message);
       case 'assistant':
         if (message.error === 'rate_limit' && isMainThread(message)) return [this.limitReached()];
         return isMainThread(message) ? [...this.fromAssistant(message), ...contextUsed(message.message.usage)] : this.fromSubagent(message);
@@ -82,13 +106,15 @@ export class TurnTranslator {
   }
 
   private fromAssistant(message: { message: { content: ReadonlyArray<ClaudeContentBlock> } }): AgentStepEvent[] {
-    const events: AgentStepEvent[] = [];
     const blocks = message.message.content;
+    // Claude went on after a sentence it sent on its own: that sentence was part of the work.
+    const events: AgentStepEvent[] = blocks.length > 0 ? this.mark('tool_use') : [];
     const thinking = blocks.flatMap((b) => (isThinking(b) && b.thinking ? [b.thinking] : [])).join('\n');
     if (thinking) events.push({ type: 'reasoning', text: thinking });
     const text = blocks.flatMap((b) => (isText(b) ? [b.text] : [])).join('');
     const calls = blocks.filter(isToolUse);
-    if (text) events.push({ type: 'message', text, stopReason: calls.length > 0 ? 'tool_use' : 'end_turn' });
+    if (text && calls.length > 0) events.push({ type: 'message', text, stopReason: 'tool_use' });
+    else if (text) this.unmarked = text;
     for (const call of calls) {
       if (call.name.startsWith(MOXXY_TOOL_PREFIX)) this.moxxyCalls.add(call.id);
       else events.push(...this.announce(call.id, call.name, call.input));
@@ -202,7 +228,7 @@ export function toClaudeContent(prompt: ReadonlyArray<ContentBlock>, prefix = ''
   return blocks;
 }
 
-function fromDelta(message: { event: { type: string; delta?: { type: string; text?: string; thinking?: string } } }): AgentStepEvent[] {
+function fromDelta(message: { event: { type: string; delta?: { type?: string; text?: string; thinking?: string } } }): AgentStepEvent[] {
   const { event } = message;
   if (event.type !== 'content_block_delta' || !event.delta) return [];
   if (event.delta.type === 'text_delta' && event.delta.text) return [{ type: 'text_delta', delta: event.delta.text }];

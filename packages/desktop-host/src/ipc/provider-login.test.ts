@@ -68,7 +68,7 @@ describe('provider login IPC preparation', () => {
     const start = register(pool).get('provider.login.start');
     if (!start) throw new Error('provider.login.start handler was not registered');
 
-    const pending = start({ loginId: 'login-1', provider: 'openai-codex' } as never);
+    const pending = start({ loginId: 'login-1', provider: 'codex-agent' } as never);
     await Promise.resolve();
 
     expect(prepare).toHaveBeenCalledTimes(1);
@@ -79,7 +79,7 @@ describe('provider login IPC preparation', () => {
 
     expect(h.startProviderLogin).toHaveBeenCalledWith(
       'login-1',
-      'openai-codex',
+      'codex-agent',
       h.window,
       expect.any(Object),
     );
@@ -95,7 +95,7 @@ describe('provider login IPC preparation', () => {
     if (!start) throw new Error('provider.login.start handler was not registered');
 
     await expect(
-      start({ loginId: 'login-failed', provider: 'openai-codex' } as never),
+      start({ loginId: 'login-failed', provider: 'codex-agent' } as never),
     ).rejects.toBe(failure);
     expect(h.startProviderLogin).not.toHaveBeenCalled();
   });
@@ -111,7 +111,7 @@ describe('provider login IPC preparation', () => {
     const cancel = handlers.get('provider.login.cancel');
     if (!start || !cancel) throw new Error('provider login handlers were not registered');
 
-    const pending = start({ loginId: 'login-cancelled', provider: 'openai-codex' } as never);
+    const pending = start({ loginId: 'login-cancelled', provider: 'codex-agent' } as never);
     await Promise.resolve();
     await cancel({ loginId: 'login-cancelled' } as never);
     preparation.release();

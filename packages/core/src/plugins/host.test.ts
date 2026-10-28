@@ -160,9 +160,9 @@ describe('PluginHost', () => {
 
     expect(() =>
       host.registerStatic(plugin, {
-        requirements: [{ kind: 'plugin', name: '@moxxy/plugin-provider-openai-codex' }],
+        requirements: [{ kind: 'plugin', name: '@moxxy/plugin-provider-codex-agent' }],
       }),
-    ).toThrow(/Required plugin is not registered: @moxxy\/plugin-provider-openai-codex/);
+    ).toThrow(/Required plugin is not registered: @moxxy\/plugin-provider-codex-agent/);
     expect(tools.has('should-not-register')).toBe(false);
     expect(host.list()).toEqual([]);
     expect(host.listSkipped()).toMatchObject([
@@ -170,7 +170,7 @@ describe('PluginHost', () => {
         pluginName: 'needs-codex',
         source: 'static',
         reason: 'unmet_requirements',
-        message: 'Required plugin is not registered: @moxxy/plugin-provider-openai-codex',
+        message: 'Required plugin is not registered: @moxxy/plugin-provider-codex-agent',
       },
     ]);
   });
@@ -193,7 +193,7 @@ describe('PluginHost', () => {
         requirements: [
           {
             kind: 'plugin',
-            name: '@moxxy/plugin-provider-openai-codex',
+            name: '@moxxy/plugin-provider-codex-agent',
             optional: true,
             hint: 'Enable Codex for richer behavior.',
           },
@@ -209,13 +209,13 @@ describe('PluginHost', () => {
     const { host } = makeHost();
     const plugin = definePlugin({ name: 'needs-codex' });
     const opts = {
-      requirements: [{ kind: 'plugin' as const, name: '@moxxy/plugin-provider-openai-codex' }],
+      requirements: [{ kind: 'plugin' as const, name: '@moxxy/plugin-provider-codex-agent' }],
     };
 
     expect(() => host.registerStatic(plugin, opts)).toThrow(/Required plugin is not registered/);
     expect(host.listSkipped()).toHaveLength(1);
 
-    host.registerStatic(definePlugin({ name: '@moxxy/plugin-provider-openai-codex' }));
+    host.registerStatic(definePlugin({ name: '@moxxy/plugin-provider-codex-agent' }));
     host.registerStatic(plugin, opts);
 
     expect(host.listSkipped()).toEqual([]);
@@ -246,7 +246,7 @@ describe('PluginHost', () => {
 
   it('allows plugin registration after required plugin is loaded', () => {
     const { host, tools } = makeHost();
-    host.registerStatic(definePlugin({ name: '@moxxy/plugin-provider-openai-codex' }));
+    host.registerStatic(definePlugin({ name: '@moxxy/plugin-provider-codex-agent' }));
     host.registerStatic(
       definePlugin({
         name: 'needs-codex',
@@ -260,7 +260,7 @@ describe('PluginHost', () => {
         ],
       }),
       {
-        requirements: [{ kind: 'plugin', name: '@moxxy/plugin-provider-openai-codex' }],
+        requirements: [{ kind: 'plugin', name: '@moxxy/plugin-provider-codex-agent' }],
       },
     );
 

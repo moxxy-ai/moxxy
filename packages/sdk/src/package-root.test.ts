@@ -21,7 +21,7 @@ describe('@moxxy/sdk package root', () => {
   it('exports requirement types through package root declarations', async () => {
     const requirement: import('@moxxy/sdk').MoxxyRequirement = {
       kind: 'runtime',
-      name: 'auth:provider:openai-codex',
+      name: 'auth:provider:codex-agent',
       state: 'ready',
     };
     const check: import('@moxxy/sdk').RequirementCheck = {
@@ -35,7 +35,7 @@ describe('@moxxy/sdk package root', () => {
       ],
     };
 
-    expect(check.issues[0]?.requirement.name).toBe('auth:provider:openai-codex');
+    expect(check.issues[0]?.requirement.name).toBe('auth:provider:codex-agent');
   });
 
   // The main barrel is the browser/RN-safe surface: a value import of any of

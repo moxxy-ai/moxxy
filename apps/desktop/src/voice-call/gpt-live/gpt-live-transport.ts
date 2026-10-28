@@ -62,7 +62,7 @@ export interface GptLiveConnection {
 }
 
 export interface GptLiveConnectOptions {
-  /** Exchanges the offer for the call answer; OAuth stays behind desktop IPC. */
+  /** Exchanges the offer for the call answer; the API key stays behind desktop IPC. */
   readonly negotiate: (offerSdp: string) => Promise<{ readonly sdp: string; readonly callId: string }>;
   readonly onEvent: (raw: string) => void;
   readonly onInputAnalyser?: (analyser: unknown | null) => void;

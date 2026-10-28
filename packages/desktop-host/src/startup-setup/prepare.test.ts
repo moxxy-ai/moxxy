@@ -76,7 +76,7 @@ describe('prepareInstalledApp', () => {
     const state = await launch({ shellVersion: '0.7.0' });
 
     expect(state.notes).toHaveLength(1);
-    expect(state.notes[0]).toMatch(/ChatGPT sign-in was updated.*previous copy/);
+    expect(state.notes[0]).toMatch(/OpenAI API connection was updated.*previous copy/);
     expect((await launch({ shellVersion: '0.7.0' })).notes).toEqual([]);
   });
 

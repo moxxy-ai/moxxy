@@ -20,7 +20,7 @@ export interface OAuthProviderProfile {
   /**
    * Stable namespace under `oauth/<id>/*` in the vault. Lowercase,
    * digits, dot/dash/underscore only — same rules as `validateProvider`.
-   * Example: `'openai-codex'`, `'google'`, `'github'`.
+   * Example: `'google'`, `'github'`.
    */
   readonly id: string;
   /** Authorization endpoint, e.g. https://accounts.google.com/o/oauth2/v2/auth */

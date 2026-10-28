@@ -19,9 +19,9 @@ describe('destinations', () => {
     expect(new Set(DESTINATIONS.map((d) => d.id)).size).toBe(DESTINATIONS.length);
   });
 
-  it('names them in the product vocabulary, runs first and settings last', () => {
+  it('names them in the product vocabulary, workspaces first and settings last', () => {
     expect(DESTINATIONS.map((d) => d.label)).toEqual([
-      'Runs',
+      'Workspaces',
       'Extensions',
       'Automations',
       'Apps',

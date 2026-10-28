@@ -13,13 +13,13 @@ import {
 import { Segmented } from '../shell/Segmented';
 
 const ENGINE_OPTIONS: ReadonlyArray<{ id: VoiceEnginePreference; label: string }> = [
-  { id: 'local', label: 'Local' },
+  { id: 'local', label: 'Classic' },
   { id: 'gpt-live', label: 'GPT-Live' },
 ];
 
 const ENGINE_DETAIL: Readonly<Record<VoiceEnginePreference, string>> = {
-  local: 'Your speech is transcribed and answered by the Moxxy agent, then read aloud by the spoken voice you choose below.',
-  'gpt-live': 'A live GPT-Live conversation over your ChatGPT login. It knows the chat and talks with you itself; when you ask for something to be done, your exact words go to the Moxxy agent and GPT-Live reads back the real result. Uses your ChatGPT voice allowance.',
+  local: 'Your speech is transcribed and answered by the Moxxy agent, then read aloud by the voice chosen under Read aloud. Works offline with local transcription and Piper.',
+  'gpt-live': 'A live GPT-Live conversation on your OpenAI API key. It knows the chat and talks with you itself; when you ask for something to be done, your exact words go to the Moxxy agent and GPT-Live reads back the real result. OpenAI bills each minute to your key.',
 };
 
 export function VoiceEngineSection(): JSX.Element {

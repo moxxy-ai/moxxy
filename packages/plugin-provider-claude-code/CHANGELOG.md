@@ -1,5 +1,16 @@
 # @moxxy/plugin-provider-claude-code
 
+## 0.46.0
+
+### Patch Changes
+
+- 4b1d041: Claude Code models no longer show the Fast switch. Moxxy never passed it on to Claude, so it did nothing; Fast stays for the Codex agent and for OpenAI models through an API key.
+- 37a5280: A sentence Claude writes before a tool call no longer marks the end of its turn. Claude Code sends each part of a reply on its own, so the sentence arrived apart from its call and was recorded as Claude's last word; coming back to a chat while Claude still worked then showed it as idle, and a message sent then ran beside the running turn instead of waiting for it. The sentence is now marked by what follows it: a call, the stop reason of the reply, or the end of the turn.
+- Updated dependencies [546836d]
+  - @moxxy/sdk@0.46.0
+  - @moxxy/agent-connection-kit@0.1.1
+  - @moxxy/plugin-browser@0.46.0
+
 ## 0.45.0
 
 ### Patch Changes
