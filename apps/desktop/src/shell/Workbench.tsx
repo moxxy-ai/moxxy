@@ -20,7 +20,7 @@
  */
 
 import { useRef, useState } from 'react';
-import { deskForWorkspace, useDesks } from '@moxxy/client-core';
+import { deskForWorkspace, useAgentWork, useDesks } from '@moxxy/client-core';
 import { Icon, type IconName } from '@moxxy/desktop-ui';
 import { chordLabel } from '@/hotkeys/chordLabel';
 import {
@@ -78,6 +78,10 @@ export function workbenchTabForTool(toolName: string): WorkbenchTab | undefined 
   return TOOL_TAB[toolName];
 }
 
+function countOf(counts: Partial<Record<WorkbenchTab, { readonly count: number }>>, tab: WorkbenchTab): number {
+  return counts[tab]?.count ?? 0;
+}
+
 export function Workbench({
   tab,
   onPick,
@@ -103,6 +107,12 @@ export function Workbench({
 }): JSX.Element {
   const desks = useDesks();
   const active = deskForWorkspace(desks.desks, workspaceId);
+  // What runs in the chat's background shows on the Agents tab, as changes do on Diff.
+  const running = useAgentWork(workspaceId).running;
+  const counts: Partial<Record<WorkbenchTab, { readonly count: number; readonly word: string }>> = {
+    files: { count: changedCount ?? 0, word: 'changed' },
+    agents: { count: running, word: 'running' },
+  };
   const width = useRailWidth();
   const ref = useRef<HTMLElement | null>(null);
   const open = tab !== null;
@@ -202,11 +212,7 @@ export function Workbench({
                   className="bench__tab tip"
                   // A narrow strip draws an inactive tab as its icon alone: the
                   // name stays for assistive tech and in the tooltip.
-                  aria-label={
-                    t.id === 'files' && changedCount !== undefined && changedCount > 0
-                      ? `${t.label}, ${changedCount} changed`
-                      : t.label
-                  }
+                  aria-label={countOf(counts, t.id) ? `${t.label}, ${countOf(counts, t.id)} ${counts[t.id]?.word}` : t.label}
                   data-tip={t.label}
                   data-tip-side="bottom"
                   data-testid={`bench-tab-${t.id}`}
@@ -219,9 +225,7 @@ export function Workbench({
                 >
                   <Icon name={t.icon} size={13} />
                   <span className="bench__tab-label">{t.label}</span>
-                  {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
-                    <b>{changedCount}</b>
-                  )}
+                  {countOf(counts, t.id) > 0 && <b>{countOf(counts, t.id)}</b>}
                 </button>
               ))}
             </div>
