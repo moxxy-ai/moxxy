@@ -28,10 +28,18 @@ export function cronBaseline(entry: ScheduleEntry): number {
   return Math.max(baseline, entry.timingChangedAt ?? baseline, entry.lastStartedAt ?? baseline, entry.lastSkippedAt ?? baseline, windowOpen);
 }
 
+/**
+ * How late the last in-window run may still start. The poller ticks every 30 s
+ * and a previous run can still be busy, so a run due at `endAt` is normally
+ * picked up a little after it; a run missed by more (the computer was asleep)
+ * is dropped instead of firing outside the window.
+ */
+export const WINDOW_END_GRACE_MS = 5 * 60_000;
+
 /** True once a windowed schedule can never fire again. */
 export function isWindowOver(entry: ScheduleEntry, now: number): boolean {
   if (entry.endAt === undefined) return false;
-  if (now > entry.endAt) return true;
+  if (now > entry.endAt + WINDOW_END_GRACE_MS) return true;
   const next = nextCronFire(entry);
   return next !== null && next.getTime() > entry.endAt;
 }

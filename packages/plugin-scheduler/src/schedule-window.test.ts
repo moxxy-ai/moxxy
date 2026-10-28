@@ -52,7 +52,15 @@ describe('schedule window — firing decision', () => {
     expect(isDue(entry, windowEnd)).toBe(true);
   });
 
-  it('never fires after the window closes, not even a missed catch-up run', () => {
+  it('still fires the last run when the poller notices it a little after the end time', () => {
+    // The poller ticks every 30 s and a previous run may still be busy, so the
+    // 07:00 run is usually picked up at 07:00:xx, after `endAt` itself.
+    const entry = windowEntry({ lastRunAt: windowEnd - 30 * MINUTE });
+    expect(isDue(entry, windowEnd + 20_000)).toBe(true);
+    expect(isDue(entry, windowEnd + 4 * MINUTE)).toBe(true);
+  });
+
+  it('never fires a missed run long after the window closed (e.g. the computer was asleep)', () => {
     const entry = windowEntry({ lastRunAt: windowEnd - 30 * MINUTE });
     expect(isDue(entry, windowEnd + 2 * 60 * MINUTE)).toBe(false);
   });
@@ -95,14 +103,15 @@ describe('schedule window — poller over a whole night', () => {
       inbox: { dir: path.join(dir, 'inbox') },
     });
 
-    for (let t = windowStart - 10 * MINUTE; t <= windowEnd + 60 * MINUTE; t += 5 * MINUTE) {
+    // Like the real poller: a tick every 30 s, never exactly on the minute.
+    for (let t = windowStart - 10 * MINUTE + 20_000; t <= windowEnd + 60 * MINUTE; t += 30_000) {
       vi.setSystemTime(t);
       await poller.tickOnce();
     }
 
     expect(firedAt).toHaveLength(17);
-    expect(firedAt[0]).toBe(windowStart);
-    expect(firedAt.at(-1)).toBe(windowEnd);
+    expect(firedAt[0]).toBe(windowStart + 20_000);
+    expect(firedAt.at(-1)).toBe(windowEnd + 20_000);
     const [entry] = await store.list();
     assertDefined(entry, 'the window schedule');
     expect(entry.enabled).toBe(false);
