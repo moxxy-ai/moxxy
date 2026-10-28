@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-acp",
-  "version": "0.45.0",
+  "version": "0.46.0",
   "description": "Agent connections over the Agent Client Protocol for moxxy: OpenCode itself does the work through `opencode acp`, on the person's own OpenCode setup, while Moxxy shows it, answers its permission asks, steers plan and goal mode, and lends its own tools over MCP.",
   "keywords": [
     "moxxy",

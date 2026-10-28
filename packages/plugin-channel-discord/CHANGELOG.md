@@ -1,5 +1,16 @@
 # @moxxy/plugin-channel-discord
 
+## 0.46.0
+
+### Patch Changes
+
+- Updated dependencies [546836d]
+  - @moxxy/sdk@0.46.0
+  - @moxxy/channel-kit@0.46.0
+  - @moxxy/chat-model@0.5.1
+  - @moxxy/core@0.46.0
+  - @moxxy/plugin-vault@0.46.0
+
 ## 0.45.0
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @moxxy/plugin-mcp
 
+## 0.46.0
+
+### Patch Changes
+
+- 78ab77e: Move qs to 6.16.1, the fix for GHSA-6pq8-jhm2-2vcw (a crafted array could make `qs.stringify` throw). It reaches Moxxy through the MCP SDK's HTTP server.
+- Updated dependencies [546836d]
+  - @moxxy/sdk@0.46.0
+
 ## 0.45.0
 
 ### Patch Changes
