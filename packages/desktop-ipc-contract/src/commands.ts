@@ -59,6 +59,7 @@ import type { DeepLinkPayload } from './deep-link.js';
 import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
 import type { FocusVerticalAnchor } from './focus-layout.js';
 import type { BrowserControlState, BrowserTabInfo } from './browser.js';
+import type { TerminalTabInfo, TerminalTabSnapshot } from './terminal.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
@@ -581,6 +582,18 @@ export interface IpcCommands {
   }) => Promise<void>;
   /** Detach an open surface instance. */
   'surface.close': (args: { workspaceId: string; surfaceId: string }) => Promise<void>;
+
+  // ---- The person's terminal tabs (main-owned shells, one set per project) ----
+  /** The tabs of the project `workspaceId` (a chat) belongs to. */
+  'terminal.list': (args: { workspaceId: string }) => Promise<ReadonlyArray<TerminalTabInfo>>;
+  /** Open a tab in that project's folder. The folder is the project's, never the renderer's. */
+  'terminal.open': (args: { workspaceId: string }) => Promise<TerminalTabInfo>;
+  /** What the tab printed so far; null for a tab that is gone. Its output then streams as `terminal.data`. */
+  'terminal.attach': (args: { tabId: string }) => Promise<TerminalTabSnapshot | null>;
+  'terminal.input': (args: { tabId: string; data: string }) => Promise<void>;
+  'terminal.resize': (args: { tabId: string; cols: number; rows: number }) => Promise<void>;
+  /** Close the tab and stop everything started from it. */
+  'terminal.close': (args: { tabId: string }) => Promise<void>;
 
   // ---- Chat transcript history (read from the authoritative session log) ----
   /** Page the workspace's sole authoritative log. A connected runner serves

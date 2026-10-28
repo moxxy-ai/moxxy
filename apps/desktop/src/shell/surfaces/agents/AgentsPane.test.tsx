@@ -2,14 +2,27 @@
  * AgentsPane — the agent's helpers and background commands of one chat: a
  * list, the mini chat of the one picked, and Stop.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { __setApiOverride, chatStore, onShowInChat } from '@moxxy/client-core';
+import { __resetDesksStoreForTests, __setApiOverride, chatStore, onShowInChat } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import type { AgentBackgroundWork, MoxxyEvent } from '@moxxy/sdk';
 import { AgentsPane } from './AgentsPane';
 
-afterEach(() => __setApiOverride(null));
+afterEach(() => {
+  __setApiOverride(null);
+  __resetDesksStoreForTests();
+});
+
+/** The browser's clipboard, the one boundary here that is not the IPC. */
+let clipboard: string[] = [];
+beforeEach(() => {
+  clipboard = [];
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async (text: string) => void clipboard.push(text) },
+  });
+});
 
 let nextWs = 0;
 const ws = (): string => `agents-pane-${(nextWs += 1)}`;
@@ -142,5 +155,93 @@ describe('AgentsPane', () => {
 
     await waitFor(() => expect(shown).toEqual(['turn-2']));
     off();
+  });
+
+  it("offers a running command's actions on its menu: Stop, and Copy command with the command the agent ran", async () => {
+    const id = ws();
+    const dev: AgentBackgroundWork = { id: 'b1', kind: 'command', label: 'Start dev server' };
+    const calls = host([dev]);
+    seed(id, [
+      event({ type: 'tool_call_requested', callId: 'c1', name: 'Bash', input: { command: 'npm run dev -- --port 5198', description: 'Start dev server', run_in_background: true } }),
+      work('background_work', { work: [dev] }),
+    ]);
+    render(<AgentsPane workspaceId={id} />);
+
+    await screen.findByRole('button', { name: /Start dev server/ });
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    const menu = screen.getByRole('menu', { name: 'Start dev server' });
+    await act(async () => {
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy command' }));
+    });
+    expect(clipboard).toEqual(['npm run dev -- --port 5198']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Stop' }));
+    });
+    expect(calls).toContainEqual(['session.stopBackgroundWork', { workspaceId: id, workId: 'b1' }]);
+  });
+
+  it('opens the same menu on a right click, and offers no Stop on work that ended or a command it cannot name', async () => {
+    const id = ws();
+    host([]);
+    seed(id, [work('background_work_ended', { id: 'b0', kind: 'command', label: 'npm test', status: 'completed' })]);
+    render(<AgentsPane workspaceId={id} />);
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: /npm test/ }));
+    const menu = screen.getByRole('menu', { name: 'npm test' });
+    expect(within(menu).queryByRole('menuitem', { name: 'Stop' })).toBeNull();
+    expect(within(menu).queryByRole('menuitem', { name: 'Copy command' })).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Copy name' }));
+    });
+    expect(clipboard).toEqual(['npm test']);
+  });
+
+  it("shows what runs in the background in the project's other chats, with the chat's name, and stops it there", async () => {
+    const here = ws();
+    const there = ws();
+    const calls: Array<[string, unknown]> = [];
+    __setApiOverride({
+      invoke: async (cmd: string, args: { workspaceId?: string } | undefined) => {
+        calls.push([cmd, args]);
+        if (cmd === 'desks.list') {
+          return {
+            activeId: 'd1',
+            desks: [{ id: 'd1', name: 'App', cwd: '/p', color: '', createdAt: 0, activeSessionId: here, sessions: [
+              { id: here, name: 'Fix login', createdAt: 0 },
+              { id: there, name: 'Dev server chat', createdAt: 0 },
+            ] }],
+          };
+        }
+        if (cmd === 'session.info') return { backgroundWork: args?.workspaceId === there ? [server] : [] };
+        if (cmd === 'session.stopBackgroundWork') return true;
+        return undefined;
+      },
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+    render(<AgentsPane workspaceId={here} />);
+
+    expect(screen.getByText('No background work in this chat yet')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Whole project' }));
+    const running = await screen.findByRole('group', { name: 'Running' });
+    expect(within(running).getByText('npm run dev')).toBeTruthy();
+    expect(within(running).getByText('Command · Dev server chat')).toBeTruthy();
+
+    fireEvent.click(within(running).getByRole('button', { name: 'More' }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Stop' }));
+    });
+    expect(calls).toContainEqual(['session.stopBackgroundWork', { workspaceId: there, workId: 'b1' }]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'This chat' }));
+    expect(screen.getByText('No background work in this chat yet')).toBeTruthy();
+  });
+
+  it('says when nothing runs in the background anywhere in the project', async () => {
+    host([]);
+    render(<AgentsPane workspaceId={ws()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Whole project' }));
+    expect(await screen.findByText('Nothing runs in the background in this project')).toBeTruthy();
   });
 });

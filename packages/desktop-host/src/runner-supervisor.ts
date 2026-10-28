@@ -41,6 +41,7 @@ import type {
 import { augmentedPaths, resolveMoxxyCli, spawnCli, type CliInvocation } from './cli-resolver';
 import { redactSecrets } from './security';
 import { runnerExtraEnv } from './runner-env';
+import { RUNNER_SOCKET_ENV, stopRunnerProcess } from './runner-process';
 
 const PROBE_TIMEOUT_MS = 250;
 const SOCKET_WAIT_MS = 20_000;
@@ -131,8 +132,8 @@ export class RunnerSupervisor extends EventEmitter {
       if (this.child) {
         // Graceful SIGTERM→SIGKILL: a bare kill() returns before the child has
         // released its socket, so the run loop's immediate respawn would race
-        // it and hit EADDRINUSE. terminateChild waits for the child to go.
-        await terminateChild(this.child);
+        // it and hit EADDRINUSE. stopRunnerProcess waits for the child to go.
+        await stopRunnerProcess(this.child, this.socketPath, { detachedWork: false });
         this.child = null;
       }
       this.forceRetry();
@@ -168,7 +169,7 @@ export class RunnerSupervisor extends EventEmitter {
     if (this.child) {
       // Wait for the child to release its socket before deleting + respawning,
       // mirroring setCwd — a bare kill races the respawn into EADDRINUSE.
-      await terminateChild(this.child);
+      await stopRunnerProcess(this.child, this.socketPath, { detachedWork: false });
       this.child = null;
     }
     if (this.sessionId) {
@@ -272,7 +273,7 @@ export class RunnerSupervisor extends EventEmitter {
       // kill() returns before the child has released its socket, so the run
       // loop's immediate respawn would race the dying process and hit
       // EADDRINUSE — the exact race every other teardown path guards against.
-      await terminateChild(this.child);
+      await stopRunnerProcess(this.child, this.socketPath, { detachedWork: false });
       this.child = null;
     }
     this.forceRetry();
@@ -339,7 +340,7 @@ export class RunnerSupervisor extends EventEmitter {
 
   private async stopOwnRunner(): Promise<void> {
     if (!this.child) return;
-    await terminateChild(this.child);
+    await stopRunnerProcess(this.child, this.socketPath, { detachedWork: false });
     this.child = null;
   }
 
@@ -355,7 +356,9 @@ export class RunnerSupervisor extends EventEmitter {
       this.session = null;
     }
     if (this.child) {
-      await terminateChild(this.child);
+      // Quitting the app (or removing the workspace): also end what the
+      // runner's agents cut loose, so nothing keeps serving on localhost.
+      await stopRunnerProcess(this.child, this.socketPath, { detachedWork: true });
       this.child = null;
     }
   }
@@ -392,7 +395,7 @@ export class RunnerSupervisor extends EventEmitter {
         await this.attachAndHold({ recoverMismatch: true });
         return;
       } catch (err) {
-        await terminateChild(own);
+        await stopRunnerProcess(own, this.socketPath, { detachedWork: false });
         if (this.child === own) this.child = null;
         throw err;
       }
@@ -580,7 +583,7 @@ export class RunnerSupervisor extends EventEmitter {
   private spawnServe(cli: CliInvocation): ChildProcess {
     const proc = spawnCli(cli, ['serve'], {
       env: {
-        MOXXY_RUNNER_SOCKET: this.socketPath,
+        [RUNNER_SOCKET_ENV]: this.socketPath,
         // Anything the host wants every runner to inherit — today the browser
         // bridge address, so the agent's browser tools drive the page the user
         // is watching instead of launching a second one. Spread first so a
@@ -783,41 +786,6 @@ function protocolIncompatiblePhase(msg: string): ConnectionPhase {
   };
 }
 
-const SIGKILL_GRACE_MS = 2_000;
-
 function isRunning(child: ChildProcess): boolean {
   return child.exitCode === null && child.signalCode === null;
-}
-
-/**
- * SIGTERM the child, then SIGKILL if it hasn't exited within the grace
- * window — so a wedged `moxxy serve` can't survive as a zombie holding
- * the socket after the desktop quits. Resolves once the child is gone or
- * the grace elapses.
- */
-function terminateChild(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  // A child whose start failed has no pid and no process to stop. Signalling it
-  // anyway reached kill(0, SIGTERM) on Node 22: the app's whole process group.
-  if (child.pid === undefined) return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      try {
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      } catch {
-        /* already dead */
-      }
-      resolve();
-    }, SIGKILL_GRACE_MS);
-    child.once('exit', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    try {
-      child.kill('SIGTERM');
-    } catch {
-      clearTimeout(timer);
-      resolve();
-    }
-  });
 }

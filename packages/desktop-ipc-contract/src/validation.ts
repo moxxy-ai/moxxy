@@ -619,6 +619,21 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
         .strict(),
     })
     .strict(),
+  // The person's terminal tabs: `open` starts a shell, so it takes only the
+  // chat whose project folder it opens in (resolved main-side, never a path),
+  // and typed text and sizes are bounded before they reach the PTY.
+  'terminal.list': z.object({ workspaceId: z.string().min(1).max(256) }).strict(),
+  'terminal.open': z.object({ workspaceId: z.string().min(1).max(256) }).strict(),
+  'terminal.attach': z.object({ tabId: z.string().min(1).max(64) }).strict(),
+  'terminal.input': z.object({ tabId: z.string().min(1).max(64), data: z.string().max(100_000) }).strict(),
+  'terminal.resize': z
+    .object({
+      tabId: z.string().min(1).max(64),
+      cols: z.number().int().min(1).max(10_000),
+      rows: z.number().int().min(1).max(10_000),
+    })
+    .strict(),
+  'terminal.close': z.object({ tabId: z.string().min(1).max(64) }).strict(),
   // Agent browser. `webContentsId` selects a live Electron view and `url` is
   // navigated for real, so both are validated at the boundary rather than
   // trusted from the renderer.
