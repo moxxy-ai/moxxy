@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, open, readFile, stat, unlink } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { createMutex, type Mutex } from './mutex.js';
 import { writeFileAtomic, type WriteFileAtomicOptions } from './fs-utils.js';
 
@@ -65,6 +66,40 @@ export interface JsonFileStoreOptions<T extends { id: string }> {
    * Default `false`: the first read is cached until {@link JsonFileStore.invalidate}.
    */
   readonly sharedWithOtherProcesses?: boolean;
+}
+
+/** A change takes milliseconds; a lock this old was left by a process that died. */
+const STALE_LOCK_MS = 10_000;
+const LOCK_RETRY_MS = 15;
+
+/**
+ * Hold `<file>.lock` while `fn` runs, so processes sharing the file change it
+ * one at a time. The lock is a file created only if absent (`open(…, 'wx')`,
+ * atomic on every platform); a stale one is removed and claimed again.
+ */
+async function withFileLock<R>(file: string, fn: () => Promise<R>): Promise<R> {
+  const lock = `${file}.lock`;
+  await mkdir(dirname(lock), { recursive: true });
+  for (;;) {
+    try {
+      const handle = await open(lock, 'wx');
+      await handle.writeFile(String(process.pid)).finally(() => handle.close());
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+    const age = await stat(lock).then(
+      (st) => Date.now() - st.mtimeMs,
+      () => 0,
+    );
+    if (age > STALE_LOCK_MS) await unlink(lock).catch(() => undefined);
+    else await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+  }
+  try {
+    return await fn();
+  } finally {
+    await unlink(lock).catch(() => undefined);
+  }
 }
 
 /**
@@ -158,7 +193,7 @@ export function createJsonFileStore<T extends { id: string }>(
       return cache!.find((item) => item.id === id) ?? null;
     },
     async mutate(fn): Promise<void> {
-      await mutex.run(async () => {
+      const change = async (): Promise<void> => {
         // A shared file is read afresh here, never joined to a read that began
         // before the last write, so the change lands on the file as it is now.
         if (sharedWithOtherProcesses) cache = await readItems();
@@ -170,7 +205,8 @@ export function createJsonFileStore<T extends { id: string }>(
         // mutate and silently defeat the crash-atomic guarantee.
         await persist(updated);
         cache = updated;
-      });
+      };
+      await mutex.run(() => (sharedWithOtherProcesses ? withFileLock(file, change) : change()));
     },
     invalidate(): void {
       cache = null;

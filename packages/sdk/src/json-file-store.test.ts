@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -258,6 +258,44 @@ describe('createJsonFileStore', () => {
       await shared().mutate((items) => [...items, { id: 'a', n: 1 }]);
       expect(await mine.read()).toEqual([{ id: 'a', n: 1 }]);
       expect(await mine.get('a')).toEqual({ id: 'a', n: 1 });
+    });
+
+    it('lets one process change the file at a time, so two changes at once both land', async () => {
+      // Two stores on one file stand for two processes: each has its own
+      // in-process mutex, so only a lock on the file itself keeps them apart.
+      const slowAdd = (item: Item) => async (items: Item[]) => {
+        await new Promise((r) => setTimeout(r, 30));
+        return [...items, item];
+      };
+      await Promise.all([
+        shared().mutate(slowAdd({ id: 'a', n: 1 })),
+        shared().mutate(slowAdd({ id: 'b', n: 2 })),
+      ]);
+      expect((await store().read()).map((i) => i.id).sort()).toEqual(['a', 'b']);
+      expect(await readdir(join(dir, 'sub'))).toEqual(['store.json']);
+    });
+
+    it('takes over a lock left behind by a process that died while writing', async () => {
+      await mkdir(join(dir, 'sub'), { recursive: true });
+      const lock = `${file}.lock`;
+      await writeFile(lock, '12345');
+      const longAgo = new Date(Date.now() - 60_000);
+      await utimes(lock, longAgo, longAgo);
+
+      await shared().mutate((items) => [...items, { id: 'a', n: 1 }]);
+
+      expect(await store().read()).toEqual([{ id: 'a', n: 1 }]);
+      expect(await readdir(join(dir, 'sub'))).toEqual(['store.json']);
+    });
+
+    it('releases the lock when the change fails', async () => {
+      await expect(
+        shared().mutate(() => {
+          throw new Error('boom');
+        }),
+      ).rejects.toThrow('boom');
+      await shared().mutate((items) => [...items, { id: 'a', n: 1 }]);
+      expect(await store().read()).toEqual([{ id: 'a', n: 1 }]);
     });
 
     it('changes the file as it is now, not as it was at its first read', async () => {
