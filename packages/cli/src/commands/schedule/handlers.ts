@@ -1,10 +1,19 @@
-import { isValidCron, runSchedule, windowEndedProblem, windowShapeProblem } from '@moxxy/plugin-scheduler';
-import type { ScheduleStore } from '@moxxy/plugin-scheduler';
+import { runSchedule, scheduleDraftProblem } from '@moxxy/plugin-scheduler';
+import type { ScheduleDraftFieldNames, ScheduleStore } from '@moxxy/plugin-scheduler';
 import type { ParsedArgv } from '../../argv.js';
 import { colors } from '../../colors.js';
 import { setupSessionWithConfig } from '../../setup.js';
 import { closeSession } from '../../setup/close-session.js';
 import { fmtNext, fmtWindow, flag } from './format.js';
+
+/** How `moxxy schedule add` names a draft's fields when it refuses one. */
+const CLI_FLAG_NAMES: ScheduleDraftFieldNames = {
+  cron: '--cron',
+  runAt: '--at',
+  startAt: '--from',
+  endAt: '--until',
+  timeZone: '--timezone',
+};
 
 /**
  * Parse an `--at` value, requiring an ISO-8601 instant rather than relying on
@@ -55,10 +64,6 @@ export async function addSchedule(store: ScheduleStore, argv: ParsedArgv): Promi
     );
     return 2;
   }
-  if (cron && !isValidCron(cron)) {
-    process.stderr.write(colors.red(`invalid cron expression: "${cron}"`) + '\n');
-    return 2;
-  }
   const runAt = at ? parseIsoAt(at) : undefined;
   if (at && runAt === undefined) {
     process.stderr.write(
@@ -67,21 +72,12 @@ export async function addSchedule(store: ScheduleStore, argv: ParsedArgv): Promi
     );
     return 2;
   }
-  if (runAt !== undefined && runAt < Date.now()) {
-    // Don't silently accept a past one-shot — depending on the poller it either
-    // never fires or fires immediately, with no signal to the user that they
-    // scheduled something in the past.
-    process.stderr.write(
-      colors.yellow(`warning: --at "${at}" is in the past; this one-shot may fire immediately or never.`) +
-        '\n',
-    );
-  }
-  const window = parseWindow(argv, cron);
+  const window = parseWindow(argv);
   if (typeof window === 'string') {
     process.stderr.write(colors.red(window) + '\n');
     return 2;
   }
-  const created = await store.create({
+  const draft = {
     name,
     prompt,
     ...(cron ? { cron } : {}),
@@ -89,6 +85,16 @@ export async function addSchedule(store: ScheduleStore, argv: ParsedArgv): Promi
     ...(window.startAt !== undefined ? { startAt: window.startAt } : {}),
     ...(window.endAt !== undefined ? { endAt: window.endAt } : {}),
     ...(flag(argv, 'timezone') ? { timeZone: flag(argv, 'timezone')! } : {}),
+  };
+  // The same rules as the `schedule_create` tool and the desktop form: a
+  // one-shot in the past or a window that already ended is refused, not saved.
+  const problem = scheduleDraftProblem(draft, Date.now(), CLI_FLAG_NAMES);
+  if (problem) {
+    process.stderr.write(colors.red(problem) + '\n');
+    return 2;
+  }
+  const created = await store.create({
+    ...draft,
     ...(flag(argv, 'channel') ? { channel: flag(argv, 'channel')! } : {}),
     ...(flag(argv, 'model') ? { model: flag(argv, 'model')! } : {}),
   });
@@ -99,24 +105,14 @@ export async function addSchedule(store: ScheduleStore, argv: ParsedArgv): Promi
   return 0;
 }
 
-/**
- * `--from` / `--until` → the schedule's time window, checked by the same rules
- * as the `schedule_create` tool. Returns the problem as text when it is refused.
- */
-function parseWindow(
-  argv: ParsedArgv,
-  cron: string | undefined,
-): { startAt?: number; endAt?: number } | string {
+/** `--from` / `--until` → epoch ms, or the flag that is not a timestamp as text. */
+function parseWindow(argv: ParsedArgv): { startAt?: number; endAt?: number } | string {
   const from = flag(argv, 'from');
   const until = flag(argv, 'until');
   const startAt = from !== undefined ? parseIsoAt(from) : undefined;
   if (from !== undefined && startAt === undefined) return `invalid --from timestamp: "${from}"`;
   const endAt = until !== undefined ? parseIsoAt(until) : undefined;
   if (until !== undefined && endAt === undefined) return `invalid --until timestamp: "${until}"`;
-  const problem =
-    windowShapeProblem({ cron, startAt, endAt }, { cron: '--cron', startAt: '--from', endAt: '--until' }) ??
-    windowEndedProblem(endAt, Date.now());
-  if (problem) return problem;
   return { ...(startAt !== undefined ? { startAt } : {}), ...(endAt !== undefined ? { endAt } : {}) };
 }
 

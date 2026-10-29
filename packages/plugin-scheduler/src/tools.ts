@@ -1,11 +1,10 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
-import { isValidCron, isValidTimeZone } from '@moxxy/sdk/cron';
-import { SCHEDULE_NAME_MAX, SCHEDULE_NAME_PATTERN } from './draft.js';
+import { SCHEDULE_NAME_MAX, SCHEDULE_NAME_PATTERN, scheduleShapeProblem, scheduleTimingProblem } from './draft.js';
 import type { FiringLock } from './firing-lock.js';
 import { nextCronFire } from './poller.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
-import { windowEndedProblem, windowShapeProblem } from './window.js';
+import { windowShapeProblem } from './window.js';
 
 /**
  * Capability glob for the schedule store (`isolation.capabilities.fs`). Ends
@@ -177,21 +176,7 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         const runAt = toEpochMs(input.runAt);
         const startAt = toEpochMs(input.startAt);
         const endAt = toEpochMs(input.endAt);
-        const ended = windowEndedProblem(endAt, Date.now());
-        if (ended) {
-          throw new Error(
-            `${ended}; ask the user for new dates instead of creating a schedule that never runs`,
-          );
-        }
-        if (input.cron && !isValidCron(input.cron)) {
-          throw new Error(`invalid cron expression "${input.cron}"`);
-        }
-        if (input.timeZone !== undefined && !isValidTimeZone(input.timeZone)) {
-          throw new Error(
-            `invalid timeZone "${input.timeZone}" (must be an IANA zone or "local")`,
-          );
-        }
-        const created = await store.create({
+        const draft = {
           name: input.name,
           prompt: input.prompt,
           ...(input.cron ? { cron: input.cron } : {}),
@@ -199,6 +184,17 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           ...(startAt !== undefined ? { startAt } : {}),
           ...(endAt !== undefined ? { endAt } : {}),
           ...(input.timeZone ? { timeZone: input.timeZone } : {}),
+        };
+        const shape = scheduleShapeProblem(draft);
+        if (shape) throw new Error(shape);
+        const timing = scheduleTimingProblem(draft, Date.now());
+        if (timing) {
+          throw new Error(
+            `${timing}; ask the user for a new time instead of creating a schedule that never runs`,
+          );
+        }
+        const created = await store.create({
+          ...draft,
           ...(input.channel ? { channel: input.channel } : {}),
           ...(input.model ? { model: input.model } : {}),
           // Bind to a target session (where the run fires + displays). An explicit

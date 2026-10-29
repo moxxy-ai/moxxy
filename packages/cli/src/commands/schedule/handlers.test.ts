@@ -74,6 +74,8 @@ describe('moxxy schedule add --from/--until (time window)', () => {
     ['an end before the start', { cron: '*/30 * * * *', from: '2026-10-30T06:00:00Z', until: '2026-10-29T22:00:00Z' }],
     ['a window that is already over', { cron: '*/30 * * * *', from: '2026-10-23T21:00:00Z', until: '2026-10-24T05:00:00Z' }],
     ['a start that is not a timestamp', { cron: '*/30 * * * *', from: 'tonight' }],
+    ['a one-shot in the past', { at: '2026-10-27T09:00:00Z' }],
+    ['an unknown time zone', { cron: '0 9 * * *', timezone: 'Mars/Base' }],
   ])('refuses %s and saves nothing', async (_what, flags) => {
     expect(await add({ prompt: 'p', ...flags })).toBe(2);
     expect(await store.list()).toHaveLength(0);

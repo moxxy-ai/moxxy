@@ -16,7 +16,16 @@ import {
 } from './store.js';
 import { buildSchedulerTools, describeScheduleEntry, type SchedulerToolDeps } from './tools.js';
 import { windowEndedProblem, windowShapeProblem } from './window.js';
-import { SCHEDULE_NAME_MAX, SCHEDULE_NAME_PATTERN, scheduleDraftProblem, type ScheduleDraft } from './draft.js';
+import {
+  ONE_SHOT_GRACE_MS,
+  SCHEDULE_NAME_MAX,
+  SCHEDULE_NAME_PATTERN,
+  scheduleDraftProblem,
+  scheduleShapeProblem,
+  scheduleTimingProblem,
+  type ScheduleDraft,
+  type ScheduleDraftFieldNames,
+} from './draft.js';
 
 export {
   FiringLock,
@@ -32,9 +41,12 @@ export {
   defaultInboxDir,
   defaultSchedulesFile,
   runSchedule,
+  ONE_SHOT_GRACE_MS,
   SCHEDULE_NAME_MAX,
   SCHEDULE_NAME_PATTERN,
   scheduleDraftProblem,
+  scheduleShapeProblem,
+  scheduleTimingProblem,
   scheduleEntrySchema,
   scheduleSourceSchema,
   syncSkillSchedules,
@@ -42,6 +54,7 @@ export {
   windowShapeProblem,
   type InboxOptions,
   type ScheduleDraft,
+  type ScheduleDraftFieldNames,
   type ScheduleEntry,
   type ScheduleSource,
   type ScheduleStoreOptions,

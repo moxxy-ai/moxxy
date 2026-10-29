@@ -35,6 +35,7 @@ Use this skill when the user wants a prompt to fire automatically — recurring 
    - "In one hour" → `runAt: <epoch-ms now + 3_600_000>` (or ISO timestamp)
    - "Tomorrow at 10" → `runAt: <ISO timestamp>` in the user's local zone
    - "Every 30 minutes from 23:00 tonight until 07:00, then stop" → cron `*/30 * * * *` + `startAt: <ISO 23:00>` + `endAt: <ISO 07:00>`. Never put the start time in `runAt` next to `cron` — the call is rejected. The schedule turns itself off after `endAt`. If the window the user names is already over, say so and ask for new dates.
+   - A `runAt` more than a minute in the past is rejected too: say the time has passed and ask for a new one instead of guessing.
 
 2. **Pick the schedule name** — slug-like (`morning-briefing`, `weekly-standup`). The user-facing name; appears in the inbox filename.
 

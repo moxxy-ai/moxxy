@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scheduleDraftProblem, type ScheduleDraft } from './draft.js';
+import { scheduleDraftProblem, scheduleShapeProblem, scheduleTimingProblem, type ScheduleDraft } from './draft.js';
 
 const now = new Date(2026, 9, 28, 12, 0).getTime();
 const HOUR = 60 * 60_000;
@@ -40,7 +40,26 @@ describe('scheduleDraftProblem', () => {
   });
 
   it('refuses a one-shot moment that has already passed', () => {
-    expect(scheduleDraftProblem(draft({ cron: undefined, runAt: now - 60_000 }), now)).toMatch(/already passed/);
+    expect(scheduleDraftProblem(draft({ cron: undefined, runAt: now - 5 * 60_000 }), now)).toMatch(/already passed/);
+  });
+
+  it('takes a moment from the last minute as "now", so a run set for right now is not refused', () => {
+    expect(scheduleDraftProblem(draft({ cron: undefined, runAt: now - 20_000 }), now)).toBeNull();
+  });
+
+  it('names the fields the way the caller does', () => {
+    const cli = { cron: '--cron', runAt: '--at', startAt: '--from', endAt: '--until', timeZone: '--timezone' };
+    expect(scheduleDraftProblem(draft({ timeZone: 'Mars/Base' }), now, cli)).toMatch(/invalid --timezone "Mars\/Base"/);
+    expect(scheduleDraftProblem(draft({ cron: undefined, runAt: now + 1, endAt: now + 2 }), now, cli)).toMatch(
+      /--from and --until only work with --cron/,
+    );
+  });
+
+  it('tells a time that passed apart from a draft that is wrong', () => {
+    const ended = draft({ endAt: now - 1 });
+    expect(scheduleShapeProblem(ended)).toBeNull();
+    expect(scheduleTimingProblem(ended, now)).toMatch(/already ended/);
+    expect(scheduleShapeProblem(draft({ cron: 'nope' }))).toMatch(/invalid cron/);
   });
 
   it('applies the time window rules', () => {

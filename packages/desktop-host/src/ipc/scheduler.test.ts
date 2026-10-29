@@ -130,7 +130,7 @@ describe('scheduler IPC handlers', () => {
     assertDefined(createHandler, 'scheduler.create handler');
 
     await expect(
-      createHandler({ name: 'too-late', prompt: 'p', runAt: Date.now() - 60_000 }),
+      createHandler({ name: 'too-late', prompt: 'p', runAt: Date.now() - 5 * 60_000 }),
     ).rejects.toMatchObject({ code: 'invalid-payload', message: expect.stringMatching(/already passed/) });
     await expect(
       createHandler({ name: 'bad-cron', prompt: 'p', cron: 'every day' }),
