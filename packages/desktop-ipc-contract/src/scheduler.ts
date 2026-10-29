@@ -36,6 +36,21 @@ export interface ScheduleSummary {
   readonly nextFireIso: string | null;
 }
 
+/** A new schedule from the desktop's New schedule form. Exactly one of `cron`
+ *  (repeating) or `runAt` (once); `startAt`/`endAt` (epoch ms) only with `cron`.
+ *  The host checks it with the scheduler's own rules before saving. */
+export interface ScheduleCreateInput {
+  readonly name: string;
+  readonly prompt: string;
+  readonly cron?: string;
+  readonly runAt?: number;
+  readonly startAt?: number;
+  readonly endAt?: number;
+  readonly timeZone?: string;
+  /** Session the schedule runs in, or null/absent for none. */
+  readonly targetSessionId?: string | null;
+}
+
 export interface SchedulerDeleteResult {
   readonly deleted: boolean;
 }

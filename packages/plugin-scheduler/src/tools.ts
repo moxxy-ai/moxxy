@@ -1,5 +1,6 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
 import { isValidCron, isValidTimeZone } from '@moxxy/sdk/cron';
+import { SCHEDULE_NAME_MAX, SCHEDULE_NAME_PATTERN } from './draft.js';
 import type { FiringLock } from './firing-lock.js';
 import { nextCronFire } from './poller.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
@@ -42,8 +43,8 @@ const scheduleCreateInputSchema = z
     name: z
       .string()
       .min(1)
-      .max(120)
-      .regex(/^[a-z0-9][a-z0-9-]*$/i, 'name must be slug-like (letters, digits, hyphens)'),
+      .max(SCHEDULE_NAME_MAX)
+      .regex(SCHEDULE_NAME_PATTERN, 'name must be slug-like (letters, digits, hyphens)'),
     prompt: z.string().min(1),
     channel: optionalText,
     model: optionalText,

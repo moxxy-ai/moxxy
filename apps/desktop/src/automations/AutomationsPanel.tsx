@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { WorkflowsPanel } from '../workflows/WorkflowsPanel';
-import { SchedulesPanel } from '../apps/SchedulesPanel';
+import { SchedulesPanel } from './schedules/SchedulesPanel';
 import { WebhooksPanel } from '../apps/WebhooksPanel';
 
 /**

@@ -16,6 +16,7 @@ import {
 } from './store.js';
 import { buildSchedulerTools, describeScheduleEntry, type SchedulerToolDeps } from './tools.js';
 import { windowEndedProblem, windowShapeProblem } from './window.js';
+import { SCHEDULE_NAME_MAX, SCHEDULE_NAME_PATTERN, scheduleDraftProblem, type ScheduleDraft } from './draft.js';
 
 export {
   FiringLock,
@@ -31,12 +32,16 @@ export {
   defaultInboxDir,
   defaultSchedulesFile,
   runSchedule,
+  SCHEDULE_NAME_MAX,
+  SCHEDULE_NAME_PATTERN,
+  scheduleDraftProblem,
   scheduleEntrySchema,
   scheduleSourceSchema,
   syncSkillSchedules,
   windowEndedProblem,
   windowShapeProblem,
   type InboxOptions,
+  type ScheduleDraft,
   type ScheduleEntry,
   type ScheduleSource,
   type ScheduleStoreOptions,

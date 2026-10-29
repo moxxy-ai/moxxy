@@ -101,6 +101,13 @@ describe('styles.css — what moves', () => {
     expect(block(".popover[data-instant='true']")).toMatch(/animation:\s*none/);
   });
 
+  it('pops a dialog in, centred, and only fades it under reduced motion', () => {
+    expect(block('.moxxy-modal--pop {')).toMatch(/animation:\s*moxxy-pop-in var\(--motion-overlay\) var\(--ease-out\)/);
+    expect(css).not.toMatch(/\.moxxy-modal--pop[^{]*\{[^}]*transform-origin/);
+    const reduced = css.slice(css.lastIndexOf('@media (prefers-reduced-motion: reduce) {\n  .moxxy-modal--pop'));
+    expect(reduced).toMatch(/\.moxxy-modal--pop\s*\{\s*animation: moxxy-fade-in/);
+  });
+
   it('has no rail left to animate', () => {
     expect(css).not.toMatch(/\.app-rail|\.rail-item|\.rail-toggle/);
   });

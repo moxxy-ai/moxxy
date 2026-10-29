@@ -34,6 +34,8 @@ interface ModalProps {
    * so a screen reader announces the message (not just the title) on open.
    */
   readonly describedById?: string;
+  /** Extra class on the dialog, e.g. one that gives it an entrance in the host's stylesheet. */
+  readonly className?: string;
 }
 
 // Module-level stack of open modals so Escape only closes the top-most one
@@ -90,6 +92,7 @@ export function Modal({
   onClose,
   width = 380,
   describedById,
+  className,
 }: ModalProps): JSX.Element {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
@@ -189,7 +192,7 @@ export function Modal({
       }}
     >
       <div
-        className="moxxy-modal"
+        className={className ? `moxxy-modal ${className}` : 'moxxy-modal'}
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
