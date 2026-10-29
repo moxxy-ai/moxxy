@@ -65,19 +65,34 @@ describe('useScheduleForm', () => {
     expect(onCreated).toHaveBeenCalledWith(saved);
   });
 
-  it('keeps the form open with the host’s reason when it refuses', async () => {
-    const { hook, onCreated } = setup({ ok: false, error: 'invalid cron expression "61 * * * *"' });
-    act(() => hook.result.current.set({ prompt: 'p', repeat: 'custom', cron: '61 * * * *' }));
+  it('keeps the form open with the host’s reason, as a sentence, when it refuses', async () => {
+    const { hook, onCreated } = setup({ ok: false, error: 'schedules file is busy' });
+    act(() => hook.result.current.set({ prompt: 'p' }));
 
     await act(async () => {
       await hook.result.current.submit();
     });
 
-    expect(hook.result.current.error).toBe('invalid cron expression "61 * * * *"');
+    expect(hook.result.current.error).toBe('Schedules file is busy.');
     expect(hook.result.current.busy).toBe(false);
     expect(onCreated).not.toHaveBeenCalled();
 
-    act(() => hook.result.current.set({ cron: '0 9 * * *' }));
+    act(() => hook.result.current.set({ prompt: 'q' }));
     expect(hook.result.current.error).toBeNull();
+  });
+
+  it('shows a refusal about one field under that field, until the person changes the form', async () => {
+    const { hook } = setup({ ok: false, error: 'this moment already passed at 2026-10-28T17:30:00.000Z' });
+    act(() => hook.result.current.set({ prompt: 'p', repeat: 'once' }));
+
+    await act(async () => {
+      await hook.result.current.submit();
+    });
+
+    expect(hook.result.current.problems.at).toBe('This time has already passed. Pick a later one.');
+    expect(hook.result.current.error).toBeNull();
+
+    act(() => hook.result.current.set({ at: '2026-10-30T09:00' }));
+    expect(hook.result.current.problems.at).toBeUndefined();
   });
 });

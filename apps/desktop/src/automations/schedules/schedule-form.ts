@@ -6,6 +6,7 @@
  * the scheduler's own rules (`scheduleDraftProblem`).
  */
 
+import { isValidCron } from '@moxxy/sdk/cron';
 import type { ScheduleCreateInput } from '@moxxy/desktop-ipc-contract';
 import { cronInWords } from './cron-words';
 
@@ -54,6 +55,15 @@ const HOUR_MS = 60 * 60_000;
 const NAME_MAX = 120;
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
+// What the form says, also when the host refuses for the same reason.
+const SAY = {
+  namePattern: 'Use letters, digits and hyphens, like morning-email.',
+  atPassed: 'This time has already passed. Pick a later one.',
+  cronInvalid: 'This cron is not valid. Example: */30 * * * * runs every 30 minutes.',
+  endBeforeStart: 'The end must be after the start.',
+  windowEnded: 'This window has already ended.',
+} as const;
+
 const pad = (n: number): string => String(n).padStart(2, '0');
 
 /** Epoch ms as the value of a `datetime-local` input. */
@@ -77,7 +87,7 @@ function parseClock(value: string): { hour: number; minute: number } | null {
   return hour < 24 && minute < 60 ? { hour, minute } : null;
 }
 
-export function initialScheduleForm(now: number): ScheduleFormValues {
+export function initialScheduleForm(now: number, targetSessionId: string | null = null): ScheduleFormValues {
   const nextHour = Math.ceil((now + 1) / HOUR_MS) * HOUR_MS;
   return {
     prompt: '',
@@ -93,7 +103,7 @@ export function initialScheduleForm(now: number): ScheduleFormValues {
     limitWindow: false,
     from: toLocalInput(nextHour),
     until: toLocalInput(nextHour + 8 * HOUR_MS),
-    targetSessionId: null,
+    targetSessionId,
   };
 }
 
@@ -156,12 +166,12 @@ export function scheduleFormProblems(v: ScheduleFormValues, now: number): Schedu
   const name = finalName(v.name);
   if (name === '') problems.name = 'Give it a name.';
   else if (name.length > NAME_MAX) problems.name = `Keep the name under ${NAME_MAX} characters.`;
-  else if (!NAME_PATTERN.test(name)) problems.name = 'Use letters, digits and hyphens.';
+  else if (!NAME_PATTERN.test(name)) problems.name = SAY.namePattern;
 
   if (v.repeat === 'once') {
     const runAt = fromLocalInput(v.at);
     if (runAt === null) problems.at = 'Pick a date and time.';
-    else if (runAt <= now) problems.at = 'This time has already passed.';
+    else if (runAt <= now) problems.at = SAY.atPassed;
     return problems;
   }
   if (usesClock(v.repeat) && !parseClock(v.time)) problems.time = 'Pick a time.';
@@ -169,16 +179,49 @@ export function scheduleFormProblems(v: ScheduleFormValues, now: number): Schedu
     const parts = v.cron.trim() === '' ? 0 : v.cron.trim().split(/\s+/).length;
     if (parts === 0) problems.cron = 'Enter a cron expression.';
     else if (parts !== 5) problems.cron = 'A cron has five parts: minute, hour, day, month, weekday.';
+    else if (!isValidCron(v.cron.trim())) problems.cron = SAY.cronInvalid;
   }
   if (v.limitWindow) {
     const startAt = fromLocalInput(v.from);
     const endAt = fromLocalInput(v.until);
     if (startAt === null) problems.from = 'Pick when it starts.';
     if (endAt === null) problems.until = 'Pick when it stops.';
-    else if (startAt !== null && endAt <= startAt) problems.until = 'The end must be after the start.';
-    else if (endAt <= now) problems.until = 'This window has already ended.';
+    else if (startAt !== null && endAt <= startAt) problems.until = SAY.endBeforeStart;
+    else if (endAt <= now) problems.until = SAY.windowEnded;
   }
   return problems;
+}
+
+/** A refusal from the host, placed where the person can act on it. */
+export interface PlacedRefusal {
+  /** Shown under the field the refusal is about. */
+  readonly problems: ScheduleFormProblems;
+  /** Shown at the foot of the form when it is about no single field. */
+  readonly error: string | null;
+}
+
+// The host checks with the scheduler's own rules (`scheduleDraftProblem`); its
+// messages start the same way whichever caller sent the draft.
+const HOST_REFUSALS: ReadonlyArray<readonly [RegExp, ScheduleFormField, string]> = [
+  [/^invalid cron expression/, 'cron', SAY.cronInvalid],
+  [/^this moment already passed/, 'at', SAY.atPassed],
+  [/^this time window already ended/, 'until', SAY.windowEnded],
+  [/must be later than/, 'until', SAY.endBeforeStart],
+  [/^name /, 'name', SAY.namePattern],
+  [/^prompt /, 'prompt', 'Say what Moxxy should do.'],
+];
+
+export function placeHostRefusal(message: string): PlacedRefusal {
+  for (const [pattern, field, text] of HOST_REFUSALS) {
+    if (pattern.test(message)) return { problems: { [field]: text }, error: null };
+  }
+  return { problems: {}, error: asSentence(message) };
+}
+
+function asSentence(message: string): string {
+  const text = message.trim();
+  const capped = text.charAt(0).toUpperCase() + text.slice(1);
+  return /[.!?]$/.test(capped) ? capped : `${capped}.`;
 }
 
 export function toScheduleCreateInput(v: ScheduleFormValues): ScheduleCreateInput {
@@ -213,7 +256,8 @@ export function scheduleFormSummary(v: ScheduleFormValues): string | null {
     const runAt = fromLocalInput(v.at);
     return runAt === null ? null : `Runs once, ${moment(runAt)}.`;
   }
-  if (cron === '') return null;
+  // A cron the scheduler would refuse does not run, so say nothing about when.
+  if (cron === '' || !isValidCron(cron)) return null;
   const words = cronInWords(cron);
   const repeat = words ? lowerFirst(words) : `on cron ${cron}`;
   const startAt = v.limitWindow ? fromLocalInput(v.from) : null;

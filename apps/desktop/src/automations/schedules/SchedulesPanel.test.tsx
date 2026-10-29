@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { __resetSchedulerStoreForTests, __setApiOverride } from '@moxxy/client-core';
-import type { MoxxyApi, ScheduleCreateInput, ScheduleSummary } from '@moxxy/desktop-ipc-contract';
+import { __resetDesksStoreForTests, __resetSchedulerStoreForTests, __setApiOverride } from '@moxxy/client-core';
+import type { DesksOverview, MoxxyApi, ScheduleCreateInput, ScheduleSummary } from '@moxxy/desktop-ipc-contract';
 import { SchedulesPanel } from './SchedulesPanel';
 
 /**
@@ -17,7 +17,7 @@ const base: Omit<ScheduleSummary, 'id' | 'name'> = {
   lastRunAt: null, lastResult: null, lastError: null, nextFireAt: null, nextFireIso: null,
 };
 
-function installHost(initial: ScheduleSummary[]) {
+function installHost(initial: ScheduleSummary[], desks: DesksOverview = { desks: [], activeId: null }) {
   let schedules = [...initial];
   const created: ScheduleCreateInput[] = [];
   const invoke = async (cmd: string, args?: unknown): Promise<unknown> => {
@@ -35,7 +35,7 @@ function installHost(initial: ScheduleSummary[]) {
         schedules = schedules.filter((s) => s.id !== (args as { id: string }).id);
         return { deleted: true };
       case 'desks.list':
-        return { desks: [], activeId: null };
+        return desks;
       default:
         return null;
     }
@@ -47,6 +47,7 @@ function installHost(initial: ScheduleSummary[]) {
 afterEach(() => {
   __setApiOverride(null);
   __resetSchedulerStoreForTests();
+  __resetDesksStoreForTests();
 });
 
 describe('SchedulesPanel', () => {
@@ -84,6 +85,26 @@ describe('SchedulesPanel', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(host.created).toEqual([{ name: 'continue-the-book', prompt: 'Continue the book', cron: '*/30 * * * *' }]);
     expect(await screen.findByTestId('schedule-row-id-continue-the-book')).toBeTruthy();
+  });
+
+  it('runs a new schedule in the chat the person is in, unless they pick another', async () => {
+    const chat = { id: 's-book', name: 'Book chat', createdAt: 1 };
+    const host = installHost([], {
+      desks: [{ id: 'd1', name: 'Novel', cwd: '/n', color: 'blue', createdAt: 1, sessions: [chat], activeSessionId: 's-book' }],
+      activeId: 'd1',
+    });
+    const user = userEvent.setup();
+    render(<SchedulesPanel />);
+    await screen.findByText('No schedules yet');
+
+    await user.click(screen.getAllByRole('button', { name: 'New schedule' })[0]!);
+    const dialog = screen.getByRole('dialog', { name: 'New schedule' });
+    expect((within(dialog).getByLabelText('Runs in') as HTMLSelectElement).value).toBe('s-book');
+    await user.type(within(dialog).getByLabelText('What should Moxxy do?'), 'Continue the book');
+    await user.click(within(dialog).getByRole('button', { name: 'Create schedule' }));
+
+    await waitFor(() => expect(host.created).toHaveLength(1));
+    expect(host.created[0]).toMatchObject({ name: 'continue-the-book', targetSessionId: 's-book' });
   });
 
   it('says what is missing instead of saving an empty schedule', async () => {

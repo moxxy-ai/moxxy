@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ScheduleSummary } from '@moxxy/desktop-ipc-contract';
 import { clockLabel } from './cron-words';
-import { scheduleRowView, windowLabel } from './schedule-labels';
+import { nextFireSummary, scheduleRowView, soonestFireAt, windowLabel } from './schedule-labels';
 
 const startAt = new Date(2026, 9, 29, 23, 0).getTime();
 const endAt = new Date(2026, 9, 30, 7, 0).getTime();
@@ -98,5 +98,28 @@ describe('scheduleRowView', () => {
 
   it('does not invent skipped occurrences for older schedule summaries', () => {
     expect(scheduleRowView(summary({}), before).skipped).toBeNull();
+  });
+});
+
+describe('nextFireSummary', () => {
+  const now = new Date(2026, 9, 29, 12, 0).getTime();
+  const pending = (nextFireAt: number | null, enabled = true) =>
+    ({ enabled, nextFireAt }) as ScheduleSummary;
+
+  it('counts down to the soonest run of a schedule that is on', () => {
+    const list = [pending(now + 90 * 60_000), pending(now + 5 * 60_000, false), pending(now + 12 * 60_000)];
+    expect(soonestFireAt(list)).toBe(now + 12 * 60_000);
+    expect(nextFireSummary(list, now)).toBe('in 12m');
+    expect(nextFireSummary([pending(now + 26 * 3_600_000)], now)).toBe('in 1d');
+  });
+
+  it('says a run is starting, not that it is "due", once its time came', () => {
+    expect(nextFireSummary([pending(now - 20_000)], now)).toBe('starting now');
+    expect(nextFireSummary([pending(now + 10_000)], now)).toBe('starting now');
+  });
+
+  it('says nothing is planned, in the same case as the sentence it sits in', () => {
+    expect(soonestFireAt([pending(null)])).toBeNull();
+    expect(nextFireSummary([pending(null), pending(now + 60_000, false)], now)).toBe('none planned');
   });
 });

@@ -1,7 +1,8 @@
 /**
  * State of the New schedule form: the values, which problems to show (a field's
  * only after it was left, all of them after a save was tried), the sentence
- * that says what will happen, and the save itself. The rules live in
+ * that says what will happen, and the save itself. A refusal from the host
+ * shows under the field it is about until the form changes. The rules live in
  * `schedule-form.ts`; this hook only decides when to apply them.
  */
 
@@ -11,14 +12,18 @@ import type { ScheduleCreateOutcome } from '@moxxy/client-core';
 import {
   cleanNameInput,
   initialScheduleForm,
+  placeHostRefusal,
   scheduleFormProblems,
   scheduleFormSummary,
   slugifyScheduleName,
   toScheduleCreateInput,
   type ScheduleFormField,
   type ScheduleFormProblems,
+  type PlacedRefusal,
   type ScheduleFormValues,
 } from './schedule-form';
+
+const NO_REFUSAL: PlacedRefusal = { problems: {}, error: null };
 
 export interface ScheduleFormState {
   readonly values: ScheduleFormValues;
@@ -26,7 +31,7 @@ export interface ScheduleFormState {
   readonly problems: ScheduleFormProblems;
   readonly summary: string | null;
   readonly busy: boolean;
-  /** Why the host refused the last save. */
+  /** Why the host refused the last save, when it is about no single field. */
   readonly error: string | null;
   readonly set: (patch: Partial<ScheduleFormValues>) => void;
   /** The person left this field. */
@@ -38,19 +43,22 @@ export function useScheduleForm({
   create,
   onCreated,
   now = Date.now,
+  targetSessionId = null,
 }: {
   readonly create: (input: ScheduleCreateInput) => Promise<ScheduleCreateOutcome>;
   readonly onCreated: (schedule: ScheduleSummary) => void;
   readonly now?: () => number;
+  /** Where it runs until the person picks another chat. */
+  readonly targetSessionId?: string | null;
 }): ScheduleFormState {
-  const [values, setValues] = useState(() => initialScheduleForm(now()));
+  const [values, setValues] = useState(() => initialScheduleForm(now(), targetSessionId));
   const [touched, setTouched] = useState<ReadonlySet<ScheduleFormField>>(() => new Set());
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<PlacedRefusal>(NO_REFUSAL);
 
   const set = useCallback((patch: Partial<ScheduleFormValues>) => {
-    setError(null);
+    setRefusal(NO_REFUSAL);
     setValues((cur) => {
       const next = { ...cur, ...patch };
       if (patch.name !== undefined) {
@@ -69,7 +77,7 @@ export function useScheduleForm({
   }, []);
 
   const all = scheduleFormProblems(values, now());
-  const problems = tried ? all : shownProblems(all, touched);
+  const problems = { ...(tried ? all : shownProblems(all, touched)), ...refusal.problems };
 
   const submit = useCallback(async () => {
     setTried(true);
@@ -78,10 +86,19 @@ export function useScheduleForm({
     const outcome = await create(toScheduleCreateInput(values));
     setBusy(false);
     if (outcome.ok) onCreated(outcome.schedule);
-    else setError(outcome.error);
+    else setRefusal(placeHostRefusal(outcome.error));
   }, [values, busy, create, onCreated, now]);
 
-  return { values, problems, summary: scheduleFormSummary(values), busy, error, set, touch, submit };
+  return {
+    values,
+    problems,
+    summary: scheduleFormSummary(values),
+    busy,
+    error: refusal.error,
+    set,
+    touch,
+    submit,
+  };
 }
 
 function shownProblems(

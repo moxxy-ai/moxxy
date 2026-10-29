@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { clockLabel } from './cron-words';
 import {
   cleanNameInput,
+  placeHostRefusal,
   initialScheduleForm,
   scheduleCron,
   scheduleFormProblems,
@@ -71,9 +72,15 @@ describe('scheduleFormProblems', () => {
 
   it('refuses a one-shot moment in the past', () => {
     expect(scheduleFormProblems(form({ repeat: 'once', at: '2026-10-28T18:00' }), now)).toEqual({
-      at: 'This time has already passed.',
+      at: 'This time has already passed. Pick a later one.',
     });
     expect(scheduleFormProblems(form({ repeat: 'once', at: '' }), now)).toEqual({ at: 'Pick a date and time.' });
+  });
+
+  it('says what is wrong with a five-part cron that is not valid, with an example', () => {
+    expect(scheduleFormProblems(form({ repeat: 'custom', cron: '61 * * * *' }), now)).toEqual({
+      cron: 'This cron is not valid. Example: */30 * * * * runs every 30 minutes.',
+    });
   });
 
   it('wants five parts in a custom cron', () => {
@@ -150,6 +157,33 @@ describe('scheduleFormSummary', () => {
   it('falls back to the cron itself, and says nothing while it cannot', () => {
     expect(scheduleFormSummary(form({ repeat: 'custom', cron: '0 9 1 * *' }))).toBe('Runs on cron 0 9 1 * *.');
     expect(scheduleFormSummary(form({ repeat: 'custom', cron: '' }))).toBeNull();
+    expect(scheduleFormSummary(form({ repeat: 'custom', cron: '61 * * * *' }))).toBeNull();
     expect(scheduleFormSummary(form({ repeat: 'once', at: '' }))).toBeNull();
+  });
+});
+
+describe('placeHostRefusal', () => {
+  it('puts a refusal about one field under that field, in the form’s words', () => {
+    expect(placeHostRefusal('invalid cron expression "61 * * * *"')).toEqual({
+      problems: { cron: 'This cron is not valid. Example: */30 * * * * runs every 30 minutes.' },
+      error: null,
+    });
+    expect(placeHostRefusal('this moment already passed at 2026-10-28T17:30:00.000Z').problems).toEqual({
+      at: 'This time has already passed. Pick a later one.',
+    });
+    expect(placeHostRefusal('this time window already ended at 2026-10-28T17:30:00.000Z').problems).toEqual({
+      until: 'This window has already ended.',
+    });
+    expect(placeHostRefusal('`endAt` must be later than `startAt`').problems).toEqual({
+      until: 'The end must be after the start.',
+    });
+    expect(placeHostRefusal('name must be slug-like (letters, digits, hyphens)').problems).toEqual({
+      name: 'Use letters, digits and hyphens, like morning-email.',
+    });
+  });
+
+  it('shows anything else as a sentence at the foot of the form', () => {
+    expect(placeHostRefusal('runner is not connected')).toEqual({ problems: {}, error: 'Runner is not connected.' });
+    expect(placeHostRefusal('Already a sentence!')).toEqual({ problems: {}, error: 'Already a sentence!' });
   });
 });

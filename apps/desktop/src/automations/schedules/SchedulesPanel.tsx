@@ -53,7 +53,13 @@ export function SchedulesPanel(): JSX.Element {
         )}
         <ScheduleList panel={panel} />
       </div>
-      {panel.creating && <NewScheduleModal create={scheduler.create} onClose={panel.closeCreate} />}
+      {panel.creating && (
+        <NewScheduleModal
+          create={scheduler.create}
+          targetSessionId={panel.currentChatId}
+          onClose={panel.closeCreate}
+        />
+      )}
       {panel.pendingDelete && (
         <ConfirmModal
           title="Delete schedule?"

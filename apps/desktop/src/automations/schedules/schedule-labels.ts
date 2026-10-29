@@ -32,17 +32,24 @@ export function whenLabel(s: ScheduleSummary): string {
   return 'On demand';
 }
 
-/** The soonest upcoming fire across all enabled schedules, or nothing when none
- *  is pending. Measured from `nextFireAt`, which the scheduler already reports. */
-export function nextFireSummary(list: ReadonlyArray<ScheduleSummary>): string {
-  const times = list
-    .filter((s) => s.enabled && s.nextFireAt !== null)
-    .map((s) => s.nextFireAt as number)
-    .sort((a, b) => a - b);
-  const soonest = times[0];
-  if (soonest === undefined) return 'None pending';
-  const mins = Math.round((soonest - Date.now()) / 60_000);
-  if (mins <= 0) return 'due now';
+/** When the soonest schedule that is on runs next, or null when none is planned. */
+export function soonestFireAt(list: ReadonlyArray<Pick<ScheduleSummary, 'enabled' | 'nextFireAt'>>): number | null {
+  let soonest: number | null = null;
+  for (const s of list) {
+    if (s.enabled && s.nextFireAt !== null && (soonest === null || s.nextFireAt < soonest)) soonest = s.nextFireAt;
+  }
+  return soonest;
+}
+
+/**
+ * How long until the soonest run, for the sentence "Next run: …". A run whose
+ * moment came says "starting now" until the list is read again after it fired.
+ */
+export function nextFireSummary(list: ReadonlyArray<ScheduleSummary>, now: number = Date.now()): string {
+  const soonest = soonestFireAt(list);
+  if (soonest === null) return 'none planned';
+  const mins = Math.round((soonest - now) / 60_000);
+  if (mins <= 0) return 'starting now';
   if (mins < 60) return `in ${mins}m`;
   const hours = Math.floor(mins / 60);
   return hours < 24 ? `in ${hours}h ${mins % 60}m` : `in ${Math.floor(hours / 24)}d`;
