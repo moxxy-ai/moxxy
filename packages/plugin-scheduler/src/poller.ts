@@ -24,7 +24,9 @@ export function cronBaseline(entry: ScheduleEntry): number {
   const baseline = entry.lastRunAt ?? entry.createdAt;
   // nextFireTime looks from the next whole minute after the baseline, so one
   // minute before `startAt` makes the window's opening minute the first fire.
-  const windowOpen = entry.startAt !== undefined ? entry.startAt - 60_000 : baseline;
+  // A mid-minute start (23:00:30) is rounded up first: cron fires on whole
+  // minutes, and 23:00:00 would be before the window opens.
+  const windowOpen = entry.startAt !== undefined ? Math.ceil(entry.startAt / 60_000) * 60_000 - 60_000 : baseline;
   return Math.max(baseline, entry.timingChangedAt ?? baseline, entry.lastStartedAt ?? baseline, entry.lastSkippedAt ?? baseline, windowOpen);
 }
 

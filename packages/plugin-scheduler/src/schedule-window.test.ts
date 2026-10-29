@@ -47,6 +47,13 @@ describe('schedule window — firing decision', () => {
     expect(isDue(windowEntry(), windowStart)).toBe(true);
   });
 
+  it('waits for the next whole minute when the window opens mid-minute', () => {
+    // Cron fires on whole minutes; a start at 23:00:30 must not fire at 23:00:00.
+    const entry = windowEntry({ cron: '* * * * *', startAt: windowStart + 30_000 });
+    expect(isDue(entry, windowStart + 5_000)).toBe(false);
+    expect(nextCronFire(entry)?.getTime()).toBe(windowStart + MINUTE);
+  });
+
   it('still fires the run that falls exactly on the end time', () => {
     const entry = windowEntry({ lastRunAt: windowEnd - 30 * MINUTE });
     expect(isDue(entry, windowEnd)).toBe(true);
