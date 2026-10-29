@@ -151,6 +151,9 @@ export class ScheduleStore {
     this.store = createJsonFileStore<ScheduleEntry>({
       file,
       itemsKey: 'schedules',
+      // The desktop, `moxxy schedule` and every runner each hold their own
+      // ScheduleStore on this file; each must see the others' changes.
+      sharedWithOtherProcesses: true,
       load: async (raw) => {
         if (raw === null) return [];
         let valid = false;
@@ -203,7 +206,7 @@ export class ScheduleStore {
     });
   }
 
-  /** Force a re-read on the next access. Tests use this. */
+  /** Force a re-read on the next access (every access re-reads already; kept for callers). */
   invalidate(): void {
     this.store.invalidate();
   }

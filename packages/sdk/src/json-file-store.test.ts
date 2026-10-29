@@ -246,4 +246,29 @@ describe('createJsonFileStore', () => {
     // …until invalidated.
     expect(await s.read()).toEqual([{ id: 'b', n: 2 }]);
   });
+
+  describe('sharedWithOtherProcesses', () => {
+    function shared() {
+      return createJsonFileStore<Item>({ file, load: lenientLoad, sharedWithOtherProcesses: true });
+    }
+
+    it('reads changes another process made after its first read', async () => {
+      const mine = shared();
+      expect(await mine.read()).toEqual([]);
+      await shared().mutate((items) => [...items, { id: 'a', n: 1 }]);
+      expect(await mine.read()).toEqual([{ id: 'a', n: 1 }]);
+      expect(await mine.get('a')).toEqual({ id: 'a', n: 1 });
+    });
+
+    it('changes the file as it is now, not as it was at its first read', async () => {
+      const mine = shared();
+      expect(await mine.read()).toEqual([]);
+      await shared().mutate((items) => [...items, { id: 'a', n: 1 }]);
+      await mine.mutate((items) => [...items, { id: 'b', n: 2 }]);
+      expect(await store().read()).toEqual([
+        { id: 'a', n: 1 },
+        { id: 'b', n: 2 },
+      ]);
+    });
+  });
 });
