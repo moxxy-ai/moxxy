@@ -55,6 +55,14 @@ describe('toSpeakableText', () => {
     expect(toSpeakableText('Łącze ma 300 Mb/s.')).toBe('Łącze ma 300 Mb/s.');
   });
 
+  it('keeps a Polish abbreviation that looks like a domain', () => {
+    expect(toSpeakableText('Testy obejmują m.in. logowanie.')).toBe('Testy obejmują m.in. logowanie.');
+  });
+
+  it('keeps the degree sign of a temperature', () => {
+    expect(toSpeakableText('Na dworze jest 20°C.')).toBe('Na dworze jest 20°C.');
+  });
+
   it('keeps an e-mail address readable', () => {
     expect(toSpeakableText('Napisz na jan@example.com dzisiaj.')).toBe('Napisz na jan@example.com dzisiaj.');
   });

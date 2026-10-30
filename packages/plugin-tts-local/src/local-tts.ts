@@ -25,6 +25,7 @@ import {
 
 import { HostClient, type HostClientLike } from './host-client.js';
 import { resolveSherpaLibDir, sherpaEnv, sherpaPlatformPackage } from './platform.js';
+import { normalizeForSpeech } from './spoken-text/index.js';
 import {
   DEFAULT_VOICE,
   DENOISING_STEPS,
@@ -121,16 +122,17 @@ export class LocalSupertonicSynthesizer implements Synthesizer {
     const paths = await this.ensureVoice(voice, opts.signal);
     opts.signal?.throwIfAborted();
 
+    const lang = speechLanguage(opts.language, text);
     const host = this.getHost();
     const { samples, sampleRate } = await host.synthesize({
       voiceKey: paths.vocoder,
       model: paths,
       numThreads: this.numThreads,
       provider: this.provider,
-      text,
+      text: normalizeForSpeech(text, lang),
       sid: voice.speakerId,
       speed: clampSpeed(opts.rate),
-      lang: speechLanguage(opts.language, text),
+      lang,
       numSteps: DENOISING_STEPS,
     });
 

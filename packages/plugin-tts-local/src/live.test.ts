@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createLocalSupertonicSynthesizer } from './local-tts.js';
+import { PRONUNCIATION_CORPUS } from './__fixtures__/pronunciation-corpus.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // vitest runs the TypeScript SOURCE, so `import.meta.url` here is src/. The
@@ -39,6 +40,18 @@ describe.skipIf(!LIVE)('local TTS (live, real download + native sidecar)', () =>
       expect(out.mimeType).toBe('audio/wav');
       expect(String.fromCharCode(...out.audio.subarray(0, 4))).toBe('RIFF');
       expect(out.audio.byteLength).toBeGreaterThan(44 + 1000);
+    } finally {
+      synth.shutdown();
+    }
+  }, 600_000);
+
+  it('produces audio for every sentence of the pronunciation corpus', async () => {
+    const synth = createLocalSupertonicSynthesizer({ modelsDir, sidecarPath: SIDECAR_PATH });
+    try {
+      for (const { lang, text } of PRONUNCIATION_CORPUS) {
+        const out = await synth.synthesize(text, { language: lang });
+        expect(out.audio.byteLength, text).toBeGreaterThan(44 + 1000);
+      }
     } finally {
       synth.shutdown();
     }
