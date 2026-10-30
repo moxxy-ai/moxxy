@@ -45,10 +45,10 @@
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "@moxxy/workspace-registry": "workspace:*",
-    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-from-markdown": "^2.1.0",
     "mdast-util-gfm": "^3.1.0",
     "micromark-extension-gfm": "^3.0.0",
-    "officeparser": "~8.1.0",
+    "officeparser": "~8.3.0",
     "pdfjs-dist": "6.4.299",
     "yaml": "^2.9.1",
     "zod": "catalog:"
