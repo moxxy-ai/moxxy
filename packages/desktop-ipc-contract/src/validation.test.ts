@@ -765,6 +765,19 @@ describe('IPC payload validation', () => {
       validateIpcInput('scheduler.delete' as never, { id: 's'.repeat(257) }),
     ).toThrow();
   });
+  it('bounds a new schedule sent by the form', () => {
+    const at = Date.UTC(2026, 9, 29, 23);
+    const ok = { name: 'book-night', prompt: 'Continue the book', cron: '*/30 * * * *', startAt: at, endAt: at + 8 * 3_600_000 };
+    expect(() => validateIpcInput('scheduler.create', ok)).not.toThrow();
+    expect(() =>
+      validateIpcInput('scheduler.create', { name: 'once', prompt: 'p', runAt: at, targetSessionId: null }),
+    ).not.toThrow();
+    expect(() => validateIpcInput('scheduler.create', { ...ok, name: '' })).toThrow();
+    expect(() => validateIpcInput('scheduler.create', { ...ok, prompt: 'p'.repeat(100_001) })).toThrow();
+    expect(() => validateIpcInput('scheduler.create', { ...ok, cron: 'c'.repeat(201) })).toThrow();
+    expect(() => validateIpcInput('scheduler.create', { ...ok, startAt: 'tomorrow' })).toThrow();
+    expect(() => validateIpcInput('scheduler.create', { ...ok, extra: 1 })).toThrow();
+  });
   it('bounds what the pane may tell main about the agent’s browser pointer and control', () => {
     expect(() => validateIpcInput('browser.confirmCursor' as IpcCommandName, { requestId: 'cur1' })).not.toThrow();
     expect(() => validateIpcInput('browser.confirmCursor' as IpcCommandName, { requestId: '' })).toThrow();

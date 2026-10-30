@@ -1,9 +1,10 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
-import { isValidCron, isValidTimeZone } from '@moxxy/sdk/cron';
+import { SCHEDULE_NAME_MAX, SCHEDULE_NAME_PATTERN, scheduleShapeProblem, scheduleTimingProblem } from './draft.js';
 import type { FiringLock } from './firing-lock.js';
 import { nextCronFire } from './poller.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
+import { windowShapeProblem } from './window.js';
 
 /**
  * Capability glob for the schedule store (`isolation.capabilities.fs`). Ends
@@ -17,25 +18,32 @@ const blankStringToUndefined = (value: unknown): unknown =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 const optionalText = z.preprocess(blankStringToUndefined, z.string().min(1).optional());
-const optionalRunAt = z.preprocess(
-  blankStringToUndefined,
+const optionalTimestamp = (field: string, description: string) =>
   z
-    .union([
-      z.number().int(),
-      z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
-        message: 'runAt must be an ISO timestamp or epoch-ms',
-      }),
-    ])
-    .optional(),
-);
+    .preprocess(
+      blankStringToUndefined,
+      z
+        .union([
+          z.number().int(),
+          z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
+            message: `${field} must be an ISO timestamp or epoch-ms`,
+          }),
+        ])
+        .optional(),
+    )
+    .describe(description);
+
+/** Epoch ms of a validated `runAt`/`startAt`/`endAt` value. */
+const toEpochMs = (value: number | string | undefined): number | undefined =>
+  typeof value === 'string' ? Date.parse(value) : value;
 
 const scheduleCreateInputSchema = z
   .object({
     name: z
       .string()
       .min(1)
-      .max(120)
-      .regex(/^[a-z0-9][a-z0-9-]*$/i, 'name must be slug-like (letters, digits, hyphens)'),
+      .max(SCHEDULE_NAME_MAX)
+      .regex(SCHEDULE_NAME_PATTERN, 'name must be slug-like (letters, digits, hyphens)'),
     prompt: z.string().min(1),
     channel: optionalText,
     model: optionalText,
@@ -43,15 +51,39 @@ const scheduleCreateInputSchema = z
       'Session id to fire this schedule in (where its run executes + displays). ' +
         'Defaults to the session that created the schedule.',
     ),
-    cron: optionalText,
-    runAt: optionalRunAt,
+    cron: optionalText.describe(
+      'Recurring trigger: 5-field POSIX cron, e.g. "*/30 * * * *". Omit when using runAt.',
+    ),
+    runAt: optionalTimestamp(
+      'runAt',
+      'One-shot trigger: the single moment to run (ISO timestamp or epoch-ms). Omit when using cron.',
+    ),
+    startAt: optionalTimestamp(
+      'startAt',
+      'Only with cron: the recurring schedule does not run before this moment (ISO timestamp or epoch-ms).',
+    ),
+    endAt: optionalTimestamp(
+      'endAt',
+      'Only with cron: the last moment the recurring schedule may run (inclusive); ' +
+        'after it the schedule turns itself off (ISO timestamp or epoch-ms).',
+    ),
     timeZone: optionalText,
   })
   .refine((value) => value.cron !== undefined || value.runAt !== undefined, {
     message: 'provide either `cron` or `runAt`',
   })
   .refine((value) => !(value.cron !== undefined && value.runAt !== undefined), {
-    message: 'provide either `cron` or `runAt`, not both',
+    message:
+      'provide either `cron` or `runAt`, not both. For a recurring schedule limited to a ' +
+      'time window, send `cron` with `startAt` and/or `endAt` and omit `runAt`.',
+  })
+  .superRefine((value, ctx) => {
+    const problem = windowShapeProblem({
+      cron: value.cron,
+      startAt: toEpochMs(value.startAt),
+      endAt: toEpochMs(value.endAt),
+    });
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem, path: ['endAt'] });
   });
 
 export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unknown> {
@@ -62,7 +94,7 @@ export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unkn
     // here used to hide a created-during-downtime catch-up the poller fires
     // immediately.
     const next = nextCronFire(entry);
-    nextFireAt = next ? next.getTime() : null;
+    nextFireAt = next && (entry.endAt === undefined || next.getTime() <= entry.endAt) ? next.getTime() : null;
   } else if (entry.runAt && entry.enabled) {
     nextFireAt = entry.runAt;
   }
@@ -72,6 +104,8 @@ export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unkn
     enabled: entry.enabled,
     cron: entry.cron ?? null,
     runAt: entry.runAt ?? null,
+    startAt: entry.startAt ?? null,
+    endAt: entry.endAt ?? null,
     timeZone: entry.timeZone ?? null,
     channel: entry.channel ?? null,
     model: entry.model ?? null,
@@ -122,6 +156,8 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         'Create a scheduled prompt with exactly one trigger. For a recurring schedule, ' +
         'set `cron` and omit `runAt` entirely. For a one-shot schedule, set `runAt` and ' +
         'omit `cron` entirely. Never send an empty placeholder for the unused trigger. ' +
+        'To limit a recurring schedule to a time window ("every 30 min from 23:00 to ' +
+        '07:00"), set `cron` plus `startAt` and/or `endAt`; it stops by itself after `endAt`. ' +
         'The prompt runs in an isolated session at fire time; the final ' +
         "assistant message is appended to the user's inbox. Cron uses 5-field POSIX " +
         "syntax in the user's local timezone (override via `timeZone`). For Telegram or " +
@@ -137,22 +173,28 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         },
       },
       handler: async (input) => {
-        const runAt =
-          typeof input.runAt === 'string' ? Date.parse(input.runAt) : input.runAt;
-        if (input.cron && !isValidCron(input.cron)) {
-          throw new Error(`invalid cron expression "${input.cron}"`);
-        }
-        if (input.timeZone !== undefined && !isValidTimeZone(input.timeZone)) {
-          throw new Error(
-            `invalid timeZone "${input.timeZone}" (must be an IANA zone or "local")`,
-          );
-        }
-        const created = await store.create({
+        const runAt = toEpochMs(input.runAt);
+        const startAt = toEpochMs(input.startAt);
+        const endAt = toEpochMs(input.endAt);
+        const draft = {
           name: input.name,
           prompt: input.prompt,
           ...(input.cron ? { cron: input.cron } : {}),
           ...(runAt !== undefined ? { runAt } : {}),
+          ...(startAt !== undefined ? { startAt } : {}),
+          ...(endAt !== undefined ? { endAt } : {}),
           ...(input.timeZone ? { timeZone: input.timeZone } : {}),
+        };
+        const shape = scheduleShapeProblem(draft);
+        if (shape) throw new Error(shape);
+        const timing = scheduleTimingProblem(draft, Date.now());
+        if (timing) {
+          throw new Error(
+            `${timing}; ask the user for a new time instead of creating a schedule that never runs`,
+          );
+        }
+        const created = await store.create({
+          ...draft,
           ...(input.channel ? { channel: input.channel } : {}),
           ...(input.model ? { model: input.model } : {}),
           // Bind to a target session (where the run fires + displays). An explicit

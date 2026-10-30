@@ -22,7 +22,28 @@ import type { ScheduleEntry, ScheduleStore } from './store.js';
  */
 export function cronBaseline(entry: ScheduleEntry): number {
   const baseline = entry.lastRunAt ?? entry.createdAt;
-  return Math.max(baseline, entry.timingChangedAt ?? baseline, entry.lastStartedAt ?? baseline, entry.lastSkippedAt ?? baseline);
+  // nextFireTime looks from the next whole minute after the baseline, so one
+  // minute before `startAt` makes the window's opening minute the first fire.
+  // A mid-minute start (23:00:30) is rounded up first: cron fires on whole
+  // minutes, and 23:00:00 would be before the window opens.
+  const windowOpen = entry.startAt !== undefined ? Math.ceil(entry.startAt / 60_000) * 60_000 - 60_000 : baseline;
+  return Math.max(baseline, entry.timingChangedAt ?? baseline, entry.lastStartedAt ?? baseline, entry.lastSkippedAt ?? baseline, windowOpen);
+}
+
+/**
+ * How late the last in-window run may still start. The poller ticks every 30 s
+ * and a previous run can still be busy, so a run due at `endAt` is normally
+ * picked up a little after it; a run missed by more (the computer was asleep)
+ * is dropped instead of firing outside the window.
+ */
+export const WINDOW_END_GRACE_MS = 5 * 60_000;
+
+/** True once a windowed schedule can never fire again. */
+export function isWindowOver(entry: ScheduleEntry, now: number): boolean {
+  if (entry.endAt === undefined) return false;
+  if (now > entry.endAt + WINDOW_END_GRACE_MS) return true;
+  const next = nextCronFire(entry);
+  return next !== null && next.getTime() > entry.endAt;
 }
 
 /**
@@ -66,6 +87,7 @@ export function isDue(entry: ScheduleEntry, now: number): boolean {
     return entry.runAt <= now;
   }
   if (!entry.cron) return false;
+  if (isWindowOver(entry, now)) return false;
   const next = nextCronFire(entry);
   if (!next) return false;
   return next.getTime() <= now;
@@ -244,6 +266,12 @@ export class SchedulerPoller {
       // so any future throw in the firing decision is contained per-entry.
       let due: boolean;
       try {
+        if (entry.enabled && isWindowOver(entry, now)) {
+          // The window has closed: turn the schedule off so lists stop showing
+          // it as active. Idempotent, so any runner may do it.
+          await this.opts.store.update(entry.id, { enabled: false });
+          continue;
+        }
         due = isDue(entry, now);
       } catch (err) {
         const log = this.opts.logger;

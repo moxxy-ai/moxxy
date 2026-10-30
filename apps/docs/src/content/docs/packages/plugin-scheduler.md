@@ -38,7 +38,7 @@ store via the same path.
 
 | Tool | Purpose |
 |---|---|
-| `schedule_create` | Add a cron or `runAt` entry. |
+| `schedule_create` | Add a cron or `runAt` entry; `startAt`/`endAt` limit a cron to a time window. |
 | `schedule_list` | List all schedules with `nextFireAt`. |
 | `schedule_delete` | Remove by id. |
 | `schedule_enable` / `schedule_disable` | Toggle without deleting. |
@@ -50,6 +50,15 @@ Five fields: `min hour dom mon dow`. Supports `*`, `*/n`, ranges, lists,
 and `L` (last). IANA timezone optional per entry. See
 `packages/plugin-scheduler/src/cron.ts`.
 
+## Time window
+
+A cron entry may carry `startAt` and `endAt` (epoch ms). Nothing fires
+before `startAt` (a mid-minute start is rounded up to the next whole
+minute); the run due at `endAt` still fires up to 5 minutes late
+(`WINDOW_END_GRACE_MS`); then the poller sets `enabled: false`. The
+authoring rules every caller shares live in `scheduleDraftProblem`
+(`src/draft.ts`).
+
 ## Skill-driven schedules
 
 Skills with a `schedule:` block in their frontmatter are mirrored
@@ -60,7 +69,8 @@ the schedule disappears on the next sync.
 ## Storage
 
 ```
-~/.moxxy/schedules.json   ScheduleEntry[]
+~/.moxxy/schedules.json   ScheduleEntry[]; shared across processes, re-read on every access
+~/.moxxy/schedules.json.lock      held while one process really changes the file (an idle tick neither locks nor writes)
 ~/.moxxy/inbox/           per-channel delivery dir for headless runs
 ```
 

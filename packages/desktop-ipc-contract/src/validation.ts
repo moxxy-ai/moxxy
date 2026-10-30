@@ -150,6 +150,7 @@ const scheduleId = z.string().min(1).max(256);
 const webhookId = z.string().min(1).max(256);
 /** A target session id (same shape as a session/desk id), or null to clear it. */
 const sessionRef = z.string().min(1).max(256).nullable();
+const epochMs = z.number().int().nonnegative();
 const focusDelta = z.number().finite().min(-10_000).max(10_000);
 const focusScreenPoint = z.number().finite().min(-100_000).max(100_000);
 const FOCUS_WINDOW_MAX_SIZE = 1600;
@@ -404,6 +405,20 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // as the scheduler/webhook ids) or null to clear the binding.
   'workflows.setTargetSession': z.object({ name: workflowName, sessionId: sessionRef }),
   'scheduler.list': z.undefined(),
+  // The New schedule form writes ~/.moxxy/schedules.json; bound every field.
+  // Meaning (one trigger, valid cron, future dates) is checked by the host.
+  'scheduler.create': z
+    .object({
+      name: z.string().min(1).max(120),
+      prompt: z.string().min(1).max(100_000),
+      cron: z.string().min(1).max(200).optional(),
+      runAt: epochMs.optional(),
+      startAt: epochMs.optional(),
+      endAt: epochMs.optional(),
+      timeZone: z.string().min(1).max(100).optional(),
+      targetSessionId: sessionRef.optional(),
+    })
+    .strict(),
   'scheduler.setEnabled': z.object({ id: scheduleId, enabled: z.boolean() }),
   'scheduler.setTargetSession': z.object({ id: scheduleId, sessionId: sessionRef }),
   'scheduler.delete': z.object({ id: scheduleId }),

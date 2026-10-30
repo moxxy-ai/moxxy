@@ -145,6 +145,11 @@ describe('ensureModelFiles', () => {
     const aborted: string[] = [];
     const fetchImpl = (async (url: string, init?: { signal?: AbortSignal }) => {
       if (url === FILES[2]!.url) return new Response(null, { status: 500 });
+      // A download that starts after the failure is stopped before it reads anything.
+      if (init?.signal?.aborted) {
+        aborted.push(url);
+        throw new DOMException('Aborted', 'AbortError');
+      }
       const body = new ReadableStream<Uint8Array>({
         pull: () =>
           new Promise<void>((_resolve, reject) => {

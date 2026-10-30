@@ -93,4 +93,48 @@ describe('scheduler IPC handlers', () => {
     assertDefined(listHandler, 'scheduler.list handler');
     await expect(listHandler()).resolves.toEqual([]);
   });
+
+  it('creates a schedule from the New schedule form, limited to a time window', async () => {
+    const { store } = await tempStore();
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSchedulerHandlers(store);
+    const createHandler = handlers.get('scheduler.create');
+    assertDefined(createHandler, 'scheduler.create handler');
+    const startAt = Date.now() + 60 * 60_000;
+    const endAt = startAt + 8 * 60 * 60_000;
+
+    const created = await createHandler({
+      name: 'book-night',
+      prompt: 'Continue the book',
+      cron: '*/30 * * * *',
+      startAt,
+      endAt,
+      targetSessionId: 'desk-1',
+    });
+
+    expect(created).toEqual(
+      expect.objectContaining({ name: 'book-night', cron: '*/30 * * * *', startAt, endAt, targetSessionId: 'desk-1', enabled: true }),
+    );
+    expect(await store.list()).toEqual([
+      expect.objectContaining({ name: 'book-night', source: 'manual', ownerSessionId: 'desk-1' }),
+    ]);
+  });
+
+  it('refuses a schedule that could never run, and saves nothing', async () => {
+    const { store } = await tempStore();
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSchedulerHandlers(store);
+    const createHandler = handlers.get('scheduler.create');
+    assertDefined(createHandler, 'scheduler.create handler');
+
+    await expect(
+      createHandler({ name: 'too-late', prompt: 'p', runAt: Date.now() - 5 * 60_000 }),
+    ).rejects.toMatchObject({ code: 'invalid-payload', message: expect.stringMatching(/already passed/) });
+    await expect(
+      createHandler({ name: 'bad-cron', prompt: 'p', cron: 'every day' }),
+    ).rejects.toThrow(/invalid cron/);
+    expect(await store.list()).toEqual([]);
+  });
 });

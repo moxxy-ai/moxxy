@@ -21,6 +21,12 @@ moxxy schedule add follow-up \
   --at "2026-06-01T09:00:00Z" \
   --prompt "Ping me about the migration."
 
+# Recurring, but only inside a time window (local time); it turns itself off after --until
+moxxy schedule add night-shift \
+  --cron "*/30 * * * *" \
+  --from "2026-10-29T23:00" --until "2026-10-30T07:00" \
+  --prompt "Continue the book draft."
+
 # Hint a channel — the prompt calls the channel's send tool
 moxxy schedule add daily-digest \
   --cron "0 9 * * *" \
@@ -31,10 +37,24 @@ moxxy schedule add daily-digest \
 | Flag | Purpose |
 |---|---|
 | `--cron "<expr>"` | 5-field cron expression (min hour dom mon dow). |
-| `--at "<iso>"` | One-shot ISO-8601 timestamp (or epoch-ms). |
+| `--at "<iso>"` | One-shot ISO-8601 timestamp (or epoch-ms). A moment more than a minute in the past is refused (exit 2). |
+| `--from "<iso>"` | With `--cron`: do not run before this moment. A start inside a minute (23:00:30) waits for the next whole minute. |
+| `--until "<iso>"` | With `--cron`: the last moment to run (inclusive); then the schedule turns itself off. |
 | `--channel <name>` | Soft hint — the prompt calls the matching send tool. |
 | `--model <id>` | Override the active model for this schedule. |
 | `--timezone <zone>` | IANA zone for cron interpretation (default: system local). |
+
+### Time window
+
+`--from`/`--until` (tool fields `startAt`/`endAt`) limit a cron schedule
+to a window. Nothing fires before the start. The run due at the end
+still fires, up to 5 minutes late (the poller ticks every 30 s); a run
+missed by more than that, e.g. while the computer slept, is dropped.
+Once no run is left in the window the schedule is disabled. A window
+that has already ended, an end not after the start, or a window no run
+of the cron falls inside ("every 5 minutes" from 03:47 to 03:49) is
+refused.
+Times without an offset are read in the computer's local time.
 
 ## Manage
 
@@ -44,6 +64,12 @@ moxxy schedule remove <id>
 moxxy schedule enable|disable <id>
 moxxy schedule run <id>            # fire one immediately (testing)
 ```
+
+`~/.moxxy/schedules.json` is shared by the desktop, the CLI and every
+running Moxxy: each reads it again before every read and change, and
+holds `schedules.json.lock` for the few milliseconds a change takes.
+The desktop's Automations → Schedules screen lists the same entries
+and has a New schedule form that applies the same rules.
 
 ## Daemon
 
@@ -69,7 +95,7 @@ The agent can manage schedules itself via these tools:
 
 | Tool | Purpose |
 |---|---|
-| `schedule_create` | Add an entry (cron / runAt + prompt). |
+| `schedule_create` | Add an entry (cron / runAt + prompt; `startAt`/`endAt` limit a cron to a window). |
 | `schedule_list` | List with `nextFireAt`. |
 | `schedule_delete` | Remove by id. |
 | `schedule_enable` / `schedule_disable` | Toggle without deleting. |

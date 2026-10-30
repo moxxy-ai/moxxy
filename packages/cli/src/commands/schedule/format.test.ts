@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ScheduleEntry } from '@moxxy/plugin-scheduler';
-import { fmtNext } from './format.js';
+import { fmtNext, fmtWindow } from './format.js';
 
 /** Minimal valid ScheduleEntry, overridden per-case. */
 function entry(over: Partial<ScheduleEntry>): ScheduleEntry {
@@ -56,5 +56,32 @@ describe('fmtNext', () => {
   it('reports "(done)" for an entry with neither cron nor runAt', () => {
     const out = fmtNext(entry({ enabled: true }));
     expect(out).toBe('(done)');
+  });
+});
+
+describe('schedule time window in `moxxy schedule list`', () => {
+  const startAt = Date.UTC(2030, 9, 29, 22, 0);
+  const endAt = Date.UTC(2030, 9, 30, 6, 0);
+
+  it('shows the window opening as the next fire, not the minute after creation', () => {
+    const out = fmtNext(entry({ cron: '*/30 * * * *', timeZone: 'UTC', startAt, endAt }));
+    expect(out).toBe(new Date(startAt).toISOString());
+  });
+
+  it('says the window ended once no run is left in it', () => {
+    const out = fmtNext(
+      entry({ cron: '*/30 * * * *', timeZone: 'UTC', startAt, endAt, lastRunAt: endAt, enabled: false }),
+    );
+    expect(out).toBe('(window ended)');
+  });
+
+  it('describes the window next to the cron', () => {
+    expect(fmtWindow(entry({ cron: '*/30 * * * *', startAt, endAt }))).toBe(
+      ` from ${new Date(startAt).toISOString()} until ${new Date(endAt).toISOString()}`,
+    );
+    expect(fmtWindow(entry({ cron: '*/30 * * * *', endAt }))).toBe(
+      ` until ${new Date(endAt).toISOString()}`,
+    );
+    expect(fmtWindow(entry({ cron: '*/30 * * * *' }))).toBe('');
   });
 });

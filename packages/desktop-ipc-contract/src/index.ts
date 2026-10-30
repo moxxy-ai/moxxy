@@ -79,7 +79,12 @@ export type {
 } from './workflows.js';
 
 // ---------- Scheduler -----------------------------------------------------
-export type { ScheduleSource, ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
+export type {
+  ScheduleCreateInput,
+  ScheduleSource,
+  ScheduleSummary,
+  SchedulerDeleteResult,
+} from './scheduler.js';
 
 // ---------- Webhooks ------------------------------------------------------
 export type { WebhookLastResult, WebhookSummary, WebhookDeleteResult } from './webhooks.js';

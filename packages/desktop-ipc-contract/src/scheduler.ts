@@ -8,6 +8,10 @@ export interface ScheduleSummary {
   readonly enabled: boolean;
   readonly cron: string | null;
   readonly runAt: number | null;
+  /** Time window of a cron schedule: no run before `startAt`, none after
+   *  `endAt` (then it turns itself off). Optional for older summary producers. */
+  readonly startAt?: number | null;
+  readonly endAt?: number | null;
   readonly timeZone: string | null;
   readonly channel: string | null;
   readonly model: string | null;
@@ -30,6 +34,21 @@ export interface ScheduleSummary {
   readonly lastError: string | null;
   readonly nextFireAt: number | null;
   readonly nextFireIso: string | null;
+}
+
+/** A new schedule from the desktop's New schedule form. Exactly one of `cron`
+ *  (repeating) or `runAt` (once); `startAt`/`endAt` (epoch ms) only with `cron`.
+ *  The host checks it with the scheduler's own rules before saving. */
+export interface ScheduleCreateInput {
+  readonly name: string;
+  readonly prompt: string;
+  readonly cron?: string;
+  readonly runAt?: number;
+  readonly startAt?: number;
+  readonly endAt?: number;
+  readonly timeZone?: string;
+  /** Session the schedule runs in, or null/absent for none. */
+  readonly targetSessionId?: string | null;
 }
 
 export interface SchedulerDeleteResult {

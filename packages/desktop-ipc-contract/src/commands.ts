@@ -22,7 +22,7 @@ import type {
   WorkflowSave,
   WorkflowDetail,
 } from './workflows.js';
-import type { ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
+import type { ScheduleCreateInput, ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
 import type { WebhookSummary, WebhookDeleteResult } from './webhooks.js';
 import type { ChannelEntry, ChannelRunMode, ChannelRuntimeStatus } from './channels.js';
 import type {
@@ -662,6 +662,9 @@ export interface IpcCommands {
    *  The host reads the scheduler store directly so it also sees schedules
    *  created by the agent's schedule_* tools. */
   'scheduler.list': () => Promise<ReadonlyArray<ScheduleSummary>>;
+  /** Save a new schedule from the New schedule form. Rejects (`invalid-payload`)
+   *  with the reason when it could never run (past moment, ended window, bad cron). */
+  'scheduler.create': (args: ScheduleCreateInput) => Promise<ScheduleSummary>;
   /** Pause/resume an existing scheduler entry without rewriting its prompt. */
   'scheduler.setEnabled': (args: { id: string; enabled: boolean }) => Promise<ScheduleSummary | null>;
   /** Permanently remove an existing scheduler entry by id. */
