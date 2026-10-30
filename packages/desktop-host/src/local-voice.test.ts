@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +9,7 @@ import {
   isLocalVoiceInstalled,
   LOCAL_VOICE_PACKAGE,
   migrateLocalVoiceChoice,
+  removeRetiredVoices,
 } from './local-voice';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
@@ -208,5 +209,53 @@ describe('moving the old local voice to Supertonic', () => {
 
     await expect(migrateLocalVoiceChoice(opts)).resolves.toBe(false);
     await expect(loadCategoryDefault('synthesizer', opts)).resolves.toBeNull();
+  });
+});
+
+describe('removeRetiredVoices', () => {
+  const RETIRED = ['en_US-amy-medium', 'pl_PL-darkman-medium', 'pl_PL-gosia-medium'];
+  const NOW_HERE = { copied: [], skipped: ['tts/supertonic-3-int8'] };
+
+  async function homeWithVoices(names: ReadonlyArray<string>): Promise<string> {
+    const home = await temporaryMoxxyHome();
+    for (const name of names) {
+      await mkdir(path.join(home, 'models', 'tts', name), { recursive: true });
+      await writeFile(path.join(home, 'models', 'tts', name, 'voice.onnx'), 'weights');
+    }
+    return home;
+  }
+
+  async function voicesIn(home: string): Promise<string[]> {
+    return (await readdir(path.join(home, 'models', 'tts'))).sort();
+  }
+
+  it('removes the Piper voices once Supertonic was already here when this launch began', async () => {
+    const home = await homeWithVoices([...RETIRED, 'supertonic-3-int8']);
+
+    expect((await removeRetiredVoices(NOW_HERE, home)).sort()).toEqual(RETIRED);
+    expect(await voicesIn(home)).toEqual(['supertonic-3-int8']);
+  });
+
+  it('keeps them on the launch that copied Supertonic, so a first start that fails loses nothing', async () => {
+    const home = await homeWithVoices([...RETIRED, 'supertonic-3-int8']);
+
+    expect(await removeRetiredVoices({ copied: ['tts/supertonic-3-int8'], skipped: [] }, home)).toEqual([]);
+    expect(await voicesIn(home)).toHaveLength(4);
+  });
+
+  it('keeps them when the app shipped no voice to check against', async () => {
+    const home = await homeWithVoices(RETIRED);
+
+    expect(await removeRetiredVoices({ copied: [], skipped: [] }, home)).toEqual([]);
+    expect(await voicesIn(home)).toEqual(RETIRED);
+  });
+
+  it('touches nothing but the Piper voices', async () => {
+    const home = await homeWithVoices(['my-own-voice', 'supertonic-3-int8']);
+    await mkdir(path.join(home, 'models', 'stt', 'turbo'), { recursive: true });
+
+    expect(await removeRetiredVoices(NOW_HERE, home)).toEqual([]);
+    expect(await voicesIn(home)).toEqual(['my-own-voice', 'supertonic-3-int8']);
+    expect(await readdir(path.join(home, 'models', 'stt'))).toEqual(['turbo']);
   });
 });

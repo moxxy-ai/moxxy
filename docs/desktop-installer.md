@@ -12,10 +12,10 @@ of what moxxy needs to run and where each piece comes from.
 | The agent itself | `@moxxy/cli` with its dependencies (`resources/moxxy-cli`) | in the installer |
 | Providers, modes, memory, browser, terminal, channels, Computer Use | first-party plugins (`resources/plugins-seed`), copied to `~/.moxxy/plugins` on first launch | in the installer |
 | Computer Use | the native helper for the platform (`moxxy-computer`) | in the installer, inside the plugin seed |
-| Offline voice (Piper) | `@moxxy/plugin-tts-local` with `sherpa-onnx` native libraries | in the installer, inside the plugin seed |
-| Offline voice (Piper) | every voice the plugin offers (`resources/models-seed/tts`), copied to `~/.moxxy/models/tts` on first launch | in the installer |
+| Offline voice (Supertonic 3) | `@moxxy/plugin-tts-local` with `sherpa-onnx` native libraries | in the installer, inside the plugin seed |
+| Offline voice (Supertonic 3) | the model the plugin pins (`resources/models-seed/tts`), copied to `~/.moxxy/models/tts` on first launch | in the installer |
 | Gemini voice | `@moxxy/plugin-tts-gemini` (needs only the user's Google API key) | in the installer, inside the plugin seed |
-| Local transcription (Whisper turbo) | `@moxxy/plugin-stt-local`, sharing Piper's `sherpa-onnx` libraries | in the installer, inside the plugin seed |
+| Local dictation (Parakeet, Whisper turbo) | `@moxxy/plugin-stt-local`, sharing the voice's `sherpa-onnx` libraries | in the installer, inside the plugin seed |
 | Local transcription (Whisper turbo) | the model (~1 GB: three int8 files from Hugging Face, pinned to a revision and checked against their size and sha256), saved to `~/.moxxy/models/stt/turbo` | downloaded once, after the person agrees, when Local is first chosen in Settings → Voice → Transcription |
 | Adding or updating plugins from npm, the in-app "Update CLI", `npx` MCP servers | Node + npm (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/node` on first launch | in the installer |
 | Scripts the agent writes and runs (data, charts, documents, web pages) | Python + pip with a set of common packages (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/python` on first launch | in the installer |
@@ -23,7 +23,14 @@ of what moxxy needs to run and where each piece comes from.
 
 A first launch therefore needs no download: the agent, its plugins, offline
 voice with its voices, Node, Python and Git are all on disk. A freshly installed
-Piper becomes the voice unless the user already chose another one.
+Supertonic becomes the voice unless the user already chose another one. A saved
+Piper choice moves to Supertonic by itself, and the launch after the one that
+copied Supertonic removes the Piper voices.
+
+The Supertonic weights come under the Open RAIL-M licence, whose full text
+ships as `MODEL_LICENSE.md` in `@moxxy/plugin-tts-local`; `verify:resources`
+fails a build without it. Attribution for the dictation models Moxxy downloads
+is in `MODEL_NOTICE.md` in `@moxxy/plugin-stt-local`.
 
 ### Node, Python and Git for the agent
 
@@ -110,8 +117,8 @@ already in place are reused) and the runtimes (`bundle-runtimes-seed.mjs`;
 on an Apple Silicon Mac the x64 Python is prepared under Rosetta; in a signed
 macOS release the Python and the Git are signed before they are packed, see
 `docs/desktop-code-signing.md`). `verify:resources` and `verify:packaged` fail the
-build when the seed lacks Piper, the Gemini voice, any Piper voice, local
-transcription, the Codex
+build when the seed lacks the local voice or its model, the Gemini voice, local
+dictation, the Codex
 or OpenCode agent connection (neither is on npm), or Node,
 Python or Git for an architecture the installer serves. `scripts/smoke-runtimes.mjs`
 unpacks the runtimes as a first launch does and runs them.

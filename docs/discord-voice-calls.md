@@ -27,7 +27,7 @@ the agent answers, and the answer is read aloud. You can interrupt it.
   first sentence, and voices the next two while one plays — the same sentence
   splitting as the desktop's Voice Mode. Each sentence is voiced in its
   language, starting from the language you asked in, so a voice with one model
-  per language (local Piper: Polish and English) answers a Polish question in
+  per language (local Supertonic: Polish and English) answers a Polish question in
   Polish.
 - **While the agent works** you are not left in silence: the agent is asked to
   say in one short sentence what it is about to do and, before each further

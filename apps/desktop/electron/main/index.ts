@@ -52,6 +52,7 @@ import {
   seedModelsFromResources,
   adoptSeededLocalVoice,
   migrateLocalVoiceChoice,
+  removeRetiredVoices,
   prepareInstalledApp,
   StartupSetup,
   findNpm,
@@ -223,17 +224,19 @@ const startupSetup = new StartupSetup({
 
 /** Offline voice works on the first launch: the installer's voice lands in the
  *  models dir, a saved Piper choice moves to it, and a freshly seeded local voice
- *  becomes the active one. A failure here only means the voice downloads on
- *  first use, as it did before. */
+ *  becomes the active one. The launch after that removes the Piper voices. A
+ *  failure here only means the voice downloads on first use, as it did before. */
 async function prepareOfflineVoice(moxxyHome: string, seeded: ReadonlyArray<string>): Promise<void> {
   try {
-    await seedModelsFromResources({
+    const models = await seedModelsFromResources({
       resourcesPath: process.resourcesPath,
       moxxyHome,
       log: (msg) => console.log(`[moxxy] ${msg}`),
     });
     if (await migrateLocalVoiceChoice()) console.log('[moxxy] offline voice moved to Supertonic');
     if (await adoptSeededLocalVoice(seeded)) console.log('[moxxy] offline voice selected');
+    const retired = await removeRetiredVoices(models, moxxyHome);
+    if (retired.length > 0) console.log(`[moxxy] removed ${retired.length} old offline voice(s)`);
   } catch (err) {
     console.warn('[moxxy] offline voice preparation failed:', err);
   }
