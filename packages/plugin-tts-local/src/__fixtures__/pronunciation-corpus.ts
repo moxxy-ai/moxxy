@@ -1,7 +1,7 @@
 /**
  * Sentences a local voice must read correctly, used by the normalizer's tests
- * and by the opt-in live round trip. `heard` is what a careful listener would
- * write down, so a recognizer's output can be scored against it.
+ * and the opt-in live test. `heard` is what a careful listener would write
+ * down, so a recognizer's output can be scored against it.
  */
 
 export interface CorpusEntry {

@@ -54,7 +54,8 @@ export const DEFAULT_VOICE: VoiceEntry = {
 
 export const VOICE_CATALOG: readonly VoiceEntry[] = [DEFAULT_VOICE];
 
-/** More denoising steps sound cleaner and take longer. */
+/** More denoising steps speak clearer and take longer. On the pronunciation
+ *  corpus 5 steps are a third faster but start to lose digits of a number. */
 export const DENOISING_STEPS = 8;
 
 /** The languages Supertonic 3 reads. */

@@ -1,7 +1,6 @@
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { ensureModel } from '@moxxy/model-fetch';
+import type { ensureModel } from '@moxxy/model-fetch';
 
 import {
   clampSpeed,
@@ -64,6 +63,16 @@ function makeSynth(over: Partial<LocalSupertonicOptions> = {}): {
 }
 
 describe('LocalSupertonicSynthesizer.synthesize', () => {
+  it('sends the spoken form of the text, in the language of the original', async () => {
+    const { synth, host } = makeSynth();
+    await synth.synthesize('Koszt to 1500 zł.', { language: 'pl' });
+    await synth.synthesize('It costs $1,500.', { language: 'en' });
+    expect(host.reqs.map((req) => req.text)).toEqual([
+      'Koszt to tysiąc pięćset złotych.',
+      'It costs one thousand five hundred dollars.',
+    ]);
+  });
+
   it('fetches the pinned voice and returns WAV bytes', async () => {
     const { synth, host, ensure } = makeSynth();
     const out = await synth.synthesize('hello world');

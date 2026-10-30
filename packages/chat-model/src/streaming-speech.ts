@@ -254,15 +254,24 @@ const MIN_CLAUSE_CHARS = 48;
 const ABBREVIATIONS: ReadonlyArray<string> = [
   'dr.',
   'e.g.',
+  'godz.',
   'i.e.',
   'itd.',
   'itp.',
+  'm.in.',
   'mr.',
   'mrs.',
   'ms.',
   'np.',
+  'ok.',
   'prof.',
+  'r.',
   'tj.',
+  'tys.',
+  'tzn.',
+  'tzw.',
+  'ul.',
+  'vs.',
 ];
 
 /** Incrementally turns provider text deltas into natural speakable chunks. */
@@ -359,6 +368,7 @@ function isSentencePeriod(text: string, index: number): boolean {
   const previous = text[index - 1];
   const next = text[index + 1];
   if (previous && next && /\d/.test(previous) && /\d/.test(next)) return false;
+  if (previous && /\d/.test(previous) && /^\s+\p{Ll}/u.test(text.slice(index + 1))) return false;
   const lower = text.toLocaleLowerCase();
   return !ABBREVIATIONS.some((abbreviation) => {
     for (let dot = abbreviation.indexOf('.'); dot >= 0; dot = abbreviation.indexOf('.', dot + 1)) {
