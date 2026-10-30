@@ -20,10 +20,11 @@ const REQUIRED_CLI_DEPENDENCIES = ['@moxxy/sdk', 'zod', 'undici'];
 const SIGN_IN_PROVIDER = '@moxxy/plugin-provider-claude-code';
 /** Sign-in providers the desktop offers out of the box — each must be seeded. */
 const SIGN_IN_PROVIDERS = [SIGN_IN_PROVIDER];
-/** Both voices Settings offers work without npm: offline Piper (with every
- *  voice it offers, checked below) and Gemini. */
-const VOICE_PLUGINS = ['@moxxy/plugin-tts-local', '@moxxy/plugin-tts-gemini'];
-/** Settings → Voice → Transcription offers Local; it switches without npm. */
+/** Both voices Settings offers work without npm: offline Supertonic (with its
+ *  model, checked below) and Gemini. */
+const LOCAL_VOICE_PLUGIN = '@moxxy/plugin-tts-local';
+const VOICE_PLUGINS = [LOCAL_VOICE_PLUGIN, '@moxxy/plugin-tts-gemini'];
+/** Settings → Voice offers the local dictation models; they switch without npm. */
 const TRANSCRIPTION_PLUGINS = ['@moxxy/plugin-stt-local'];
 /** Settings → Providers → Coding agents lists Claude, Codex and OpenCode; the
  *  last two are not on npm, so a seed without them leaves no way to add them. */
@@ -108,6 +109,7 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
   }
 
   await verifyBundledVoices(path.join(root, 'models-seed', 'tts'));
+  await verifyModelLicence(seedDir);
   await verifyBundledRuntimes(path.join(root, 'runtimes-seed'), options.platform ?? process.platform, options.arch ?? process.arch);
 
   if (options.runCli !== false) {
@@ -166,6 +168,15 @@ async function verifyBundledVoices(voicesDir) {
     if (marker !== voice.sha256.toLowerCase()) {
       throw new Error(`Bundled voice ${voice.id} is not the pinned archive`);
     }
+  }
+}
+
+/** The offline voice's licence asks that everyone who receives the model gets a copy. */
+async function verifyModelLicence(seedDir) {
+  try {
+    await access(path.join(seedDir, 'node_modules', LOCAL_VOICE_PLUGIN, 'MODEL_LICENSE.md'));
+  } catch (error) {
+    throw new Error(`${LOCAL_VOICE_PLUGIN} ships no MODEL_LICENSE.md`, { cause: error });
   }
 }
 

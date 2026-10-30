@@ -199,7 +199,12 @@ import type {
  * exactly one request (additive; a client never sends it to an older runner,
  * which would drop it and save the whole tool).
  */
-export const RUNNER_PROTOCOL_VERSION = 32;
+/**
+ * v33: no wire change. The local voice is now Supertonic (`local-supertonic`),
+ * whose model and native plugin ship only with the full app, so this bump sends
+ * every older desktop through the installer instead of a JS hot-update.
+ */
+export const RUNNER_PROTOCOL_VERSION = 33;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is

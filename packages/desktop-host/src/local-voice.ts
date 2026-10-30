@@ -1,6 +1,10 @@
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
+
 import { loadCategoryDefault, setCategoryDefault, type UserConfigOptions } from '@moxxy/config';
 import { moxxyHome } from '@moxxy/sdk/server';
 
+import type { SeedModelsResult } from './seed-models';
 import {
   createOptionalPluginInstaller,
   isOptionalPluginInstalled,
@@ -12,6 +16,8 @@ export const LOCAL_VOICE_PACKAGE = '@moxxy/plugin-tts-local';
 export const LOCAL_VOICE_SYNTHESIZER = 'local-supertonic';
 /** What the local voice was called before Supertonic: old settings still say it. */
 const LEGACY_LOCAL_VOICE_SYNTHESIZER = 'local-piper';
+/** The Piper voices earlier installers put in the models dir. */
+const RETIRED_VOICES = ['en_US-amy-medium', 'pl_PL-darkman-medium', 'pl_PL-gosia-medium'];
 
 const LOCAL_VOICE: OptionalPlugin = {
   packageName: LOCAL_VOICE_PACKAGE,
@@ -54,4 +60,21 @@ export async function adoptSeededLocalVoice(
   if ((await loadCategoryDefault('synthesizer', opts)) !== null) return false;
   await setCategoryDefault('synthesizer', LOCAL_VOICE_SYNTHESIZER, opts);
   return true;
+}
+
+/**
+ * Give back the disk the Piper voices took, on the first launch that found every
+ * shipped voice already in place: the one that copied Supertonic keeps them, so a
+ * new version that fails to start the first time has lost nothing.
+ */
+export async function removeRetiredVoices(
+  seed: SeedModelsResult,
+  home = moxxyHome(),
+): Promise<ReadonlyArray<string>> {
+  if (seed.copied.length > 0 || seed.skipped.length === 0) return [];
+  const voicesDir = path.join(home, 'models', 'tts');
+  const here = new Set(await fs.readdir(voicesDir).catch(() => []));
+  const retired = RETIRED_VOICES.filter((voice) => here.has(voice));
+  await Promise.all(retired.map((voice) => fs.rm(path.join(voicesDir, voice), { recursive: true, force: true })));
+  return retired;
 }
