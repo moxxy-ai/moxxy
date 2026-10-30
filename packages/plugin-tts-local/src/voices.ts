@@ -1,135 +1,99 @@
 /**
- * The pinned local voice catalog.
+ * The pinned local voice.
  *
- * Every voice is a Piper VITS model published by the sherpa-onnx project as a
- * `.tar.bz2` under its `tts-models` GitHub release. Each `sha256` is copied
- * VERBATIM from that release's `checksum.txt` (re-verified 2026-07-05) — so a
- * first-use download is content-addressed and tamper-evident, unlike an
- * unverified blob fetch. The archive extracts to a single top directory
- * (`archiveRootDir`) holding `<id>.onnx`, `tokens.txt`, and `espeak-ng-data/`.
+ * Supertonic 3, the int8 export sherpa-onnx publishes as a `.tar.bz2` under its
+ * `tts-models` GitHub release. The `sha256` is copied VERBATIM from that
+ * release's `checksum.txt` (verified 2026-10-30), so a first-use download is
+ * content-addressed and tamper-evident. The archive extracts to a single top
+ * directory holding the four networks, `tts.json`, `unicode_indexer.bin` and
+ * `voice.bin`, which carries every preset of the model.
+ *
+ * The same network reads every language; the language goes in with each call,
+ * so one voice speaks Polish and English alike.
  */
 
-import { MoxxyError } from '@moxxy/sdk';
+import path from 'node:path';
 
-export type VoiceLanguage = 'en' | 'pl';
+import { detectSpeechLanguage } from '@moxxy/chat-model';
 
 export interface VoiceEntry {
-  /** Stable voice id, e.g. `en_US-amy-medium` (also the `set_voice` name). */
+  /** Stable id: the voice's directory name under the models root. */
   readonly id: string;
-  /** BCP-47 primary language subtag used for language routing. */
-  readonly language: VoiceLanguage;
   /** Human label for UI surfaces. */
   readonly label: string;
   /** Pinned archive URL (sherpa-onnx GitHub release). */
   readonly url: string;
   /** Pinned hex sha256 of the archive (from the release checksum.txt). */
   readonly sha256: string;
-  /** Top directory the archive extracts to (`vits-piper-<id>`). */
+  /** Top directory the archive extracts to. */
   readonly archiveRootDir: string;
-  /** The ONNX model filename inside `archiveRootDir` (`<id>.onnx`). */
+  /** A file inside `archiveRootDir` that proves the archive was unpacked. */
   readonly modelFile: string;
   /** Approximate download size in MB (for the one-time first-use notice). */
   readonly approxMb: number;
+  /** The preset, as Supertone names it. */
+  readonly preset: string;
+  /** The preset's index in `voice.bin`: F1…F5 are 0…4, M1…M5 are 5…9. */
+  readonly speakerId: number;
 }
 
 const RELEASE_BASE = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models';
+const ARCHIVE_ROOT = 'sherpa-onnx-supertonic-3-tts-int8-2026-05-11';
 
-function piperVoice(
-  id: string,
-  language: VoiceLanguage,
-  label: string,
-  sha256: string,
-  approxMb: number,
-): VoiceEntry {
-  const archiveRootDir = `vits-piper-${id}`;
+export const DEFAULT_VOICE: VoiceEntry = {
+  id: 'supertonic-3-int8',
+  label: 'Supertonic 3',
+  url: `${RELEASE_BASE}/${ARCHIVE_ROOT}.tar.bz2`,
+  sha256: '82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427',
+  archiveRootDir: ARCHIVE_ROOT,
+  modelFile: 'vector_estimator.int8.onnx',
+  approxMb: 129,
+  preset: 'F2',
+  speakerId: 1,
+};
+
+export const VOICE_CATALOG: readonly VoiceEntry[] = [DEFAULT_VOICE];
+
+/** More denoising steps sound cleaner and take longer. */
+export const DENOISING_STEPS = 8;
+
+/** The languages Supertonic 3 reads. */
+export const SUPERTONIC_LANGUAGES: ReadonlySet<string> = new Set([
+  'ar', 'bg', 'cs', 'da', 'de', 'el', 'en', 'es', 'et', 'fi', 'fr',
+  'hi', 'hr', 'hu', 'id', 'it', 'ja', 'ko', 'lt', 'lv', 'nl', 'pl',
+  'pt', 'ro', 'ru', 'sk', 'sl', 'sv', 'tr', 'uk', 'vi',
+]);
+
+/** On-disk paths sherpa needs for the voice. */
+export interface VoiceModelPaths {
+  readonly durationPredictor: string;
+  readonly textEncoder: string;
+  readonly vectorEstimator: string;
+  readonly vocoder: string;
+  readonly ttsJson: string;
+  readonly unicodeIndexer: string;
+  readonly voiceStyle: string;
+}
+
+export function voiceModelPaths(voice: VoiceEntry, modelsDir: string): VoiceModelPaths {
+  const root = path.join(modelsDir, voice.id, voice.archiveRootDir);
   return {
-    id,
-    language,
-    label,
-    url: `${RELEASE_BASE}/${archiveRootDir}.tar.bz2`,
-    sha256,
-    archiveRootDir,
-    modelFile: `${id}.onnx`,
-    approxMb,
+    durationPredictor: path.join(root, 'duration_predictor.int8.onnx'),
+    textEncoder: path.join(root, 'text_encoder.int8.onnx'),
+    vectorEstimator: path.join(root, 'vector_estimator.int8.onnx'),
+    vocoder: path.join(root, 'vocoder.int8.onnx'),
+    ttsJson: path.join(root, 'tts.json'),
+    unicodeIndexer: path.join(root, 'unicode_indexer.bin'),
+    voiceStyle: path.join(root, 'voice.bin'),
   };
 }
 
-export const VOICE_CATALOG: readonly VoiceEntry[] = [
-  piperVoice(
-    'en_US-amy-medium',
-    'en',
-    'Amy (English, US)',
-    '9a5d1fc497f85e8022b785bff5f8105203b1e33099ee6265203efc70b0cb0264',
-    63,
-  ),
-  piperVoice(
-    'pl_PL-gosia-medium',
-    'pl',
-    'Gosia (Polish)',
-    '75bd34dcbdc4dd98d763954756b4b34b4208100497c836381542e4d73dcefa9c',
-    63,
-  ),
-  piperVoice(
-    'pl_PL-darkman-medium',
-    'pl',
-    'Darkman (Polish)',
-    '444727aa46eb6db645a2bc88fe73868e4bd7596b7f56ca39fad5ef53c41210d4',
-    63,
-  ),
-];
-
-export const DEFAULT_VOICE_ID = 'en_US-amy-medium';
-export const DEFAULT_POLISH_VOICE_ID = 'pl_PL-gosia-medium';
-
-/** All valid voice ids, for error messages and validation. */
-export function voiceIds(): string[] {
-  return VOICE_CATALOG.map((v) => v.id);
-}
-
-export function findVoice(id: string): VoiceEntry | undefined {
-  return VOICE_CATALOG.find((v) => v.id === id);
-}
-
-/** Resolve a voice id to its catalog entry, or throw a clear, actionable error
- *  listing the valid ids. `field` names where the bad id came from. */
-export function requireVoice(id: string, field: string): VoiceEntry {
-  const entry = findVoice(id);
-  if (!entry) {
-    throw new MoxxyError({
-      code: 'CONFIG_INVALID',
-      message: `Unknown local voice ${JSON.stringify(id)} (${field}).`,
-      hint: `Valid voices: ${voiceIds().join(', ')}.`,
-      context: { field, voice: id },
-    });
-  }
-  return entry;
-}
-
-export interface RouteVoiceInput {
-  /** Explicit per-call voice id (`SynthesizeOptions.voice`) — overrides all. */
-  readonly requestedVoice?: string;
-  /** Per-call BCP-47 language hint (`SynthesizeOptions.language`). */
-  readonly language?: string;
-  /** Configured default (non-Polish) voice id. */
-  readonly defaultVoice: string;
-  /** Configured Polish voice id. */
-  readonly polishVoice: string;
-}
-
 /**
- * Pick the voice for a synthesis call:
- *   1. an explicit `requestedVoice` (a catalog id) wins outright;
- *   2. else a `language` starting with `pl` routes to the Polish voice;
- *   3. else the configured default voice.
- * An unknown id (in any of the three) throws a clear `CONFIG_INVALID` error.
+ * The language to read `text` in: the hint when the model speaks it, else
+ * whichever of Polish and English the text is written in. The model has to be
+ * told, because a wrong language garbles the reading.
  */
-export function routeVoice(input: RouteVoiceInput): VoiceEntry {
-  if (input.requestedVoice) {
-    return requireVoice(input.requestedVoice, 'voice');
-  }
-  const lang = (input.language ?? '').trim().toLowerCase();
-  if (lang.startsWith('pl')) {
-    return requireVoice(input.polishVoice, 'polishVoice');
-  }
-  return requireVoice(input.defaultVoice, 'voice');
+export function speechLanguage(hint: string | undefined, text: string): string {
+  const primary = (hint ?? '').trim().toLowerCase().split(/[-_]/)[0] ?? '';
+  return SUPERTONIC_LANGUAGES.has(primary) ? primary : detectSpeechLanguage(text);
 }

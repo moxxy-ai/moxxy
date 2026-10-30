@@ -1,11 +1,10 @@
 /**
- * The `local-piper` Synthesizer: fully local, on-device text-to-speech.
+ * The `local-supertonic` Synthesizer: fully local, on-device text-to-speech.
  *
- * On the first synthesis for a voice it downloads + verifies that voice's Piper
- * model (once, via @moxxy/model-fetch), then hands text to the sherpa sidecar
- * ({@link HostClient}) and wraps the returned samples as WAV. No key, no network
- * at synthesis time. Language routing sends `pl*` requests to the configured
- * Polish voice; an explicit `opts.voice` (a catalog id) overrides everything.
+ * On the first synthesis it downloads + verifies Supertonic 3 (once, via
+ * @moxxy/model-fetch), then hands text to the sherpa sidecar ({@link HostClient})
+ * and wraps the returned samples as WAV. No key, no network at synthesis time.
+ * One voice reads every language: the language goes in with each call.
  *
  * Every collaborator is injectable (`ensureModelImpl`, `hostFactory`, `log`,
  * `modelsDir`, `fetchImpl`) so the whole flow is unit-testable without the
@@ -27,18 +26,21 @@ import {
 import { HostClient, type HostClientLike } from './host-client.js';
 import { resolveSherpaLibDir, sherpaEnv, sherpaPlatformPackage } from './platform.js';
 import {
-  DEFAULT_POLISH_VOICE_ID,
-  DEFAULT_VOICE_ID,
-  requireVoice,
-  routeVoice,
+  DEFAULT_VOICE,
+  DENOISING_STEPS,
+  speechLanguage,
+  voiceModelPaths,
   type VoiceEntry,
+  type VoiceModelPaths,
 } from './voices.js';
 import { encodeWav } from './wav.js';
 
-/** The single registered synthesizer name — surfaces show this in `set_voice`. */
-export const LOCAL_PIPER_SYNTHESIZER_NAME = 'local-piper';
+/** The registered synthesizer name — surfaces show this in `set_voice`. */
+export const LOCAL_SUPERTONIC_SYNTHESIZER_NAME = 'local-supertonic';
+/** The name the local voice had before Supertonic: saved settings still say it. */
+export const LEGACY_PIPER_SYNTHESIZER_NAME = 'local-piper';
 
-/** Local speaking-rate bounds. Piper distorts badly outside this range. */
+/** Local speaking-rate bounds. */
 const MIN_SPEED = 0.5;
 const MAX_SPEED = 2.0;
 const DEFAULT_NUM_THREADS = 2;
@@ -50,18 +52,7 @@ export function clampSpeed(rate: number | undefined): number {
   return Math.min(MAX_SPEED, Math.max(MIN_SPEED, rate));
 }
 
-/** Resolved on-disk paths sherpa needs for one voice. */
-export interface VoiceModelPaths {
-  readonly model: string;
-  readonly tokens: string;
-  readonly dataDir: string;
-}
-
-export interface LocalPiperOptions {
-  /** Default (non-Polish) voice id. Default `en_US-amy-medium`. */
-  readonly voice?: string;
-  /** Voice used for `pl*` language requests. Default `pl_PL-gosia-medium`. */
-  readonly polishVoice?: string;
+export interface LocalSupertonicOptions {
   /** Inference threads. Default 2. */
   readonly numThreads?: number;
   /** Root for downloaded voices. Default `~/.moxxy/models/tts` (MOXXY_HOME-aware). */
@@ -84,7 +75,7 @@ export interface LocalPiperOptions {
 
 /** Process-wide set of live synthesizers so the plugin's `onShutdown` hook can
  *  kill every sidecar it spawned. */
-const ACTIVE_SYNTHS = new Set<LocalPiperSynthesizer>();
+const ACTIVE_SYNTHS = new Set<LocalSupertonicSynthesizer>();
 
 /** Shut down every live local synthesizer (kills their sidecars). */
 export function shutdownLocalTts(): void {
@@ -92,12 +83,10 @@ export function shutdownLocalTts(): void {
   ACTIVE_SYNTHS.clear();
 }
 
-export class LocalPiperSynthesizer implements Synthesizer {
-  readonly name = LOCAL_PIPER_SYNTHESIZER_NAME;
+export class LocalSupertonicSynthesizer implements Synthesizer {
+  readonly name = LOCAL_SUPERTONIC_SYNTHESIZER_NAME;
   readonly mimeType = 'audio/wav';
 
-  private readonly voiceId: string;
-  private readonly polishVoiceId: string;
   private readonly numThreads: number;
   private readonly modelsDir: string;
   private readonly provider: string;
@@ -111,11 +100,7 @@ export class LocalPiperSynthesizer implements Synthesizer {
   /** In-flight per-voice download promises — de-dupes concurrent first-use. */
   private readonly ensuring = new Map<string, Promise<EnsureModelResult>>();
 
-  constructor(opts: LocalPiperOptions = {}) {
-    // Validate configured voice ids up front so a bad config fails clearly at
-    // construction rather than on the first (possibly channel-triggered) call.
-    this.voiceId = requireVoice(opts.voice ?? DEFAULT_VOICE_ID, 'voice').id;
-    this.polishVoiceId = requireVoice(opts.polishVoice ?? DEFAULT_POLISH_VOICE_ID, 'polishVoice').id;
+  constructor(opts: LocalSupertonicOptions = {}) {
     this.numThreads =
       opts.numThreads && Number.isInteger(opts.numThreads) && opts.numThreads > 0
         ? opts.numThreads
@@ -132,27 +117,21 @@ export class LocalPiperSynthesizer implements Synthesizer {
 
   async synthesize(text: string, opts: SynthesizeOptions = {}): Promise<SynthesisResult> {
     opts.signal?.throwIfAborted();
-    const voice = routeVoice({
-      ...(opts.voice !== undefined ? { requestedVoice: opts.voice } : {}),
-      ...(opts.language !== undefined ? { language: opts.language } : {}),
-      defaultVoice: this.voiceId,
-      polishVoice: this.polishVoiceId,
-    });
-
+    const voice = DEFAULT_VOICE;
     const paths = await this.ensureVoice(voice, opts.signal);
     opts.signal?.throwIfAborted();
 
     const host = this.getHost();
     const { samples, sampleRate } = await host.synthesize({
-      voiceKey: paths.model,
-      model: paths.model,
-      tokens: paths.tokens,
-      dataDir: paths.dataDir,
+      voiceKey: paths.vocoder,
+      model: paths,
       numThreads: this.numThreads,
       provider: this.provider,
       text,
-      sid: 0,
+      sid: voice.speakerId,
       speed: clampSpeed(opts.rate),
+      lang: speechLanguage(opts.language, text),
+      numSteps: DENOISING_STEPS,
     });
 
     if (!samples || samples.length === 0) {
@@ -195,16 +174,7 @@ export class LocalPiperSynthesizer implements Synthesizer {
       inflight.catch(() => this.ensuring.delete(voice.id));
     }
     await inflight;
-    return this.voicePaths(voice, dir);
-  }
-
-  private voicePaths(voice: VoiceEntry, dir: string): VoiceModelPaths {
-    const root = path.join(dir, voice.archiveRootDir);
-    return {
-      model: path.join(root, voice.modelFile),
-      tokens: path.join(root, 'tokens.txt'),
-      dataDir: path.join(root, 'espeak-ng-data'),
-    };
+    return voiceModelPaths(voice, this.modelsDir);
   }
 
   /** A progress callback that logs a single start line then ~every-10% ticks,
@@ -263,6 +233,6 @@ export class LocalPiperSynthesizer implements Synthesizer {
   }
 }
 
-export function createLocalPiperSynthesizer(opts: LocalPiperOptions = {}): LocalPiperSynthesizer {
-  return new LocalPiperSynthesizer(opts);
+export function createLocalSupertonicSynthesizer(opts: LocalSupertonicOptions = {}): LocalSupertonicSynthesizer {
+  return new LocalSupertonicSynthesizer(opts);
 }

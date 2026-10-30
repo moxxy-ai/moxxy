@@ -1,106 +1,62 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_POLISH_VOICE_ID,
-  DEFAULT_VOICE_ID,
-  findVoice,
-  requireVoice,
-  routeVoice,
+  DEFAULT_VOICE,
+  SUPERTONIC_LANGUAGES,
   VOICE_CATALOG,
-  voiceIds,
+  voiceModelPaths,
+  speechLanguage,
 } from './voices.js';
 
 describe('VOICE_CATALOG', () => {
-  it('pins the three Piper voices with their sherpa checksum.txt sha256s', () => {
-    // These MUST match sherpa-onnx's tts-models/checksum.txt verbatim — the
-    // integrity story depends on them not drifting.
-    const byId = Object.fromEntries(VOICE_CATALOG.map((v) => [v.id, v]));
-    expect(byId['en_US-amy-medium']?.sha256).toBe(
-      '9a5d1fc497f85e8022b785bff5f8105203b1e33099ee6265203efc70b0cb0264',
+  it('pins Supertonic 3 with its sherpa checksum.txt sha256', () => {
+    expect(VOICE_CATALOG).toHaveLength(1);
+    const [voice] = VOICE_CATALOG;
+    expect(voice?.url).toBe(
+      'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2',
     );
-    expect(byId['pl_PL-gosia-medium']?.sha256).toBe(
-      '75bd34dcbdc4dd98d763954756b4b34b4208100497c836381542e4d73dcefa9c',
-    );
-    expect(byId['pl_PL-darkman-medium']?.sha256).toBe(
-      '444727aa46eb6db645a2bc88fe73868e4bd7596b7f56ca39fad5ef53c41210d4',
-    );
+    expect(voice?.sha256).toBe('82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427');
+    expect(voice?.archiveRootDir).toBe('sherpa-onnx-supertonic-3-tts-int8-2026-05-11');
   });
 
-  it('derives archive/model paths and language consistently', () => {
-    for (const v of VOICE_CATALOG) {
-      expect(v.archiveRootDir).toBe(`vits-piper-${v.id}`);
-      expect(v.modelFile).toBe(`${v.id}.onnx`);
-      expect(v.url).toBe(
-        `https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-${v.id}.tar.bz2`,
-      );
-      expect(/^[0-9a-f]{64}$/.test(v.sha256)).toBe(true);
-    }
-    expect(VOICE_CATALOG.filter((v) => v.language === 'pl').map((v) => v.id)).toEqual([
-      'pl_PL-gosia-medium',
-      'pl_PL-darkman-medium',
-    ]);
+  it('speaks with the F2 preset', () => {
+    expect(DEFAULT_VOICE.speakerId).toBe(1);
+    expect(DEFAULT_VOICE.preset).toBe('F2');
   });
 
-  it('exposes the default voice ids from the catalog', () => {
-    expect(findVoice(DEFAULT_VOICE_ID)?.language).toBe('en');
-    expect(findVoice(DEFAULT_POLISH_VOICE_ID)?.language).toBe('pl');
-    expect(voiceIds()).toContain('en_US-amy-medium');
+  it('resolves every file sherpa needs under the extracted archive', () => {
+    const root = ['/models', DEFAULT_VOICE.id, DEFAULT_VOICE.archiveRootDir].join('/');
+    expect(voiceModelPaths(DEFAULT_VOICE, '/models')).toEqual({
+      durationPredictor: `${root}/duration_predictor.int8.onnx`,
+      textEncoder: `${root}/text_encoder.int8.onnx`,
+      vectorEstimator: `${root}/vector_estimator.int8.onnx`,
+      vocoder: `${root}/vocoder.int8.onnx`,
+      ttsJson: `${root}/tts.json`,
+      unicodeIndexer: `${root}/unicode_indexer.bin`,
+      voiceStyle: `${root}/voice.bin`,
+    });
   });
 });
 
-describe('routeVoice', () => {
-  const cfg = { defaultVoice: DEFAULT_VOICE_ID, polishVoice: DEFAULT_POLISH_VOICE_ID };
-
-  it('uses the default voice with no hints', () => {
-    expect(routeVoice({ ...cfg }).id).toBe('en_US-amy-medium');
+describe('speechLanguage', () => {
+  it('takes the primary subtag of a supported hint', () => {
+    expect(speechLanguage('pl', 'x')).toBe('pl');
+    expect(speechLanguage('pl-PL', 'x')).toBe('pl');
+    expect(speechLanguage('PL_pl', 'x')).toBe('pl');
+    expect(speechLanguage('de', 'x')).toBe('de');
+    expect(speechLanguage(' en-US ', 'x')).toBe('en');
   });
 
-  it('routes pl* language hints to the Polish voice', () => {
-    expect(routeVoice({ ...cfg, language: 'pl' }).id).toBe('pl_PL-gosia-medium');
-    expect(routeVoice({ ...cfg, language: 'pl-PL' }).id).toBe('pl_PL-gosia-medium');
-    expect(routeVoice({ ...cfg, language: 'PL_pl' }).id).toBe('pl_PL-gosia-medium');
+  it('knows the 31 languages of Supertonic 3', () => {
+    expect(SUPERTONIC_LANGUAGES.size).toBe(31);
   });
 
-  it('routes a non-pl language to the default voice', () => {
-    expect(routeVoice({ ...cfg, language: 'en-US' }).id).toBe('en_US-amy-medium');
-    expect(routeVoice({ ...cfg, language: 'de' }).id).toBe('en_US-amy-medium');
+  it('detects Polish or English from the text when no hint is given', () => {
+    expect(speechLanguage(undefined, 'Dzień dobry, czy to już działa?')).toBe('pl');
+    expect(speechLanguage(undefined, 'The task is finished and the tests pass.')).toBe('en');
   });
 
-  it('lets an explicit requestedVoice override everything', () => {
-    expect(routeVoice({ ...cfg, requestedVoice: 'pl_PL-darkman-medium', language: 'en' }).id).toBe(
-      'pl_PL-darkman-medium',
-    );
-    expect(routeVoice({ ...cfg, requestedVoice: 'en_US-amy-medium', language: 'pl' }).id).toBe(
-      'en_US-amy-medium',
-    );
-  });
-
-  it('honors a configured Polish voice override', () => {
-    expect(routeVoice({ defaultVoice: DEFAULT_VOICE_ID, polishVoice: 'pl_PL-darkman-medium', language: 'pl' }).id).toBe(
-      'pl_PL-darkman-medium',
-    );
-  });
-
-  it('throws a clear CONFIG_INVALID for an unknown requested voice, listing valid ids', () => {
-    try {
-      routeVoice({ ...cfg, requestedVoice: 'xx_ZZ-nobody' });
-      throw new Error('expected a throw');
-    } catch (err) {
-      expect((err as { code?: string }).code).toBe('CONFIG_INVALID');
-      expect((err as Error).message).toContain('xx_ZZ-nobody');
-      expect((err as { hint?: string }).hint).toContain('en_US-amy-medium');
-    }
-  });
-
-  it('throws when a configured polishVoice id is unknown', () => {
-    expect(() => routeVoice({ defaultVoice: DEFAULT_VOICE_ID, polishVoice: 'bogus', language: 'pl' })).toThrow();
-  });
-});
-
-describe('requireVoice', () => {
-  it('returns the entry for a valid id', () => {
-    expect(requireVoice('en_US-amy-medium', 'voice').id).toBe('en_US-amy-medium');
-  });
-  it('throws CONFIG_INVALID naming the field for an unknown id', () => {
-    expect(() => requireVoice('nope', 'polishVoice')).toThrow(/Unknown local voice/);
+  it('falls back to the text when the hint is a language the model cannot speak', () => {
+    expect(speechLanguage('zh', 'Dzień dobry, czy to już działa?')).toBe('pl');
+    expect(speechLanguage('zh', 'The task is finished.')).toBe('en');
   });
 });

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { createLocalPiperSynthesizer } from './local-tts.js';
+import { createLocalSupertonicSynthesizer } from './local-tts.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // vitest runs the TypeScript SOURCE, so `import.meta.url` here is src/. The
@@ -14,8 +14,8 @@ import { removeDir } from '@moxxy/vitest-preset/fs';
 const SIDECAR_PATH = fileURLToPath(new URL('../dist/sidecar.js', import.meta.url));
 
 /**
- * Opt-in end-to-end test that REALLY downloads a voice and runs the native
- * sherpa sidecar — off by default (it fetches ~64 MB and needs the platform
+ * Opt-in end-to-end test that REALLY downloads the voice and runs the native
+ * sherpa sidecar — off by default (it fetches ~129 MB and needs the platform
  * binary). Run manually with:
  *
  *   MOXXY_TTS_LOCAL_LIVE=1 pnpm -F @moxxy/plugin-tts-local test
@@ -33,7 +33,7 @@ afterAll(async () => {
 
 describe.skipIf(!LIVE)('local TTS (live, real download + native sidecar)', () => {
   it('synthesizes English audio', async () => {
-    const synth = createLocalPiperSynthesizer({ modelsDir, sidecarPath: SIDECAR_PATH });
+    const synth = createLocalSupertonicSynthesizer({ modelsDir, sidecarPath: SIDECAR_PATH });
     try {
       const out = await synth.synthesize('Hello from a fully local voice.', { language: 'en' });
       expect(out.mimeType).toBe('audio/wav');
@@ -45,7 +45,7 @@ describe.skipIf(!LIVE)('local TTS (live, real download + native sidecar)', () =>
   }, 600_000);
 
   it('synthesizes Polish audio', async () => {
-    const synth = createLocalPiperSynthesizer({ modelsDir, sidecarPath: SIDECAR_PATH });
+    const synth = createLocalSupertonicSynthesizer({ modelsDir, sidecarPath: SIDECAR_PATH });
     try {
       const out = await synth.synthesize('Dzień dobry, mówię po polsku.', { language: 'pl' });
       expect(out.mimeType).toBe('audio/wav');

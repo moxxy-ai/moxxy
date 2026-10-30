@@ -1,32 +1,32 @@
 import { definePlugin, defineSynthesizer, type Plugin } from '@moxxy/sdk';
 
 import {
-  createLocalPiperSynthesizer,
-  LOCAL_PIPER_SYNTHESIZER_NAME,
+  createLocalSupertonicSynthesizer,
+  LEGACY_PIPER_SYNTHESIZER_NAME,
+  LOCAL_SUPERTONIC_SYNTHESIZER_NAME,
   shutdownLocalTts,
-  type LocalPiperOptions,
+  type LocalSupertonicOptions,
 } from './local-tts.js';
 
 export {
-  LocalPiperSynthesizer,
-  createLocalPiperSynthesizer,
+  LocalSupertonicSynthesizer,
+  createLocalSupertonicSynthesizer,
   clampSpeed,
   shutdownLocalTts,
-  LOCAL_PIPER_SYNTHESIZER_NAME,
-  type LocalPiperOptions,
-  type VoiceModelPaths,
+  LEGACY_PIPER_SYNTHESIZER_NAME,
+  LOCAL_SUPERTONIC_SYNTHESIZER_NAME,
+  type LocalSupertonicOptions,
 } from './local-tts.js';
 export { encodeWav, WAV_HEADER_BYTES } from './wav.js';
 export {
+  DEFAULT_VOICE,
+  DENOISING_STEPS,
+  SUPERTONIC_LANGUAGES,
   VOICE_CATALOG,
-  voiceIds,
-  findVoice,
-  routeVoice,
-  requireVoice,
-  DEFAULT_VOICE_ID,
-  DEFAULT_POLISH_VOICE_ID,
+  speechLanguage,
+  voiceModelPaths,
   type VoiceEntry,
-  type VoiceLanguage,
+  type VoiceModelPaths,
 } from './voices.js';
 export { HostClient, type HostClientLike, type ForkLike, type ChildHandle } from './host-client.js';
 export {
@@ -39,51 +39,45 @@ export {
 export interface BuildLocalTtsPluginOptions {
   /** Build-time defaults / test seams for the synthesizer (injected
    *  `ensureModelImpl`, `hostFactory`, `fetchImpl`, `modelsDir`, `log`). */
-  readonly defaults?: LocalPiperOptions;
+  readonly defaults?: LocalSupertonicOptions;
 }
 
 /**
- * Build the @moxxy/plugin-tts-local plugin. Registers exactly one synthesizer,
- * `local-piper`, backed by sherpa-onnx Piper voices running in a forked
- * sidecar. Side-effect free at load: no model is downloaded and no process is
- * spawned until the first `synthesize`. Per-activation config
- * (`session.synthesizers.setActive('local-piper', { voice, polishVoice,
- * numThreads })`) overrides the build-time defaults.
+ * Build the @moxxy/plugin-tts-local plugin. Registers `local-supertonic`, backed
+ * by Supertonic 3 running in a forked sherpa sidecar, and the same synthesizer
+ * under `local-piper`, the name older settings saved. Side-effect free at load:
+ * no model is downloaded and no process is spawned until the first `synthesize`.
+ * Per-activation config (`session.synthesizers.setActive('local-supertonic',
+ * { numThreads })`) overrides the build-time defaults.
  */
 export function buildLocalTtsPlugin(opts: BuildLocalTtsPluginOptions = {}): Plugin {
   const defaults = opts.defaults ?? {};
+  // `create` runs lazily and may re-run (buildOnRead) — keep it cheap and
+  // side-effect free; the sidecar + download happen on first synthesize.
+  const define = (name: string) =>
+    defineSynthesizer({
+      name,
+      displayName: 'Local (Supertonic 3 — offline)',
+      create: (ctx) =>
+        createLocalSupertonicSynthesizer({ ...defaults, ...configToOptions(ctx.config) }),
+    });
   return definePlugin({
     name: '@moxxy/plugin-tts-local',
     version: '0.0.0',
-    synthesizers: [
-      defineSynthesizer({
-        name: LOCAL_PIPER_SYNTHESIZER_NAME,
-        displayName: 'Local (Piper — offline, EN+PL)',
-        // `create` runs lazily and may re-run (buildOnRead) — keep it cheap and
-        // side-effect free; the sidecar + download happen on first synthesize.
-        create: (ctx) =>
-          createLocalPiperSynthesizer({ ...defaults, ...configToOptions(ctx.config) }),
-      }),
-    ],
+    synthesizers: [define(LOCAL_SUPERTONIC_SYNTHESIZER_NAME), define(LEGACY_PIPER_SYNTHESIZER_NAME)],
     // Kill every spawned sidecar when the session/runner shuts down.
     hooks: { onShutdown: () => shutdownLocalTts() },
   });
 }
 
-/** Narrow the untrusted per-activation config into typed options — only the
- *  known string `voice` / `polishVoice` and a positive-integer `numThreads` are
- *  honored so a malformed config can't break `create` or route to a bad voice
- *  (unknown ids are caught by `requireVoice` at construction). */
-function configToOptions(config: Record<string, unknown>): Partial<LocalPiperOptions> {
-  const out: { -readonly [K in keyof LocalPiperOptions]?: LocalPiperOptions[K] } = {};
-  if (typeof config.voice === 'string' && config.voice) out.voice = config.voice;
-  if (typeof config.polishVoice === 'string' && config.polishVoice) {
-    out.polishVoice = config.polishVoice;
-  }
+/** Narrow the untrusted per-activation config into typed options — only a
+ *  positive-integer `numThreads` is honored. The voice settings older installs
+ *  saved are ignored: there is one voice now. */
+function configToOptions(config: Record<string, unknown>): Partial<LocalSupertonicOptions> {
   if (typeof config.numThreads === 'number' && Number.isInteger(config.numThreads) && config.numThreads > 0) {
-    out.numThreads = config.numThreads;
+    return { numThreads: config.numThreads };
   }
-  return out;
+  return {};
 }
 
 // Discovery entry: `createPluginLoader` requires a default Plugin export.
