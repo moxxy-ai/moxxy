@@ -243,7 +243,10 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
       'Fully on-device speech-to-text via sherpa-onnx multilingual Whisper (English + Polish). No API key; the model is a one-time verified download (base ~198 MB by default; small ~610 MB recommended for Polish).',
     packageName: '@moxxy/plugin-stt-local',
     installSpec: '@moxxy/plugin-stt-local',
-    provides: [{ category: 'transcriber', name: 'local-whisper' }],
+    provides: [
+      { category: 'transcriber', name: 'local-whisper' },
+      { category: 'transcriber', name: 'local-parakeet' },
+    ],
   },
   {
     id: 'provider-admin',
