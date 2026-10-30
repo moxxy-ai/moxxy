@@ -16,7 +16,7 @@ of what moxxy needs to run and where each piece comes from.
 | Offline voice (Supertonic 3) | the model the plugin pins (`resources/models-seed/tts`), copied to `~/.moxxy/models/tts` on first launch | in the installer |
 | Gemini voice | `@moxxy/plugin-tts-gemini` (needs only the user's Google API key) | in the installer, inside the plugin seed |
 | Local dictation (Parakeet, Whisper turbo) | `@moxxy/plugin-stt-local`, sharing the voice's `sherpa-onnx` libraries | in the installer, inside the plugin seed |
-| Local transcription (Whisper turbo) | the model (~1 GB: three int8 files from Hugging Face, pinned to a revision and checked against their size and sha256), saved to `~/.moxxy/models/stt/turbo` | downloaded once, after the person agrees, when Local is first chosen in Settings → Voice → Transcription |
+| Local dictation (Parakeet, Whisper turbo) | the models (Parakeet ~670 MB, Whisper turbo ~1 GB: int8 files from Hugging Face, pinned to a revision and sha256) | downloaded only when someone chooses one in Settings → Voice |
 | Adding or updating plugins from npm, the in-app "Update CLI", `npx` MCP servers | Node + npm (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/node` on first launch | in the installer |
 | Scripts the agent writes and runs (data, charts, documents, web pages) | Python + pip with a set of common packages (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/python` on first launch | in the installer |
 | Cloning a repository, developer mode, the agent's own `git` commands | Git (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/git` on first launch | in the installer |
