@@ -6,6 +6,7 @@ import {
   parseWav,
   pcm16ToFloat32,
   resampleLinear,
+  splitAtSilence,
 } from './audio.js';
 
 /** Build a canonical PCM16 WAV buffer from interleaved int16 samples. */
@@ -209,5 +210,39 @@ describe('parseWav', () => {
     expect(parsed.sampleRate).toBe(16_000);
     expect(parsed.samples).toHaveLength(2);
     expect(parsed.samples[1]).toBeCloseTo(0.5, 4);
+  });
+});
+
+describe('splitAtSilence', () => {
+  const RATE = 100;
+  /** Loud audio with quiet stretches at the given seconds. */
+  const speech = (seconds: number, quietAt: readonly number[] = []): Float32Array => {
+    const samples = new Float32Array(seconds * RATE).fill(0.5);
+    for (const at of quietAt) samples.fill(0, at * RATE, (at + 1) * RATE);
+    return samples;
+  };
+
+  it('leaves audio under the limit whole', () => {
+    const samples = speech(50);
+    expect(splitAtSilence(samples, RATE, 60)).toEqual([samples]);
+  });
+
+  it('cuts in the quiet stretch before the limit', () => {
+    const parts = splitAtSilence(speech(100, [55]), RATE, 60);
+    expect(parts).toHaveLength(2);
+    expect(parts[0]!.length).toBeGreaterThanOrEqual(55 * RATE);
+    expect(parts[0]!.length).toBeLessThanOrEqual(56 * RATE);
+  });
+
+  it('cuts at the limit when nobody paused, and keeps every sample', () => {
+    const samples = speech(130);
+    const parts = splitAtSilence(samples, RATE, 60);
+    expect(parts.map((part) => part.length)).toEqual([60 * RATE, 60 * RATE, 10 * RATE]);
+    expect(parts.reduce((sum, part) => sum + part.length, 0)).toBe(samples.length);
+  });
+
+  it('hands out copies, so a part sent over IPC does not drag the whole recording', () => {
+    const parts = splitAtSilence(speech(100), RATE, 60);
+    expect(parts[0]!.buffer.byteLength).toBe(parts[0]!.byteLength);
   });
 });

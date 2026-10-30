@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { createLocalWhisperTranscriber } from './local-stt.js';
+import { createLocalParakeetTranscriber, createLocalWhisperTranscriber } from './local-stt.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // vitest runs the TypeScript SOURCE, so `import.meta.url` here is src/. The
@@ -70,6 +70,17 @@ describe.skipIf(!LIVE)('local STT (live, real download + native sidecar)', () =>
       modelsDir,
       sidecarPath: SIDECAR_PATH,
     });
+    try {
+      const out = await stt.transcribe(toneWav(), { mimeType: 'audio/wav' });
+      expect(typeof out.text).toBe('string');
+      expect(out.durationSec).toBeCloseTo(1, 1);
+    } finally {
+      stt.shutdown();
+    }
+  }, 600_000);
+
+  it('downloads Parakeet and transcribes a generated WAV fixture', async () => {
+    const stt = createLocalParakeetTranscriber({ modelsDir, sidecarPath: SIDECAR_PATH });
     try {
       const out = await stt.transcribe(toneWav(), { mimeType: 'audio/wav' });
       expect(typeof out.text).toBe('string');
