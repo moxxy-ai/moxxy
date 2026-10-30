@@ -17,6 +17,8 @@ const DOMAIN_RE = /\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>)]*)?/giu;
 const FILE_EXTENSION_RE = /\.(?:js|jsx|ts|tsx|mjs|cjs|json|jsonl|ya?ml|toml|md|mdx|txt|log|pdf|docx|xlsx|pptx|csv|tsv|py|rs|go|java|kt|c|h|cpp|hpp|cs|php|sh|bash|zsh|sql|html|css|scss|xml|ini|env|conf|png|jpe?g|svg|webp|wav|mp3|ogg)(?::\d+(?::\d+)?)?$/iu;
 const ABSOLUTE_FILE_PATH_RE = /(?<![\p{L}\p{N}_])(?:~[\\/]|[A-Za-z]:[\\/]|\/)[^<>\r\n`"'()[\],;!?]*?\.[A-Za-z]{2,8}(?::\d+(?::\d+)?)?(?=$|[\s),;.!?])/gu;
 const FILE_PATH_RE = /(?<![\p{L}\p{N}_])(?:~[\\/]|\.{1,2}[\\/]|[A-Za-z]:[\\/]|\/)?(?:[\p{L}\p{N}_.@+-]+[\\/])+[\p{L}\p{N}_.@+-]+(?:\.[A-Za-z0-9]{2,8})?(?::\d+(?::\d+)?)?(?![\p{L}\p{N}_])/gu;
+/** Fractions, slashed dates and speeds: prose that only looks like a path. */
+const SLASHED_PROSE_RE = /^(?:\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?)+|(?:k?m|mi|[kKMG][bB])\/(?:h|s|min))[.,;:!?]?$/u;
 
 function stripNonVerbalArtifacts(text: string): string {
   return text
@@ -88,8 +90,9 @@ function normalizeSpeakableMarkdown(markdown: string, fencedCodeReplacement: str
 
   const withoutPaths = stripped
     .replace(ABSOLUTE_FILE_PATH_RE, ' ')
-    .replace(FILE_PATH_RE, ' ')
-    .replace(DOMAIN_RE, (match) => (FILE_EXTENSION_RE.test(match) ? match : ' '));
+    .replace(FILE_PATH_RE, (match) => (SLASHED_PROSE_RE.test(match) ? match : ' '))
+    .replace(DOMAIN_RE, (match, offset: number, whole: string) =>
+      FILE_EXTENSION_RE.test(match) || whole[offset - 1] === '@' ? match : ' ');
 
   // Split on blank lines into paragraphs; soft-wrap newlines collapse to
   // spaces. Each paragraph gets terminal punctuation so the engine pauses

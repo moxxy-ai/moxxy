@@ -48,6 +48,17 @@ describe('toSpeakableText', () => {
     )).toBe('The announcement is live. Read the details.');
   });
 
+  it('keeps fractions, dates and units that look like paths', () => {
+    expect(toSpeakableText('Pół to 1/2 szklanki.')).toBe('Pół to 1/2 szklanki.');
+    expect(toSpeakableText('Jechał 50 km/h przez miasto.')).toBe('Jechał 50 km/h przez miasto.');
+    expect(toSpeakableText('Termin to 12/05/2026.')).toBe('Termin to 12/05/2026.');
+    expect(toSpeakableText('Łącze ma 300 Mb/s.')).toBe('Łącze ma 300 Mb/s.');
+  });
+
+  it('keeps an e-mail address readable', () => {
+    expect(toSpeakableText('Napisz na jan@example.com dzisiaj.')).toBe('Napisz na jan@example.com dzisiaj.');
+  });
+
   it('omits local and repository file paths', () => {
     expect(toSpeakableText(
       'Open `/Users/kamil/project/src/main.ts:12` and `packages/app/src/main.ts` now.',
