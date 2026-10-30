@@ -5,10 +5,15 @@ import { ensureModel } from '@moxxy/model-fetch';
 
 import {
   clampSpeed,
-  createLocalPiperSynthesizer,
-  type LocalPiperOptions,
+  createLocalSupertonicSynthesizer,
+  type LocalSupertonicOptions,
 } from './local-tts.js';
-import { buildLocalTtsPlugin, LOCAL_PIPER_SYNTHESIZER_NAME } from './index.js';
+import {
+  buildLocalTtsPlugin,
+  LEGACY_PIPER_SYNTHESIZER_NAME,
+  LOCAL_SUPERTONIC_SYNTHESIZER_NAME,
+} from './index.js';
+import { DEFAULT_VOICE, voiceModelPaths } from './voices.js';
 import type { HostClientLike } from './host-client.js';
 import type { HostRequest } from './host-protocol.js';
 
@@ -18,7 +23,7 @@ function fakeHost(): { host: HostClientLike; reqs: Array<Omit<HostRequest, 'id' 
   const host: HostClientLike = {
     async synthesize(req) {
       state.reqs.push(req);
-      return { samples: new Float32Array([0.1, -0.1, 0.2]), sampleRate: 22050 };
+      return { samples: new Float32Array([0.1, -0.1, 0.2]), sampleRate: 44_100 };
     },
     shutdown() {
       state.shutdowns += 1;
@@ -41,14 +46,14 @@ function fakeEnsure(): { impl: typeof ensureModel; urls: string[] } {
   return { impl, urls };
 }
 
-function makeSynth(over: Partial<LocalPiperOptions> = {}): {
-  synth: ReturnType<typeof createLocalPiperSynthesizer>;
+function makeSynth(over: Partial<LocalSupertonicOptions> = {}): {
+  synth: ReturnType<typeof createLocalSupertonicSynthesizer>;
   host: ReturnType<typeof fakeHost>;
   ensure: ReturnType<typeof fakeEnsure>;
 } {
   const host = fakeHost();
   const ensure = fakeEnsure();
-  const synth = createLocalPiperSynthesizer({
+  const synth = createLocalSupertonicSynthesizer({
     modelsDir: '/models/tts',
     ensureModelImpl: ensure.impl,
     hostFactory: () => host.host,
@@ -58,54 +63,45 @@ function makeSynth(over: Partial<LocalPiperOptions> = {}): {
   return { synth, host, ensure };
 }
 
-describe('LocalPiperSynthesizer.synthesize', () => {
-  it('defaults to the English voice and returns WAV bytes', async () => {
+describe('LocalSupertonicSynthesizer.synthesize', () => {
+  it('fetches the pinned voice and returns WAV bytes', async () => {
     const { synth, host, ensure } = makeSynth();
     const out = await synth.synthesize('hello world');
     expect(out.mimeType).toBe('audio/wav');
     expect(String.fromCharCode(...out.audio.subarray(0, 4))).toBe('RIFF');
-    expect(ensure.urls).toEqual([
-      'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-medium.tar.bz2',
-    ]);
-    // The host got the en model path + default sid/speed.
-    expect(host.reqs[0]!.model).toBe(path.join('/models/tts/en_US-amy-medium/vits-piper-en_US-amy-medium/en_US-amy-medium.onnx'));
-    expect(host.reqs[0]!.dataDir).toContain('espeak-ng-data');
+    expect(ensure.urls).toEqual([DEFAULT_VOICE.url]);
+    expect(host.reqs[0]!.model).toEqual(voiceModelPaths(DEFAULT_VOICE, '/models/tts'));
     expect(host.reqs[0]!.text).toBe('hello world');
     expect(host.reqs[0]!.speed).toBe(1);
+    expect(host.reqs[0]!.sid).toBe(1);
+    expect(host.reqs[0]!.numSteps).toBe(8);
   });
 
-  it('routes a Polish language hint to the configured Polish voice', async () => {
-    const { synth, host, ensure } = makeSynth();
+  it('passes a Polish language hint to the model', async () => {
+    const { synth, host } = makeSynth();
     await synth.synthesize('cześć', { language: 'pl-PL' });
-    expect(ensure.urls[0]).toContain('vits-piper-pl_PL-gosia-medium');
-    expect(host.reqs[0]!.model).toContain('pl_PL-gosia-medium');
+    expect(host.reqs[0]!.lang).toBe('pl');
   });
 
-  it('lets an explicit voice override language routing', async () => {
+  it('reads the language from the text when no hint is given', async () => {
+    const { synth, host } = makeSynth();
+    await synth.synthesize('Dzień dobry, czy to już działa?');
+    expect(host.reqs[0]!.lang).toBe('pl');
+  });
+
+  it('keeps speaking when an old voice id is asked for', async () => {
     const { synth, host } = makeSynth();
     await synth.synthesize('lektor', { language: 'pl', voice: 'pl_PL-darkman-medium' });
-    expect(host.reqs[0]!.model).toContain('pl_PL-darkman-medium');
+    await synth.synthesize('lektor', { language: 'pl', voice: 'no-such-voice' });
+    expect(host.reqs.map((r) => r.sid)).toEqual([1, 1]);
   });
 
-  it('honors a configured polishVoice default', async () => {
-    const { synth, host } = makeSynth({ polishVoice: 'pl_PL-darkman-medium' });
-    await synth.synthesize('dzień dobry', { language: 'pl' });
-    expect(host.reqs[0]!.model).toContain('pl_PL-darkman-medium');
-  });
-
-  it('rejects an unknown requested voice with a clear error', async () => {
-    const { synth } = makeSynth();
-    await expect(synth.synthesize('x', { voice: 'no-such-voice' })).rejects.toMatchObject({
-      code: 'CONFIG_INVALID',
-    });
-  });
-
-  it('downloads a given voice only once across calls', async () => {
+  it('downloads the voice only once across calls', async () => {
     const { synth, ensure } = makeSynth();
     await synth.synthesize('one');
     await synth.synthesize('two');
     await synth.synthesize('three');
-    expect(ensure.urls.length).toBe(1); // en voice ensured once
+    expect(ensure.urls.length).toBe(1);
   });
 
   it('maps and clamps rate onto sherpa speed', async () => {
@@ -128,7 +124,6 @@ describe('LocalPiperSynthesizer.synthesize', () => {
     await synth.synthesize('hi');
     expect(host.reqs[0]!.numThreads).toBe(4);
     expect(host.reqs[0]!.provider).toBe('cpu');
-    expect(host.reqs[0]!.sid).toBe(0);
   });
 
   it('shutdown tears down the host', async () => {
@@ -149,25 +144,17 @@ describe('clampSpeed', () => {
   });
 });
 
-describe('constructor validation', () => {
-  it('throws CONFIG_INVALID for an unknown configured voice', () => {
-    expect(() => createLocalPiperSynthesizer({ voice: 'bogus' })).toThrow(/Unknown local voice/);
-  });
-  it('throws CONFIG_INVALID for an unknown configured polishVoice', () => {
-    expect(() => createLocalPiperSynthesizer({ polishVoice: 'nope' })).toThrow(/Unknown local voice/);
-  });
-});
-
 describe('buildLocalTtsPlugin', () => {
-  it('registers exactly one synthesizer named local-piper', () => {
+  it('registers Supertonic and keeps the old name working', () => {
     const plugin = buildLocalTtsPlugin();
-    expect(plugin.synthesizers).toHaveLength(1);
-    const def = plugin.synthesizers![0]!;
-    expect(def.name).toBe(LOCAL_PIPER_SYNTHESIZER_NAME);
-    expect(def.displayName).toContain('Local');
+    expect(plugin.synthesizers?.map((def) => def.name)).toEqual([
+      LOCAL_SUPERTONIC_SYNTHESIZER_NAME,
+      LEGACY_PIPER_SYNTHESIZER_NAME,
+    ]);
+    expect(plugin.synthesizers?.[0]?.displayName).toContain('Supertonic');
   });
 
-  it('create() flows per-activation voice config through to routing', async () => {
+  it('create() accepts the voice settings an older install saved', async () => {
     const host = fakeHost();
     const ensure = fakeEnsure();
     const plugin = buildLocalTtsPlugin({
@@ -178,14 +165,12 @@ describe('buildLocalTtsPlugin', () => {
         log: () => {},
       },
     });
-    const inst = plugin.synthesizers![0]!.create({ config: { voice: 'pl_PL-gosia-medium' } });
+    const inst = plugin.synthesizers![1]!.create({
+      config: { voice: 'pl_PL-gosia-medium', polishVoice: 'pl_PL-darkman-medium', numThreads: 3 },
+    });
     await inst.synthesize('cześć');
-    expect(host.reqs[0]!.model).toContain('pl_PL-gosia-medium');
-  });
-
-  it('create() rejects an unknown voice in config at construction', () => {
-    const plugin = buildLocalTtsPlugin();
-    expect(() => plugin.synthesizers![0]!.create({ config: { voice: 'bad-id' } })).toThrow();
+    expect(host.reqs[0]!.sid).toBe(1);
+    expect(host.reqs[0]!.numThreads).toBe(3);
   });
 
   it('exposes an onShutdown hook', () => {

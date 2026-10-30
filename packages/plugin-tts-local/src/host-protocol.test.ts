@@ -3,6 +3,7 @@ import {
   copySamplesForIpc,
   createMessageHandler,
   type HostRequest,
+  type SherpaGenerateArgs,
   type SherpaModule,
   type SherpaOfflineTts,
 } from './host-protocol.js';
@@ -19,19 +20,29 @@ describe('copySamplesForIpc', () => {
   });
 });
 
+const MODEL = {
+  durationPredictor: '/models/supertonic/duration_predictor.int8.onnx',
+  textEncoder: '/models/supertonic/text_encoder.int8.onnx',
+  vectorEstimator: '/models/supertonic/vector_estimator.int8.onnx',
+  vocoder: '/models/supertonic/vocoder.int8.onnx',
+  ttsJson: '/models/supertonic/tts.json',
+  unicodeIndexer: '/models/supertonic/unicode_indexer.bin',
+  voiceStyle: '/models/supertonic/voice.bin',
+};
+
 function req(over: Partial<HostRequest> = {}): HostRequest {
   return {
     id: 1,
     type: 'synthesize',
-    voiceKey: '/models/en/model.onnx',
-    model: '/models/en/model.onnx',
-    tokens: '/models/en/tokens.txt',
-    dataDir: '/models/en/espeak-ng-data',
+    voiceKey: '/models/supertonic/vocoder.int8.onnx',
+    model: MODEL,
     numThreads: 2,
     provider: 'cpu',
     text: 'hello',
-    sid: 0,
+    sid: 1,
     speed: 1,
+    lang: 'en',
+    numSteps: 8,
     ...over,
   };
 }
@@ -39,7 +50,7 @@ function req(over: Partial<HostRequest> = {}): HostRequest {
 /** A fake sherpa module recording how many OfflineTts instances + generate
  *  calls it saw, with configurable behaviour. */
 function fakeSherpa(opts: {
-  onGenerate?: (args: { text: string; sid: number; speed: number }) => {
+  onGenerate?: (args: SherpaGenerateArgs) => {
     samples: Float32Array;
     sampleRate: number;
   };
@@ -53,7 +64,7 @@ function fakeSherpa(opts: {
       state.constructed += 1;
       state.lastConfig = config;
     }
-    async generateAsync(args: { text: string; sid: number; speed: number }): Promise<{
+    async generateAsync(args: SherpaGenerateArgs): Promise<{
       samples: Float32Array;
       sampleRate: number;
     }> {
@@ -85,17 +96,30 @@ describe('createMessageHandler', () => {
     if (reply.ok) expect(Array.from(reply.samples)).toEqual([1, -1]);
   });
 
-  it('passes the vits model config through to sherpa', async () => {
+  it('passes the Supertonic model config through to sherpa', async () => {
     const s = fakeSherpa();
     const handle = createMessageHandler(() => s.module);
     await handle(req());
     expect(s.lastConfig).toMatchObject({
-      model: {
-        vits: { model: '/models/en/model.onnx', tokens: '/models/en/tokens.txt', dataDir: '/models/en/espeak-ng-data' },
-        numThreads: 2,
-        provider: 'cpu',
-      },
+      model: { supertonic: MODEL, numThreads: 2, provider: 'cpu' },
       maxNumSentences: 1,
+    });
+  });
+
+  it('asks for the voice, pace, steps and language of the request', async () => {
+    let seen: SherpaGenerateArgs | undefined;
+    const s = fakeSherpa({
+      onGenerate: (args) => {
+        seen = args;
+        return { samples: new Float32Array([0.5]), sampleRate: 44_100 };
+      },
+    });
+    const handle = createMessageHandler(() => s.module);
+    await handle(req({ text: 'cześć', speed: 1.06, lang: 'pl' }));
+    expect(seen).toEqual({
+      text: 'cześć',
+      enableExternalBuffer: false,
+      generationConfig: { sid: 1, speed: 1.06, numSteps: 8, extra: { lang: 'pl' } },
     });
   });
 
@@ -108,7 +132,7 @@ describe('createMessageHandler', () => {
     });
     await handle(req({ id: 1 }));
     await handle(req({ id: 2 }));
-    await handle(req({ id: 3, voiceKey: '/models/pl/model.onnx', model: '/models/pl/model.onnx' }));
+    await handle(req({ id: 3, voiceKey: '/models/other/vocoder.int8.onnx' }));
     expect(loads).toBe(1); // module loaded once
     expect(s.constructed).toBe(2); // one OfflineTts per distinct voiceKey
     expect(s.generated).toBe(3);

@@ -2578,6 +2578,9 @@ importers:
 
   packages/plugin-tts-local:
     dependencies:
+      '@moxxy/chat-model':
+        specifier: workspace:*
+        version: link:../chat-model
       '@moxxy/model-fetch':
         specifier: workspace:*
         version: link:../model-fetch

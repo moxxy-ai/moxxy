@@ -11,29 +11,31 @@
  *   child  → parent: HostReply
  */
 
+import type { VoiceModelPaths } from './voices.js';
+
 /** One synthesis request. Carries the full model config so the sidecar is
  *  stateless-per-message except for a model cache keyed by `voiceKey`. */
 export interface SynthesizeRequest {
   readonly id: number;
   readonly type: 'synthesize';
-  /** Cache key for the loaded model (the absolute `.onnx` path). */
+  /** Cache key for the loaded model (the absolute vocoder path). */
   readonly voiceKey: string;
-  /** Absolute path to the VITS `.onnx` model. */
-  readonly model: string;
-  /** Absolute path to `tokens.txt`. */
-  readonly tokens: string;
-  /** Absolute path to the `espeak-ng-data` directory. */
-  readonly dataDir: string;
+  /** Absolute paths to the model's files. */
+  readonly model: VoiceModelPaths;
   /** Inference thread count. */
   readonly numThreads: number;
   /** Compute provider (`cpu`). */
   readonly provider: string;
   /** Text to speak. */
   readonly text: string;
-  /** Speaker id within the model (0 for single-speaker Piper voices). */
+  /** The voice preset's index in `voice.bin`. */
   readonly sid: number;
   /** Speaking-rate multiplier already clamped by the caller. */
   readonly speed: number;
+  /** The language to read `text` in. */
+  readonly lang: string;
+  /** Denoising steps per sentence. */
+  readonly numSteps: number;
 }
 
 export type HostRequest = SynthesizeRequest;
@@ -61,13 +63,19 @@ export type HostReply =
 /** The subset of the sherpa-onnx-node surface the sidecar uses. Declared here
  *  (rather than leaning on the addon's ambient types) so the handler is
  *  unit-testable with a fake module and typechecks without the native addon. */
+export interface SherpaGenerateArgs {
+  readonly text: string;
+  readonly enableExternalBuffer: boolean;
+  readonly generationConfig: {
+    readonly sid: number;
+    readonly speed: number;
+    readonly numSteps: number;
+    readonly extra: { readonly lang: string };
+  };
+}
+
 export interface SherpaOfflineTts {
-  generateAsync(args: {
-    text: string;
-    sid: number;
-    speed: number;
-    enableExternalBuffer?: boolean;
-  }): Promise<{ samples: Float32Array; sampleRate: number }>;
+  generateAsync(args: SherpaGenerateArgs): Promise<{ samples: Float32Array; sampleRate: number }>;
 }
 
 export interface SherpaModule {
@@ -97,7 +105,7 @@ export function createMessageHandler(loadSherpa: LoadSherpa): HostMessageHandler
         mod ??= loadSherpa();
         tts = new mod.OfflineTts({
           model: {
-            vits: { model: req.model, tokens: req.tokens, dataDir: req.dataDir },
+            supertonic: req.model,
             numThreads: req.numThreads,
             provider: req.provider,
             debug: false,
@@ -113,8 +121,12 @@ export function createMessageHandler(loadSherpa: LoadSherpa): HostMessageHandler
     try {
       const out = await tts.generateAsync({
         text: req.text,
-        sid: req.sid,
-        speed: req.speed,
+        generationConfig: {
+          sid: req.sid,
+          speed: req.speed,
+          numSteps: req.numSteps,
+          extra: { lang: req.lang },
+        },
         // Electron-as-Node rejects native-addon external ArrayBuffers during
         // advanced IPC serialization. Ask sherpa for an owned buffer up front;
         // the explicit copy below is the compatibility backstop for older
