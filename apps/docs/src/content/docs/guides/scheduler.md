@@ -51,7 +51,9 @@ to a window. Nothing fires before the start. The run due at the end
 still fires, up to 5 minutes late (the poller ticks every 30 s); a run
 missed by more than that, e.g. while the computer slept, is dropped.
 Once no run is left in the window the schedule is disabled. A window
-that has already ended, or an end not after the start, is refused.
+that has already ended, an end not after the start, or a window no run
+of the cron falls inside ("every 5 minutes" from 03:47 to 03:49) is
+refused.
 Times without an offset are read in the computer's local time.
 
 ## Manage

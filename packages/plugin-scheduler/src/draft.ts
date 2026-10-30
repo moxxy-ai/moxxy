@@ -1,5 +1,5 @@
 import { isValidCron, isValidTimeZone } from '@moxxy/sdk/cron';
-import { windowEndedProblem, windowShapeProblem, type ScheduleWindowFieldNames } from './window.js';
+import { windowEmptyProblem, windowEndedProblem, windowShapeProblem, type ScheduleWindowFieldNames } from './window.js';
 
 /**
  * A schedule someone asked for, before it is saved. The single set of rules
@@ -67,7 +67,7 @@ export function scheduleTimingProblem(draft: ScheduleDraft, now: number): string
   if (draft.runAt !== undefined && draft.runAt < now - ONE_SHOT_GRACE_MS) {
     return `this moment already passed at ${new Date(draft.runAt).toISOString()}`;
   }
-  return windowEndedProblem(draft.endAt, now);
+  return windowEndedProblem(draft.endAt, now) ?? windowEmptyProblem(draft, now);
 }
 
 /** The first problem with a draft at `now`, or null when it can be saved. */

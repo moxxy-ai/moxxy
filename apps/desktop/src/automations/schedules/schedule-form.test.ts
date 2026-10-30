@@ -103,6 +103,23 @@ describe('scheduleFormProblems', () => {
     ).toEqual({ until: 'The end must be after the start.' });
   });
 
+  it('says so when no run falls inside the window', () => {
+    const window = { repeat: 'minutes', everyMinutes: 5, limitWindow: true, from: '2026-10-29T03:47' } as const;
+    expect(scheduleFormProblems(form({ ...window, until: '2026-10-29T03:49' }), now)).toEqual({
+      until: 'Nothing would run in this window. Make it longer or run more often.',
+    });
+    expect(scheduleFormProblems(form({ ...window, until: '2026-10-29T03:50' }), now)).toEqual({});
+  });
+
+  it('leaves a window alone while its cron is what is wrong', () => {
+    expect(
+      scheduleFormProblems(
+        form({ repeat: 'custom', cron: '61 * * * *', limitWindow: true, from: '2026-10-29T03:47', until: '2026-10-29T03:49' }),
+        now,
+      ),
+    ).toEqual({ cron: 'This cron is not valid. Example: */30 * * * * runs every 30 minutes.' });
+  });
+
   it('never offers a window to a one-shot', () => {
     expect(
       scheduleFormProblems(form({ repeat: 'once', limitWindow: true, until: '2026-10-01T00:00' }), now),
@@ -139,26 +156,36 @@ describe('toScheduleCreateInput', () => {
 
 describe('scheduleFormSummary', () => {
   it('says in one sentence what will happen', () => {
-    expect(scheduleFormSummary(form({ repeat: 'weekdays', time: '08:30' }))).toBe(
+    expect(scheduleFormSummary(form({ repeat: 'weekdays', time: '08:30' }), now)).toBe(
       `Runs on weekdays at ${clockLabel(8, 30)}.`,
     );
-    expect(scheduleFormSummary(form({ repeat: 'once', at: '2026-10-29T08:00' }))).toBe(
+    expect(scheduleFormSummary(form({ repeat: 'once', at: '2026-10-29T08:00' }), now)).toBe(
       `Runs once, ${at(local(2026, 9, 29, 8, 0))}.`,
     );
     expect(
       scheduleFormSummary(
         form({ repeat: 'minutes', everyMinutes: 30, limitWindow: true, from: '2026-10-29T23:00', until: '2026-10-30T07:00' }),
+        now,
       ),
     ).toBe(
       `Runs every 30 minutes from ${at(local(2026, 9, 29, 23, 0))} until ${at(local(2026, 9, 30, 7, 0))}, then stops.`,
     );
   });
 
+  it('does not promise runs a window would not have', () => {
+    expect(
+      scheduleFormSummary(
+        form({ repeat: 'minutes', everyMinutes: 5, limitWindow: true, from: '2026-10-29T03:47', until: '2026-10-29T03:49' }),
+        now,
+      ),
+    ).toBe('Nothing would run in this window. Make it longer or run more often.');
+  });
+
   it('falls back to the cron itself, and says nothing while it cannot', () => {
-    expect(scheduleFormSummary(form({ repeat: 'custom', cron: '0 9 1 * *' }))).toBe('Runs on cron 0 9 1 * *.');
-    expect(scheduleFormSummary(form({ repeat: 'custom', cron: '' }))).toBeNull();
-    expect(scheduleFormSummary(form({ repeat: 'custom', cron: '61 * * * *' }))).toBeNull();
-    expect(scheduleFormSummary(form({ repeat: 'once', at: '' }))).toBeNull();
+    expect(scheduleFormSummary(form({ repeat: 'custom', cron: '0 9 1 * *' }), now)).toBe('Runs on cron 0 9 1 * *.');
+    expect(scheduleFormSummary(form({ repeat: 'custom', cron: '' }), now)).toBeNull();
+    expect(scheduleFormSummary(form({ repeat: 'custom', cron: '61 * * * *' }), now)).toBeNull();
+    expect(scheduleFormSummary(form({ repeat: 'once', at: '' }), now)).toBeNull();
   });
 });
 
@@ -173,6 +200,9 @@ describe('placeHostRefusal', () => {
     });
     expect(placeHostRefusal('this time window already ended at 2026-10-28T17:30:00.000Z').problems).toEqual({
       until: 'This window has already ended.',
+    });
+    expect(placeHostRefusal('no run of this schedule falls inside its time window').problems).toEqual({
+      until: 'Nothing would run in this window. Make it longer or run more often.',
     });
     expect(placeHostRefusal('`endAt` must be later than `startAt`').problems).toEqual({
       until: 'The end must be after the start.',

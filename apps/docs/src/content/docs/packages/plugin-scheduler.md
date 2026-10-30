@@ -70,7 +70,7 @@ the schedule disappears on the next sync.
 
 ```
 ~/.moxxy/schedules.json   ScheduleEntry[]; shared across processes, re-read on every access
-~/.moxxy/schedules.json.lock      held while one process changes the file
+~/.moxxy/schedules.json.lock      held while one process really changes the file (an idle tick neither locks nor writes)
 ~/.moxxy/inbox/           per-channel delivery dir for headless runs
 ```
 

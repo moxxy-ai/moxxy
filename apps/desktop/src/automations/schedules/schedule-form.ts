@@ -6,7 +6,7 @@
  * the scheduler's own rules (`scheduleDraftProblem`).
  */
 
-import { isValidCron } from '@moxxy/sdk/cron';
+import { firstFireBetween, isValidCron } from '@moxxy/sdk/cron';
 import type { ScheduleCreateInput } from '@moxxy/desktop-ipc-contract';
 import { cronInWords } from './cron-words';
 
@@ -62,6 +62,7 @@ const SAY = {
   cronInvalid: 'This cron is not valid. Example: */30 * * * * runs every 30 minutes.',
   endBeforeStart: 'The end must be after the start.',
   windowEnded: 'This window has already ended.',
+  windowEmpty: 'Nothing would run in this window. Make it longer or run more often.',
 } as const;
 
 const pad = (n: number): string => String(n).padStart(2, '0');
@@ -188,8 +189,18 @@ export function scheduleFormProblems(v: ScheduleFormValues, now: number): Schedu
     if (endAt === null) problems.until = 'Pick when it stops.';
     else if (startAt !== null && endAt <= startAt) problems.until = SAY.endBeforeStart;
     else if (endAt <= now) problems.until = SAY.windowEnded;
+    else if (windowHasNoRun(v, now)) problems.until = SAY.windowEmpty;
   }
   return problems;
+}
+
+/** A window with both ends and a valid cron, and no run of that cron inside it. */
+function windowHasNoRun(v: ScheduleFormValues, now: number): boolean {
+  const cron = scheduleCron(v);
+  const startAt = fromLocalInput(v.from);
+  const endAt = fromLocalInput(v.until);
+  if (!v.limitWindow || !cron || !isValidCron(cron) || startAt === null || endAt === null) return false;
+  return firstFireBetween(cron, Math.max(startAt, now), endAt) === null;
 }
 
 /** A refusal from the host, placed where the person can act on it. */
@@ -206,6 +217,7 @@ const HOST_REFUSALS: ReadonlyArray<readonly [RegExp, ScheduleFormField, string]>
   [/^invalid cron expression/, 'cron', SAY.cronInvalid],
   [/^this moment already passed/, 'at', SAY.atPassed],
   [/^this time window already ended/, 'until', SAY.windowEnded],
+  [/^no run of this schedule/, 'until', SAY.windowEmpty],
   [/must be later than/, 'until', SAY.endBeforeStart],
   [/^name /, 'name', SAY.namePattern],
   [/^prompt /, 'prompt', 'Say what Moxxy should do.'],
@@ -250,7 +262,7 @@ const moment = (ms: number): string =>
 const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);
 
 /** One sentence on what will happen, or null while the form cannot say. */
-export function scheduleFormSummary(v: ScheduleFormValues): string | null {
+export function scheduleFormSummary(v: ScheduleFormValues, now: number): string | null {
   const cron = scheduleCron(v);
   if (cron === null) {
     const runAt = fromLocalInput(v.at);
@@ -258,6 +270,7 @@ export function scheduleFormSummary(v: ScheduleFormValues): string | null {
   }
   // A cron the scheduler would refuse does not run, so say nothing about when.
   if (cron === '' || !isValidCron(cron)) return null;
+  if (windowHasNoRun(v, now)) return SAY.windowEmpty;
   const words = cronInWords(cron);
   const repeat = words ? lowerFirst(words) : `on cron ${cron}`;
   const startAt = v.limitWindow ? fromLocalInput(v.from) : null;

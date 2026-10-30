@@ -92,7 +92,7 @@ export function useScheduleForm({
   return {
     values,
     problems,
-    summary: scheduleFormSummary(values),
+    summary: scheduleFormSummary(values, now()),
     busy,
     error: refusal.error,
     set,

@@ -1,3 +1,5 @@
+import { firstFireBetween } from '@moxxy/sdk/cron';
+
 /**
  * Authoring rules for a schedule's time window (`startAt` / `endAt`), shared by
  * every place a person or the model creates a schedule — the `schedule_create`
@@ -40,4 +42,15 @@ export function windowShapeProblem(
 export function windowEndedProblem(endAt: number | undefined, now: number): string | null {
   if (endAt === undefined || endAt > now) return null;
   return `this time window already ended at ${new Date(endAt).toISOString()}`;
+}
+
+/** The problem with a window that no run of the cron falls inside at `now`, or null. */
+export function windowEmptyProblem(
+  draft: ScheduleWindowDraft & { readonly timeZone?: string | undefined },
+  now: number,
+): string | null {
+  if (draft.cron === undefined || draft.endAt === undefined) return null;
+  const from = Math.max(draft.startAt ?? now, now);
+  if (firstFireBetween(draft.cron, from, draft.endAt, draft.timeZone)) return null;
+  return `no run of this schedule falls inside its time window, which ends at ${new Date(draft.endAt).toISOString()}`;
 }

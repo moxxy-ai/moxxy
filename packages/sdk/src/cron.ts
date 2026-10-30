@@ -251,6 +251,18 @@ export function nextFireTime(
   return null;
 }
 
+/**
+ * The first fire from `fromMs` to `toMs` (both inclusive), or null when none
+ * falls inside. A `fromMs` inside a minute looks from the next whole minute:
+ * cron fires on whole minutes, and the one just gone is before the window.
+ */
+export function firstFireBetween(expr: string, fromMs: number, toMs: number, timeZone?: string): Date | null {
+  const firstMinute = Math.ceil(fromMs / 60_000) * 60_000;
+  // nextFireTime looks from the whole minute after `after`.
+  const next = nextFireTime(expr, new Date(firstMinute - 60_000), timeZone);
+  return next !== null && next.getTime() <= toMs ? next : null;
+}
+
 interface DateParts {
   readonly year: number;
   readonly month: number; // 1-12

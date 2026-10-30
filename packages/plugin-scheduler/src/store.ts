@@ -295,80 +295,17 @@ export class ScheduleStore {
   async reconcileSkillSchedules(
     wanted: ReadonlyMap<string, Omit<ScheduleEntry, 'id' | 'createdAt'>>,
   ): Promise<{ added: number; removed: number; updated: number }> {
-    let added = 0;
-    let removed = 0;
-    let updated = 0;
+    // Every runner calls this on every tick and nearly always nothing changed:
+    // look first, so an idle tick neither takes the file lock nor writes.
+    const current = await this.store.read();
+    const preview = reconcileSkillRows(current, wanted);
+    if (sameRows(preview.next, current)) return countsOf(preview);
+    let result = preview;
     await this.store.mutate((schedules) => {
-      // 1. Remove skill rows whose skill is gone / dropped its schedule, AND
-      //    collapse any duplicate skill rows that share a skillName down to the
-      //    first (a prior crash between writes or a hand edit could leave two
-      //    rows for the same skill; the stale duplicate would otherwise persist
-      //    forever and fire alongside the canonical row). The reconcile thus
-      //    converges to exactly one row per wanted skillName.
-      const next: ScheduleEntry[] = [];
-      const keptSkillNames = new Set<string>();
-      for (const s of schedules) {
-        if (s.source === 'skill' && s.skillName) {
-          if (!wanted.has(s.skillName) || keptSkillNames.has(s.skillName)) {
-            if (isVisibleSchedule(s)) removed += 1;
-            continue;
-          }
-          keptSkillNames.add(s.skillName);
-        }
-        next.push(s);
-      }
-
-      // 2. Upsert wanted rows. Updates land in place; creates append. Re-find
-      //    positions in `next` since the remove pass reindexed it.
-      const posInNext = new Map<string, number>();
-      for (let i = 0; i < next.length; i += 1) {
-        const s = next[i];
-        assertDefined(s, 'loop index i is within next.length');
-        if (s.source === 'skill' && s.skillName && !posInNext.has(s.skillName)) {
-          posInNext.set(s.skillName, i);
-        }
-      }
-      for (const [skillName, draft] of wanted) {
-        const idx = posInNext.get(skillName);
-        if (idx === undefined) {
-          next.push(
-            scheduleEntrySchema.parse({
-              ...draft,
-              id: ulid(),
-              createdAt: Date.now(),
-              enabled: draft.enabled ?? true,
-              source: draft.source ?? 'skill',
-            }),
-          );
-          added += 1;
-          continue;
-        }
-        const current = next[idx];
-        assertDefined(current, 'posInNext holds an in-bounds index into next');
-        if (!isVisibleSchedule(current)) continue;
-        const patch = {
-          prompt: draft.prompt,
-          ...(draft.cron ? { cron: draft.cron } : { cron: undefined }),
-          ...(draft.runAt !== undefined ? { runAt: draft.runAt } : { runAt: undefined }),
-          ...(draft.timeZone ? { timeZone: draft.timeZone } : { timeZone: undefined }),
-          ...(draft.channel ? { channel: draft.channel } : { channel: undefined }),
-          enabled: draft.enabled ?? true,
-        };
-        const changed =
-          current.prompt !== patch.prompt ||
-          current.cron !== patch.cron ||
-          current.runAt !== patch.runAt ||
-          current.timeZone !== patch.timeZone ||
-          current.channel !== patch.channel ||
-          current.enabled !== patch.enabled;
-        if (changed) {
-          next[idx] = scheduleEntrySchema.parse({ ...current, ...patch });
-          updated += 1;
-        }
-      }
-      return next;
+      result = reconcileSkillRows(schedules, wanted);
+      return result.next;
     });
-    return { added, removed, updated };
+    return countsOf(result);
   }
 
   /**
@@ -457,6 +394,96 @@ function repairWorkflowDate(entry: ScheduleEntry, now: number): ScheduleEntry {
     migratedAt: now,
   });
 }
+
+interface SkillReconcile {
+  readonly next: ScheduleEntry[];
+  readonly added: number;
+  readonly removed: number;
+  readonly updated: number;
+}
+
+/** The rows after a skill reconcile; rows it leaves alone stay the same objects. */
+function reconcileSkillRows(
+  schedules: ReadonlyArray<ScheduleEntry>,
+  wanted: ReadonlyMap<string, Omit<ScheduleEntry, 'id' | 'createdAt'>>,
+): SkillReconcile {
+  let added = 0;
+  let removed = 0;
+  let updated = 0;
+  // 1. Remove skill rows whose skill is gone / dropped its schedule, AND
+  //    collapse any duplicate skill rows that share a skillName down to the
+  //    first (a prior crash between writes or a hand edit could leave two
+  //    rows for the same skill; the stale duplicate would otherwise persist
+  //    forever and fire alongside the canonical row). The reconcile thus
+  //    converges to exactly one row per wanted skillName.
+  const next: ScheduleEntry[] = [];
+  const keptSkillNames = new Set<string>();
+  for (const s of schedules) {
+    if (s.source === 'skill' && s.skillName) {
+      if (!wanted.has(s.skillName) || keptSkillNames.has(s.skillName)) {
+        if (isVisibleSchedule(s)) removed += 1;
+        continue;
+      }
+      keptSkillNames.add(s.skillName);
+    }
+    next.push(s);
+  }
+
+  // 2. Upsert wanted rows. Updates land in place; creates append. Re-find
+  //    positions in `next` since the remove pass reindexed it.
+  const posInNext = new Map<string, number>();
+  for (let i = 0; i < next.length; i += 1) {
+    const s = next[i];
+    assertDefined(s, 'loop index i is within next.length');
+    if (s.source === 'skill' && s.skillName && !posInNext.has(s.skillName)) {
+      posInNext.set(s.skillName, i);
+    }
+  }
+  for (const [skillName, draft] of wanted) {
+    const idx = posInNext.get(skillName);
+    if (idx === undefined) {
+      next.push(
+        scheduleEntrySchema.parse({
+          ...draft,
+          id: ulid(),
+          createdAt: Date.now(),
+          enabled: draft.enabled ?? true,
+          source: draft.source ?? 'skill',
+        }),
+      );
+      added += 1;
+      continue;
+    }
+    const current = next[idx];
+    assertDefined(current, 'posInNext holds an in-bounds index into next');
+    if (!isVisibleSchedule(current)) continue;
+    const patch = {
+      prompt: draft.prompt,
+      ...(draft.cron ? { cron: draft.cron } : { cron: undefined }),
+      ...(draft.runAt !== undefined ? { runAt: draft.runAt } : { runAt: undefined }),
+      ...(draft.timeZone ? { timeZone: draft.timeZone } : { timeZone: undefined }),
+      ...(draft.channel ? { channel: draft.channel } : { channel: undefined }),
+      enabled: draft.enabled ?? true,
+    };
+    const changed =
+      current.prompt !== patch.prompt ||
+      current.cron !== patch.cron ||
+      current.runAt !== patch.runAt ||
+      current.timeZone !== patch.timeZone ||
+      current.channel !== patch.channel ||
+      current.enabled !== patch.enabled;
+    if (changed) {
+      next[idx] = scheduleEntrySchema.parse({ ...current, ...patch });
+      updated += 1;
+    }
+  }
+  return { next, added, removed, updated };
+}
+
+const sameRows = (a: ReadonlyArray<ScheduleEntry>, b: ReadonlyArray<ScheduleEntry>): boolean =>
+  a.length === b.length && a.every((row, i) => row === b[i]);
+
+const countsOf = ({ added, removed, updated }: SkillReconcile) => ({ added, removed, updated });
 
 function isVisibleSchedule(entry: ScheduleEntry): boolean {
   return entry.deletedAt === undefined;

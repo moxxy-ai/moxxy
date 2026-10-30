@@ -201,6 +201,20 @@ describe('schedule_create — time window', () => {
     expect(await store.list()).toHaveLength(0);
   });
 
+  it('refuses a window no run falls inside, and tells the model to ask again', async () => {
+    const r = parse({
+      name: 'empty',
+      prompt: 'p',
+      cron: '0 12 * * *',
+      startAt: windowStart,
+      endAt: windowEnd,
+    });
+    expect(r.success).toBe(true);
+    if (!r.success) return;
+    await expect(create.handler(r.data, ctx)).rejects.toThrow(/no run.*ask the user/);
+    expect(await store.list()).toHaveLength(0);
+  });
+
   it('refuses a one-shot moment that already passed, and tells the model to ask again', async () => {
     const r = parse({ name: 'late', prompt: 'p', runAt: beforeWindow - 60 * MINUTE });
     expect(r.success).toBe(true);

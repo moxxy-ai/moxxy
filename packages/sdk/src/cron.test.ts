@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assertDefined } from './assert.js';
-import { isValidCron, isValidTimeZone, nextFireTime, parseCron } from './cron.js';
+import { firstFireBetween, isValidCron, isValidTimeZone, nextFireTime, parseCron } from './cron.js';
 
 describe('parseCron', () => {
   it('parses every-minute', () => {
@@ -260,6 +260,29 @@ describe('nextFireTime', () => {
     // Other non-IANA strings are rejected the same way.
     expect(nextFireTime('0 9 * * *', after, 'Not/AZone')).toBeNull();
     expect(nextFireTime('0 9 * * *', after, '')).toBeNull();
+  });
+});
+
+describe('firstFireBetween', () => {
+  const at = (hour: number, minute: number, second = 0) => new Date(2026, 9, 30, hour, minute, second).getTime();
+
+  it('finds the first fire inside the window', () => {
+    expect(firstFireBetween('*/5 * * * *', at(3, 47), at(4, 0))?.getTime()).toBe(at(3, 50));
+  });
+
+  it('counts both ends of the window', () => {
+    expect(firstFireBetween('*/5 * * * *', at(3, 50), at(4, 0))?.getTime()).toBe(at(3, 50));
+    expect(firstFireBetween('*/5 * * * *', at(3, 47), at(3, 50))?.getTime()).toBe(at(3, 50));
+  });
+
+  it('is null when no fire falls inside the window', () => {
+    expect(firstFireBetween('*/5 * * * *', at(3, 47), at(3, 49))).toBeNull();
+    expect(firstFireBetween('0 9 31 2 *', at(3, 47), at(3, 49))).toBeNull();
+  });
+
+  it('never counts the whole minute before a window that opens mid-minute', () => {
+    expect(firstFireBetween('* * * * *', at(3, 47, 30), at(3, 48))?.getTime()).toBe(at(3, 48));
+    expect(firstFireBetween('50 3 * * *', at(3, 50, 30), at(3, 59))).toBeNull();
   });
 });
 

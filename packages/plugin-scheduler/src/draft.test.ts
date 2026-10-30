@@ -19,6 +19,31 @@ describe('scheduleDraftProblem', () => {
     ).toBeNull();
   });
 
+  it('refuses a window that no run of the cron falls inside', () => {
+    const start = new Date(2026, 9, 28, 12, 7).getTime();
+    expect(
+      scheduleDraftProblem(draft({ cron: '*/5 * * * *', startAt: start, endAt: start + 2 * 60_000 }), now),
+    ).toMatch(/no run/);
+    // The same window, one minute longer, reaches 12:10.
+    expect(
+      scheduleDraftProblem(draft({ cron: '*/5 * * * *', startAt: start, endAt: start + 3 * 60_000 }), now),
+    ).toBeNull();
+  });
+
+  it('looks for that run from now when the window opened earlier or has no start', () => {
+    expect(scheduleDraftProblem(draft({ endAt: now + HOUR }), now)).toMatch(/no run/);
+    expect(scheduleDraftProblem(draft({ startAt: now - 4 * HOUR, endAt: now + HOUR }), now)).toMatch(/no run/);
+    expect(scheduleDraftProblem(draft({ endAt: now + 24 * HOUR }), now)).toBeNull();
+  });
+
+  it('reads that run in the time zone of the schedule', () => {
+    // 09:00 in Tokyo is 00:00 UTC, and 09:00 UTC is hours away from it.
+    const utcMidnight = Date.UTC(2026, 9, 28, 0, 0);
+    const window = { startAt: utcMidnight - 60_000, endAt: utcMidnight + 60_000 };
+    expect(scheduleDraftProblem(draft({ ...window, timeZone: 'Asia/Tokyo' }), utcMidnight - 2 * 60_000)).toBeNull();
+    expect(scheduleDraftProblem(draft({ ...window, timeZone: 'UTC' }), utcMidnight - 2 * 60_000)).toMatch(/no run/);
+  });
+
   it('needs a slug-like name', () => {
     expect(scheduleDraftProblem(draft({ name: '' }), now)).toMatch(/name/);
     expect(scheduleDraftProblem(draft({ name: 'Morning news!' }), now)).toMatch(/letters, digits, hyphens/);
