@@ -1,20 +1,19 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MOXXY_PCM16_24KHZ_MIME } from '@moxxy/sdk';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 import {
-  createLocalWhisperInstaller,
+  createLocalTranscriptionInstaller,
   createTranscriptionSwitch,
-  isLocalWhisperInstalled,
-  LOCAL_WHISPER_PACKAGE,
-  LOCAL_WHISPER_TRANSCRIBER,
-  localWhisperModel,
-  type LocalWhisperModel,
+  isLocalTranscriptionInstalled,
+  LOCAL_TRANSCRIPTION_PACKAGE,
+  localTranscriptionModel,
+  type LocalTranscriptionModel,
   type TranscriptionRunner,
   type TranscriptionSwitchDependencies,
-} from './local-whisper';
+} from './local-transcription';
 import type { AppNotice, TranscriptionSettings } from '@moxxy/desktop-ipc-contract';
 
 const temporaryDirectories: string[] = [];
@@ -24,7 +23,7 @@ afterEach(async () => {
 });
 
 async function temporaryMoxxyHome(): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), 'moxxy-local-whisper-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'moxxy-local-transcription-'));
   temporaryDirectories.push(directory);
   return directory;
 }
@@ -32,18 +31,18 @@ async function temporaryMoxxyHome(): Promise<string> {
 describe('Local Whisper package probe', () => {
   it('requires the first-party package manifest and compiled plugin entry', async () => {
     const home = await temporaryMoxxyHome();
-    expect(await isLocalWhisperInstalled(home)).toBe(false);
+    expect(await isLocalTranscriptionInstalled(home)).toBe(false);
 
     const packageDirectory = path.join(home, 'plugins', 'node_modules', '@moxxy', 'plugin-stt-local');
     await mkdir(path.join(packageDirectory, 'dist'), { recursive: true });
     await writeFile(path.join(packageDirectory, 'package.json'), JSON.stringify({
-      name: LOCAL_WHISPER_PACKAGE,
+      name: LOCAL_TRANSCRIPTION_PACKAGE,
       moxxy: { plugin: { entry: './dist/index.js' } },
     }));
-    expect(await isLocalWhisperInstalled(home)).toBe(false);
+    expect(await isLocalTranscriptionInstalled(home)).toBe(false);
 
     await writeFile(path.join(packageDirectory, 'dist', 'index.js'), 'export default {};');
-    expect(await isLocalWhisperInstalled(home)).toBe(true);
+    expect(await isLocalTranscriptionInstalled(home)).toBe(true);
   });
 
   it('rejects a substituted package manifest', async () => {
@@ -55,14 +54,14 @@ describe('Local Whisper package probe', () => {
       name: '@attacker/substitute',
       moxxy: { plugin: { entry: './dist/index.js' } },
     }));
-    expect(await isLocalWhisperInstalled(home)).toBe(false);
+    expect(await isLocalTranscriptionInstalled(home)).toBe(false);
   });
 });
 
 describe('Local Whisper installer', () => {
   it('installs, enables and selects only the fixed local-whisper transcriber', async () => {
     const run = vi.fn(async () => undefined);
-    const install = createLocalWhisperInstaller({
+    const install = createLocalTranscriptionInstaller('local-whisper', {
       runCommand: run,
       repairManifest: async () => undefined,
       isInstalled: async () => false,
@@ -79,7 +78,7 @@ describe('Local Whisper installer', () => {
 
   it('selects the copy the installer shipped without going to npm', async () => {
     const run = vi.fn(async () => undefined);
-    const install = createLocalWhisperInstaller({
+    const install = createLocalTranscriptionInstaller('local-whisper', {
       runCommand: run,
       repairManifest: async () => undefined,
       isInstalled: async () => true,
@@ -94,10 +93,10 @@ describe('Local Whisper installer', () => {
   });
 });
 
-describe('Local Whisper model', () => {
+describe('local transcription models', () => {
   it('is the pinned Whisper turbo files, missing in a fresh home', async () => {
     const home = await temporaryMoxxyHome();
-    const model = localWhisperModel({ modelsDir: path.join(home, 'models', 'stt') });
+    const model = localTranscriptionModel('turbo', { modelsDir: path.join(home, 'models', 'stt') });
 
     expect(model.bytes).toBe(674_716_297 + 361_080_764 + 816_730);
     await expect(model.ready()).resolves.toBe(false);
@@ -105,7 +104,7 @@ describe('Local Whisper model', () => {
 
   it('downloads those files into its own directory under the models root', async () => {
     const ensureFiles = vi.fn(async () => ({ dir: '', skipped: false }));
-    const model = localWhisperModel({ modelsDir: '/models/stt', ensureFiles });
+    const model = localTranscriptionModel('turbo', { modelsDir: '/models/stt', ensureFiles });
     const signal = new AbortController().signal;
     const onProgress = vi.fn();
 
@@ -122,6 +121,34 @@ describe('Local Whisper model', () => {
     ]);
     expect(opts.signal).toBe(signal);
     expect(opts.onProgress).toBe(onProgress);
+  });
+
+  it('knows Parakeet: four files, its own directory and transcriber', async () => {
+    const ensureFiles = vi.fn(async () => ({ dir: '', skipped: false }));
+    const model = localTranscriptionModel('parakeet', { modelsDir: '/models/stt', ensureFiles });
+
+    await model.download({ signal: new AbortController().signal, onProgress: vi.fn() });
+
+    const [opts] = ensureFiles.mock.calls[0] as unknown as [{ dir: string; files: { name: string }[] }];
+    expect(opts.dir).toBe(path.join('/models/stt', 'parakeet'));
+    expect(opts.files).toHaveLength(4);
+    expect(model.transcriber).toBe('local-parakeet');
+    expect(model.label).toBe('Parakeet');
+    expect(model.bytes).toBe(652_184_281 + 11_845_275 + 6_355_277 + 93_939);
+  });
+
+  it('removes only its own directory', async () => {
+    const home = await temporaryMoxxyHome();
+    const modelsDir = path.join(home, 'models', 'stt');
+    await mkdir(path.join(modelsDir, 'parakeet'), { recursive: true });
+    await mkdir(path.join(modelsDir, 'turbo'), { recursive: true });
+    await writeFile(path.join(modelsDir, 'parakeet', 'tokens.txt'), 'x');
+    await writeFile(path.join(modelsDir, 'turbo', 'turbo-tokens.txt'), 'x');
+
+    await localTranscriptionModel('parakeet', { modelsDir }).remove();
+
+    await expect(readdir(modelsDir)).resolves.toEqual(['turbo']);
+    await expect(readdir(path.join(modelsDir, 'turbo'))).resolves.toEqual(['turbo-tokens.txt']);
   });
 });
 
@@ -140,13 +167,21 @@ const MODEL_BYTES = 1_000;
 
 /** The model on disk: `ready` until a download is asked for, which then runs
  *  `download` (by default: two progress steps, then done). */
-function fakeModel(over: Partial<LocalWhisperModel> & { present?: boolean } = {}): LocalWhisperModel & {
+function fakeModel(over: Partial<LocalTranscriptionModel> & { present?: boolean } = {}): LocalTranscriptionModel & {
   downloads: number;
+  removals: number;
 } {
-  const state = { present: over.present ?? false, downloads: 0 };
+  const state = { present: over.present ?? false, downloads: 0, removals: 0 };
   return {
+    id: over.id ?? 'turbo',
+    label: over.label ?? 'Whisper turbo',
+    transcriber: over.transcriber ?? 'local-whisper',
     bytes: MODEL_BYTES,
     ready: async () => state.present,
+    remove: async () => {
+      state.removals += 1;
+      state.present = false;
+    },
     download: async (opts) => {
       state.downloads += 1;
       if (over.download) await over.download(opts);
@@ -159,20 +194,29 @@ function fakeModel(over: Partial<LocalWhisperModel> & { present?: boolean } = {}
     get downloads() {
       return state.downloads;
     },
+    get removals() {
+      return state.removals;
+    },
   };
 }
 
-function switchWith(over: Partial<TranscriptionSwitchDependencies> = {}) {
+function fakeParakeet(present = true): ReturnType<typeof fakeModel> {
+  return fakeModel({ id: 'parakeet', label: 'Parakeet', transcriber: 'local-parakeet', present });
+}
+
+function switchWith({ model, ...over }: Partial<TranscriptionSwitchDependencies> & {
+  model?: LocalTranscriptionModel;
+} = {}) {
   const calls: string[] = [];
   const changes: TranscriptionSettings[] = [];
   const notices: AppNotice[] = [];
   const deps: TranscriptionSwitchDependencies = {
     loadChoice: async () => null,
     installLocal: vi.fn(async () => { calls.push('install'); }),
-    clearChoice: vi.fn(async () => { calls.push('clear'); }),
+    setChoice: vi.fn(async (choice) => { calls.push(`choose ${choice ?? 'cloud'}`); }),
     restartRunners: vi.fn(async () => { calls.push('restart'); }),
-    runner: async () => fakeRunner(LOCAL_WHISPER_TRANSCRIBER),
-    model: fakeModel({ present: true }),
+    runner: async () => fakeRunner('local-whisper'),
+    models: [model ?? fakeModel({ present: true })],
     onChange: (settings) => changes.push(settings),
     notify: (notice) => notices.push(notice),
     startWaitMs: 50,
@@ -186,10 +230,9 @@ describe('transcription switch', () => {
   it('reports Local only when local-whisper is the chosen transcriber, with what the runner runs', async () => {
     const local = switchWith({ loadChoice: async () => 'local-whisper' });
     await expect(local.transcription.get()).resolves.toEqual({
-      mode: 'local',
+      choice: 'turbo',
       active: 'local-whisper',
-      modelReady: true,
-      modelBytes: MODEL_BYTES,
+      models: [{ id: 'turbo', ready: true, bytes: MODEL_BYTES }],
       setup: null,
       error: null,
     });
@@ -200,21 +243,21 @@ describe('transcription switch', () => {
       model: fakeModel({ present: false }),
     });
     await expect(cloud.transcription.get()).resolves.toMatchObject({
-      mode: 'cloud',
+      choice: 'cloud',
       active: 'openai-gpt-transcribe',
-      modelReady: false,
+      models: [{ id: 'turbo', ready: false, bytes: MODEL_BYTES }],
     });
 
     const none = switchWith({ runner: async () => null });
-    await expect(none.transcription.get()).resolves.toMatchObject({ mode: 'cloud', active: null });
+    await expect(none.transcription.get()).resolves.toMatchObject({ choice: 'cloud', active: null });
   });
 
   it('switching to Local installs, restarts, then loads the model with a short silence', async () => {
-    const runner = fakeRunner(LOCAL_WHISPER_TRANSCRIBER);
+    const runner = fakeRunner('local-whisper');
     const model = fakeModel({ present: true });
     const { calls, transcription } = switchWith({ runner: async () => runner, model });
 
-    await transcription.useLocal();
+    await transcription.useLocal('turbo');
 
     expect(model.downloads).toBe(0);
     expect(calls).toEqual(['install', 'restart']);
@@ -239,16 +282,19 @@ describe('transcription switch', () => {
       installLocal: vi.fn(async () => { calls.push('install'); order.push('install'); }),
     });
 
-    await transcription.useLocal();
+    await transcription.useLocal('turbo');
 
     expect(order).toEqual(['download', 'install']);
     expect(changes.map((change) => change.setup)).toEqual([
-      { phase: 'downloading', receivedBytes: 0, totalBytes: MODEL_BYTES },
-      { phase: 'downloading', receivedBytes: 400, totalBytes: MODEL_BYTES },
-      { phase: 'starting' },
+      { model: 'turbo', phase: 'downloading', receivedBytes: 0, totalBytes: MODEL_BYTES },
+      { model: 'turbo', phase: 'downloading', receivedBytes: 400, totalBytes: MODEL_BYTES },
+      { model: 'turbo', phase: 'starting' },
       null,
     ]);
-    expect(changes.at(-1)).toMatchObject({ modelReady: true, error: null });
+    expect(changes.at(-1)).toMatchObject({
+      models: [{ id: 'turbo', ready: true, bytes: MODEL_BYTES }],
+      error: null,
+    });
   });
 
   it('reports the running setup to a window that asks while it runs', async () => {
@@ -261,11 +307,11 @@ describe('transcription switch', () => {
     });
     const { transcription } = switchWith({ model });
 
-    const switching = transcription.useLocal();
+    const switching = transcription.useLocal('turbo');
     await vi.waitFor(() => expect(model.downloads).toBe(1));
     await expect(transcription.get()).resolves.toMatchObject({
-      mode: 'cloud',
-      setup: { phase: 'downloading', receivedBytes: 250, totalBytes: MODEL_BYTES },
+      choice: 'cloud',
+      setup: { model: 'turbo', phase: 'downloading', receivedBytes: 250, totalBytes: MODEL_BYTES },
     });
     release();
     await switching;
@@ -280,8 +326,8 @@ describe('transcription switch', () => {
     });
     const { calls, transcription } = switchWith({ model });
 
-    const first = transcription.useLocal();
-    const second = transcription.useLocal();
+    const first = transcription.useLocal('turbo');
+    const second = transcription.useLocal('turbo');
     await vi.waitFor(() => expect(model.downloads).toBe(1));
     release();
     await Promise.all([first, second]);
@@ -298,13 +344,13 @@ describe('transcription switch', () => {
     });
     const { calls, changes, notices, transcription } = switchWith({ model });
 
-    const switching = transcription.useLocal();
+    const switching = transcription.useLocal('turbo');
     await vi.waitFor(() => expect(model.downloads).toBe(1));
     await transcription.cancelLocal();
     await switching;
 
     expect(calls).toEqual([]);
-    expect(changes.at(-1)).toMatchObject({ mode: 'cloud', setup: null, error: null });
+    expect(changes.at(-1)).toMatchObject({ choice: 'cloud', setup: null, error: null });
     expect(notices).toEqual([]);
   });
 
@@ -316,20 +362,20 @@ describe('transcription switch', () => {
     });
     const { calls, notices, transcription } = switchWith({ model });
 
-    await expect(transcription.useLocal()).rejects.toThrow(
-      'Whisper turbo could not be downloaded, so Moxxy stays on Cloud: download failed: HTTP 503',
+    await expect(transcription.useLocal('turbo')).rejects.toThrow(
+      'Whisper turbo could not be downloaded, so Moxxy stays on OpenAI: download failed: HTTP 503',
     );
     expect(calls).toEqual([]);
     await expect(transcription.get()).resolves.toMatchObject({
       setup: null,
-      error: 'Whisper turbo could not be downloaded, so Moxxy stays on Cloud: download failed: HTTP 503',
+      error: 'Whisper turbo could not be downloaded, so Moxxy stays on OpenAI: download failed: HTTP 503',
     });
     expect(notices).toEqual([
       {
         id: 'transcription.local',
         tone: 'error',
         title: 'Local transcription could not start',
-        body: 'Whisper turbo could not be downloaded, so Moxxy stays on Cloud: download failed: HTTP 503',
+        body: 'Whisper turbo could not be downloaded, so Moxxy stays on OpenAI: download failed: HTTP 503',
         target: { destination: 'settings', section: 'voice' },
       },
     ]);
@@ -338,7 +384,7 @@ describe('transcription switch', () => {
   it('tells the person when Local is ready, wherever they are in the app', async () => {
     const { notices, transcription } = switchWith({ model: fakeModel() });
 
-    await transcription.useLocal();
+    await transcription.useLocal('turbo');
 
     expect(notices).toEqual([
       {
@@ -354,23 +400,23 @@ describe('transcription switch', () => {
   it('goes back to Cloud and says why when local-whisper does not start on the runner', async () => {
     const { calls, notices, transcription } = switchWith({ runner: async () => fakeRunner(null) });
 
-    await expect(transcription.useLocal()).rejects.toThrow(
-      'Local transcription could not start, so Moxxy stays on Cloud: the runner did not start local-whisper.',
+    await expect(transcription.useLocal('turbo')).rejects.toThrow(
+      'Whisper turbo could not start, so Moxxy stays on OpenAI: the runner did not start local-whisper.',
     );
-    expect(calls).toEqual(['install', 'restart', 'clear', 'restart']);
+    expect(calls).toEqual(['install', 'restart', 'choose cloud', 'restart']);
     expect(notices.map((notice) => notice.tone)).toEqual(['error']);
   });
 
   it('goes back to Cloud when the model cannot be loaded', async () => {
-    const runner = fakeRunner(LOCAL_WHISPER_TRANSCRIBER, vi.fn(async () => {
+    const runner = fakeRunner('local-whisper', vi.fn(async () => {
       throw new Error('sidecar crashed');
     }));
     const { calls, transcription } = switchWith({ runner: async () => runner });
 
-    await expect(transcription.useLocal()).rejects.toThrow(
-      'Local transcription could not start, so Moxxy stays on Cloud: sidecar crashed',
+    await expect(transcription.useLocal('turbo')).rejects.toThrow(
+      'Whisper turbo could not start, so Moxxy stays on OpenAI: sidecar crashed',
     );
-    expect(calls).toEqual(['install', 'restart', 'clear', 'restart']);
+    expect(calls).toEqual(['install', 'restart', 'choose cloud', 'restart']);
   });
 
   it('does not touch the choice or the runners when installation fails', async () => {
@@ -378,8 +424,8 @@ describe('transcription switch', () => {
       installLocal: vi.fn(async () => { throw new Error('npm offline'); }),
     });
 
-    await expect(transcription.useLocal()).rejects.toThrow(
-      'Local transcription could not be set up, so Moxxy stays on Cloud: npm offline',
+    await expect(transcription.useLocal('turbo')).rejects.toThrow(
+      'Whisper turbo could not be set up, so Moxxy stays on OpenAI: npm offline',
     );
     expect(calls).toEqual([]);
   });
@@ -391,12 +437,93 @@ describe('transcription switch', () => {
         if (fail) throw new Error('npm offline');
       }),
     });
-    await transcription.useLocal().catch(() => undefined);
+    await transcription.useLocal('turbo').catch(() => undefined);
     fail = false;
 
-    await transcription.useLocal();
+    await transcription.useLocal('turbo');
 
     await expect(transcription.get()).resolves.toMatchObject({ error: null });
+  });
+
+  it('runs each model on its own transcriber', async () => {
+    const parakeet = fakeParakeet();
+    const runner = fakeRunner('local-parakeet');
+    const installLocal = vi.fn(async () => undefined);
+    const { transcription } = switchWith({ installLocal, runner: async () => runner, models: [fakeModel(), parakeet] });
+
+    await transcription.useLocal('parakeet');
+
+    expect(installLocal).toHaveBeenCalledWith(parakeet);
+    expect(runner.transcribe).toHaveBeenCalledOnce();
+  });
+
+  it('reports a chosen Parakeet next to Whisper', async () => {
+    const { transcription } = switchWith({
+      loadChoice: async () => 'local-parakeet',
+      runner: async () => fakeRunner('local-parakeet'),
+      models: [fakeParakeet(), fakeModel()],
+    });
+    await expect(transcription.get()).resolves.toMatchObject({
+      choice: 'parakeet',
+      models: [{ id: 'parakeet', ready: true }, { id: 'turbo', ready: false }],
+    });
+  });
+
+  it('goes back to the previous model, not to Cloud, when the new one fails', async () => {
+    const { calls, transcription } = switchWith({
+      loadChoice: async () => 'local-whisper',
+      runner: async () => fakeRunner(null),
+      models: [fakeModel({ present: true }), fakeParakeet()],
+    });
+
+    await expect(transcription.useLocal('parakeet')).rejects.toThrow(
+      'Parakeet could not start, so Moxxy stays on Whisper turbo: the runner did not start local-parakeet.',
+    );
+    expect(calls).toEqual(['install', 'restart', 'choose local-whisper', 'restart']);
+  });
+
+  it('says so when a failed download leaves the previous model in place', async () => {
+    const parakeet = fakeModel({
+      id: 'parakeet',
+      label: 'Parakeet',
+      transcriber: 'local-parakeet',
+      download: async () => { throw new Error('HTTP 503'); },
+    });
+    const { calls, transcription } = switchWith({
+      loadChoice: async () => 'local-whisper',
+      models: [fakeModel({ present: true }), parakeet],
+    });
+
+    await expect(transcription.useLocal('parakeet')).rejects.toThrow(
+      'Parakeet could not be downloaded, so Moxxy stays on Whisper turbo: HTTP 503',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('removes a model that is not in use and reports it gone', async () => {
+    const parakeet = fakeParakeet();
+    const { changes, transcription } = switchWith({
+      loadChoice: async () => 'local-whisper',
+      models: [fakeModel({ present: true }), parakeet],
+    });
+
+    await transcription.removeModel('parakeet');
+
+    expect(parakeet.removals).toBe(1);
+    expect(changes.at(-1)).toMatchObject({
+      models: [{ id: 'turbo', ready: true }, { id: 'parakeet', ready: false }],
+    });
+  });
+
+  it('refuses to remove the model in use', async () => {
+    const parakeet = fakeParakeet();
+    const { transcription } = switchWith({
+      loadChoice: async () => 'local-parakeet',
+      models: [fakeModel({ present: true }), parakeet],
+    });
+
+    await expect(transcription.removeModel('parakeet')).rejects.toThrow('Parakeet is in use');
+    expect(parakeet.removals).toBe(0);
   });
 
   it('switching to Cloud clears the choice and restarts the runners', async () => {
@@ -404,7 +531,7 @@ describe('transcription switch', () => {
 
     await transcription.useCloud();
 
-    expect(calls).toEqual(['clear', 'restart']);
+    expect(calls).toEqual(['choose cloud', 'restart']);
     expect(changes.at(-1)).toMatchObject({ setup: null });
   });
 
@@ -416,11 +543,11 @@ describe('transcription switch', () => {
     });
     const { calls, transcription } = switchWith({ model });
 
-    const switching = transcription.useLocal();
+    const switching = transcription.useLocal('turbo');
     await vi.waitFor(() => expect(model.downloads).toBe(1));
     await transcription.useCloud();
     await switching;
 
-    expect(calls).toEqual(['clear', 'restart']);
+    expect(calls).toEqual(['choose cloud', 'restart']);
   });
 });

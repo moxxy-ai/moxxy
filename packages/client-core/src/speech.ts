@@ -28,7 +28,7 @@ function stripNonVerbalArtifacts(text: string): string {
     // Remove complete keycap sequences first so their ASCII base is not left
     // behind after the surrounding emoji marks disappear.
     .replace(KEYCAP_EMOJI_RE, ' ')
-    // Emoji, flags and dingbats are visual tone, not words Piper should
+    // Emoji, flags and dingbats are visual tone, not words the voice should
     // pronounce. Joiners/modifiers must be removed as well because they are
     // separate Unicode code points in compound emoji.
     .replace(NON_VERBAL_SYMBOL_RE, ' ')
@@ -120,7 +120,7 @@ export function toSpeakableText(markdown: string): string {
 
 /**
  * Voice-call prose omits fenced source entirely. The transcript still shows
- * the original answer, while Piper speaks only the surrounding explanation.
+ * the original answer, while the voice speaks only the surrounding explanation.
  */
 export function toVoiceConversationText(markdown: string): string {
   const withoutCode = markdown

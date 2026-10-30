@@ -8,7 +8,7 @@ const EMPTY_RAIL: VoiceRailView = { operation: null, overflowCount: 0, nextExpir
 function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> = {}) {
   const handlers = {
     onRetry: vi.fn(),
-    onInstallLocalPiper: vi.fn(),
+    onInstallLocalVoice: vi.fn(),
     onMuteMicrophone: vi.fn(),
     onUnmuteMicrophone: vi.fn(),
     onClose: vi.fn(),
@@ -19,9 +19,9 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
       status={{ title: 'Listening', detail: 'Speak naturally. You can still type.' }}
       rail={EMPTY_RAIL}
       microphoneMuted={false}
-      localPiperInstallRequired={false}
-      localPiperInstalling={false}
-      localPiperInstallError={null}
+      localVoiceInstallRequired={false}
+      localVoiceInstalling={false}
+      localVoiceInstallError={null}
       errorReason={null}
       inputAnalyser={null}
       outputAnalyser={null}
@@ -82,9 +82,9 @@ describe('VoicePresenceRail as a capsule', () => {
   });
 
   it.each([
-    ['the call stopped', { phase: 'error' as const, errorReason: 'Piper stopped responding.' }],
-    ['the local voice is missing', { phase: 'error' as const, localPiperInstallRequired: true }],
-    ['the local voice is installing', { localPiperInstallRequired: true, localPiperInstalling: true }],
+    ['the call stopped', { phase: 'error' as const, errorReason: 'voice stopped responding.' }],
+    ['the local voice is missing', { phase: 'error' as const, localVoiceInstallRequired: true }],
+    ['the local voice is installing', { localVoiceInstallRequired: true, localVoiceInstalling: true }],
   ])('stays open when %s, since it needs the person', (_name, props) => {
     renderRail(props);
 
@@ -204,51 +204,51 @@ describe('VoicePresenceRail', () => {
     }
   });
 
-  it('replaces the work slot with the install prompt when Local Piper is missing', () => {
-    const { onInstallLocalPiper } = renderRail({
+  it('replaces the work slot with the install prompt when offline voice is missing', () => {
+    const { onInstallLocalVoice } = renderRail({
       phase: 'error',
-      localPiperInstallRequired: true,
-      errorReason: 'Local Piper is not installed.',
+      localVoiceInstallRequired: true,
+      errorReason: 'offline voice is not installed.',
     });
 
     expect(screen.getByText('Local voice required')).toBeInTheDocument();
-    expect(screen.queryByText("Couldn't install local voice")).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /install local piper/i }));
-    expect(onInstallLocalPiper).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Couldn't install offline voice")).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /install offline voice/i }));
+    expect(onInstallLocalVoice).toHaveBeenCalledTimes(1);
     // Ending the call stays available even when the voice cannot start.
     expect(screen.getByRole('button', { name: 'End voice mode' })).toBeInTheDocument();
   });
 
   it('replaces a previous error with a locked installation progress state', () => {
-    const { onInstallLocalPiper } = renderRail({
+    const { onInstallLocalVoice } = renderRail({
       phase: 'error',
-      localPiperInstallRequired: true,
-      localPiperInstalling: true,
-      errorReason: 'Local Piper is not installed.',
+      localVoiceInstallRequired: true,
+      localVoiceInstalling: true,
+      errorReason: 'offline voice is not installed.',
     });
 
     expect(screen.getByText('Installing local voice')).toBeInTheDocument();
-    expect(screen.queryByText("Couldn't install local voice")).toBeNull();
+    expect(screen.queryByText("Couldn't install offline voice")).toBeNull();
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Installing…' })).toBeDisabled();
-    expect(onInstallLocalPiper).not.toHaveBeenCalled();
+    expect(onInstallLocalVoice).not.toHaveBeenCalled();
   });
 
   it('shows a friendly install failure and keeps technical details behind an explicit action', () => {
     const technicalError = 'npm install failed: spawn git ENOENT';
-    const { onInstallLocalPiper, onRetry } = renderRail({
+    const { onInstallLocalVoice, onRetry } = renderRail({
       phase: 'error',
-      localPiperInstallRequired: true,
-      localPiperInstallError: technicalError,
+      localVoiceInstallRequired: true,
+      localVoiceInstallError: technicalError,
       errorReason: technicalError,
     });
 
-    expect(screen.getByText("Couldn't install local voice")).toBeInTheDocument();
+    expect(screen.getByText("Couldn't install offline voice")).toBeInTheDocument();
     expect(screen.getByText('Check your connection and try again.')).toBeInTheDocument();
     expect(screen.queryByText(technicalError)).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(onInstallLocalPiper).toHaveBeenCalledTimes(1);
+    expect(onInstallLocalVoice).toHaveBeenCalledTimes(1);
     expect(onRetry).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Technical details' }));
@@ -257,9 +257,9 @@ describe('VoicePresenceRail', () => {
   });
 
   it('shows the failure reason with retry, and still lets the call be ended', () => {
-    const { onRetry } = renderRail({ phase: 'error', errorReason: 'Piper stopped responding.' });
+    const { onRetry } = renderRail({ phase: 'error', errorReason: 'voice stopped responding.' });
 
-    expect(screen.getByText('Piper stopped responding.')).toBeInTheDocument();
+    expect(screen.getByText('voice stopped responding.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'End voice mode' })).toBeInTheDocument();
@@ -288,7 +288,7 @@ describe('VoicePresenceRail', () => {
   });
 
   it('adds no tooltip to a reason that is all there to read', () => {
-    renderRail({ phase: 'error', errorReason: 'Piper stopped responding.' });
+    renderRail({ phase: 'error', errorReason: 'voice stopped responding.' });
 
     expect(screen.getByRole('alert')).not.toHaveAttribute('data-tip');
   });
@@ -360,14 +360,14 @@ describe('VoicePresenceRail with the microphone off', () => {
         status={{ title: 'Speaking', detail: '' }}
         rail={EMPTY_RAIL}
         microphoneMuted
-        localPiperInstallRequired={false}
-        localPiperInstalling={false}
-        localPiperInstallError={null}
+        localVoiceInstallRequired={false}
+        localVoiceInstalling={false}
+        localVoiceInstallError={null}
         errorReason={null}
         inputAnalyser={null}
         outputAnalyser={null}
         onRetry={view.onRetry}
-        onInstallLocalPiper={view.onInstallLocalPiper}
+        onInstallLocalVoice={view.onInstallLocalVoice}
         onMuteMicrophone={view.onMuteMicrophone}
         onUnmuteMicrophone={view.onUnmuteMicrophone}
         onClose={view.onClose}

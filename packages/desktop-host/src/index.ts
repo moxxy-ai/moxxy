@@ -21,7 +21,7 @@ export {
   type SeedPluginsResult,
 } from './seed-plugins.js';
 export { seedModelsFromResources, type SeedModelsResult } from './seed-models.js';
-export { adoptSeededLocalPiper } from './local-piper.js';
+export { adoptSeededLocalVoice, migrateLocalVoiceChoice } from './local-voice.js';
 export { activateManagedNode } from './node-manager.js';
 export { activateRuntimes, bundledRuntimesReady, prepareBundledRuntimes } from './seed-runtimes.js';
 export { findNpm, npmRegistry } from './component-update.js';

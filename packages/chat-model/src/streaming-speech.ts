@@ -212,7 +212,7 @@ const ENGLISH_SUFFIX_RE = /(?:ed|ful|ing|less|ly|ment|ness|sion|tion)$/u;
 const POLISH_CLUSTER_RE = /(?:cz|dzi|prz|rz|sz)/u;
 
 /**
- * Lightweight deterministic detector for the two local Piper languages.
+ * Lightweight deterministic detector for the two languages the local voice is mostly used in.
  * It deliberately scores prose words rather than identifiers, so `pnpm`,
  * `useEffect`, and other technical names do not make a Polish sentence switch
  * voice. Ambiguous short fragments inherit the preceding segment's language.
