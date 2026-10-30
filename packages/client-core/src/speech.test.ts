@@ -55,6 +55,13 @@ describe('toSpeakableText', () => {
     expect(toSpeakableText('Łącze ma 300 Mb/s.')).toBe('Łącze ma 300 Mb/s.');
   });
 
+  it('keeps acronym pairs and either-or words that look like paths', () => {
+    expect(toSpeakableText('GitLab używa CI/CD, a nie Actions.')).toBe('GitLab używa CI/CD, a nie Actions.');
+    expect(toSpeakableText('Test A/B przez TCP/IP.')).toBe('Test A/B przez TCP/IP.');
+    expect(toSpeakableText('Wybierz i/lub zamknij.')).toBe('Wybierz i/lub zamknij.');
+    expect(toSpeakableText('Use this and/or that.')).toBe('Use this and/or that.');
+  });
+
   it('keeps a Polish abbreviation that looks like a domain', () => {
     expect(toSpeakableText('Testy obejmują m.in. logowanie.')).toBe('Testy obejmują m.in. logowanie.');
   });

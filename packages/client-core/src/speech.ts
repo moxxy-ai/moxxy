@@ -18,10 +18,10 @@ const DOMAIN_RE = /\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>)]*)?/giu;
 const FILE_EXTENSION_RE = /\.(?:js|jsx|ts|tsx|mjs|cjs|json|jsonl|ya?ml|toml|md|mdx|txt|log|pdf|docx|xlsx|pptx|csv|tsv|py|rs|go|java|kt|c|h|cpp|hpp|cs|php|sh|bash|zsh|sql|html|css|scss|xml|ini|env|conf|png|jpe?g|svg|webp|wav|mp3|ogg)(?::\d+(?::\d+)?)?$/iu;
 const ABSOLUTE_FILE_PATH_RE = /(?<![\p{L}\p{N}_])(?:~[\\/]|[A-Za-z]:[\\/]|\/)[^<>\r\n`"'()[\],;!?]*?\.[A-Za-z]{2,8}(?::\d+(?::\d+)?)?(?=$|[\s),;.!?])/gu;
 const FILE_PATH_RE = /(?<![\p{L}\p{N}_])(?:~[\\/]|\.{1,2}[\\/]|[A-Za-z]:[\\/]|\/)?(?:[\p{L}\p{N}_.@+-]+[\\/])+[\p{L}\p{N}_.@+-]+(?:\.[A-Za-z0-9]{2,8})?(?::\d+(?::\d+)?)?(?![\p{L}\p{N}_])/gu;
-/** Fractions, slashed dates and speeds: prose that only looks like a path. */
+/** Fractions, slashed dates, speeds, acronym pairs and either-or words: prose that only looks like a path. */
 /** Prose that a domain pattern would swallow: "m.in." is "among others". */
 const DOTTED_PROSE_RE = /^m\.in$/iu;
-const SLASHED_PROSE_RE = /^(?:\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?)+|(?:k?m|mi|[kKMG][bB])\/(?:h|s|min))[.,;:!?]?$/u;
+const SLASHED_PROSE_RE = /^(?:\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?)+|(?:k?m|mi|[kKMG][bB])\/(?:h|s|min)|\p{Lu}{1,5}\/\p{Lu}{1,5}|and\/or|i\/lub)[.,;:!?]?$/u;
 
 function stripNonVerbalArtifacts(text: string): string {
   return text

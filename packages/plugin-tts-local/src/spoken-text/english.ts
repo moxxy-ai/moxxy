@@ -2,12 +2,15 @@
 
 import { cardinal, DIGITS, ordinal, year as yearWords } from './english-numbers.js';
 import {
+  ACRONYM_PAIR,
+  MAX_NUMBER_AFTER_NAME,
   digitsOf,
   dropTags,
   expand,
   expandClosing,
   readAcronyms,
   readEmails,
+  readFileNames,
   readLeftoverDigits,
   respell,
   ROMAN,
@@ -45,7 +48,10 @@ const ABBREVIATIONS: readonly Expansion[] = [
   [word('Prof\\.'), 'Professor'],
   [word('Mr\\.'), 'Mister'],
   [word('Mrs\\.'), 'Missus'],
+  [word('VS Code', 'gu'), 'Visual Studio Code'],
   [word('vs\\.?'), 'versus'],
+  [word('and/or', 'giu'), 'and or'],
+  ACRONYM_PAIR,
   [word('approx\\.'), 'approximately'],
   [/(?<![\p{L}\p{N}])No\.(?=\s*\d)/gu, 'number'],
   [/[~≈]\s*(?=\d)/gu, 'about '],
@@ -55,7 +61,26 @@ const CLOSING_ABBREVIATIONS: readonly Expansion[] = [
 ];
 const RESPELLINGS: readonly Expansion[] = [
   [word('json', 'giu'), 'jason'],
+  [word('README', 'gu'), 'read me'],
 ];
+
+const FILE_EXTENSIONS: Readonly<Record<string, string>> = {
+  css: 'see ess ess',
+  csv: 'see ess vee',
+  html: 'aitch tee em el',
+  js: 'jay ess',
+  json: 'jason',
+  jsx: 'jay ess ex',
+  md: 'em dee',
+  pdf: 'pee dee eff',
+  py: 'pie',
+  sh: 'ess aitch',
+  ts: 'tee ess',
+  tsx: 'tee ess ex',
+  txt: 'tee ex tee',
+  yaml: 'yamel',
+  yml: 'yamel',
+};
 
 interface Currency {
   readonly main: readonly [one: string, many: string];
@@ -280,7 +305,7 @@ const readRomanNumerals: Pass = (text) => text
   })
   .replace(word(`(\\p{Lu}\\p{Ll}+)\\s+(${ROMAN})`), (written, name: string, roman: string) => {
     const value = romanValue(roman);
-    if (value === null || roman.length < 2) return written;
+    if (value === null || value > MAX_NUMBER_AFTER_NAME || roman.length < 2) return written;
     const spoken = ordinal(value);
     return `${name} the ${spoken.charAt(0).toUpperCase()}${spoken.slice(1)}`;
   });
@@ -328,6 +353,7 @@ const PASSES: readonly Pass[] = [
   readFractions,
   readRomanNumerals,
   readSymbols,
+  readFileNames('dot', FILE_EXTENSIONS),
   respell(RESPELLINGS),
   readLetteredNumbers,
   readAcronyms({ letters: LETTERS, vowels: /[AEIOUY]/u, spelled: SPELLED_ACRONYMS }),

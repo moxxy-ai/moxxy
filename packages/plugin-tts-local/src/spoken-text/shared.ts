@@ -65,8 +65,27 @@ export function expandClosing(expansions: readonly Expansion[]): Pass {
   );
 }
 
-/** Tags are never spoken: the model has no emphasis tag and reads most of them out. */
+/** Tags are never spoken: the model has no emphasis tag, and in Polish its ten expression tags give silence or read out as words. */
 export const dropTags: Pass = (text) => text.replace(/<\/?[a-z][\w-]*(?:\s[^<>]*)?\/?>/giu, '');
+
+/** Between two capitals a slash is a pair of acronyms, as in CI/CD. */
+export const ACRONYM_PAIR: Expansion = [/(?<=\p{Lu})\/(?=\p{Lu})/gu, ' '];
+
+/**
+ * A file name says its dots and its extension. `Node.js` and its kin are product
+ * names, said without the dot.
+ */
+export function readFileNames(dot: string, extensions: Readonly<Record<string, string>>): Pass {
+  const fileName = new RegExp(
+    `(?<![\\p{L}\\p{N}@])([\\p{L}\\p{N}_-]+(?:\\.[\\p{L}\\p{N}_-]+)*)\\.(${Object.keys(extensions).join('|')})(?![\\p{L}\\p{N}])`,
+    'giu',
+  );
+  return (text) => text.replace(fileName, (_written, name: string, extension: string) => {
+    const spoken = extensions[extension.toLowerCase()] ?? extension;
+    if (extension === 'js' && /^\p{Lu}[\p{L}\p{N}]*$/u.test(name)) return `${name} ${spoken}`;
+    return `${name.replaceAll('.', ` ${dot} `)} ${dot} ${spoken}`;
+  });
+}
 
 export function readEmails(at: string, dot: string): Pass {
   return (text) => text.replace(
@@ -105,6 +124,9 @@ export function romanValue(written: string): number | null {
 }
 
 export const ROMAN = '[IVXLCDM]+';
+
+/** Rulers and popes stop well below this; CI, CV and CD after a capitalized word are acronyms. */
+export const MAX_NUMBER_AFTER_NAME = 39;
 
 export interface AcronymRules {
   /** How each letter is said; the spelled letters are joined with a space. */

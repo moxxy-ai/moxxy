@@ -14,6 +14,8 @@ import {
   type PluralForms,
 } from './polish-numbers.js';
 import {
+  ACRONYM_PAIR,
+  MAX_NUMBER_AFTER_NAME,
   capitalized,
   digitsOf,
   dropTags,
@@ -22,6 +24,7 @@ import {
   expandClosing,
   readAcronyms,
   readEmails,
+  readFileNames,
   readLeftoverDigits,
   respell,
   ROMAN,
@@ -68,7 +71,10 @@ const ABBREVIATIONS: readonly Expansion[] = [
   [word('tel\\.', 'giu'), 'telefon'],
   [word('dr', 'giu'), 'doktor'],
   [word('nr', 'giu'), 'numer'],
+  [word('VS Code', 'gu'), 'Visual Studio Code'],
   [word('vs\\.?', 'giu'), 'versus'],
+  [word('i/lub', 'giu'), 'i lub'],
+  ACRONYM_PAIR,
 ];
 const CLOSING_ABBREVIATIONS: readonly Expansion[] = [
   [word('itd\\.', 'gu'), 'i tak dalej'],
@@ -83,7 +89,6 @@ const NUMBERED_ABBREVIATIONS: readonly Expansion[] = [
 
 /** English terms a Polish reading gets wrong; measured against a recognizer. */
 const RESPELLINGS: readonly Expansion[] = [
-  [word('package\\.json', 'giu'), 'pakedż kropka dżejson'],
   [word('openai', 'giu'), 'ołpen ej aj'],
   [word('pull request(\\p{L}*)', 'giu'), 'pul rikłest'],
   [word('commit(\\p{L}*)', 'giu'), 'komit'],
@@ -97,7 +102,26 @@ const RESPELLINGS: readonly Expansion[] = [
   [word('refactor(\\p{L}*)', 'giu'), 'refaktor'],
   [word('pnpm', 'giu'), 'pe en pe em'],
   [word('npm', 'giu'), 'en pe em'],
+  [word('README', 'gu'), 'ridmi'],
 ];
+
+const FILE_EXTENSIONS: Readonly<Record<string, string>> = {
+  css: 'ce es es',
+  csv: 'ce es fał',
+  html: 'ha te em el',
+  js: 'dżej es',
+  json: 'dżejson',
+  jsx: 'dżej es iks',
+  md: 'em de',
+  pdf: 'pe de ef',
+  py: 'pe igrek',
+  sh: 'es ha',
+  ts: 'te es',
+  tsx: 'te es iks',
+  txt: 'te iks te',
+  yaml: 'jaml',
+  yml: 'jaml',
+};
 
 interface Currency {
   readonly main: PluralForms;
@@ -418,7 +442,7 @@ const readRomanNumerals: Pass = (text) => text
   })
   .replace(word(`(\\p{Lu}\\p{Ll}+)\\s+(${ROMAN})`), (written, name: string, roman: string) => {
     const value = romanValue(roman);
-    if (value === null || roman.length < 2) return written;
+    if (value === null || value > MAX_NUMBER_AFTER_NAME || roman.length < 2) return written;
     return `${name} ${capitalized(ordinal(value, name.endsWith('a') ? 'nomF' : 'nomM'))}`;
   });
 
@@ -468,6 +492,7 @@ const PASSES: readonly Pass[] = [
   readFractions,
   readRomanNumerals,
   readSymbols,
+  readFileNames('kropka', FILE_EXTENSIONS),
   respell(RESPELLINGS),
   readLetteredNumbers,
   readAcronyms({ letters: LETTERS, vowels: /[AĄEĘIOÓUY]/u, spelled: SPELLED_ACRONYMS }),
