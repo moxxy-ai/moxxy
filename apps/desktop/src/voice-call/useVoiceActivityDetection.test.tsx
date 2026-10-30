@@ -103,21 +103,21 @@ describe('voice activity sampling', () => {
     expect(onSpeechStart).toHaveBeenCalledOnce();
   });
 
-  it('rejects residual Piper echo but accepts a stronger user voice', () => {
+  it('rejects residual voice echo but accepts a stronger user voice', () => {
     vi.useFakeTimers();
     const microphone = new LevelAnalyser();
-    const piper = new LevelAnalyser();
+    const voice = new LevelAnalyser();
     const onSpeechStart = vi.fn();
     renderHook(() => useVoiceActivityDetection({
       analyser: microphone as unknown as AnalyserNode,
-      outputAnalyser: piper as unknown as AnalyserNode,
+      outputAnalyser: voice as unknown as AnalyserNode,
       active: true,
       onSpeechStart,
       onSpeechEnd: vi.fn(),
       onNoSpeech: vi.fn(),
     }));
 
-    piper.level = 0.2;
+    voice.level = 0.2;
     microphone.level = 0.025;
     act(() => vi.advanceTimersByTime(400));
     expect(onSpeechStart).not.toHaveBeenCalled();

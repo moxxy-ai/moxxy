@@ -606,7 +606,7 @@ describe('session.synthesize prosody', () => {
     }));
     const remote = {
       synthesizers: {
-        tryGetActive: () => ({ name: 'local-piper', synthesize }),
+        tryGetActive: () => ({ name: 'local-supertonic', synthesize }),
       },
     };
     const pool = {
@@ -990,7 +990,7 @@ describe('read aloud with Gemini: whole messages, heard again from disk', () => 
       return handler({ workspaceId: 'ws-read' });
     };
     expect(await plan('gemini-tts')).toEqual({ partChars: GEMINI_TTS_READ_ALOUD_PART_CHARS });
-    expect(await plan('local-piper')).toBeNull();
+    expect(await plan('local-supertonic')).toBeNull();
     expect(await plan(null)).toBeNull();
   });
 
@@ -1016,13 +1016,13 @@ describe('read aloud with Gemini: whole messages, heard again from disk', () => 
     expect(synthesize).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps nothing for Piper, nor for speech not asked to be kept', async () => {
-    const piper = setup('local-piper');
-    const piperHandler = piper.handlers.get('session.synthesize');
-    assertDefined(piperHandler, 'session.synthesize handler');
-    await piperHandler({ workspaceId: 'ws-read', text: 'Local.', cache: true });
-    await piperHandler({ workspaceId: 'ws-read', text: 'Local.', cache: true });
-    expect(piper.synthesize).toHaveBeenCalledTimes(2);
+  it('keeps nothing for voice, nor for speech not asked to be kept', async () => {
+    const local = setup('local-supertonic');
+    const localHandler = local.handlers.get('session.synthesize');
+    assertDefined(localHandler, 'session.synthesize handler');
+    await localHandler({ workspaceId: 'ws-read', text: 'Local.', cache: true });
+    await localHandler({ workspaceId: 'ws-read', text: 'Local.', cache: true });
+    expect(local.synthesize).toHaveBeenCalledTimes(2);
 
     const voiceMode = setup('gemini-tts');
     const voiceHandler = voiceMode.handlers.get('session.synthesize');

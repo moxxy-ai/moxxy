@@ -135,7 +135,7 @@ function Surface({
   // Lifted from Active so the resize IPC knows whether to tighten
   // the panel before painting (no flicker on first activation).
   const [hasTranscriber, setHasTranscriber] = useState<boolean | null>(null);
-  const [localPiperInstalled, setLocalPiperInstalled] = useState<boolean | null>(null);
+  const [localVoiceInstalled, setLocalVoiceInstalled] = useState<boolean | null>(null);
   const [analyser, setAnalyser] = useState<unknown | null>(null);
   const [horizontalAnchor, setHorizontalAnchor] = useState<FocusTileHorizontalAnchor>('right');
   const chat = useChat(workspaceId);
@@ -192,14 +192,14 @@ function Surface({
   const bubbleRestoreVisible = !askVisible && bubbleVisibility.hidden && bubbleAvailable;
   const previousVoiceModeActive = useRef(false);
   const voiceModeAvailable = voiceCall.active || (
-    localPiperInstalled === true && hasTranscriber === true && ready
+    localVoiceInstalled === true && hasTranscriber === true && ready
   );
   const baseActiveWidth = focusActiveWidth({
     hasTranscriber: hasTranscriber !== false,
     voiceModeAvailable,
     voiceModeActive: voiceCall.active,
     voiceModePhase: voiceCall.phase,
-    voiceModeRetryAvailable: !voiceCall.localPiperInstallRequired,
+    voiceModeRetryAvailable: !voiceCall.localVoiceInstallRequired,
   });
   const activeWidth = baseActiveWidth;
   const inactiveVoiceWidthDelta = voiceCall.active
@@ -287,12 +287,12 @@ function Surface({
         if (!cancelled) setHasTranscriber(false);
       });
     void api()
-      .invoke('voice.isLocalPiperInstalled')
+      .invoke('voice.isLocalVoiceInstalled')
       .then((installed) => {
-        if (!cancelled) setLocalPiperInstalled(Boolean(installed));
+        if (!cancelled) setLocalVoiceInstalled(Boolean(installed));
       })
       .catch(() => {
-        if (!cancelled) setLocalPiperInstalled(false);
+        if (!cancelled) setLocalVoiceInstalled(false);
       });
     return () => {
       cancelled = true;
@@ -403,7 +403,7 @@ function Surface({
         voiceModePhase={voiceCall.phase}
         voiceModeErrorReason={voiceCall.errorReason}
         voiceModeMuted={voiceCall.microphoneMuted}
-        localPiperInstallRequired={voiceCall.localPiperInstallRequired}
+        localVoiceInstallRequired={voiceCall.localVoiceInstallRequired}
         petPhase={petPhase}
         petInputAnalyser={petInputAnalyser}
         petOutputAnalyser={petOutputAnalyser}

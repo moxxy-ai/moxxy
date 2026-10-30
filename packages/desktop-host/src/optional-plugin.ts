@@ -18,7 +18,7 @@ export interface OptionalPlugin {
   readonly packageName: `@moxxy/${string}`;
   /** The plugin category its contribution is the default of. */
   readonly category: 'synthesizer' | 'transcriber';
-  /** The contribution made the category default, e.g. `local-piper`. */
+  /** The contribution made the category default, e.g. `local-supertonic`. */
   readonly contribution: string;
   /** What the package is, for errors: "The <label> package could not be installed". */
   readonly label: string;

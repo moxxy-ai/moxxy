@@ -52,14 +52,14 @@ export function VoicePresenceRail({
   status,
   rail,
   microphoneMuted,
-  localPiperInstallRequired,
-  localPiperInstalling,
-  localPiperInstallError,
+  localVoiceInstallRequired,
+  localVoiceInstalling,
+  localVoiceInstallError,
   errorReason,
   inputAnalyser,
   outputAnalyser,
   onRetry,
-  onInstallLocalPiper,
+  onInstallLocalVoice,
   onMuteMicrophone,
   onUnmuteMicrophone,
   onClose,
@@ -69,14 +69,14 @@ export function VoicePresenceRail({
   readonly status: VoiceModeStatus;
   readonly rail: VoiceRailView;
   readonly microphoneMuted: boolean;
-  readonly localPiperInstallRequired: boolean;
-  readonly localPiperInstalling: boolean;
-  readonly localPiperInstallError: string | null;
+  readonly localVoiceInstallRequired: boolean;
+  readonly localVoiceInstalling: boolean;
+  readonly localVoiceInstallError: string | null;
   readonly errorReason: string | null;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
   readonly onRetry: () => void;
-  readonly onInstallLocalPiper: () => void;
+  readonly onInstallLocalVoice: () => void;
   readonly onMuteMicrophone: () => void;
   readonly onUnmuteMicrophone: () => void;
   readonly onClose: () => void;
@@ -88,7 +88,7 @@ export function VoicePresenceRail({
   const [showInstallDetails, setShowInstallDetails] = useState(false);
   const failed = phase === 'error';
   const voiceCarrying = phase === 'listening' || phase === 'speaking';
-  const needsPerson = failed || localPiperInstallRequired || localPiperInstalling;
+  const needsPerson = failed || localVoiceInstallRequired || localVoiceInstalling;
   const busy = agentWork !== null || (rail.operation !== null && rail.operation.state === 'running');
 
   return (
@@ -101,7 +101,7 @@ export function VoicePresenceRail({
     >
       <div className="voice-rail-body">
         <div className="voice-rail-side voice-rail-work">
-          {localPiperInstalling ? (
+          {localVoiceInstalling ? (
             <>
               <span className="voice-rail-work-copy">
                 <strong>Installing local voice</strong>
@@ -111,10 +111,10 @@ export function VoicePresenceRail({
                 Installing…
               </button>
             </>
-          ) : localPiperInstallRequired && localPiperInstallError ? (
+          ) : localVoiceInstallRequired && localVoiceInstallError ? (
             <>
               <span className="voice-rail-work-copy voice-rail-work-copy--error">
-                <strong role="alert">Couldn't install local voice</strong>
+                <strong role="alert">Couldn't install offline voice</strong>
                 <small>Check your connection and try again.</small>
               </span>
               <button
@@ -124,22 +124,22 @@ export function VoicePresenceRail({
               >
                 Technical details
               </button>
-              <button type="button" className="voice-rail-action" onClick={onInstallLocalPiper}>
+              <button type="button" className="voice-rail-action" onClick={onInstallLocalVoice}>
                 Try again
               </button>
             </>
-          ) : localPiperInstallRequired ? (
+          ) : localVoiceInstallRequired ? (
             <>
               <span className="voice-rail-work-copy">
                 <strong>Local voice required</strong>
-                <small>Install Local Piper once to use Voice Mode</small>
+                <small>Install the offline voice once to use Voice Mode</small>
               </span>
               <button
                 type="button"
                 className="voice-rail-action"
-                onClick={onInstallLocalPiper}
+                onClick={onInstallLocalVoice}
               >
-                Install Local Piper
+                Install offline voice
               </button>
             </>
           ) : failed ? (
@@ -235,7 +235,7 @@ export function VoicePresenceRail({
         </div>
       </div>
 
-      {showInstallDetails && localPiperInstallError && (
+      {showInstallDetails && localVoiceInstallError && (
         <Modal
           title="Voice installation details"
           width={560}
@@ -261,7 +261,7 @@ export function VoicePresenceRail({
                 userSelect: 'text',
               }}
             >
-              {localPiperInstallError}
+              {localVoiceInstallError}
             </pre>
           </div>
         </Modal>

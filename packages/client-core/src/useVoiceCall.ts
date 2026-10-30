@@ -47,16 +47,16 @@ export interface UseVoiceCall {
   readonly activeOperations: ReadonlyArray<VoiceActiveOperation>;
   readonly errorReason: string | null;
   readonly microphoneMuted: boolean;
-  readonly localPiperInstallRequired: boolean;
-  readonly localPiperInstalling: boolean;
-  readonly localPiperInstallError: string | null;
+  readonly localVoiceInstallRequired: boolean;
+  readonly localVoiceInstalling: boolean;
+  readonly localVoiceInstallError: string | null;
   readonly lastTranscript: string | null;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
   readonly open: () => void;
   readonly close: () => void;
   readonly retry: () => void;
-  readonly installLocalPiper: () => void;
+  readonly installLocalVoice: () => void;
   readonly muteMicrophone: () => void;
   readonly unmuteMicrophone: () => void;
   /** Stop the current utterance and hand it to the existing transcriber. */
@@ -67,9 +67,11 @@ export interface UseVoiceCall {
   readonly bargeIn: () => void;
 }
 
-const LOCAL_PIPER = 'local-piper';
+const LOCAL_VOICE = 'local-supertonic';
+/** A runner on the old settings reports the name the local voice used to have. */
+const LEGACY_LOCAL_VOICE = 'local-piper';
 const GEMINI_TTS = 'gemini-tts';
-const VOICE_MODE_SYNTHESIZERS = new Set([LOCAL_PIPER, GEMINI_TTS]);
+const VOICE_MODE_SYNTHESIZERS = new Set([LOCAL_VOICE, LEGACY_LOCAL_VOICE, GEMINI_TTS]);
 const POST_INSTALL_RELOAD_POLL_MS = 500;
 const POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS = [
   100,
@@ -122,9 +124,9 @@ export function useVoiceCall({
   const [outputAnalyser, setOutputAnalyser] = useState<unknown | null>(null);
   const [activity, setActivity] = useState<VoiceToolActivity | null>(null);
   const [activeOperations, setActiveOperations] = useState<ReadonlyArray<VoiceActiveOperation>>([]);
-  const [localPiperInstallRequired, setLocalPiperInstallRequired] = useState(false);
-  const [localPiperInstalling, setLocalPiperInstalling] = useState(false);
-  const [localPiperInstallError, setLocalPiperInstallError] = useState<string | null>(null);
+  const [localVoiceInstallRequired, setLocalVoiceInstallRequired] = useState(false);
+  const [localVoiceInstalling, setLocalVoiceInstalling] = useState(false);
+  const [localVoiceInstallError, setLocalVoiceInstallError] = useState<string | null>(null);
   const [turnRequestPending, setTurnRequestPending] = useState(false);
   const generationRef = useRef(0);
   const postInstallRecoveryRef = useRef(false);
@@ -232,9 +234,9 @@ export function useVoiceCall({
     pendingFeedbackTranscriptRef.current = null;
     bargeInTransitionRef.current = false;
     postInstallRecoveryRef.current = false;
-    setLocalPiperInstallRequired(false);
-    setLocalPiperInstalling(false);
-    setLocalPiperInstallError(null);
+    setLocalVoiceInstallRequired(false);
+    setLocalVoiceInstalling(false);
+    setLocalVoiceInstallError(null);
   }, [feedback, speech.disable, voice.cancel]);
 
   const preflight = useCallback(async (
@@ -244,7 +246,7 @@ export function useVoiceCall({
     const finishPostInstallRecovery = (): void => {
       if (!retryRunnerRestart) return;
       postInstallRecoveryRef.current = false;
-      setLocalPiperInstalling(false);
+      setLocalVoiceInstalling(false);
     };
     if (!readyRef.current && !retryRunnerRestart) {
       dispatch({ type: 'failed', reason: 'This session is still connecting.' });
@@ -292,26 +294,26 @@ export function useVoiceCall({
       if (generation !== generationRef.current) return;
       if (!status) throw lastReadError ?? new Error('The session did not reconnect.');
       if (!status.hasTranscriber) {
-        if (retryRunnerRestart) setLocalPiperInstallRequired(false);
+        if (retryRunnerRestart) setLocalVoiceInstallRequired(false);
         finishPostInstallRecovery();
         dispatch({ type: 'failed', reason: 'Voice transcription is unavailable.' });
         return;
       }
       if (!supportsVoiceMode(status.activeSynthesizer)) {
-        const installed = await api().invoke('voice.isLocalPiperInstalled');
+        const installed = await api().invoke('voice.isLocalVoiceInstalled');
         if (generation !== generationRef.current) return;
-        setLocalPiperInstallRequired(!installed);
+        setLocalVoiceInstallRequired(!installed);
         finishPostInstallRecovery();
         dispatch({
           type: 'failed',
           reason: installed
-            ? 'Voice Mode needs Gemini TTS or Local Piper. Select one as the synthesizer and try again.'
-            : 'Voice Mode needs an active synthesizer. Install Local Piper or select Gemini TTS.',
+            ? 'Voice Mode needs Gemini TTS or the offline voice. Select one as the synthesizer and try again.'
+            : 'Voice Mode needs an active synthesizer. Install the offline voice or select Gemini TTS.',
         });
         return;
       }
-      setLocalPiperInstallRequired(false);
-      setLocalPiperInstallError(null);
+      setLocalVoiceInstallRequired(false);
+      setLocalVoiceInstallError(null);
       finishPostInstallRecovery();
       speech.enable();
       const currentChat = chatRef.current;
@@ -327,7 +329,7 @@ export function useVoiceCall({
       }
     } catch (error) {
       if (generation !== generationRef.current) return;
-      if (retryRunnerRestart) setLocalPiperInstallRequired(false);
+      if (retryRunnerRestart) setLocalVoiceInstallRequired(false);
       finishPostInstallRecovery();
       dispatch({ type: 'failed', reason: toErrorMessage(error) });
     }
@@ -343,28 +345,28 @@ export function useVoiceCall({
 
   const open = useCallback((): void => begin('open'), [begin]);
   const retry = useCallback((): void => begin('retry'), [begin]);
-  const installLocalPiper = useCallback((): void => {
-    if (!state.active || !localPiperInstallRequired || localPiperInstalling) return;
+  const installLocalVoice = useCallback((): void => {
+    if (!state.active || !localVoiceInstallRequired || localVoiceInstalling) return;
     const generation = generationRef.current;
-    setLocalPiperInstallError(null);
-    setLocalPiperInstalling(true);
-    void api().invoke('voice.installLocalPiper')
+    setLocalVoiceInstallError(null);
+    setLocalVoiceInstalling(true);
+    void api().invoke('voice.installLocalVoice')
       .then(() => {
         if (generation !== generationRef.current) return;
         postInstallRecoveryRef.current = true;
-        setLocalPiperInstallRequired(false);
+        setLocalVoiceInstallRequired(false);
         dispatch({ type: 'retry' });
         void preflight(generation, true);
       })
       .catch((error: unknown) => {
         if (generation !== generationRef.current) return;
-        const reason = `Local Piper installation failed: ${toErrorMessage(error)}`;
-        setLocalPiperInstalling(false);
-        setLocalPiperInstallRequired(true);
-        setLocalPiperInstallError(reason);
+        const reason = `Offline voice installation failed: ${toErrorMessage(error)}`;
+        setLocalVoiceInstalling(false);
+        setLocalVoiceInstallRequired(true);
+        setLocalVoiceInstallError(reason);
         dispatch({ type: 'failed', reason });
       });
-  }, [localPiperInstallRequired, localPiperInstalling, preflight, state.active]);
+  }, [localVoiceInstallRequired, localVoiceInstalling, preflight, state.active]);
   const close = useCallback((): void => {
     releaseResources();
     setLastTranscript(null);
@@ -410,7 +412,7 @@ export function useVoiceCall({
     dispatch({ type: 'barge-in' });
   }, [feedback, state.active, state.microphoneMuted, state.phase, voice]);
 
-  // Normal listening and interruptible Piper playback share one capture. The
+  // Normal listening and interruptible speech playback share one capture. The
   // platform's AEC removes render echo; barge-in marks where retained audio
   // starts so the earlier monitoring prefix never reaches the transcriber.
   useEffect(() => {
@@ -470,7 +472,7 @@ export function useVoiceCall({
       voice.cancel();
       dispatch({
         type: 'failed',
-        reason: speech.errorReason ?? 'Piper could not play this response.',
+        reason: speech.errorReason ?? 'The voice could not play this response.',
       });
     } else if (
       speech.phase === 'idle'
@@ -732,16 +734,16 @@ export function useVoiceCall({
     activeOperations,
     errorReason: state.errorReason,
     microphoneMuted: state.microphoneMuted,
-    localPiperInstallRequired,
-    localPiperInstalling,
-    localPiperInstallError,
+    localVoiceInstallRequired,
+    localVoiceInstalling,
+    localVoiceInstallError,
     lastTranscript,
     inputAnalyser,
     outputAnalyser,
     open,
     close,
     retry,
-    installLocalPiper,
+    installLocalVoice,
     muteMicrophone,
     unmuteMicrophone,
     finishUtterance,

@@ -130,7 +130,7 @@ export class SpeechPlaybackQueue {
     if (result.ok && (result.clip || !this.options.requireSynthesizer)) return;
     if (this.preparedCues.get(key) === prepared) this.preparedCues.delete(key);
     if (!result.ok) throw result.error;
-    throw new Error('No speech synthesizer is active. Enable Local Piper and try again.');
+    throw new Error('No speech synthesizer is active. Enable the offline voice and try again.');
   }
 
   cancelPendingCues(): void {
@@ -250,7 +250,7 @@ export class SpeechPlaybackQueue {
         void this.pump(generation);
         return;
       }
-      this.fail('No speech synthesizer is active. Enable Local Piper and try again.');
+      this.fail('No speech synthesizer is active. Enable the offline voice and try again.');
       return;
     }
 
@@ -299,7 +299,7 @@ export class SpeechPlaybackQueue {
       }
 
       // No active runner synthesizer is the explicit `system` voice sentinel.
-      // A present Piper that throws never reaches this branch and stays visible.
+      // A present synthesizer that throws never reaches this branch and stays visible.
       this.systemSpeaking = true;
       tts.speak(prepared.text, {
         language: prepared.language,

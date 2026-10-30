@@ -25,7 +25,7 @@ export async function speakForCall(
   session: SpeechSession,
   text: string,
   onUnvoiced?: (reason: string) => void,
-  /** Picks the voice where the synthesizer has one per language (local Piper). */
+  /** Picks the voice where the synthesizer has one per language (none of the current ones). */
   language?: string,
 ): Promise<Uint8Array | null> {
   const voiced = await synthesizeReply(session, text, language ? { language } : {});

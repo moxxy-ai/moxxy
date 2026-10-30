@@ -74,16 +74,18 @@ export const SETTINGS_SECTIONS = [
       { label: 'OpenAI API key', keywords: ['openai voice key', 'gpt-live key', 'transcription key'] },
       { label: 'Voice engine', keywords: ['voice mode', 'local', 'classic voice', 'voice conversation'] },
       {
-        label: 'Transcription',
+        label: 'Dictation model',
         keywords: [
-          'speech to text', 'whisper', 'local transcription', 'openai transcription', 'gpt-transcribe',
+          'speech to text', 'transcription', 'local transcription', 'openai transcription', 'gpt-transcribe',
           'dictation', 'microphone',
         ],
       },
+      { label: 'Parakeet', keywords: ['parakeet tdt', 'local dictation'] },
+      { label: 'Whisper', keywords: ['whisper turbo', 'large-v3'] },
       { label: 'GPT-Live', keywords: ['openai voice', 'realtime'] },
-      { label: 'Read aloud', keywords: ['speaker', 'spoken voice', 'reply voice'] },
+      { label: 'Reading replies aloud', keywords: ['read aloud', 'speaker', 'spoken voice', 'reply voice'] },
       { label: 'Gemini Flash-Lite', keywords: ['gemini tts', 'google', 'cloud voice', 'gemini api key'] },
-      { label: 'Local Piper', keywords: ['on-device voice', 'offline voice'] },
+      { label: 'Supertonic 3', keywords: ['on-device voice', 'offline voice', 'local voice'] },
     ],
   },
   {

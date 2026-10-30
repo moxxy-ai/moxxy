@@ -150,27 +150,28 @@ That line always takes its height and is shown for the message under the
 pointer or holding focus, so revealing it moves nothing. On a touch screen it
 is always shown.
 
-Settings → Voice → Transcription picks where speech becomes text, for the chat
-microphone and Voice Mode's Local engine. Cloud is OpenAI over the ChatGPT
-login. Local is Whisper turbo on this computer (`@moxxy/plugin-stt-local`,
-shipped in the plugin seed). The first time, a dialog asks before anything
-downloads and says how big the model is (~1 GB) and that the app stays usable
-meanwhile. The main process then fetches the model's three int8 files from
-Hugging Face, in parallel and pinned by size and sha256 (`ensureModelFiles` in
-`@moxxy/model-fetch`), into `~/.moxxy/models/stt/turbo`, where the plugin finds
-them; nothing is unpacked, so it takes about as long as the bytes do. The card
-shows a progress bar with Cancel, and since the switch runs in the main process
-and reports on `voice.transcription.changed`, the download goes on and shows
-again when the person leaves the tab and comes back. After the download the
-switch enables the plugin, makes `local-whisper` the transcriber, restarts the
-runners and transcribes half a second of silence to load the model, so the
-first dictation does not wait. A notice says when Local is ready or why it
-could not start (see "Toasts"). A failed or cancelled switch leaves Moxxy on
-Cloud; choosing Cloud clears the choice (`local-whisper.ts` in
-`@moxxy/desktop-host`, `useTranscriptionSettings` and `TranscriptionSection` in
-the desktop).
+The dictation models in Settings → Voice pick where speech becomes text, for
+the chat microphone and Voice Mode's Classic engine. OpenAI runs in the cloud on
+the person's API key. Parakeet TDT 0.6B v3 and Whisper turbo run on this
+computer (`@moxxy/plugin-stt-local`, shipped in the plugin seed without any
+model). Each row says what sets the model apart and how big it is, and nothing
+downloads until someone presses Download there. The main process then fetches
+the model's int8 files from Hugging Face, in parallel and pinned by size and
+sha256 (`ensureModelFiles` in `@moxxy/model-fetch`), into
+`~/.moxxy/models/stt/<model>`, where the plugin finds them; nothing is unpacked,
+so it takes about as long as the bytes do. The row shows a progress bar with
+Cancel, and since the switch runs in the main process and reports on
+`voice.transcription.changed`, the download goes on and shows again when the
+person leaves the tab and comes back. After the download the switch enables the
+plugin, makes the model's transcriber active, restarts the runners and
+transcribes half a second of silence to load the model, so the first dictation
+does not wait. A notice says when the model is ready or why it could not start
+(see "Toasts"). A failed or cancelled switch leaves Moxxy on what it had; the
+row then offers Try again. A downloaded model that is not in use can be removed
+from its row (`local-transcription.ts` in `@moxxy/desktop-host`,
+`useTranscriptionSettings` and `DictationSection` in the desktop).
 
-Read aloud speaks with the voice chosen in Settings → Voice. With Local Piper
+Read aloud speaks with the voice chosen in Settings → Voice. With Supertonic 3
 (or any voice but Gemini) it reads sentence by sentence, as Voice Mode does.
 With Gemini Flash-Lite it sends the whole answer in one request, or in parts
 of up to 3,000 characters cut between sentences for a long one, so it does not
@@ -594,11 +595,15 @@ above are reimplemented here in Moxxy's own components.
 
 ## Voice settings and connection migration
 
-Voice uses the existing segmented control for Conversation, Read aloud and
-Transcription, with immediate switching. A shared OpenAI key card stays above
-these sections; the password field and save action use the existing input and
-button primitives, card border and text tokens. Saved-key state and failures
-are written in text, not conveyed only by colour. Each option is indexed for
+Voice is one page with no sections to switch between: the Voice Mode engine,
+then the dictation models, then the voices that read replies aloud. Each model
+is a row with its name, one line on what sets it apart, an In use badge and one
+action; a row's fields sit below it. The OpenAI key lives in the OpenAI row and
+says that GPT-Live uses it too. While GPT-Live is the engine, a note replaces
+the read-aloud rows, as that engine speaks with its own voice. The password
+fields and actions use the existing input and button primitives, card border and
+text tokens. Saved-key state and failures are written in text, not conveyed only
+by colour. Each option is indexed for
 ⌘K. Existing read-aloud choices remain available. API billing is explained inline;
 there is no paid-use modal. Recovery from the retired ChatGPT sign-in shows an
 inline explanation in the provider form; a successful move uses the normal toast.

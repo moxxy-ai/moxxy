@@ -290,7 +290,7 @@ export function registerSessionHandlers(
     // plugin (e.g. ElevenLabs) lives in ~/.moxxy/plugins, loaded by the runner.
     // Returns null only when no synthesizer is active. A present-but-failing
     // synthesizer surfaces its error; silently switching voices would hide a
-    // broken local Piper installation from the user.
+    // broken offline voice installation from the user.
     const resolvedWorkspaceId = workspaceId ?? pool.activeWorkspaceId();
     const key = resolvedWorkspaceId && requestId
       ? synthesisRequestKey(resolvedWorkspaceId, requestId)
@@ -311,7 +311,7 @@ export function registerSessionHandlers(
         signal: controller.signal,
       };
       // Only Gemini's speech is kept: it costs money and counts against a
-      // rate limit, while Piper speaks locally for free.
+      // rate limit, while the local voice speaks for free.
       const cacheKey = cache && synth.name === GEMINI_TTS_SYNTHESIZER_NAME
         ? speechCacheKey({
           synthesizer: synth.name,

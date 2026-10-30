@@ -1,9 +1,15 @@
-import type { AppNotice, TranscriptionSettings, TranscriptionSetup } from '@moxxy/desktop-ipc-contract';
+import { rm } from 'node:fs/promises';
+
+import type {
+  AppNotice,
+  LocalTranscriptionModelId,
+  TranscriptionSettings,
+  TranscriptionSetup,
+} from '@moxxy/desktop-ipc-contract';
 import { ensureModelFiles, modelFilesReady, type ModelFilesProgress } from '@moxxy/model-fetch/files';
 // Only the catalog: bundled into the main, so the installer never carries the
 // plugin's native sherpa-onnx libraries (hence a devDependency).
 import {
-  DEFAULT_MODEL_ID,
   defaultModelsDir,
   modelBytes,
   modelDir,
@@ -20,16 +26,22 @@ import {
   type OptionalPluginInstallerOptions,
 } from './optional-plugin';
 
-export const LOCAL_WHISPER_PACKAGE = '@moxxy/plugin-stt-local';
-/** `@moxxy/plugin-stt-local`'s transcriber (named here, the host does not import the plugin). */
-export const LOCAL_WHISPER_TRANSCRIBER = 'local-whisper';
+export const LOCAL_TRANSCRIPTION_PACKAGE = '@moxxy/plugin-stt-local';
 
-const LOCAL_WHISPER: OptionalPlugin = {
-  packageName: LOCAL_WHISPER_PACKAGE,
+const localTranscriptionPlugin = (transcriber: string): OptionalPlugin => ({
+  packageName: LOCAL_TRANSCRIPTION_PACKAGE,
   category: 'transcriber',
-  contribution: LOCAL_WHISPER_TRANSCRIBER,
+  contribution: transcriber,
   label: 'offline transcription',
+});
+
+/** Short names, for messages. */
+const MODEL_LABELS: Readonly<Record<LocalTranscriptionModelId, string>> = {
+  parakeet: 'Parakeet',
+  turbo: 'Whisper turbo',
 };
+/** What the settings call Cloud transcription. */
+const CLOUD_LABEL = 'OpenAI';
 
 /** Half a second of 16-bit mono silence at 24 kHz, in the desktop mic's format. */
 const WARM_UP_AUDIO = new Uint8Array(24_000);
@@ -40,44 +52,58 @@ const DEFAULT_PROGRESS_INTERVAL_MS = 250;
 const NOTICE_ID = 'transcription.local';
 const NOTICE_TARGET = { destination: 'settings', section: 'voice' } as const;
 
-/** Whether the on-device Whisper package is complete on disk. */
-export async function isLocalWhisperInstalled(home = moxxyHome()): Promise<boolean> {
-  return isOptionalPluginInstalled(LOCAL_WHISPER, home);
+/** Whether the on-device transcription package is complete on disk. */
+export async function isLocalTranscriptionInstalled(home = moxxyHome()): Promise<boolean> {
+  return isOptionalPluginInstalled(localTranscriptionPlugin(''), home);
 }
 
-/** Install (when missing), enable and select local Whisper as the transcriber; single-flight. */
-export function createLocalWhisperInstaller(
+/** Install (when missing), enable and select `transcriber`; single-flight. */
+export function createLocalTranscriptionInstaller(
+  transcriber: string,
   options: OptionalPluginInstallerOptions = {},
 ): () => Promise<void> {
-  return createOptionalPluginInstaller(LOCAL_WHISPER, options);
+  return createOptionalPluginInstaller(localTranscriptionPlugin(transcriber), options);
 }
 
-/** Whisper turbo's files on this computer. */
-export interface LocalWhisperModel {
+/** A local model's files on this computer. */
+export interface LocalTranscriptionModel {
+  readonly id: LocalTranscriptionModelId;
+  readonly label: string;
+  /** The transcriber that reads it. */
+  readonly transcriber: string;
   /** Download size in bytes. */
   readonly bytes: number;
   /** Whether every file is on disk and verified. */
   ready(): Promise<boolean>;
   /** Fetch the files that are missing. */
   download(opts: { signal: AbortSignal; onProgress: (p: ModelFilesProgress) => void }): Promise<void>;
+  /** Delete its files. */
+  remove(): Promise<void>;
 }
 
-/** The model the local-whisper plugin reads, downloaded by the host so the
+/** A model the local transcription plugin reads, downloaded by the host so the
  *  progress shows in every window (the plugin finds the files and skips it). */
-export function localWhisperModel(options: {
-  readonly modelsDir?: string;
-  readonly ensureFiles?: typeof ensureModelFiles;
-} = {}): LocalWhisperModel {
-  const entry = requireModel(DEFAULT_MODEL_ID, 'model');
+export function localTranscriptionModel(
+  id: LocalTranscriptionModelId,
+  options: {
+    readonly modelsDir?: string;
+    readonly ensureFiles?: typeof ensureModelFiles;
+  } = {},
+): LocalTranscriptionModel {
+  const entry = requireModel(id, 'model');
   const files = modelFiles(entry);
   const dir = modelDir(entry, options.modelsDir ?? defaultModelsDir());
   const ensureFiles = options.ensureFiles ?? ensureModelFiles;
   return {
+    id,
+    label: MODEL_LABELS[id],
+    transcriber: entry.transcriber,
     bytes: modelBytes(entry),
     ready: () => modelFilesReady(files, dir),
     download: async ({ signal, onProgress }) => {
       await ensureFiles({ files, dir, signal, onProgress });
     },
+    remove: () => rm(dir, { recursive: true, force: true }),
   };
 }
 
@@ -90,20 +116,20 @@ export interface TranscriptionRunner {
 export interface TranscriptionSwitchDependencies {
   /** `plugins.transcriber.default` from the user config. */
   readonly loadChoice: () => Promise<string | null>;
-  /** Install, enable and select local Whisper. */
-  readonly installLocal: () => Promise<void>;
-  /** Unselect the transcriber, so the runner falls back to Cloud. */
-  readonly clearChoice: () => Promise<void>;
+  /** Install, enable and select the transcriber of `model`. */
+  readonly installLocal: (model: LocalTranscriptionModel) => Promise<void>;
+  /** Choose a transcriber, or none so the runner falls back to Cloud. */
+  readonly setChoice: (transcriber: string | null) => Promise<void>;
   /** Restart every desktop runner so it picks up the choice. */
   readonly restartRunners: () => Promise<void>;
   /** The active workspace's runner, once it is attached; `null` when none. */
   readonly runner: () => Promise<TranscriptionRunner | null>;
-  readonly model: LocalWhisperModel;
+  readonly models: ReadonlyArray<LocalTranscriptionModel>;
   /** Every window learns of each change, download progress included. */
   readonly onChange?: (settings: TranscriptionSettings) => void;
-  /** Says when Local is ready or could not start, wherever the person is. */
+  /** Says when a model is ready or could not start, wherever the person is. */
   readonly notify?: (notice: AppNotice) => void;
-  /** How long to wait for the restarted runner to start local Whisper. */
+  /** How long to wait for the restarted runner to start the transcriber. */
   readonly startWaitMs?: number;
   /** The least time between two progress changes sent to the windows. */
   readonly progressIntervalMs?: number;
@@ -111,15 +137,17 @@ export interface TranscriptionSwitchDependencies {
 
 export interface TranscriptionSwitch {
   get(): Promise<TranscriptionSettings>;
-  /** Switch to local Whisper: download the model when it is missing, then
-   *  install, restart and load it, so the first dictation does not wait. One
-   *  switch runs at a time; a second call joins it. Resolves when it is done or
-   *  cancelled; on failure Moxxy stays on Cloud and the error says why. */
-  useLocal(): Promise<void>;
-  /** Stop the model download of a running switch to Local. */
+  /** Switch to a local model: download it when it is missing, then install,
+   *  restart and load it, so the first dictation does not wait. One switch runs
+   *  at a time; a second call joins it. Resolves when it is done or cancelled;
+   *  on failure the previous choice stays and the error says why. */
+  useLocal(id: LocalTranscriptionModelId): Promise<void>;
+  /** Stop the model download of a running switch. */
   cancelLocal(): Promise<void>;
   /** Switch back to Cloud transcription, stopping a running download first. */
   useCloud(): Promise<void>;
+  /** Delete a downloaded model. Refuses the one in use. */
+  removeModel(id: LocalTranscriptionModelId): Promise<void>;
 }
 
 /** Raised for a stopped download, so the switch can tell it from a failure. */
@@ -135,13 +163,25 @@ export function createTranscriptionSwitch(deps: TranscriptionSwitchDependencies)
   /** The last full reading, so progress ticks need no config or runner reads. */
   let last: TranscriptionSettings | null = null;
 
+  const modelOf = (id: LocalTranscriptionModelId): LocalTranscriptionModel => {
+    const model = deps.models.find((candidate) => candidate.id === id);
+    if (!model) throw new Error(`Unknown transcription model: ${id}.`);
+    return model;
+  };
+  const chosenModel = (choice: string | null): LocalTranscriptionModel | undefined =>
+    deps.models.find((model) => model.transcriber === choice);
+  const labelOf = (choice: string | null): string => chosenModel(choice)?.label ?? CLOUD_LABEL;
+
   const read = async (): Promise<TranscriptionSettings> => {
-    const [choice, runner, modelReady] = await Promise.all([deps.loadChoice(), deps.runner(), deps.model.ready()]);
+    const [choice, runner, models] = await Promise.all([
+      deps.loadChoice(),
+      deps.runner(),
+      Promise.all(deps.models.map(async ({ id, bytes, ready }) => ({ id, bytes, ready: await ready() }))),
+    ]);
     last = {
-      mode: choice === LOCAL_WHISPER_TRANSCRIBER ? 'local' : 'cloud',
+      choice: chosenModel(choice)?.id ?? 'cloud',
       active: runner?.getInfo().activeTranscriber ?? null,
-      modelReady,
-      modelBytes: deps.model.bytes,
+      models,
       setup,
       error,
     };
@@ -154,23 +194,23 @@ export function createTranscriptionSwitch(deps: TranscriptionSwitchDependencies)
     if (deps.onChange && last) deps.onChange({ ...last, setup, error });
   };
 
-  const switchBack = async (): Promise<void> => {
-    await deps.clearChoice();
+  const restoreChoice = async (choice: string | null): Promise<void> => {
+    await deps.setChoice(choice);
     await deps.restartRunners();
   };
 
-  const downloadModel = async (): Promise<void> => {
-    if (await deps.model.ready()) return;
+  const downloadModel = async (model: LocalTranscriptionModel, stayingOn: string): Promise<void> => {
+    if (await model.ready()) return;
     const controller = new AbortController();
     download = controller;
-    setup = { phase: 'downloading', receivedBytes: 0, totalBytes: deps.model.bytes };
+    setup = { model: model.id, phase: 'downloading', receivedBytes: 0, totalBytes: model.bytes };
     await changed();
     let sentAt = 0;
     try {
-      await deps.model.download({
+      await model.download({
         signal: controller.signal,
         onProgress: ({ receivedBytes, totalBytes }) => {
-          setup = { phase: 'downloading', receivedBytes, totalBytes };
+          setup = { model: model.id, phase: 'downloading', receivedBytes, totalBytes };
           const now = Date.now();
           if (now - sentAt < progressIntervalMs && receivedBytes < totalBytes) return;
           sentAt = now;
@@ -179,41 +219,43 @@ export function createTranscriptionSwitch(deps: TranscriptionSwitchDependencies)
       });
     } catch (cause) {
       if (controller.signal.aborted) throw new DownloadCancelled();
-      throw new Error(`Whisper turbo could not be downloaded, so Moxxy stays on Cloud: ${reasonOf(cause)}`, { cause });
+      throw new Error(`${model.label} could not be downloaded, so Moxxy stays on ${stayingOn}: ${reasonOf(cause)}`, { cause });
     } finally {
       download = null;
     }
   };
 
-  const start = async (): Promise<void> => {
-    setup = { phase: 'starting' };
+  const start = async (model: LocalTranscriptionModel, previous: string | null): Promise<void> => {
+    const stayingOn = labelOf(previous);
+    setup = { model: model.id, phase: 'starting' };
     await changed();
     try {
-      await deps.installLocal();
+      await deps.installLocal(model);
     } catch (cause) {
-      throw new Error(`Local transcription could not be set up, so Moxxy stays on Cloud: ${reasonOf(cause)}`, { cause });
+      throw new Error(`${model.label} could not be set up, so Moxxy stays on ${stayingOn}: ${reasonOf(cause)}`, { cause });
     }
     await deps.restartRunners();
     try {
-      await warmUp(await deps.runner(), startWaitMs);
+      await warmUp(await deps.runner(), model.transcriber, startWaitMs);
     } catch (cause) {
-      await switchBack();
-      throw new Error(`Local transcription could not start, so Moxxy stays on Cloud: ${reasonOf(cause)}`, { cause });
+      await restoreChoice(previous);
+      throw new Error(`${model.label} could not start, so Moxxy stays on ${stayingOn}: ${reasonOf(cause)}`, { cause });
     }
   };
 
-  const switchToLocal = async (): Promise<void> => {
+  const switchToLocal = async (model: LocalTranscriptionModel): Promise<void> => {
     error = null;
     try {
-      await downloadModel();
-      await start();
+      const previous = await deps.loadChoice();
+      await downloadModel(model, labelOf(previous));
+      await start(model, previous);
       setup = null;
       await changed();
       deps.notify?.({
         id: NOTICE_ID,
         tone: 'success',
         title: 'Local transcription is ready',
-        body: 'Whisper turbo now turns your speech into text on this computer.',
+        body: `${model.label} now turns your speech into text on this computer.`,
         target: NOTICE_TARGET,
       });
     } catch (cause) {
@@ -242,8 +284,8 @@ export function createTranscriptionSwitch(deps: TranscriptionSwitchDependencies)
 
   return {
     get: read,
-    useLocal() {
-      running ??= switchToLocal().finally(() => {
+    useLocal(id) {
+      running ??= switchToLocal(modelOf(id)).finally(() => {
         running = null;
       });
       return running;
@@ -252,7 +294,15 @@ export function createTranscriptionSwitch(deps: TranscriptionSwitchDependencies)
     async useCloud() {
       await cancelLocal();
       error = null;
-      await switchBack();
+      await restoreChoice(null);
+      await changed();
+    },
+    async removeModel(id) {
+      const model = modelOf(id);
+      if (chosenModel(await deps.loadChoice()) === model) {
+        throw new Error(`${model.label} is in use. Choose another model first.`);
+      }
+      await model.remove();
       await changed();
     },
   };
@@ -262,16 +312,16 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Wait for the runner to start local Whisper, then transcribe a short silence,
- *  which loads the downloaded model into memory. */
-async function warmUp(runner: TranscriptionRunner | null, startWaitMs: number): Promise<void> {
+/** Wait for the runner to start the transcriber, then transcribe a short
+ *  silence, which loads the downloaded model into memory. */
+async function warmUp(runner: TranscriptionRunner | null, transcriberName: string, startWaitMs: number): Promise<void> {
   if (!runner) throw new Error('no runner is attached.');
   const deadline = Date.now() + startWaitMs;
-  while (runner.getInfo().activeTranscriber !== LOCAL_WHISPER_TRANSCRIBER) {
-    if (Date.now() >= deadline) throw new Error(`the runner did not start ${LOCAL_WHISPER_TRANSCRIBER}.`);
+  while (runner.getInfo().activeTranscriber !== transcriberName) {
+    if (Date.now() >= deadline) throw new Error(`the runner did not start ${transcriberName}.`);
     await new Promise((resolve) => setTimeout(resolve, START_POLL_MS));
   }
   const transcriber = runner.transcribers.tryGetActive();
-  if (!transcriber) throw new Error(`the runner did not start ${LOCAL_WHISPER_TRANSCRIBER}.`);
+  if (!transcriber) throw new Error(`the runner did not start ${transcriberName}.`);
   await transcriber.transcribe(WARM_UP_AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
 }

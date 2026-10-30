@@ -36,16 +36,16 @@ function voiceCall(overrides: Partial<UseVoiceCall> = {}): UseVoiceCall {
     activeOperations: [],
     errorReason: null,
     microphoneMuted: false,
-    localPiperInstallRequired: false,
-    localPiperInstalling: false,
-    localPiperInstallError: null,
+    localVoiceInstallRequired: false,
+    localVoiceInstalling: false,
+    localVoiceInstallError: null,
     lastTranscript: null,
     inputAnalyser: null,
     outputAnalyser: null,
     open: vi.fn(),
     close: vi.fn(),
     retry: vi.fn(),
-    installLocalPiper: vi.fn(),
+    installLocalVoice: vi.fn(),
     muteMicrophone: vi.fn(),
     unmuteMicrophone: vi.fn(),
     finishUtterance: vi.fn(),
@@ -195,38 +195,38 @@ describe('useDesktopVoiceCallBridge', () => {
     expect(focusLocalOpen).not.toHaveBeenCalled();
   });
 
-  it('routes Local Piper installation from Focus Mode to the call owner', async () => {
+  it('routes offline voice installation from Focus Mode to the call owner', async () => {
     const bus = new InMemoryVoiceBridge();
-    const installLocalPiper = vi.fn();
+    const installLocalVoice = vi.fn();
     const mainPort = bus.port();
     const focusPort = bus.port();
 
     const { result } = renderHook(() => {
       const main = useDesktopVoiceCallBridge({
         surface: 'main',
-        workspaceId: 'ws-piper',
+        workspaceId: 'ws-voice',
         localCall: voiceCall({
           active: true,
           phase: 'error',
-          localPiperInstallRequired: true,
-          localPiperInstallError: 'Local Piper installation failed: download interrupted',
-          installLocalPiper,
+          localVoiceInstallRequired: true,
+          localVoiceInstallError: 'Offline voice installation failed: download interrupted',
+          installLocalVoice,
         }),
         port: mainPort,
       });
       const focus = useDesktopVoiceCallBridge({
         surface: 'focus',
-        workspaceId: 'ws-piper',
+        workspaceId: 'ws-voice',
         localCall: voiceCall(),
         port: focusPort,
       });
       return { main, focus };
     });
 
-    await waitFor(() => expect(result.current.focus.localPiperInstallRequired).toBe(true));
-    expect(result.current.focus.localPiperInstallError).toContain('download interrupted');
-    act(() => result.current.focus.installLocalPiper());
-    expect(installLocalPiper).toHaveBeenCalledOnce();
+    await waitFor(() => expect(result.current.focus.localVoiceInstallRequired).toBe(true));
+    expect(result.current.focus.localVoiceInstallError).toContain('download interrupted');
+    act(() => result.current.focus.installLocalVoice());
+    expect(installLocalVoice).toHaveBeenCalledOnce();
   });
 
   it('mirrors bounded microphone spectrum data without moving audio ownership', async () => {
@@ -303,9 +303,9 @@ describe('useDesktopVoiceCallBridge', () => {
         activity: null,
         errorReason: null,
         microphoneMuted: false,
-        localPiperInstallRequired: false,
-        localPiperInstalling: false,
-        localPiperInstallError: null,
+        localVoiceInstallRequired: false,
+        localVoiceInstalling: false,
+        localVoiceInstallError: null,
         queuedTurns: [],
       },
     } satisfies DesktopVoiceCallBridgeMessage));
@@ -346,9 +346,9 @@ describe('useDesktopVoiceCallBridge', () => {
           activity: null,
           errorReason: null,
           microphoneMuted: false,
-          localPiperInstallRequired: false,
-          localPiperInstalling: false,
-          localPiperInstallError: null,
+          localVoiceInstallRequired: false,
+          localVoiceInstalling: false,
+          localVoiceInstallError: null,
           queuedTurns: [],
         },
       }));

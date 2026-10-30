@@ -31,6 +31,7 @@ import type {
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
+  LocalTranscriptionModelId,
   TranscriptionSettings,
   SkillFile,
   ReasoningEffort,
@@ -341,34 +342,35 @@ export interface IpcCommands {
   'session.hasTranscriber': () => Promise<boolean>;
   /** Cancel an in-flight generated speech request for interruption/barge-in. */
   'session.cancelSynthesis': (args: { workspaceId?: string; requestId: string }) => Promise<void>;
-  /** True when the desktop's optional on-device Piper synthesizer package is
+  /** True when the desktop's optional on-device voice package is
    *  complete on disk. */
-  'voice.isLocalPiperInstalled': () => Promise<boolean>;
-  /** Install, enable and select the fixed first-party Local Piper package, then
+  'voice.isLocalVoiceInstalled': () => Promise<boolean>;
+  /** Install, enable and select the fixed first-party offline voice package, then
    *  restart desktop runners. Accepts no renderer-controlled package spec. */
-  'voice.installLocalPiper': () => Promise<void>;
+  'voice.installLocalVoice': () => Promise<void>;
   /** Read the authenticated Gemini voice library through the main process. */
   'voice.listGeminiVoices': () => Promise<ReadonlyArray<GeminiVoiceInfo>>;
   /** Select cloud TTS and persist the chosen voice ID. */
   'voice.useGeminiTts': (args: { voiceId: string }) => Promise<void>;
-  /** Select the local Piper backend. */
-  'voice.useLocalPiper': () => Promise<void>;
+  /** Select the offline voice. */
+  'voice.useLocalVoice': () => Promise<void>;
   /** Read the active backend and the saved Gemini voice selection. */
   'voice.getSettings': () => Promise<{ backend: string | null; voiceId: string }>;
   /** Read whether speech is transcribed in the cloud or on this computer, and
    *  which transcriber the runner actually runs. Host-only. */
   'voice.getTranscription': () => Promise<TranscriptionSettings>;
-  /** Download the pinned Whisper turbo model when it is missing (progress on
-   *  `voice.transcription.changed`), then install, enable and select the fixed
-   *  first-party local Whisper package, restart desktop runners and load the
-   *  model. Stays on, or falls back to, Cloud and rejects when it cannot start.
-   *  Accepts no renderer-controlled input. */
-  'voice.useLocalTranscription': () => Promise<void>;
-  /** Stop the model download of a switch to Local; Moxxy stays on Cloud. Does
-   *  nothing once the download is done or when none runs. */
+  /** Download the chosen pinned model when it is missing (progress on
+   *  `voice.transcription.changed`), then install, enable and select its fixed
+   *  first-party transcriber, restart desktop runners and load the model. Goes
+   *  back to the previous choice and rejects when it cannot start. */
+  'voice.useLocalTranscription': (args: { model: LocalTranscriptionModelId }) => Promise<void>;
+  /** Stop the model download of a running switch; the choice stays as it was.
+   *  Does nothing once the download is done or when none runs. */
   'voice.cancelLocalTranscription': () => Promise<void>;
-  /** Unselect local Whisper and restart desktop runners (Cloud transcription). */
+  /** Unselect the local transcriber and restart desktop runners (Cloud transcription). */
   'voice.useCloudTranscription': () => Promise<void>;
+  /** Delete a downloaded model's files. Rejects while it is the chosen one. */
+  'voice.removeLocalTranscriptionModel': (args: { model: LocalTranscriptionModelId }) => Promise<void>;
   /** Keep the local main renderer realtime while it owns an active Voice Mode
    * capture. Local desktop IPC only; no audio or workspace data crosses here. */
   'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;
@@ -417,7 +419,7 @@ export interface IpcCommands {
   }) => Promise<{ audioBase64: string; mimeType: string } | null>;
   /** How the read-aloud button should send a message: in parts of up to
    *  `partChars` characters, each kept on disk (Gemini TTS), or null to read
-   *  sentence by sentence as before (Piper and every other synthesizer). */
+   *  sentence by sentence as before (the offline voice and every other synthesizer). */
   'session.readAloudPlan': (args?: { workspaceId?: string }) => Promise<{ partChars: number } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */

@@ -5,6 +5,7 @@ import type { RunnerPool } from '../runner-pool';
 import {
   clearCategoryDefault,
   loadCategoryDefault,
+  setCategoryDefault,
   loadCategoryItemConfig,
   setCategoryItemConfig,
 } from '@moxxy/config';
@@ -12,16 +13,16 @@ import { DEFAULT_VOICE, listGeminiVoicesWithSecret } from '@moxxy/plugin-tts-gem
 import type { GeminiVoiceInfo } from '@moxxy/desktop-ipc-contract';
 import { SELF_REFERENCE_NOTE } from '@moxxy/sdk';
 import {
-  createLocalPiperInstaller,
-  isLocalPiperInstalled,
-} from '../local-piper';
+  createLocalVoiceInstaller,
+  isLocalVoiceInstalled,
+} from '../local-voice';
 import { createGeminiTtsInstaller } from '../gemini-tts';
 import {
-  createLocalWhisperInstaller,
+  createLocalTranscriptionInstaller,
   createTranscriptionSwitch,
-  localWhisperModel,
+  localTranscriptionModel,
   type TranscriptionSwitch,
-} from '../local-whisper';
+} from '../local-transcription';
 import { broadcastHostEvent } from '../event-bus';
 import {
   getInProcessPlugins,
@@ -61,7 +62,7 @@ export interface VoiceHandlerDependencies {
   readonly install: () => Promise<void>;
   readonly listGeminiVoices: () => Promise<ReadonlyArray<GeminiVoiceInfo>>;
   readonly useGeminiTts: (voiceId: string) => Promise<void>;
-  readonly useLocalPiper: () => Promise<void>;
+  readonly useLocalVoice: () => Promise<void>;
   readonly getSettings: () => Promise<VoiceSettings>;
   readonly setRealtimeCaptureActive: (active: boolean) => Promise<void> | void;
   readonly inProcessPlugins: () => Pick<InProcessPlugins, 'vault' | 'gptLive'>;
@@ -71,16 +72,15 @@ export interface VoiceHandlerDependencies {
 /** A restarted runner re-attaches within seconds; give a slow machine room. */
 const RUNNER_REATTACH_WAIT_MS = 30_000;
 
-const installLocalPiper = createLocalPiperInstaller();
+const installLocalVoice = createLocalVoiceInstaller();
 const installGeminiTts = createGeminiTtsInstaller();
-const installLocalWhisper = createLocalWhisperInstaller();
 
 export function registerVoiceHandlers(
   pool: RunnerPool,
   dependencies: Partial<VoiceHandlerDependencies> = {},
 ): void {
-  const isInstalled = dependencies.isInstalled ?? (() => isLocalPiperInstalled());
-  const install = dependencies.install ?? installLocalPiper;
+  const isInstalled = dependencies.isInstalled ?? (() => isLocalVoiceInstalled());
+  const install = dependencies.install ?? installLocalVoice;
   const setRealtimeCaptureActive = dependencies.setRealtimeCaptureActive ?? (() => undefined);
   const listGeminiVoices = dependencies.listGeminiVoices ?? (() =>
     listGeminiVoicesWithSecret((name) => getInProcessPlugins().vault.get(name))
@@ -90,8 +90,8 @@ export function registerVoiceHandlers(
     await installGeminiTts();
     await Promise.all(pool.list().map(({ supervisor }) => supervisor.restart()));
   });
-  const useLocalPiper = dependencies.useLocalPiper ?? (async () => {
-    await installLocalPiper();
+  const useLocalVoice = dependencies.useLocalVoice ?? (async () => {
+    await installLocalVoice();
     await Promise.all(pool.list().map(({ supervisor }) => supervisor.restart()));
   });
   const getSettings = dependencies.getSettings ?? (async () => {
@@ -108,29 +108,32 @@ export function registerVoiceHandlers(
   const inProcessPlugins = dependencies.inProcessPlugins ?? getInProcessPlugins;
   const transcription = dependencies.transcription ?? createTranscriptionSwitch({
     loadChoice: () => loadCategoryDefault('transcriber'),
-    installLocal: installLocalWhisper,
-    clearChoice: () => clearCategoryDefault('transcriber'),
+    installLocal: ({ transcriber }) => createLocalTranscriptionInstaller(transcriber)(),
+    setChoice: (transcriber) => (transcriber
+      ? setCategoryDefault('transcriber', transcriber)
+      : clearCategoryDefault('transcriber')),
     restartRunners: async () => {
       await Promise.all(pool.list().map(({ supervisor }) => supervisor.restart()));
     },
     runner: () => waitForRemoteSession(pool, undefined, RUNNER_REATTACH_WAIT_MS),
-    model: localWhisperModel(),
+    models: [localTranscriptionModel('parakeet'), localTranscriptionModel('turbo')],
     onChange: (settings) => broadcastHostEvent('voice.transcription.changed', settings),
     notify: (notice) => broadcastHostEvent('app.notice', notice),
   });
-  handle('voice.isLocalPiperInstalled', () => isInstalled());
-  handle('voice.installLocalPiper', async () => {
+  handle('voice.isLocalVoiceInstalled', () => isInstalled());
+  handle('voice.installLocalVoice', async () => {
     await install();
     await Promise.all(pool.list().map(({ supervisor }) => supervisor.restart()));
   });
   handle('voice.listGeminiVoices', async () => listGeminiVoices());
   handle('voice.useGeminiTts', async ({ voiceId }) => useGeminiTts(voiceId));
-  handle('voice.useLocalPiper', async () => useLocalPiper());
+  handle('voice.useLocalVoice', async () => useLocalVoice());
   handle('voice.getSettings', async () => getSettings());
   handle('voice.getTranscription', async () => transcription.get());
-  handle('voice.useLocalTranscription', async () => transcription.useLocal());
+  handle('voice.useLocalTranscription', async ({ model }) => transcription.useLocal(model));
   handle('voice.cancelLocalTranscription', async () => transcription.cancelLocal());
   handle('voice.useCloudTranscription', async () => transcription.useCloud());
+  handle('voice.removeLocalTranscriptionModel', async ({ model }) => transcription.removeModel(model));
   handle('voice.setRealtimeCaptureActive', async ({ active }) => {
     await setRealtimeCaptureActive(active);
   });

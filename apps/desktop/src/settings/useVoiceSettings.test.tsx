@@ -10,9 +10,9 @@ describe('useVoiceSettings', () => {
   beforeEach(() => {
     eventHandlers = new Map();
     invoke = vi.fn(async (command: string) => {
-      if (command === 'voice.getSettings') return { backend: 'local-piper', voiceId: 'Fola' };
+      if (command === 'voice.getSettings') return { backend: 'local-supertonic', voiceId: 'Fola' };
       if (command === 'settings.vaultEntries') return [];
-      if (command === 'voice.isLocalPiperInstalled') return true;
+      if (command === 'voice.isLocalVoiceInstalled') return true;
       if (command === 'voice.listGeminiVoices') {
         return [{ id: 'Fola', displayName: 'Fola', languageCode: 'en-US' }];
       }
@@ -32,7 +32,7 @@ describe('useVoiceSettings', () => {
   it('loads the current backend, stores the key in the vault and lists account voices', async () => {
     const { result } = renderHook(() => useVoiceSettings());
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.backend).toBe('local-piper');
+    expect(result.current.backend).toBe('local-supertonic');
     expect(result.current.hasGeminiKey).toBe(false);
 
     act(() => result.current.setApiKeyDraft('secret-key'));
@@ -44,7 +44,7 @@ describe('useVoiceSettings', () => {
     expect(result.current.voices.map((voice) => voice.id)).toEqual(['Fola']);
   });
 
-  it('selects the saved cloud voice or returns to local Piper', async () => {
+  it('selects the saved cloud voice or returns to local voice', async () => {
     const { result } = renderHook(() => useVoiceSettings());
     await waitFor(() => expect(result.current.loading).toBe(false));
     act(() => result.current.setApiKeyDraft('secret-key'));
@@ -52,8 +52,8 @@ describe('useVoiceSettings', () => {
     await act(async () => result.current.loadVoices());
     await act(async () => result.current.useGeminiVoice());
     expect(invoke).toHaveBeenCalledWith('voice.useGeminiTts', { voiceId: 'Fola' });
-    await act(async () => result.current.useLocalPiper());
-    expect(invoke).toHaveBeenCalledWith('voice.useLocalPiper');
+    await act(async () => result.current.useLocalVoice());
+    expect(invoke).toHaveBeenCalledWith('voice.useLocalVoice');
   });
 
   it('neither reads nor listens for a usage estimate', async () => {

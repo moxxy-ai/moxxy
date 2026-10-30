@@ -22,8 +22,8 @@ export function useVoiceModePresentation({
   active,
   phase,
   microphoneMuted,
-  localPiperInstallRequired,
-  localPiperInstalling,
+  localVoiceInstallRequired,
+  localVoiceInstalling,
   activeOperations,
   events,
   agentTurn,
@@ -31,8 +31,8 @@ export function useVoiceModePresentation({
   readonly active: boolean;
   readonly phase: VoiceCallPhase;
   readonly microphoneMuted: boolean;
-  readonly localPiperInstallRequired: boolean;
-  readonly localPiperInstalling: boolean;
+  readonly localVoiceInstallRequired: boolean;
+  readonly localVoiceInstalling: boolean;
   readonly activeOperations: ReadonlyArray<VoiceActiveOperation>;
   readonly events: ReadonlyArray<MoxxyEvent>;
   /** The chat's running turn, for what the agent does between tool calls. */
@@ -75,8 +75,8 @@ export function useVoiceModePresentation({
   const status = resolveVoiceModeStatus({
     phase,
     microphoneMuted,
-    localPiperInstallRequired,
-    localPiperInstalling,
+    localVoiceInstallRequired,
+    localVoiceInstalling,
   });
 
   return { status, rail, agentWork };

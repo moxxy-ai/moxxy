@@ -106,29 +106,41 @@ export interface GeminiVoiceInfo {
   readonly description?: string;
 }
 
-/** Where speech is turned into text. `cloud` is OpenAI transcription on the
- *  person's OpenAI API key (shown as OpenAI); `local` runs Whisper turbo on
- *  this computer. */
-export type TranscriptionMode = 'cloud' | 'local';
+/** The local dictation models Moxxy can download. */
+export type LocalTranscriptionModelId = 'parakeet' | 'turbo';
 
-/** How far getting Local ready has come: the model downloading, then local
- *  Whisper starting in the runner and loading the model. */
+/** Where speech is turned into text: `cloud` is OpenAI transcription on the
+ *  person's OpenAI API key, the others run that model on this computer. */
+export type TranscriptionChoice = 'cloud' | LocalTranscriptionModelId;
+
+/** How far getting a local model ready has come: its files downloading, then
+ *  its transcriber starting in the runner and loading them. */
 export type TranscriptionSetup =
-  | { readonly phase: 'downloading'; readonly receivedBytes: number; readonly totalBytes: number }
-  | { readonly phase: 'starting' };
+  | {
+      readonly model: LocalTranscriptionModelId;
+      readonly phase: 'downloading';
+      readonly receivedBytes: number;
+      readonly totalBytes: number;
+    }
+  | { readonly model: LocalTranscriptionModelId; readonly phase: 'starting' };
+
+export interface LocalTranscriptionModelState {
+  readonly id: LocalTranscriptionModelId;
+  /** Its files are on this computer, so choosing it downloads nothing. */
+  readonly ready: boolean;
+  /** Its download size in bytes. */
+  readonly bytes: number;
+}
 
 export interface TranscriptionSettings {
-  /** Local when local Whisper is the chosen transcriber; Cloud otherwise. */
-  readonly mode: TranscriptionMode;
+  /** The chosen transcription; `cloud` when no local model is chosen. */
+  readonly choice: TranscriptionChoice;
   /** The transcriber the runner actually runs, `null` when none. */
   readonly active: string | null;
-  /** Whisper turbo is on this computer, so choosing Local downloads nothing. */
-  readonly modelReady: boolean;
-  /** The model's download size in bytes. */
-  readonly modelBytes: number;
-  /** Getting Local ready, while it runs in the host; `null` otherwise. */
+  readonly models: ReadonlyArray<LocalTranscriptionModelState>;
+  /** Getting a model ready, while it runs in the host; `null` otherwise. */
   readonly setup: TranscriptionSetup | null;
-  /** Why the last attempt to switch to Local failed; cleared by the next one. */
+  /** Why the last attempt to switch failed; cleared by the next one. */
   readonly error: string | null;
 }
 

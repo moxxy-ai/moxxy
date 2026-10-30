@@ -52,9 +52,9 @@ function snapshotFrom(
     activity: call.activity,
     errorReason: call.errorReason?.slice(0, 500) ?? null,
     microphoneMuted: call.microphoneMuted,
-    localPiperInstallRequired: call.localPiperInstallRequired,
-    localPiperInstalling: call.localPiperInstalling,
-    localPiperInstallError: call.localPiperInstallError?.slice(0, 500) ?? null,
+    localVoiceInstallRequired: call.localVoiceInstallRequired,
+    localVoiceInstalling: call.localVoiceInstalling,
+    localVoiceInstallError: call.localVoiceInstallError?.slice(0, 500) ?? null,
     queuedTurns: queuedTurns.slice(0, 32).map((turn) => ({
       id: turn.id.slice(0, 128),
       prompt: turn.prompt.slice(0, 4_096),
@@ -73,8 +73,8 @@ function runOwnerCommand(call: UseVoiceCall, command: DesktopVoiceCallCommand): 
     case 'retry':
       call.retry();
       return;
-    case 'install-local-piper':
-      call.installLocalPiper();
+    case 'install-local-voice':
+      call.installLocalVoice();
       return;
     case 'mute-microphone':
       call.muteMicrophone();
@@ -86,7 +86,7 @@ function runOwnerCommand(call: UseVoiceCall, command: DesktopVoiceCallCommand): 
 
 /**
  * Mirrors a main-window Voice Mode into Focus Mode without transferring audio
- * ownership. The main renderer keeps the recorder, transcriber and Piper queue.
+ * ownership. The main renderer keeps the recorder, transcriber and speech queue.
  */
 export function useDesktopVoiceCallBridge({
   surface,
@@ -204,9 +204,9 @@ export function useDesktopVoiceCallBridge({
     localCall.activity,
     localCall.errorReason,
     localCall.microphoneMuted,
-    localCall.localPiperInstallRequired,
-    localCall.localPiperInstalling,
-    localCall.localPiperInstallError,
+    localCall.localVoiceInstallRequired,
+    localCall.localVoiceInstalling,
+    localCall.localVoiceInstallError,
     localCall.phase,
     queuedTurns,
     publishSnapshot,
@@ -314,7 +314,7 @@ export function useDesktopVoiceCallBridge({
       outputAnalyser: remoteAudioSource === 'assistant' ? assistantSpectrum.current : null,
       close: () => sendCommand('close'),
       retry: () => sendCommand('retry'),
-      installLocalPiper: () => sendCommand('install-local-piper'),
+      installLocalVoice: () => sendCommand('install-local-voice'),
       muteMicrophone: () => sendCommand('mute-microphone'),
       unmuteMicrophone: () => sendCommand('unmute-microphone'),
       finishUtterance: () => undefined,

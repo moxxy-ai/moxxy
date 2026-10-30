@@ -17,14 +17,14 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
       status={{ title: 'Listening', detail: 'Speak naturally. You can still type.' }}
       rail={{ operation: null, overflowCount: 0, nextExpiry: null }}
       microphoneMuted={false}
-      localPiperInstallRequired={false}
-      localPiperInstalling={false}
-      localPiperInstallError={null}
+      localVoiceInstallRequired={false}
+      localVoiceInstalling={false}
+      localVoiceInstallError={null}
       errorReason={null}
       inputAnalyser={null}
       outputAnalyser={null}
       onRetry={() => {}}
-      onInstallLocalPiper={() => {}}
+      onInstallLocalVoice={() => {}}
       onMuteMicrophone={() => {}}
       onUnmuteMicrophone={() => {}}
       onClose={() => {}}

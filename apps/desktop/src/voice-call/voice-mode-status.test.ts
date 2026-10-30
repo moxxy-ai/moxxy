@@ -12,26 +12,26 @@ describe('Voice Mode status presentation', () => {
     });
   });
 
-  it('preserves the muted speaking and Local Piper overrides', () => {
+  it('preserves the muted speaking and offline voice overrides', () => {
     expect(resolveVoiceModeStatus({
       phase: 'speaking',
       microphoneMuted: true,
-      localPiperInstallRequired: false,
-      localPiperInstalling: false,
+      localVoiceInstallRequired: false,
+      localVoiceInstalling: false,
     }).detail).toBe('The microphone will stay off after this answer');
 
     expect(resolveVoiceModeStatus({
       phase: 'checking',
       microphoneMuted: false,
-      localPiperInstallRequired: true,
-      localPiperInstalling: true,
+      localVoiceInstallRequired: true,
+      localVoiceInstalling: true,
     }).title).toBe('Installing local voice');
 
     expect(resolveVoiceModeStatus({
       phase: 'checking',
       microphoneMuted: false,
-      localPiperInstallRequired: false,
-      localPiperInstalling: true,
+      localVoiceInstallRequired: false,
+      localVoiceInstalling: true,
     }).title).toBe('Installing local voice');
   });
 });

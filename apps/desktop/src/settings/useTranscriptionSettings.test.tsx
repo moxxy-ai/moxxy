@@ -6,15 +6,27 @@ import { useTranscriptionSettings } from './useTranscriptionSettings';
 
 afterEach(() => __setApiOverride(null));
 
+const PARAKEET_BYTES = 670_478_372;
+const WHISPER_BYTES = 1_036_613_791;
 const CLOUD: TranscriptionSettings = {
-  mode: 'cloud',
+  choice: 'cloud',
   active: 'openai-gpt-transcribe',
-  modelReady: false,
-  modelBytes: 1_036_613_791,
+  models: [
+    { id: 'parakeet', ready: false, bytes: PARAKEET_BYTES },
+    { id: 'turbo', ready: true, bytes: WHISPER_BYTES },
+  ],
   setup: null,
   error: null,
 };
-const LOCAL: TranscriptionSettings = { ...CLOUD, mode: 'local', active: 'local-whisper', modelReady: true };
+const PARAKEET: TranscriptionSettings = {
+  ...CLOUD,
+  choice: 'parakeet',
+  active: 'local-parakeet',
+  models: [
+    { id: 'parakeet', ready: true, bytes: PARAKEET_BYTES },
+    { id: 'turbo', ready: true, bytes: WHISPER_BYTES },
+  ],
+};
 
 /**
  * Desktop IPC to the main process is the one boundary stood in here: `current`
@@ -22,16 +34,16 @@ const LOCAL: TranscriptionSettings = { ...CLOUD, mode: 'local', active: 'local-w
  */
 function installApi(
   initial: TranscriptionSettings,
-  onSwitch: (command: string) => Promise<TranscriptionSettings> = async (command) => (
-    command === 'voice.useLocalTranscription' ? LOCAL : { ...CLOUD, modelReady: true }
+  onCommand: (command: string) => Promise<TranscriptionSettings> = async (command) => (
+    command === 'voice.useLocalTranscription' ? PARAKEET : CLOUD
   ),
 ) {
   let current = initial;
   let changed: (settings: TranscriptionSettings) => void = () => undefined;
-  const invoke = vi.fn(async (command: string) => {
+  const invoke = vi.fn(async (command: string, _args?: unknown) => {
     if (command === 'voice.getTranscription') return current;
-    if (command === 'voice.useLocalTranscription' || command === 'voice.useCloudTranscription') {
-      current = await onSwitch(command);
+    if (command.startsWith('voice.') && command !== 'voice.cancelLocalTranscription') {
+      current = await onCommand(command);
     }
     return undefined;
   });
@@ -58,70 +70,34 @@ async function rendered() {
 }
 
 describe('useTranscriptionSettings', () => {
-  it('reads where speech is transcribed, what the runner runs and whether the model is here', async () => {
-    installApi(CLOUD);
+  it('reads the choice, what the runner runs and which models are here', async () => {
+    installApi(PARAKEET);
     const { result } = await rendered();
 
-    expect(result.current).toMatchObject({
-      mode: 'cloud',
-      active: 'openai-gpt-transcribe',
-      modelReady: false,
-      modelBytes: 1_036_613_791,
-      setup: null,
-      switching: null,
-      error: null,
-      confirmingDownload: false,
-    });
+    expect(result.current.choice).toBe('parakeet');
+    expect(result.current.active).toBe('local-parakeet');
+    expect(result.current.models.map((model) => model.ready)).toEqual([true, true]);
+    expect(result.current.switching).toBeNull();
   });
 
-  it('asks before the first switch to Local, which downloads the model', async () => {
+  it('downloads and switches to a model in one step', async () => {
     const { invoke } = installApi(CLOUD);
     const { result } = await rendered();
 
-    await act(async () => result.current.choose('local'));
+    await act(async () => result.current.choose('parakeet'));
 
-    expect(result.current.confirmingDownload).toBe(true);
-    expect(invoke).not.toHaveBeenCalledWith('voice.useLocalTranscription');
-
-    await act(async () => result.current.confirmDownload());
-    expect(result.current.confirmingDownload).toBe(false);
-    expect(invoke).toHaveBeenCalledWith('voice.useLocalTranscription');
-    await waitFor(() => expect(result.current.mode).toBe('local'));
-  });
-
-  it('downloads nothing when the person says not now', async () => {
-    const { invoke } = installApi(CLOUD);
-    const { result } = await rendered();
-
-    await act(async () => result.current.choose('local'));
-    act(() => result.current.dismissDownload());
-
-    expect(result.current.confirmingDownload).toBe(false);
-    expect(invoke).not.toHaveBeenCalledWith('voice.useLocalTranscription');
-  });
-
-  it('switches straight to Local when the model is already here', async () => {
-    const { invoke } = installApi({ ...CLOUD, modelReady: true });
-    const { result } = await rendered();
-
-    await act(async () => result.current.choose('local'));
-
-    expect(result.current.confirmingDownload).toBe(false);
-    expect(invoke).toHaveBeenCalledWith('voice.useLocalTranscription');
+    expect(invoke).toHaveBeenCalledWith('voice.useLocalTranscription', { model: 'parakeet' });
+    expect(result.current.choice).toBe('parakeet');
   });
 
   it('follows the download the host reports, wherever it was started', async () => {
     const { push } = installApi(CLOUD);
     const { result } = await rendered();
 
-    push({ ...CLOUD, setup: { phase: 'downloading', receivedBytes: 300_000_000, totalBytes: 1_036_613_791 } });
+    push({ ...CLOUD, setup: { model: 'parakeet', phase: 'downloading', receivedBytes: 100, totalBytes: 1_000 } });
 
-    expect(result.current.setup).toEqual({ phase: 'downloading', receivedBytes: 300_000_000, totalBytes: 1_036_613_791 });
-    expect(result.current.switching).toBe('local');
-
-    push({ ...LOCAL });
-    expect(result.current.switching).toBeNull();
-    expect(result.current.mode).toBe('local');
+    expect(result.current.switching).toBe('parakeet');
+    expect(result.current.setup).toMatchObject({ phase: 'downloading', receivedBytes: 100 });
   });
 
   it('cancels the download', async () => {
@@ -133,38 +109,50 @@ describe('useTranscriptionSettings', () => {
     expect(invoke).toHaveBeenCalledWith('voice.cancelLocalTranscription');
   });
 
-  it('shows why Local could not start and the state the host fell back to', async () => {
-    const reason = 'Whisper turbo could not be downloaded, so Moxxy stays on Cloud: offline';
-    let host: TranscriptionSettings = { ...CLOUD, modelReady: true };
-    installApi(host, async () => {
-      host = { ...CLOUD, modelReady: true, error: reason };
-      throw new Error(reason);
+  it('shows why a model could not start, the state the host stayed on and which model failed', async () => {
+    const { invoke } = installApi(CLOUD, async () => {
+      throw new Error('Parakeet could not start, so Moxxy stays on OpenAI: no runner.');
     });
     const { result } = await rendered();
 
-    await act(async () => result.current.choose('local'));
+    await act(async () => result.current.choose('parakeet'));
 
-    expect(result.current.error).toBe(reason);
-    expect(result.current.mode).toBe('cloud');
+    expect(invoke).toHaveBeenCalledWith('voice.useLocalTranscription', { model: 'parakeet' });
+    expect(result.current.error).toMatch(/could not start/u);
+    expect(result.current.failed).toBe('parakeet');
+    expect(result.current.choice).toBe('cloud');
     expect(result.current.switching).toBeNull();
   });
 
   it('switches back to Cloud', async () => {
-    const { invoke } = installApi(LOCAL);
+    const { invoke } = installApi(PARAKEET);
     const { result } = await rendered();
 
     await act(async () => result.current.choose('cloud'));
 
     expect(invoke).toHaveBeenCalledWith('voice.useCloudTranscription');
-    expect(result.current.mode).toBe('cloud');
+    expect(result.current.choice).toBe('cloud');
   });
 
-  it('does nothing when the chosen mode is already selected', async () => {
-    const { invoke } = installApi(LOCAL);
+  it('does nothing when the chosen one is already selected', async () => {
+    const { invoke } = installApi(PARAKEET);
     const { result } = await rendered();
 
-    await act(async () => result.current.choose('local'));
+    await act(async () => result.current.choose('parakeet'));
 
-    expect(invoke).not.toHaveBeenCalledWith('voice.useLocalTranscription');
+    expect(invoke).not.toHaveBeenCalledWith('voice.useLocalTranscription', { model: 'parakeet' });
+  });
+
+  it('removes a model and shows why it could not', async () => {
+    const { invoke } = installApi(CLOUD, async (command) => {
+      if (command === 'voice.removeLocalTranscriptionModel') throw new Error('Whisper turbo is in use.');
+      return CLOUD;
+    });
+    const { result } = await rendered();
+
+    await act(async () => result.current.remove('turbo'));
+
+    expect(invoke).toHaveBeenCalledWith('voice.removeLocalTranscriptionModel', { model: 'turbo' });
+    expect(result.current.error).toBe('Whisper turbo is in use.');
   });
 });
