@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -305,8 +305,8 @@ const PACKAGE_TOOLS: ReadonlyArray<{
     command: 'pnpm',
     args: (pkg) => ['add', '-g', `${pkg}@latest`],
   },
-  { origin: 'yarn', owns: /\/yarn\/(?:data\/)?global\/node_modules\//, command: 'yarn', args: (pkg) => ['global', 'add', `${pkg}@latest`] },
-  { origin: 'volta', owns: /\/\.volta\/bin\//, command: 'volta', args: (pkg) => ['install', `${pkg}@latest`] },
+  { origin: 'yarn', owns: /\/\.?yarn\/(?:bin\/|(?:data\/)?global\/node_modules\/)/, command: 'yarn', args: (pkg) => ['global', 'add', `${pkg}@latest`] },
+  { origin: 'volta', owns: /\/\.?volta\/bin\//, command: 'volta', args: (pkg) => ['install', `${pkg}@latest`] },
 ];
 
 const MISE_PATH = /\/mise\/(?:installs|shims)\//;
@@ -367,10 +367,40 @@ export interface AgentCliTargetOptions {
   readonly electron?: boolean;
   /** The CPU whose native program to look for; defaults to this one's. */
   readonly arch?: string;
+  /** Reads a shim; defaults to the file system's. */
+  readonly read?: (file: string) => string;
 }
 
 const WINDOWS_NATIVE = new Set(['.exe', '.com']);
 const WINDOWS_SHIMS = new Set(['.cmd', '.bat', '.ps1']);
+const SHIM_TARGET = /"%(?:~dp0|dp0%)\\?([^"]+)"/g;
+
+/**
+ * The folder holding the package behind a shim. An npm shim sits beside it;
+ * pnpm, yarn and mise shims name it, a yarn one through a second shim, and a
+ * Volta shim names only the tool, which Volta keeps in its image.
+ */
+function windowsShimRoot(desc: AgentCliDescriptor, found: string, read: (file: string) => string): string {
+  const pkg = `${desc.npmPackage.replaceAll('/', '\\')}\\`.toLowerCase();
+  let file = found;
+  for (let hop = 0; hop < 2; hop++) {
+    const dir = path.win32.dirname(file);
+    let text: string;
+    try {
+      text = read(file);
+    } catch {
+      break;
+    }
+    if (/\bvolta run\b/i.test(text)) return path.win32.join(dir, '..', 'tools', 'image', 'packages', ...desc.npmPackage.split('/'));
+    const targets = [...text.matchAll(SHIM_TARGET)].map((match) => match[1] ?? '');
+    const script = targets.find((target) => target.toLowerCase().includes(pkg));
+    if (script) return path.win32.dirname(path.win32.join(dir, script.slice(0, script.toLowerCase().indexOf(pkg))));
+    const next = targets.find((target) => target.toLowerCase().endsWith('.cmd'));
+    if (!next) break;
+    file = path.win32.join(dir, next);
+  }
+  return path.win32.dirname(found);
+}
 
 /** How to run the CLI found at `found` without a shell: as it is, or, behind a Windows npm shim, what the shim runs. */
 export function agentCliTargetAt(desc: AgentCliDescriptor, found: string, opts: AgentCliTargetOptions = {}): ExecutableTarget {
@@ -379,7 +409,7 @@ export function agentCliTargetAt(desc: AgentCliDescriptor, found: string, opts: 
   const extension = path.win32.extname(found).toLowerCase();
   if (WINDOWS_NATIVE.has(extension)) return { kind: 'direct', command: found };
   if (!WINDOWS_SHIMS.has(extension)) throw new Error(`Cannot run ${desc.name} from ${found}; install it again or point at ${desc.command}.exe.`);
-  const dir = path.win32.dirname(found);
+  const dir = windowsShimRoot(desc, found, opts.read ?? ((file) => readFileSync(file, 'utf8')));
   const at = (relative: string): string => path.win32.join(dir, ...relative.split('/'));
   const exists = opts.exists ?? existsSync;
   for (const program of desc.windowsShim.native?.(opts.arch ?? process.arch) ?? []) {
@@ -761,10 +791,13 @@ export async function runAgentCliAction(
         windowsHide: true,
       });
       const result = await watch(child, opts);
-      if (opts.cacheFile && result.ok && before && before === (await readCliVersion(target))) {
-        await rememberNotBrought(opts.cacheFile, versionSourceOf(desc, found, opts).key);
-      }
-      return result;
+      if (!opts.cacheFile || !result.ok || !before) return result;
+      // An updater's exit code proves nothing: OpenCode's can remove the copy, fail to bring a new one and exit 0.
+      const after = (await installedVersion(desc, opts)).version;
+      if (!after) return { ok: false, message: `${desc.name} no longer runs after the update; install it again.` };
+      if (after !== before) return result;
+      await rememberNotBrought(opts.cacheFile, versionSourceOf(desc, found, opts).key);
+      return { ok: false, message: `${desc.name} is still ${before}: the update changed nothing.` };
     }
   }
   return watch(child, opts);

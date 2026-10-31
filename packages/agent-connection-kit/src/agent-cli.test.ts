@@ -696,6 +696,81 @@ describe('the source of the newest version an install can get', () => {
 
     expect(await checkAgentCli(CODEX_CLI, { ...search, refresh: true })).toMatchObject({ state: 'current' });
   });
+
+  it('says an update that changed nothing did not work', async () => {
+    newHome();
+    const file = cli(CODEX_CLI, 'tools/codex', '0.166.0', "console.log('Done')");
+    const search = { home, pathEnv: path.dirname(file), cacheFile: path.join(home!, 'latest.json') };
+
+    const result = await runAgentCliAction(CODEX_CLI, 'update', search);
+
+    expect(result).toEqual({ ok: false, message: 'Codex is still 0.166.0: the update changed nothing.' });
+  });
+
+  it('says an update that exited cleanly but took the copy with it failed', async () => {
+    newHome();
+    const file = cli(CODEX_CLI, 'tools/codex', '0.166.0');
+    const entry = process.platform === 'win32' ? path.join(path.dirname(file), ...CODEX_CLI.windowsShim.entry.split('/')) : file;
+    writeFileSync(
+      entry,
+      `${readFileSync(entry, 'utf8')}\nrequire('node:fs').rmSync(${JSON.stringify(entry)}); console.log('Done');\n`,
+    );
+    const search = { home, pathEnv: path.dirname(file), cacheFile: path.join(home!, 'latest.json') };
+
+    const result = await runAgentCliAction(CODEX_CLI, 'update', search);
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('Codex no longer runs after the update');
+  });
+});
+
+describe('a Windows shim that keeps the package elsewhere', () => {
+  const win = { platform: 'win32' as const, arch: 'x64', electron: false };
+  const local = 'C:\\Users\\k\\AppData\\Local';
+  const scriptAt = (root: string): string => `${root}\\node_modules\\@openai\\codex\\bin\\codex.js`;
+  const runs = (shims: Record<string, string>, script: string) =>
+    agentCliTargetAt(CODEX_CLI, Object.keys(shims)[0]!, {
+      ...win,
+      exists: (file) => file === script,
+      read: (file) => {
+        const text = shims[file];
+        if (text === undefined) throw new Error('no such file');
+        return text;
+      },
+    });
+
+  it('follows a pnpm shim into its store', () => {
+    const root = `${local}\\pnpm\\global\\5\\.pnpm\\@openai+codex@0.160.1`;
+    const shim = '"%~dp0\\node.exe"  "%~dp0\\global\\5\\.pnpm\\@openai+codex@0.160.1\\node_modules\\@openai\\codex\\bin\\codex.js" %*';
+    expect(runs({ [`${local}\\pnpm\\codex.cmd`]: shim }, scriptAt(root))).toMatchObject({ kind: 'node', entry: scriptAt(root) });
+  });
+
+  it('follows a yarn shim through the shim it calls', () => {
+    const root = `${local}\\Yarn\\Data\\global`;
+    expect(
+      runs(
+        {
+          [`${local}\\Yarn\\bin\\codex.cmd`]: '@"%~dp0\\..\\Data\\global\\node_modules\\.bin\\codex.cmd"   %*',
+          [`${root}\\node_modules\\.bin\\codex.cmd`]: '"%_prog%"  "%dp0%\\..\\@openai\\codex\\bin\\codex.js" %*',
+        },
+        scriptAt(root),
+      ),
+    ).toMatchObject({ kind: 'node', entry: scriptAt(root) });
+  });
+
+  it('finds a Volta tool in its image, since the shim names no file', () => {
+    const root = `${local}\\Volta\\tools\\image\\packages\\@openai\\codex`;
+    expect(runs({ [`${local}\\Volta\\bin\\codex.cmd`]: '@echo off\r\nvolta run %~n0 %*\r\n' }, scriptAt(root))).toMatchObject({
+      kind: 'node',
+      entry: scriptAt(root),
+    });
+  });
+
+  it('names the tool that owns the shim', () => {
+    const opts = { platform: 'win32' as const, realpath: (file: string) => file };
+    expect(agentCliOrigin(CODEX_CLI, `${local}\\Yarn\\bin\\codex.cmd`, opts).origin).toBe('yarn');
+    expect(agentCliOrigin(CODEX_CLI, `${local}\\Volta\\bin\\codex.cmd`, opts).origin).toBe('volta');
+  });
 });
 
 describe('an OpenCode too old for --major', () => {
