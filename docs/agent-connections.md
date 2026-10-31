@@ -62,6 +62,8 @@ A CLI older than the version Moxxy was checked against must be updated before th
 | The vendor's installer (`~/.local/bin`, `~/.opencode/bin`), a global npm install, or anything else | the agent's own command (`claude update`, `codex update`, `opencode upgrade`) |
 | Homebrew (`Caskroom` or `Cellar`) | `brew upgrade [--cask] <name>` with the Homebrew it belongs to; the agent's own command when that `brew` is not there |
 | winget (`Microsoft\WinGet\Packages`, Windows) | `winget upgrade --id <package> --exact` |
+| A global install of bun, pnpm, yarn, Volta or Vite+, or npm with a proven prefix | that tool, for example `pnpm add -g <package>@latest` or `npm install -g --prefix <prefix> <package>@latest`. On Windows these tools are shims Moxxy does not start, so it shows the command to run |
+| mise, or a `node_modules` copy no tool above owns | none: an update could land on another install, so Moxxy says what to do |
 | Inside a macOS app (`*.app/Contents/`, e.g. the Codex in ChatGPT.app) | none: the app updates it, so Moxxy offers no **Update** and runs nothing |
 
 Moxxy offers only a version that copy's own way of updating has: Anthropic's release channel (`autoUpdatesChannel`, default `latest`) for Claude's installer, Homebrew's or winget's catalogue for theirs, npm otherwise. If an update ends well and the version stays the same, that version is not offered again. An OpenCode below the minimum takes the plain `opencode upgrade` first, since `--major` needs 1.19. An install or update that asks a yes-or-no question, or prints nothing for ten minutes, is stopped with a message saying so.

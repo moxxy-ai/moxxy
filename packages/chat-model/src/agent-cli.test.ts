@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentCliReport, ProviderInfo } from '@moxxy/sdk';
-import { activeAgentCliNotice } from './agent-cli.js';
+import { activeAgentCliNotice, agentCliNotices, type AgentConnectionLike } from './agent-cli.js';
 
 const report = (over: Partial<AgentCliReport>): AgentCliReport => ({
   state: 'current',
@@ -76,5 +76,23 @@ describe('activeAgentCliNotice', () => {
     expect(activeAgentCliNotice([provider('codex-agent', report({ state: 'update-required' }))], 'anthropic')).toBeNull();
     expect(activeAgentCliNotice([provider('anthropic')], 'anthropic')).toBeNull();
     expect(activeAgentCliNotice([], null)).toBeNull();
+  });
+});
+
+describe('agentCliNotices', () => {
+  const connection = (name: string, state: AgentCliReport['state']): AgentConnectionLike => ({
+    name,
+    agentCli: { state, command: name, installed: '1.0.0', latest: '2.0.0', minimum: '1.0.0', checkedAt: 1 },
+  });
+
+  it('puts the active agent first and adds the updates of the others', () => {
+    const notices = agentCliNotices([connection('a', 'update-available'), connection('b', 'update-available')], 'b');
+    expect(notices.map((n) => n.provider)).toEqual(['b', 'a']);
+  });
+
+  it('asks nothing of an agent nobody is using beyond an update it can close', () => {
+    const others = [connection('a', 'missing'), connection('b', 'update-required'), connection('c', 'current')];
+    expect(agentCliNotices(others, 'c')).toEqual([]);
+    expect(agentCliNotices(others, 'a').map((n) => n.provider)).toEqual(['a']);
   });
 });

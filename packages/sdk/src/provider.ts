@@ -399,7 +399,19 @@ export type AgentCliState = 'missing' | 'update-required' | 'update-available' |
  * installer, Homebrew, a global npm install, inside an app (which updates it
  * itself), or none of these.
  */
-export type AgentCliOrigin = 'installer' | 'homebrew' | 'winget' | 'npm' | 'app' | 'unknown';
+export type AgentCliOrigin =
+  | 'installer'
+  | 'homebrew'
+  | 'winget'
+  | 'npm'
+  | 'bun'
+  | 'pnpm'
+  | 'yarn'
+  | 'volta'
+  | 'vite-plus'
+  | 'mise'
+  | 'app'
+  | 'unknown';
 
 /** The last check of an agent connection's CLI, as every surface shows it. */
 export interface AgentCliReport {
@@ -412,6 +424,8 @@ export interface AgentCliReport {
   readonly path?: string;
   /** Where that file came from; absent when missing. */
   readonly origin?: AgentCliOrigin;
+  /** What the person does to update it, for a copy Moxxy must not update itself. */
+  readonly manualUpdate?: string;
   /** The vendor's latest published version; null when the registry could not be asked. */
   readonly latest: string | null;
   /** The oldest version Moxxy works with. */

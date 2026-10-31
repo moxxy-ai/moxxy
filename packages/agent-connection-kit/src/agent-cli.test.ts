@@ -17,6 +17,7 @@ import {
   OPENCODE_CLI,
   agentCliOrigin,
   agentCliTargetAt,
+  agentCliUpdatePlan,
   agentVersionSource,
   checkAgentCli,
   findAgentCli,
@@ -362,7 +363,7 @@ describe('where a CLI came from', () => {
     it('is npm for a global npm install of the vendor’s package', () => {
       const script = cli(CODEX_CLI, 'npm/lib/node_modules/@openai/codex/bin/codex.js', 'codex-cli 0.163.0');
 
-      expect(agentCliOrigin(CODEX_CLI, linked('npm/bin/codex', script), { home })).toEqual({ origin: 'npm' });
+      expect(agentCliOrigin(CODEX_CLI, linked('npm/bin/codex', script), { home })).toMatchObject({ origin: 'npm' });
     });
 
     it('is unknown for anything else', () => {
@@ -744,5 +745,79 @@ describe('an update that would wait forever', () => {
     const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: noRegistry, silenceLimitMs: 200 });
 
     expect(result).toMatchObject({ ok: false, message: expect.stringContaining('nothing printed') });
+  });
+});
+
+describe('the way a copy is updated', () => {
+  const plan = (desc: AgentCliDescriptor, file: string, platform: NodeJS.Platform = 'darwin') => {
+    const options = { platform, realpath: (f: string) => f, home: '/Users/me' };
+    return agentCliUpdatePlan(desc, file, agentCliOrigin(desc, file, options), platform);
+  };
+
+  it.each([
+    ['/Users/me/.bun/bin/claude', 'bun', ['i', '-g', '@anthropic-ai/claude-code@latest']],
+    ['/Users/me/Library/pnpm/global/5/node_modules/x/claude', 'pnpm', ['add', '-g', '@anthropic-ai/claude-code@latest']],
+    ['/Users/me/.config/yarn/global/node_modules/.bin/claude', 'yarn', ['global', 'add', '@anthropic-ai/claude-code@latest']],
+    ['/Users/me/.volta/bin/claude', 'volta', ['install', '@anthropic-ai/claude-code@latest']],
+    ['/Users/me/.vite-plus/bin/claude', 'vp', ['i', '-g', '@anthropic-ai/claude-code']],
+  ])('updates %s with the tool that owns it', (file, command, args) => {
+    expect(plan(CLAUDE_CLI, file)).toMatchObject({ kind: 'run', command, args });
+  });
+
+  it('updates a global npm install inside its own prefix', () => {
+    const file = '/opt/homebrew/Cellar/node/24.0.0/lib/node_modules/@anthropic-ai/claude-code/cli.js';
+
+    expect(plan(CLAUDE_CLI, file)).toMatchObject({
+      kind: 'run',
+      command: 'npm',
+      args: [
+        'install',
+        '-g',
+        '--prefix',
+        '/opt/homebrew/Cellar/node/24.0.0',
+        '--allow-scripts=@anthropic-ai/claude-code',
+        '@anthropic-ai/claude-code@latest',
+      ],
+    });
+  });
+
+  it('leaves a copy mise owns to mise', () => {
+    expect(plan(CLAUDE_CLI, '/Users/me/.local/share/mise/installs/claude/2.1.0/bin/claude').kind).toBe('manual');
+  });
+
+  it('keeps a node global under mise with npm', () => {
+    const file = '/Users/me/.local/share/mise/installs/node/24/lib/node_modules/@anthropic-ai/claude-code/cli.js';
+
+    expect(plan(CLAUDE_CLI, file)).toMatchObject({ kind: 'run', command: 'npm' });
+  });
+
+  it('leaves a project copy alone, since the agent could update the wrong install', () => {
+    expect(plan(CLAUDE_CLI, '/Users/me/app/node_modules/.bin/claude').kind).toBe('manual');
+  });
+
+  it("uses the agent's own command for the copy its installer put in place", () => {
+    expect(plan(CLAUDE_CLI, '/Users/me/.local/bin/claude').kind).toBe('own');
+  });
+
+  it("keeps OpenCode 1's npm package on OpenCode's own upgrade", () => {
+    expect(plan(OPENCODE_CLI, '/Users/me/.nvm/lib/node_modules/opencode-ai/bin/opencode').kind).toBe('own');
+  });
+
+  it('gives Windows the command to paste, since its package managers are shims', () => {
+    const update = plan(CLAUDE_CLI, 'C:\\Users\\me\\AppData\\Local\\pnpm\\claude.cmd', 'win32');
+
+    expect(update).toMatchObject({ kind: 'manual', hint: 'run pnpm add -g @anthropic-ai/claude-code@latest' });
+  });
+
+  it('runs the owner, and tells the check a copy needs a hand update', async () => {
+    newHome();
+    const bin = path.join(home!, '.bun', 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFakeCli(path.join(bin, 'bun'), "console.log('bun', args.join(' '));", { windowsEntry: 'x.cjs' });
+    cli(CLAUDE_CLI, '.bun/bin/claude', '2.1.300');
+
+    const result = await runAgentCliAction(CLAUDE_CLI, 'update', { home, pathEnv: bin });
+
+    expect(result).toEqual({ ok: true, message: 'bun i -g @anthropic-ai/claude-code@latest' });
   });
 });

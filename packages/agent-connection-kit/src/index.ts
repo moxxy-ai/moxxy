@@ -34,6 +34,7 @@ export {
   agentCliTargetAt,
   checkAgentCli,
   agentCliOrigin,
+  agentCliUpdatePlan,
   agentVersionSource,
   defaultCacheFile,
   findAgentCli,

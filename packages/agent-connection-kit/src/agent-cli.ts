@@ -30,6 +30,8 @@ export interface AgentCliDescriptor {
   readonly npmPackage: string;
   /** The oldest version Moxxy was checked against; older ones must be updated first. */
   readonly minimumVersion: string;
+  /** npm packages of older releases, which the agent's own update still handles (OpenCode 1). */
+  readonly legacyNpmPackages?: ReadonlyArray<string>;
   /** Arguments to the CLI itself that update it, however it was installed. */
   readonly updateArgs: ReadonlyArray<string>;
   /**
@@ -141,6 +143,7 @@ export const OPENCODE_CLI: AgentCliDescriptor = {
   command: 'opencode',
   executableEnv: 'OPENCODE_EXECUTABLE',
   npmPackage: '@opencode/cli',
+  legacyNpmPackages: ['opencode-ai'],
   minimumVersion: '1.19.0',
   updateArgs: ['upgrade'],
   // OpenCode 1's `upgrade` stays on 1; `--major` replaces it with OpenCode 2 the way it was installed.
@@ -227,6 +230,8 @@ export interface AgentCliSource {
   readonly homebrew?: { readonly prefix: string; readonly name: string; readonly cask: boolean };
   /** For `winget`: the package it belongs to. */
   readonly winget?: { readonly id: string };
+  /** For `npm`: the global prefix the package sits under, when its layout proves one. */
+  readonly npmPrefix?: string;
 }
 
 export interface AgentCliOriginOptions {
@@ -259,6 +264,12 @@ export function agentCliOrigin(desc: AgentCliDescriptor, file: string, opts: Age
     }
   }
   const slashed = real.replaceAll('\\', '/');
+  const seen = [file.replaceAll('\\', '/').toLowerCase(), slashed.toLowerCase()];
+  const manager = PACKAGE_TOOLS.find((tool) => seen.some((p) => tool.owns.test(p)));
+  if (manager) return { origin: manager.origin };
+  const npmPrefix = npmGlobalPrefix(slashed, desc.npmPackage);
+  if (npmPrefix) return { origin: 'npm', npmPrefix };
+  if (seen.some((p) => MISE_PATH.test(p))) return { origin: 'mise' };
   for (const [folder, cask] of [['Caskroom', true], ['Cellar', false]] as const) {
     const marker = `/${folder}/`;
     const at = slashed.lastIndexOf(marker);
@@ -272,6 +283,82 @@ export function agentCliOrigin(desc: AgentCliDescriptor, file: string, opts: Age
   const folder = comparable(paths.dirname(file));
   if (desc.installDirs.some((dir) => comparable(paths.join(home, ...dir.split('/'))) === folder)) return { origin: 'installer' };
   return { origin: 'unknown' };
+}
+
+/** Global installs of package tools, by the folders each keeps them in. */
+const PACKAGE_TOOLS: ReadonlyArray<{
+  readonly origin: AgentCliOrigin;
+  readonly owns: RegExp;
+  readonly command: string;
+  readonly args: (pkg: string) => ReadonlyArray<string>;
+}> = [
+  {
+    origin: 'vite-plus',
+    owns: /\/(?:\.vite-plus|\.local\/share\/vite-plus|appdata\/local\/vite-plus)\/bin\//,
+    command: 'vp',
+    args: (pkg) => ['i', '-g', pkg],
+  },
+  { origin: 'bun', owns: /\/\.bun\/bin\//, command: 'bun', args: (pkg) => ['i', '-g', `${pkg}@latest`] },
+  {
+    origin: 'pnpm',
+    owns: /\/(?:\.local\/share\/pnpm|library\/pnpm|local\/share\/pnpm|appdata\/local\/pnpm|pnpm\/global)\//,
+    command: 'pnpm',
+    args: (pkg) => ['add', '-g', `${pkg}@latest`],
+  },
+  { origin: 'yarn', owns: /\/yarn\/(?:data\/)?global\/node_modules\//, command: 'yarn', args: (pkg) => ['global', 'add', `${pkg}@latest`] },
+  { origin: 'volta', owns: /\/\.volta\/bin\//, command: 'volta', args: (pkg) => ['install', `${pkg}@latest`] },
+];
+
+const MISE_PATH = /\/mise\/(?:installs|shims)\//;
+
+/** The npm prefix of `real`; null for anything npm's global layout does not prove, such as a mise tool of its own. */
+function npmGlobalPrefix(real: string, pkg: string): string | null {
+  const lower = real.toLowerCase();
+  const at = lower.lastIndexOf(`/lib/node_modules/${pkg.toLowerCase()}/`);
+  if (at < 0 || lower.slice(0, at).includes('/node_modules/')) return null;
+  const mise = /\/mise\/installs\/([^/]+)\/[^/]+$/.exec(lower.slice(0, at))?.[1];
+  if (mise && mise !== 'node') return null;
+  return at === 0 ? '/' : real.slice(0, at);
+}
+
+/** How a copy gets updated. */
+export type AgentCliUpdatePlan =
+  | { readonly kind: 'own' }
+  | { readonly kind: 'run'; readonly command: string; readonly args: ReadonlyArray<string> }
+  /** Moxxy must not touch it; `hint` says what the person does. */
+  | { readonly kind: 'manual'; readonly hint: string };
+
+/**
+ * Who may update the copy at `file`: the tool that owns it when that is
+ * proven, the agent's own command when the copy is the vendor's, and the
+ * person when neither is sure, so an update never lands on another install.
+ * Homebrew, winget and apps are handled where the update runs.
+ */
+export function agentCliUpdatePlan(
+  desc: AgentCliDescriptor,
+  file: string,
+  source: AgentCliSource,
+  platform: NodeJS.Platform = process.platform,
+): AgentCliUpdatePlan {
+  const tool = PACKAGE_TOOLS.find((candidate) => candidate.origin === source.origin);
+  if (tool) {
+    const args = tool.args(desc.npmPackage);
+    // These tools are `.cmd` shims on Windows, which Moxxy starts without a shell.
+    return platform === 'win32'
+      ? { kind: 'manual', hint: `run ${[tool.command, ...args].join(' ')}` }
+      : { kind: 'run', command: tool.command, args };
+  }
+  if (source.origin === 'mise') return { kind: 'manual', hint: 'update it with mise' };
+  if (source.npmPrefix) {
+    const args = ['install', '-g', '--prefix', source.npmPrefix, `--allow-scripts=${desc.npmPackage}`, `${desc.npmPackage}@latest`];
+    return platform === 'win32' ? { kind: 'manual', hint: `run npm ${args.join(' ')}` } : { kind: 'run', command: 'npm', args };
+  }
+  const slashed = file.replaceAll('\\', '/').toLowerCase();
+  if (desc.legacyNpmPackages?.some((pkg) => slashed.includes(`/node_modules/${pkg.toLowerCase()}/`))) return { kind: 'own' };
+  if (source.origin === 'unknown' && slashed.includes('/node_modules/')) {
+    return { kind: 'manual', hint: `update the project or tool that installed it (${desc.npmPackage})` };
+  }
+  return { kind: 'own' };
 }
 
 export interface AgentCliTargetOptions {
@@ -481,10 +568,13 @@ export async function checkAgentCli(
     : await latestAgentVersion(source.key, { refresh, fetchLatest: source.fetch, ...cacheOption(opts) });
   const notBrought = (await readLatestCache(opts.cacheFile ?? defaultCacheFile()))[source.key]?.notBrought;
   const latest = offered && offered === notBrought ? found.version : offered;
+  const origin = found.file ? agentCliOrigin(desc, found.file, originOptions(opts)) : null;
+  const plan = found.file && origin ? agentCliUpdatePlan(desc, found.file, origin, opts.platform ?? process.platform) : null;
   const base = {
     command: desc.command,
     installed: found.version,
-    ...(found.file ? { path: found.file, origin: agentCliOrigin(desc, found.file, originOptions(opts)).origin } : {}),
+    ...(found.file && origin ? { path: found.file, origin: origin.origin } : {}),
+    ...(plan?.kind === 'manual' ? { manualUpdate: plan.hint } : {}),
     latest,
     minimum: desc.minimumVersion,
     checkedAt: (deps.now ?? Date.now)(),
@@ -639,6 +729,15 @@ export async function runAgentCliAction(
         }),
         opts,
       );
+    }
+    const plan = agentCliUpdatePlan(desc, found, source, platform);
+    if (plan.kind === 'manual') return { ok: false, message: `Moxxy cannot update the ${desc.name} at ${found}: ${plan.hint}.` };
+    if (plan.kind === 'run') {
+      const dirs = (opts.pathEnv ?? process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+      const tool = findExecutable(plan.command, [path.dirname(found), ...dirs], { platform, pathEnv: '' });
+      if (!tool) return { ok: false, message: `${plan.command} is not on this computer's PATH.` };
+      child = spawn(tool, [...plan.args], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+      return watch(child, opts);
     }
     const brew = source.homebrew && platform !== 'win32' ? path.posix.join(source.homebrew.prefix, 'bin', 'brew') : null;
     if (brew && source.homebrew && existsSync(brew)) {
