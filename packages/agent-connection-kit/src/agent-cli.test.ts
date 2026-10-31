@@ -709,12 +709,7 @@ describe('the source of the newest version an install can get', () => {
 
   it('says an update that exited cleanly but took the copy with it failed', async () => {
     newHome();
-    const file = cli(CODEX_CLI, 'tools/codex', '0.166.0');
-    const entry = process.platform === 'win32' ? path.join(path.dirname(file), ...CODEX_CLI.windowsShim.entry.split('/')) : file;
-    writeFileSync(
-      entry,
-      `${readFileSync(entry, 'utf8')}\nrequire('node:fs').rmSync(${JSON.stringify(entry)}); console.log('Done');\n`,
-    );
+    const file = cli(CODEX_CLI, 'tools/codex', '0.166.0', "require('node:fs').rmSync(process.argv[1]); console.log('Done');");
     const search = { home, pathEnv: path.dirname(file), cacheFile: path.join(home!, 'latest.json') };
 
     const result = await runAgentCliAction(CODEX_CLI, 'update', search);
