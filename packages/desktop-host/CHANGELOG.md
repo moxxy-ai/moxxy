@@ -1,5 +1,43 @@
 # @moxxy/desktop-host
 
+## 0.16.0
+
+### Minor Changes
+
+- 3879896: Create schedules from the desktop. Automations → Schedules has a New schedule button that opens a form: what Moxxy should do, how often (every few minutes or hours, every day, weekdays, every week, once, or a cron), optionally between two dates, a name filled in from the prompt and the chat it runs in. It says in one sentence what will happen, points at what is missing under each field, and never saves a schedule that could not run. The screen itself is redrawn as cards in the Settings look instead of a table: each schedule says its repeat in words ("Every 30 minutes"), then its window, next and last run; a schedule can be deleted (after a confirmation), and the list refreshes itself every 30 seconds.
+
+  Behind it: the new `scheduler.create` IPC command, checked in the host by `scheduleDraftProblem`, the scheduler's shared rules for a new schedule (`@moxxy/plugin-scheduler`); `useScheduler` gains `create` and an optional `refreshEveryMs`, and keeps one list for the whole window, so the Automations sidebar no longer misses a schedule created, paused or deleted on the screen; `Modal` takes a `className`.
+
+  Fixed: a running Moxxy no longer misses schedules created, paused or deleted by the desktop or `moxxy schedule`, and no longer writes its old copy back over them. Each process kept its first read of `schedules.json` for good; the store now reads the file again before every read and every change (`sharedWithOtherProcesses` in `createJsonFileStore`).
+
+### Patch Changes
+
+- Updated dependencies [53709f4]
+- Updated dependencies [e62b8a4]
+- Updated dependencies [1e49040]
+- Updated dependencies [1a6664f]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [ded9828]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/agent-connection-kit@0.1.2
+  - @moxxy/model-fetch@0.2.1
+  - @moxxy/sdk@0.47.0
+  - @moxxy/plugin-scheduler@0.47.0
+  - @moxxy/desktop-ipc-contract@0.16.0
+  - @moxxy/config@0.47.0
+  - @moxxy/core@0.47.0
+  - @moxxy/plugin-browser@0.47.0
+  - @moxxy/plugin-computer-control@0.47.0
+  - @moxxy/plugin-provider-local@0.47.0
+  - @moxxy/plugin-provider-openai@0.47.0
+  - @moxxy/plugin-stt-whisper@0.47.0
+  - @moxxy/plugin-tts-gemini@0.47.0
+  - @moxxy/plugin-vault@0.47.0
+  - @moxxy/plugin-webhooks@0.47.0
+  - @moxxy/runner@0.2.63
+  - @moxxy/workspace-registry@0.2.46
+
 ## 0.15.1
 
 ### Patch Changes

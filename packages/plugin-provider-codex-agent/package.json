@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-codex-agent",
-  "version": "0.46.0",
+  "version": "0.47.0",
   "description": "Codex agent connection for moxxy: OpenAI Codex itself does the work through `codex app-server`, on the person's ChatGPT sign-in, while Moxxy shows it, asks for approvals and questions, and lends its own tools over MCP.",
   "keywords": [
     "moxxy",

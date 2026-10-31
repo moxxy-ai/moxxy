@@ -1,5 +1,38 @@
 # @moxxy/plugin-scheduler
 
+## 0.47.0
+
+### Minor Changes
+
+- 1a6664f: Let a recurring schedule run only inside a time window. `schedule_create` takes `startAt` and `endAt` next to `cron` ("every 30 minutes from 23:00 to 07:00"): nothing fires before `startAt`, the run at `endAt` still fires (up to 5 minutes late, since the poller ticks every 30 seconds), a run missed by more than that is dropped instead of firing outside the window, and the schedule turns itself off. A window that is already over is refused, and sending `cron` with `runAt` now tells the model to use `startAt`/`endAt` instead.
+- 3879896: Create schedules from the desktop. Automations → Schedules has a New schedule button that opens a form: what Moxxy should do, how often (every few minutes or hours, every day, weekdays, every week, once, or a cron), optionally between two dates, a name filled in from the prompt and the chat it runs in. It says in one sentence what will happen, points at what is missing under each field, and never saves a schedule that could not run. The screen itself is redrawn as cards in the Settings look instead of a table: each schedule says its repeat in words ("Every 30 minutes"), then its window, next and last run; a schedule can be deleted (after a confirmation), and the list refreshes itself every 30 seconds.
+
+  Behind it: the new `scheduler.create` IPC command, checked in the host by `scheduleDraftProblem`, the scheduler's shared rules for a new schedule (`@moxxy/plugin-scheduler`); `useScheduler` gains `create` and an optional `refreshEveryMs`, and keeps one list for the whole window, so the Automations sidebar no longer misses a schedule created, paused or deleted on the screen; `Modal` takes a `className`.
+
+  Fixed: a running Moxxy no longer misses schedules created, paused or deleted by the desktop or `moxxy schedule`, and no longer writes its old copy back over them. Each process kept its first read of `schedules.json` for good; the store now reads the file again before every read and every change (`sharedWithOtherProcesses` in `createJsonFileStore`).
+
+- 24bd7f3: One set of rules for a new schedule, wherever it comes from. The `schedule_create` tool, `moxxy schedule add` and the desktop's New schedule form now check a draft with the same `scheduleDraftProblem` (split into `scheduleShapeProblem` and `scheduleTimingProblem`). A one-shot time more than a minute in the past is refused everywhere: the tool tells the model to ask the user for a new time, and the CLI exits with code 2 instead of only warning. A time set for the current minute still runs.
+
+  Two processes changing the schedules file at the same moment no longer lose each other's change: a store created with `sharedWithOtherProcesses` takes a short-lived `<file>.lock` around each change, and takes over a lock left behind for more than 10 seconds by a process that died.
+
+  The New schedule form starts with "Runs in" set to the chat you are in. It checks a custom cron as you type and shows an example when it is wrong. When the host refuses a save, the reason appears under the field it is about, in the form's own words; anything else shows as a sentence at the bottom of the form. The Schedules screen says "Next run: starting now" instead of "due now", and reads the list again a few seconds after the soonest run starts instead of waiting for the next 30-second refresh.
+
+### Patch Changes
+
+- 1e49040: A time window no run falls inside is refused instead of saved. "Every 5 minutes from 03:47 to 03:49" would never run, because the next run is 03:50: the `schedule_create` tool, `moxxy schedule add` and the desktop's New schedule form now say so, and the form's sentence no longer promises runs. `firstFireBetween` in `@moxxy/sdk/cron` finds the first fire inside a window.
+
+  An idle scheduler no longer touches `schedules.json`. Every running Moxxy rewrote the file on each 30-second tick while syncing skill schedules, even with nothing to change. It now compares first, and takes the file lock and writes only when something changed.
+
+- 5f83fb5: A time window that opens inside a minute (`startAt` at 23:00:30) no longer fires at 23:00:00, before the window: its first run is the next whole minute (23:01).
+
+  Two processes taking over a schedules lock left behind by a dead process can no longer both change `schedules.json` at once and lose one change. Only the waiter holding `<file>.lock.takeover` may remove the stale lock, and only if it is still stale then. The lock code moved into its own module, `packages/sdk/src/file-lock.ts`.
+
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+
 ## 0.46.0
 
 ### Patch Changes
