@@ -5,7 +5,7 @@
  * are real scripts in a temporary home; the runners are stood in for at their
  * process boundary.
  */
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -151,6 +151,35 @@ describe('updating an agent CLI from the desktop', () => {
 
     expect(result).toEqual({ ok: true, message: 'Upgraded' });
     expect(existsSync(upgraded)).toBe(true);
+  });
+
+  describe('when the update ends well and the version stays', () => {
+    const saved = process.env.MOXXY_HOME;
+    afterEach(() => {
+      if (saved === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = saved;
+    });
+
+    it('notes the version in the shared cache, so it is not offered again', async () => {
+      process.env.MOXXY_HOME = path.join(newHome(), 'moxxy');
+      const cacheFile = path.join(process.env.MOXXY_HOME, 'cache', 'agent-cli-latest.json');
+      mkdirSync(path.dirname(cacheFile), { recursive: true });
+      writeFileSync(cacheFile, JSON.stringify({ [OPENCODE.npmPackage]: { version: '9.9.9', at: Date.now() } }));
+      writeFakeCli(
+        path.join(home!, '.opencode', 'bin', 'opencode'),
+        "if (args[0] === '--version') console.log('1.20.0'); else console.log('Already up to date');",
+        { windowsEntry: OPENCODE.windowsShim.entry },
+      );
+
+      await runAgentCli('opencode', 'update', {
+        runners: () => [runner()],
+        emit: () => undefined,
+        agents: { opencode: OPENCODE },
+        search: { home, pathEnv: '' },
+      });
+
+      expect(JSON.parse(readFileSync(cacheFile, 'utf8'))).toMatchObject({ [OPENCODE.npmPackage]: { notBrought: '9.9.9' } });
+    });
   });
 
   describe("with the desktop's own Node first on its PATH", () => {

@@ -700,9 +700,14 @@ describe('the source of the newest version an install can get', () => {
 describe('an OpenCode too old for --major', () => {
   it('takes the plain upgrade first', async () => {
     newHome();
-    cli(OPENCODE_CLI, '.opencode/bin/opencode', '1.18.34', "console.log(args.join(' '))");
+    // OpenCode on Windows is a native program; this stand-in is a Node script, so it says so.
+    const testCli: AgentCliDescriptor = {
+      ...OPENCODE_CLI,
+      windowsShim: { entry: 'node_modules/opencode-test/cli.cjs', runs: 'node' },
+    };
+    cli(testCli, '.opencode/bin/opencode', '1.18.34', "console.log(args.join(' '))");
 
-    const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '', latest: async () => '2.2.5' });
+    const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: async () => '2.2.5' });
 
     expect(result).toEqual({ ok: true, message: 'upgrade' });
   });
