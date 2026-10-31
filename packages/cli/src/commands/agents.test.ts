@@ -137,14 +137,14 @@ describe('moxxy agents install / update', () => {
     expect(existsSync(upgraded)).toBe(true);
   });
 
-  it('fails when an update that exited cleanly changed nothing', async () => {
+  it('says so when an update that exited cleanly changed nothing', async () => {
     newHome();
     cli('opencode', '.opencode/bin/opencode', '1.18.0', `if (args[0] === 'upgrade') console.log('Upgraded');`);
 
-    const { code, err } = await run(['update', 'opencode']);
+    const { code, out } = await run(['update', 'opencode']);
 
-    expect(code).toBe(1);
-    expect(err).toContain('the update changed nothing');
+    expect(code).toBe(0);
+    expect(out).toContain('is still 1.18.0');
   });
 
   it('fails with the reason when it does not work', async () => {

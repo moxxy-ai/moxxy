@@ -17,6 +17,7 @@ import {
   OPENCODE_CLI,
   agentCliOrigin,
   agentCliTargetAt,
+  agentCliToolTarget,
   agentCliUpdatePlan,
   agentVersionSource,
   checkAgentCli,
@@ -526,6 +527,18 @@ describe('installing and updating a CLI', () => {
       expect(existsSync(updated)).toBe(false);
     });
 
+    it('checks the version after Homebrew too', async () => {
+      brewClaude(true);
+
+      const result = await runAgentCliAction(CLAUDE_CLI, 'update', {
+        home,
+        pathEnv: path.join(home!, 'brew', 'bin'),
+        cacheFile: path.join(home!, 'latest.json'),
+      });
+
+      expect(result).toMatchObject({ ok: true, outcome: 'unchanged' });
+    });
+
     it("uses the agent's own update when that Homebrew is not there", async () => {
       const { updated } = brewClaude(false);
 
@@ -664,6 +677,18 @@ describe('the source of the newest version an install can get', () => {
     expect(agentVersionSource(CLAUDE_CLI, { origin: 'npm' }).key).toBe('@anthropic-ai/claude-code');
   });
 
+  // winget's own translations (Localization/Resources); it has none for Polish and prints English there.
+  it.each(['Version:', 'Versión:', 'Version :', 'Versione:', 'バージョン:', '버전:', 'Versão:', 'Версия:', '版本:'])(
+    'reads the version winget shows after %s',
+    async (label) => {
+      const run = async () => `Found Claude Code [Anthropic.ClaudeCode]\r\n${label} 2.1.300\r\nPublisher: Anthropic\r\n`;
+
+      const source = agentVersionSource(CLAUDE_CLI, { origin: 'winget', winget: { id: 'Anthropic.ClaudeCode' } }, { run });
+
+      expect(await source.fetch()).toBe('2.1.300');
+    },
+  );
+
   it('knows a copy winget installed', () => {
     const file = 'C:\\Users\\M\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe\\claude.exe';
 
@@ -697,25 +722,69 @@ describe('the source of the newest version an install can get', () => {
     expect(await checkAgentCli(CODEX_CLI, { ...search, refresh: true })).toMatchObject({ state: 'current' });
   });
 
-  it('says an update that changed nothing did not work', async () => {
-    newHome();
-    const file = cli(CODEX_CLI, 'tools/codex', '0.166.0', "console.log('Done')");
-    const search = { home, pathEnv: path.dirname(file), cacheFile: path.join(home!, 'latest.json') };
+  /** A copy that answers `--version` from `versions`, one a read; the last one repeats, and null is no answer. */
+  function answering(versions: ReadonlyArray<string | null>, script = "console.log('Done')"): string {
+    const reads = path.join(home ?? newHome(), 'reads');
+    return writeFakeCli(
+      path.join(home!, 'tools', 'codex'),
+      `const fs = require('fs'), count = ${JSON.stringify(reads)}, versions = ${JSON.stringify(versions)};
+if (args[0] === '--version') {
+  const read = fs.existsSync(count) ? Number(fs.readFileSync(count, 'utf8')) : 0;
+  fs.writeFileSync(count, String(read + 1));
+  const version = versions[Math.min(read, versions.length - 1)];
+  if (version === null) process.exit(1);
+  console.log(version);
+  process.exit(0);
+}
+${script}`,
+      { windowsEntry: CODEX_CLI.windowsShim.entry },
+    );
+  }
+  const searchFor = (file: string) => ({ home, pathEnv: path.dirname(file), cacheFile: path.join(home!, 'latest.json'), versionRetryMs: 1 });
 
-    const result = await runAgentCliAction(CODEX_CLI, 'update', search);
+  it('names a version that moved as updated', async () => {
+    const file = answering(['0.166.0', '0.167.0']);
 
-    expect(result).toEqual({ ok: false, message: 'Codex is still 0.166.0: the update changed nothing.' });
+    expect(await runAgentCliAction(CODEX_CLI, 'update', searchFor(file))).toEqual({ ok: true, outcome: 'updated', message: 'Done' });
+  });
+
+  it('calls an update that left the version alone unchanged, not failed: it may show after a restart', async () => {
+    const file = answering(['0.166.0']);
+
+    expect(await runAgentCliAction(CODEX_CLI, 'update', searchFor(file))).toEqual({
+      ok: true,
+      outcome: 'unchanged',
+      message: 'Codex is still 0.166.0. A new version may show after a restart.',
+    });
+  });
+
+  it('gives a fresh copy another try when its first start is slow, as a scanner can make it', async () => {
+    const file = answering(['0.166.0', null, '0.167.0']);
+
+    expect(await runAgentCliAction(CODEX_CLI, 'update', searchFor(file))).toMatchObject({ ok: true, outcome: 'updated' });
+  });
+
+  it('does not call a copy gone when it is there and only stays silent', async () => {
+    const file = answering(['0.166.0', null]);
+
+    expect(await runAgentCliAction(CODEX_CLI, 'update', searchFor(file))).toEqual({
+      ok: true,
+      outcome: 'unverified',
+      message: 'The update ended, but Codex did not say its version. It may need a restart.',
+    });
   });
 
   it('says an update that exited cleanly but took the copy with it failed', async () => {
     newHome();
-    const file = cli(CODEX_CLI, 'tools/codex', '0.166.0', "require('node:fs').rmSync(process.argv[1]); console.log('Done');");
-    const search = { home, pathEnv: path.dirname(file), cacheFile: path.join(home!, 'latest.json') };
+    const base = path.join(home!, 'tools', 'codex');
+    const shim = process.platform === 'win32' ? `${base}.cmd` : base;
+    const file = answering(['0.166.0'], `fs.rmSync(${JSON.stringify(shim)}); fs.rmSync(process.argv[1]); console.log('Done');`);
 
-    const result = await runAgentCliAction(CODEX_CLI, 'update', search);
-
-    expect(result.ok).toBe(false);
-    expect(result.message).toContain('Codex no longer runs after the update');
+    expect(await runAgentCliAction(CODEX_CLI, 'update', searchFor(file))).toEqual({
+      ok: false,
+      outcome: 'gone',
+      message: 'Codex no longer runs after the update; install it again.',
+    });
   });
 });
 
@@ -805,7 +874,7 @@ describe('an update that would wait forever', () => {
 
     const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: noRegistry });
 
-    expect(result.message).toBe('It asked to confirm, and Moxxy cannot answer: "Install anyways?" Run the update in a terminal.');
+    expect(result.message).toBe('It asked to confirm, and Moxxy cannot answer: "Install anyways?" Run "opencode upgrade" in a terminal.');
   });
 
   it('stops one that goes silent', async () => {
@@ -821,7 +890,7 @@ describe('an update that would wait forever', () => {
 describe('the way a copy is updated', () => {
   const plan = (desc: AgentCliDescriptor, file: string, platform: NodeJS.Platform = 'darwin') => {
     const options = { platform, realpath: (f: string) => f, home: '/Users/me' };
-    return agentCliUpdatePlan(desc, file, agentCliOrigin(desc, file, options), platform);
+    return agentCliUpdatePlan(desc, file, agentCliOrigin(desc, file, options));
   };
 
   it.each([
@@ -873,32 +942,93 @@ describe('the way a copy is updated', () => {
     expect(plan(OPENCODE_CLI, '/Users/me/.nvm/lib/node_modules/opencode-ai/bin/opencode').kind).toBe('own');
   });
 
-  it('gives Windows the command to paste, since its package managers are shims', () => {
-    const update = plan(CLAUDE_CLI, 'C:\\Users\\me\\AppData\\Local\\pnpm\\claude.cmd', 'win32');
-
-    expect(update).toMatchObject({ kind: 'manual', hint: 'run pnpm add -g @anthropic-ai/claude-code@latest' });
+  it('updates with the package tool on Windows too', () => {
+    expect(plan(CLAUDE_CLI, 'C:\\Users\\me\\AppData\\Local\\pnpm\\claude.cmd', 'win32')).toMatchObject({
+      kind: 'run',
+      command: 'pnpm',
+      args: ['add', '-g', '@anthropic-ai/claude-code@latest'],
+    });
   });
 
-  // Windows gets the command instead: these tools are `.cmd` shims there.
-  it.skipIf(process.platform === 'win32')('runs the tool that owns the copy', async () => {
+  it.each([
+    ['C:\\Users\\me\\AppData\\Local\\Yarn\\bin\\codex.cmd', 'yarn'],
+    ['C:\\Users\\me\\AppData\\Local\\Volta\\bin\\codex.cmd', 'volta'],
+    ['/Users/me/.yarn/bin/codex', 'yarn'],
+    ['/Users/me/.volta/bin/codex', 'volta'],
+  ])('knows %s as a copy of %s', (file, origin) => {
+    expect(agentCliOrigin(CODEX_CLI, file, { platform: 'win32', realpath: (f) => f })).toMatchObject({ origin });
+  });
+
+  it.each([['/Users/me/work/yarn/bin/codex'], ['/Users/me/work/volta/bin/codex']])(
+    'takes %s for a folder that happens to share the name, not the tool',
+    (file) => {
+      expect(plan(CODEX_CLI, file)).toEqual({ kind: 'own' });
+    },
+  );
+
+  describe('starting a package tool on Windows', () => {
+    const win = { platform: 'win32' as const, electron: false };
+    const update = { kind: 'run', command: 'pnpm', args: [] } as const;
+    const put = (file: string): string => {
+      const full = path.join(home ?? newHome(), ...file.split('/'));
+      mkdirSync(path.dirname(full), { recursive: true });
+      writeFileSync(full, '');
+      return full;
+    };
+
+    it('runs a native tool directly', () => {
+      const bun = put('bin/bun.exe');
+
+      expect(agentCliToolTarget({ ...update, command: 'bun' }, path.join(path.dirname(bun), 'codex.cmd'), { ...win, pathEnv: '' })).toEqual({
+        kind: 'direct',
+        command: bun,
+      });
+    });
+
+    it('runs a known Node launcher through its script, with no shell', () => {
+      const shim = put('bin/pnpm.cmd');
+      const entry = put('bin/node_modules/pnpm/bin/pnpm.cjs');
+
+      expect(agentCliToolTarget(update, path.join(path.dirname(shim), 'codex.cmd'), { ...win, pathEnv: '' })).toMatchObject({ kind: 'node', entry });
+    });
+
+    it('starts no launcher it does not know, so the card can give the command', () => {
+      const shim = put('bin/vp.cmd');
+
+      expect(agentCliToolTarget({ ...update, command: 'vp' }, path.join(path.dirname(shim), 'codex.cmd'), { ...win, pathEnv: '' })).toBeNull();
+    });
+  });
+
+  it('runs the tool that owns the copy, on every system', async () => {
     newHome();
-    const bin = path.join(home!, '.bun', 'bin');
-    mkdirSync(bin, { recursive: true });
-    writeFakeCli(path.join(bin, 'bun'), "console.log('bun', args.join(' '));", { windowsEntry: 'x.cjs' });
-    cli(CLAUDE_CLI, '.bun/bin/claude', '2.1.300');
+    const bin = path.join(home!, 'Library', 'pnpm');
+    writeFakeCli(path.join(bin, 'pnpm'), "console.log('pnpm', args.join(' '));", { windowsEntry: 'node_modules/pnpm/bin/pnpm.cjs' });
+    cli(CLAUDE_CLI, 'Library/pnpm/claude', '2.1.300');
 
     const result = await runAgentCliAction(CLAUDE_CLI, 'update', { home, pathEnv: bin });
 
-    expect(result).toEqual({ ok: true, message: 'bun i -g @anthropic-ai/claude-code@latest' });
+    expect(result).toEqual({ ok: true, message: 'pnpm add -g @anthropic-ai/claude-code@latest' });
   });
 
-  it.runIf(process.platform === 'win32')('gives the command instead of starting a package tool on Windows', async () => {
+  it('checks the version after a package tool too', async () => {
     newHome();
-    cli(CLAUDE_CLI, '.bun/bin/claude', '2.1.300');
+    const bin = path.join(home!, 'Library', 'pnpm');
+    writeFakeCli(path.join(bin, 'pnpm'), "console.log('Done');", { windowsEntry: 'node_modules/pnpm/bin/pnpm.cjs' });
+    cli(CLAUDE_CLI, 'Library/pnpm/claude', '2.1.300');
 
-    const result = await runAgentCliAction(CLAUDE_CLI, 'update', { home, pathEnv: path.join(home!, '.bun', 'bin') });
+    const result = await runAgentCliAction(CLAUDE_CLI, 'update', { home, pathEnv: bin, cacheFile: path.join(home!, 'latest.json') });
 
-    expect(result.ok).toBe(false);
-    expect(result.message).toContain('run bun i -g @anthropic-ai/claude-code@latest');
+    expect(result).toMatchObject({ ok: true, outcome: 'unchanged' });
+  });
+
+  it('offers the button only for a tool it can start', async () => {
+    newHome();
+    const bin = path.join(home!, 'Library', 'pnpm');
+    mkdirSync(bin, { recursive: true });
+    cli(CLAUDE_CLI, 'Library/pnpm/claude', '2.1.300');
+
+    const report = await checkAgentCli(CLAUDE_CLI, { home, pathEnv: bin, latest: noRegistry });
+
+    expect(report.manualUpdate).toBe('run pnpm add -g @anthropic-ai/claude-code@latest');
   });
 });

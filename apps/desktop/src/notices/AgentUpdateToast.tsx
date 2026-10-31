@@ -10,7 +10,6 @@ import { AgentMark } from './AgentMark';
  */
 export function AgentUpdateToast({ notice }: { readonly notice: AgentCliNoticeView }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
-  const verb = notice.notice.action === 'install' ? 'Install' : 'Update';
   const percent = notice.fraction === null ? null : Math.round(notice.fraction * 100);
   return (
     <div
@@ -41,12 +40,12 @@ export function AgentUpdateToast({ notice }: { readonly notice: AgentCliNoticeVi
         )}
       </div>
       {!notice.running && notice.fix && (
-        <button type="button" className="agent-update__fix" aria-label={`${verb} ${notice.agentName}`} onClick={notice.fix}>
-          {notice.failed ? 'Try again' : verb}
+        <button type="button" className="agent-update__fix" aria-label={notice.fixName} onClick={notice.fix}>
+          {notice.fixLabel}
         </button>
       )}
       {notice.dismiss && !notice.running && (
-        <button type="button" aria-label="Close" className="toast__dismiss agent-update__close" data-tip="Hide until a newer version" onClick={notice.dismiss}>
+        <button type="button" aria-label="Close" className="toast__dismiss agent-update__close" data-tip={notice.dismissTip} onClick={notice.dismiss}>
           <Icon name="x" size={12} />
         </button>
       )}

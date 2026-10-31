@@ -77,6 +77,11 @@ export type AgentCliAction = 'install' | 'update';
 export interface AgentCliRunResult {
   ok: boolean;
   message: string;
+  /**
+   * What an update left, read from the copy. `unchanged` and `unverified` are
+   * no failures; `gone` is, and only an install brings the agent back.
+   */
+  outcome?: 'updated' | 'unchanged' | 'unverified' | 'gone';
 }
 
 /** A line an installer or updater printed, and how far it got when it said so. */

@@ -4,13 +4,14 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { __setApiOverride } from '@moxxy/client-core';
+import { __resetAgentClisForTests, __setApiOverride } from '@moxxy/client-core';
 import type { AgentCliReport, SessionInfo } from '@moxxy/sdk';
 import { AgentUpdateToast } from './AgentUpdateToast';
 import { useAgentCliNotices } from '../chat/useAgentCliNotice';
 import { __resetToastsForTests, getToasts } from './toast-store';
 
 afterEach(() => {
+  __resetAgentClisForTests();
   __setApiOverride(null);
   __resetToastsForTests();
 });
@@ -98,7 +99,7 @@ describe('the agent CLI toast', () => {
   });
 
   it('says the agent is ready once the update it ran went well', async () => {
-    host();
+    host({}, { ok: true, outcome: 'updated', message: 'Done' });
     render(<Bar sessionInfo={info(report({}))} />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Update Codex' }));
@@ -115,17 +116,69 @@ describe('the agent CLI toast', () => {
     expect(getToasts()).toEqual([]);
   });
 
-  it('keeps a failed update on the card after the check stops offering that version', async () => {
-    host({}, { ok: false, message: 'Codex is still 0.155.1: the update changed nothing.' });
+  it('says calmly that an update changed nothing, keeps the card once the offer goes, and can check again', async () => {
+    const message = 'Codex is still 0.155.1. A new version may show after a restart.';
+    const calls = host({}, { ok: true, outcome: 'unchanged', message });
     const { rerender } = render(<Bar sessionInfo={info(report({}))} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Update Codex' }));
-    await screen.findByText('Update failed: Codex');
+    await screen.findByText('Update finished: Codex');
 
     rerender(<Bar sessionInfo={info(report({ state: 'current', latest: '0.155.1' }))} />);
 
-    expect(screen.getByText('Codex is still 0.155.1: the update changed nothing.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByTestId('agent-update-toast')).not.toHaveAttribute('data-failed');
+    expect(getToasts()).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Check Codex again' }));
+    await waitFor(() => expect(calls).toContainEqual(['agents.check', undefined]));
     await waitFor(() => expect(screen.queryByTestId('agent-update-toast')).toBeNull());
+  });
+
+  it('closes how an update ended, leaving the offer for that version alone', async () => {
+    const calls = host({}, { ok: false, message: 'npm could not write there' });
+    render(<Bar sessionInfo={info(report({}))} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Update Codex' }));
+    await screen.findByText('Update failed: Codex');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(await screen.findByText('Update available: Codex')).toBeInTheDocument();
+    expect(calls.some(([cmd]) => cmd === 'prefs.update')).toBe(false);
+  });
+
+  it('can close a failure whose newest version nobody knows', async () => {
+    host({}, { ok: false, message: 'offline' });
+    render(<Bar sessionInfo={info(report({ state: 'update-required', installed: '0.150.0', latest: null }))} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Update Codex' }));
+    await screen.findByText('Update failed: Codex');
+
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+  });
+
+  it('offers the install when the update took the copy with it', async () => {
+    const calls = host({}, { ok: false, outcome: 'gone', message: 'Codex no longer runs after the update; install it again.' });
+    const { rerender } = render(<Bar sessionInfo={info(report({}))} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Update Codex' }));
+    await screen.findByText('Update failed: Codex');
+    rerender(<Bar sessionInfo={info(report({ state: 'missing', installed: null, latest: null }))} />);
+
+    const install = screen.getByRole('button', { name: 'Install Codex' });
+    expect(install).toHaveTextContent('Install');
+    fireEvent.click(install);
+
+    await waitFor(() => expect(calls).toContainEqual(['agents.run', { provider: 'codex-agent', action: 'install' }]));
+  });
+
+  it('names a failed install as an install after its offer goes', async () => {
+    const calls = host({}, { ok: false, message: 'no network' });
+    const { rerender } = render(<Bar sessionInfo={info(report({ state: 'missing', installed: null, latest: null }))} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Install Codex' }));
+    await screen.findByText('Install failed: Codex');
+    rerender(<Bar sessionInfo={info(report({ state: 'current' }))} />);
+
+    expect(screen.getByText('Install failed: Codex')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Install Codex' }));
+
+    await waitFor(() => expect(calls.filter(([cmd]) => cmd === 'agents.run').at(-1)).toEqual(['agents.run', { provider: 'codex-agent', action: 'install' }]));
   });
 
   it('stays closed for that version once closed', async () => {
