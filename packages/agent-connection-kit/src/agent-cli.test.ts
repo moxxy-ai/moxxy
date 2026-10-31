@@ -712,3 +712,24 @@ describe('an OpenCode too old for --major', () => {
     expect(result).toEqual({ ok: true, message: 'upgrade' });
   });
 });
+
+describe('an update that would wait forever', () => {
+  it('stops at a question nobody can answer and says so', async () => {
+    newHome();
+    cli(OPENCODE_CLI, '.opencode/bin/opencode', '2.2.5', "process.stdout.write('Install anyways? '); setTimeout(() => {}, 30_000);");
+
+    const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '' });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('Install anyways?');
+  });
+
+  it('stops one that goes silent', async () => {
+    newHome();
+    cli(OPENCODE_CLI, '.opencode/bin/opencode', '2.2.5', 'setTimeout(() => {}, 30_000);');
+
+    const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '', silenceLimitMs: 200 });
+
+    expect(result).toMatchObject({ ok: false, message: expect.stringContaining('nothing printed') });
+  });
+});

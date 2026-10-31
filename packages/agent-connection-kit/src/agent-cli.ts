@@ -549,6 +549,8 @@ export interface AgentCliActionOptions extends AgentCliSearch, VersionLookup {
   /** How far it got, from a percentage it printed. */
   readonly onProgress?: (fraction: number) => void;
   readonly signal?: AbortSignal;
+  /** How long it may print nothing before it is stopped as stuck. */
+  readonly silenceLimitMs?: number;
   /**
    * Folders the host put first on its PATH for itself (the desktop's own
    * Node). An update of a CLI outside them runs with them last: the CLI's
@@ -685,23 +687,38 @@ function majorOf(version: string): number {
   return Number.parseInt(version, 10);
 }
 
+/** How long an updater may stay silent before it counts as stuck; a slow download still prints. */
+const SILENCE_LIMIT_MS = 10 * 60_000;
+/** A yes-or-no question from an updater; nobody can answer it, so it would wait forever. */
+const ASKS_TO_CONFIRM = /\b(?:install anyways|continue anyway|proceed)\?|\(y\/n\)|\[y\/n\]/i;
+
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const PERCENT = /(\d{1,3}(?:\.\d+)?)%/;
 
 function watch(child: ChildProcess, opts: AgentCliActionOptions): Promise<AgentCliActionResult> {
+  const limitMs = opts.silenceLimitMs ?? SILENCE_LIMIT_MS;
   return new Promise((resolve) => {
     let settled = false;
     const last = { stdout: '', stderr: '' };
     const finish = (result: AgentCliActionResult): void => {
       if (settled) return;
       settled = true;
+      clearTimeout(silence);
       opts.signal?.removeEventListener('abort', stop);
       resolve(result);
     };
-    const stop = (): void => {
+    const end = (message: string): void => {
       killTree(child, 'SIGTERM');
-      finish({ ok: false, message: 'Stopped.' });
+      finish({ ok: false, message });
     };
+    const stop = (): void => end('Stopped.');
+    let silence: NodeJS.Timeout | undefined;
+    const heard = (): void => {
+      clearTimeout(silence);
+      silence = setTimeout(() => end(`Stopped: nothing printed for ${Math.round(limitMs / 60_000)} minutes.`), limitMs);
+      silence.unref();
+    };
+    heard();
     if (opts.signal?.aborted) {
       stop();
       return;
@@ -718,6 +735,12 @@ function watch(child: ChildProcess, opts: AgentCliActionOptions): Promise<AgentC
     for (const stream of ['stdout', 'stderr'] as const) {
       let pending = '';
       child[stream]?.on('data', (chunk: Buffer) => {
+        heard();
+        const text = (pending + chunk.toString('utf8')).replace(ANSI, '');
+        if (ASKS_TO_CONFIRM.test(text)) {
+          end(`It asked to confirm, and Moxxy cannot answer: "${text.trim().split(/\r\n|\r|\n/).at(-1) ?? ''}" Run the update in a terminal.`);
+          return;
+        }
         const parts = (pending + chunk.toString('utf8')).split(/\r\n|\r|\n/);
         pending = parts.pop() ?? '';
         for (const part of parts) take(stream, part);
