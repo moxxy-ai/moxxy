@@ -809,7 +809,8 @@ describe('the way a copy is updated', () => {
     expect(update).toMatchObject({ kind: 'manual', hint: 'run pnpm add -g @anthropic-ai/claude-code@latest' });
   });
 
-  it('runs the owner, and tells the check a copy needs a hand update', async () => {
+  // Windows gets the command instead: these tools are `.cmd` shims there.
+  it.skipIf(process.platform === 'win32')('runs the tool that owns the copy', async () => {
     newHome();
     const bin = path.join(home!, '.bun', 'bin');
     mkdirSync(bin, { recursive: true });
@@ -819,5 +820,15 @@ describe('the way a copy is updated', () => {
     const result = await runAgentCliAction(CLAUDE_CLI, 'update', { home, pathEnv: bin });
 
     expect(result).toEqual({ ok: true, message: 'bun i -g @anthropic-ai/claude-code@latest' });
+  });
+
+  it.runIf(process.platform === 'win32')('gives the command instead of starting a package tool on Windows', async () => {
+    newHome();
+    cli(CLAUDE_CLI, '.bun/bin/claude', '2.1.300');
+
+    const result = await runAgentCliAction(CLAUDE_CLI, 'update', { home, pathEnv: path.join(home!, '.bun', 'bin') });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('run bun i -g @anthropic-ai/claude-code@latest');
   });
 });
