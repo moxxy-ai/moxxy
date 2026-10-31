@@ -171,9 +171,22 @@ describe('normalizeForSpeech: Polish', () => {
     ['Wybierz i/lub zamknij.', 'Wybierz i lub zamknij.'],
     ['Wyślij pull request do brancha development.', 'Wyślij pul rikłest do brancza development.'],
     ['Ten feature wymaga refactoringu.', 'Ten ficzer wymaga refaktoringu.'],
-    ['OpenAI ma swoje modele.', 'ołpen ej aj ma swoje modele.'],
+    ['OpenAI ma swoje modele.', 'Ołpen Ej Aj ma swoje modele.'],
+    ['Moxxy ma tryb głosowy.', 'Moksi ma tryb głosowy.'],
+    ['Otwórz Moxxy i zacznij.', 'Otwórz Moksi i zacznij.'],
+    ['Sprawdź to w ChatGPT.', 'Sprawdź to w czat dżi pi ti.'],
+    ['Zaloguj się przez OAuth.', 'Zaloguj się przez Oauf.'],
+    ['Kod na licencji MIT.', 'Kod na licencji em aj ti.'],
+    ['Uruchom Docker Compose na serwerze.', 'Uruchom doker kompołz na serwerze.'],
+    ['Zrób code review przed scaleniem.', 'Zrób kod riwju przed scaleniem.'],
+    ['Aplikacja działa na Coolify.', 'Aplikacja działa na Kulifaj.'],
   ])('respells English terms the Polish reading gets wrong: %s', (input, spoken) => {
     expect(normalizeForSpeech(input, 'pl')).toBe(spoken);
+  });
+
+  it('keeps the Polish word mit, which only the capitalized licence name respells', () => {
+    expect(normalizeForSpeech('To tylko mit o smokach.', 'pl')).toBe('To tylko mit o smokach.');
+    expect(normalizeForSpeech('Mit o smokach.', 'pl')).toBe('Mit o smokach.');
   });
 
   it('leaves plain Polish alone', () => {
