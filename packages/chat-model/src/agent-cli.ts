@@ -51,7 +51,7 @@ export function agentCliNotice(connection: AgentConnectionLike): AgentCliNotice 
 }
 
 /** How the file's origin reads after its path; the installer's and an unknown one need no word. */
-const ORIGIN_LABEL: Readonly<Record<AgentCliOrigin, string>> = { installer: '', homebrew: 'Homebrew', npm: 'npm', app: '', unknown: '' };
+const ORIGIN_LABEL: Readonly<Record<AgentCliOrigin, string>> = { installer: '', homebrew: 'Homebrew', winget: 'winget', npm: 'npm', app: '', unknown: '' };
 
 /** The file a check was about, with where it came from ("/opt/homebrew/bin/claude (Homebrew)"); null when none was found. */
 export function agentCliFile(report: AgentCliReport): string | null {

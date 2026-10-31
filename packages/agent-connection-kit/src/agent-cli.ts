@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -37,6 +37,16 @@ export interface AgentCliDescriptor {
    * vendor whose plain update stays within the installed one (OpenCode 1).
    */
   readonly majorUpdateArgs?: ReadonlyArray<string>;
+  /**
+   * Where the vendor's installer reads its newest version, which can lag npm;
+   * `channel` is the person's choice, read from `channelSetting` under the home.
+   */
+  readonly releaseChannel?: {
+    readonly url: (channel: string) => string;
+    readonly settingsFile: string;
+    readonly setting: string;
+    readonly fallback: string;
+  };
   /** The vendor's installer, as a POSIX shell line and as a PowerShell line. */
   readonly install: { readonly posix: string; readonly windows: string };
   /**
@@ -76,6 +86,12 @@ export const CLAUDE_CLI: AgentCliDescriptor = {
   npmPackage: '@anthropic-ai/claude-code',
   minimumVersion: '2.1.296',
   updateArgs: ['update'],
+  releaseChannel: {
+    url: (channel) => `https://downloads.claude.ai/claude-code-releases/${encodeURIComponent(channel)}`,
+    settingsFile: '.claude/settings.json',
+    setting: 'autoUpdatesChannel',
+    fallback: 'latest',
+  },
   install: { posix: 'curl -fsSL https://claude.ai/install.sh | bash', windows: 'irm https://claude.ai/install.ps1 | iex' },
   installDirs: ['.local/bin'],
   windowsShim: { entry: 'node_modules/@anthropic-ai/claude-code/cli.js', runs: 'node' },
@@ -209,6 +225,8 @@ export interface AgentCliSource {
   readonly app?: string;
   /** For `homebrew`: the Homebrew folder it belongs to, and the formula or cask. */
   readonly homebrew?: { readonly prefix: string; readonly name: string; readonly cask: boolean };
+  /** For `winget`: the package it belongs to. */
+  readonly winget?: { readonly id: string };
 }
 
 export interface AgentCliOriginOptions {
@@ -247,6 +265,8 @@ export function agentCliOrigin(desc: AgentCliDescriptor, file: string, opts: Age
     const name = at > 0 ? slashed.slice(at + marker.length).split('/')[0] : undefined;
     if (name) return { origin: 'homebrew', homebrew: { prefix: real.slice(0, at), name, cask } };
   }
+  const winget = /\/Microsoft\/WinGet\/Packages\/([^/_]+)_/i.exec(slashed);
+  if (winget?.[1]) return { origin: 'winget', winget: { id: winget[1] } };
   if (comparable(slashed).includes(comparable(`/node_modules/${desc.npmPackage}/`))) return { origin: 'npm' };
   const home = opts.home ?? homedir();
   const folder = comparable(paths.dirname(file));
@@ -295,8 +315,110 @@ export interface LatestVersionOptions {
 }
 
 const HOUR_MS = 60 * 60_000;
+const SOURCE_TIMEOUT_MS = 20_000;
 
-type LatestCache = Record<string, { readonly version: string; readonly at: number }>;
+interface LatestEntry {
+  readonly version: string;
+  readonly at: number;
+  /** The newest version an update ran for and did not bring; not offered again. */
+  readonly notBrought?: string;
+}
+
+type LatestCache = Record<string, LatestEntry>;
+
+/** Where an install gets its updates, so Moxxy offers only what its Update can bring. */
+export interface AgentVersionSource {
+  /** Names it in the shared cache. */
+  readonly key: string;
+  readonly fetch: () => Promise<string | null>;
+}
+
+export interface AgentVersionSourceOptions {
+  readonly home?: string;
+  readonly fetchImpl?: typeof fetch;
+  /** Runs a program and gives its output; defaults to starting it without a shell. */
+  readonly run?: (command: string, args: ReadonlyArray<string>) => Promise<string>;
+}
+
+/** The newest version `source`'s way of updating offers: its channel, Homebrew, winget, else npm. */
+export function agentVersionSource(
+  desc: AgentCliDescriptor,
+  source: AgentCliSource,
+  opts: AgentVersionSourceOptions = {},
+): AgentVersionSource {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  if (source.origin === 'homebrew' && source.homebrew) {
+    const { name, cask } = source.homebrew;
+    const url = `https://formulae.brew.sh/api/${cask ? 'cask' : 'formula'}/${encodeURIComponent(name)}.json`;
+    return {
+      key: `homebrew:${cask ? 'cask' : 'formula'}:${name}`,
+      fetch: async () => {
+        const json = (await readUrl(url, fetchImpl).then((text) => JSON.parse(text ?? 'null') as unknown).catch(() => null)) as
+          | { version?: unknown; versions?: { stable?: unknown } }
+          | null;
+        const version = cask ? json?.version : json?.versions?.stable;
+        return typeof version === 'string' ? version.split(',')[0] ?? null : null;
+      },
+    };
+  }
+  if (source.origin === 'winget' && source.winget) {
+    const { id } = source.winget;
+    const run = opts.run ?? runForOutput;
+    return {
+      key: `winget:${id}`,
+      fetch: async () => {
+        const output = await run('winget', wingetArgs('show', id)).catch(() => '');
+        // The labels follow the system's language; only the version line is a label and a bare version.
+        return /^[^:\r\n]+:\s*v?(\d+(?:\.\d+)+)\s*$/m.exec(output)?.[1] ?? null;
+      },
+    };
+  }
+  const channel = desc.releaseChannel;
+  if (source.origin === 'installer' && channel) {
+    return {
+      key: `channel:${desc.command}`,
+      fetch: async () => {
+        const url = channel.url(await chosenChannel(channel, opts.home ?? homedir()));
+        const text = await readUrl(url, fetchImpl).catch(() => null);
+        return text && /^\d+(\.\d+)+/.test(text.trim()) ? text.trim() : null;
+      },
+    };
+  }
+  return { key: desc.npmPackage, fetch: () => fetchNpmLatest(desc.npmPackage, { fetchImpl }) };
+}
+
+function wingetArgs(command: 'show' | 'upgrade', id: string): ReadonlyArray<string> {
+  return [command, '--id', id, '--exact', '--disable-interactivity', '--accept-source-agreements'];
+}
+
+async function chosenChannel(channel: NonNullable<AgentCliDescriptor['releaseChannel']>, home: string): Promise<string> {
+  try {
+    const settings: unknown = JSON.parse(await readFile(path.join(home, ...channel.settingsFile.split('/')), 'utf8'));
+    const chosen = (settings as Record<string, unknown> | null)?.[channel.setting];
+    return typeof chosen === 'string' && chosen ? chosen : channel.fallback;
+  } catch {
+    return channel.fallback;
+  }
+}
+
+async function readUrl(url: string, fetchImpl: typeof fetch): Promise<string | null> {
+  const res = await fetchImpl(url, { signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS) });
+  return res.ok ? res.text() : null;
+}
+
+function runForOutput(command: string, args: ReadonlyArray<string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(command, [...args], { timeout: SOURCE_TIMEOUT_MS, windowsHide: true }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+  });
+}
+
+/** Records that an update ran and `latest`, as last read for `key`, stayed out of reach. */
+async function rememberNotBrought(cacheFile: string, key: string): Promise<void> {
+  const cache = await readLatestCache(cacheFile);
+  const known = cache[key];
+  if (!known) return;
+  await writeFileAtomic(cacheFile, JSON.stringify({ ...cache, [key]: { ...known, notBrought: known.version } })).catch(() => undefined);
+}
 
 /**
  * The vendor's newest published version. Answers are kept for an hour in one
@@ -305,14 +427,14 @@ type LatestCache = Record<string, { readonly version: string; readonly at: numbe
  * answer stands.
  */
 export async function latestAgentVersion(pkg: string, opts: LatestVersionOptions = {}): Promise<string | null> {
-  const cacheFile = opts.cacheFile ?? moxxyPath('cache', 'agent-cli-latest.json');
+  const cacheFile = opts.cacheFile ?? defaultCacheFile();
   const now = (opts.now ?? Date.now)();
   const cache = await readLatestCache(cacheFile);
   const known = cache[pkg];
   if (known && !opts.refresh && now - known.at < (opts.ttlMs ?? HOUR_MS)) return known.version;
   const fetched = await (opts.fetchLatest ?? ((name: string) => fetchNpmLatest(name)))(pkg);
   if (!fetched) return known ? known.version : null;
-  await writeFileAtomic(cacheFile, JSON.stringify({ ...cache, [pkg]: { version: fetched, at: now } })).catch(() => undefined);
+  await writeFileAtomic(cacheFile, JSON.stringify({ ...cache, [pkg]: { ...known, version: fetched, at: now } })).catch(() => undefined);
   return fetched;
 }
 
@@ -322,8 +444,10 @@ async function readLatestCache(file: string): Promise<LatestCache> {
     if (!parsed || typeof parsed !== 'object') return {};
     const out: LatestCache = {};
     for (const [pkg, entry] of Object.entries(parsed as Record<string, unknown>)) {
-      const { version, at } = (entry ?? {}) as { version?: unknown; at?: unknown };
-      if (typeof version === 'string' && typeof at === 'number') out[pkg] = { version, at };
+      const { version, at, notBrought } = (entry ?? {}) as { version?: unknown; at?: unknown; notBrought?: unknown };
+      if (typeof version === 'string' && typeof at === 'number') {
+        out[pkg] = { version, at, ...(typeof notBrought === 'string' ? { notBrought } : {}) };
+      }
     }
     return out;
   } catch {
@@ -346,14 +470,17 @@ export interface AgentCliCheckDeps {
 /** Where the CLI stands: missing, too old, behind the vendor's latest, current, or unreadable. */
 export async function checkAgentCli(
   desc: AgentCliDescriptor,
-  opts: AgentCliSearch & { readonly refresh?: boolean } = {},
+  opts: AgentCliSearch & VersionLookup & { readonly refresh?: boolean } = {},
   deps: AgentCliCheckDeps = {},
 ): Promise<AgentCliReport> {
   const refresh = opts.refresh === true;
-  const [found, latest] = await Promise.all([
-    installedVersion(desc, opts),
-    (deps.latest ?? ((pkg, o) => latestAgentVersion(pkg, o)))(desc.npmPackage, { refresh }),
-  ]);
+  const found = await installedVersion(desc, opts);
+  const source = versionSourceOf(desc, found.file, opts);
+  const offered = deps.latest
+    ? await deps.latest(desc.npmPackage, { refresh })
+    : await latestAgentVersion(source.key, { refresh, fetchLatest: source.fetch, ...cacheOption(opts) });
+  const notBrought = (await readLatestCache(opts.cacheFile ?? defaultCacheFile()))[source.key]?.notBrought;
+  const latest = offered && offered === notBrought ? found.version : offered;
   const base = {
     command: desc.command,
     installed: found.version,
@@ -369,6 +496,29 @@ export async function checkAgentCli(
   if (compareVersions(found.version, desc.minimumVersion) < 0) return { state: 'update-required', ...known };
   if (latest && compareVersions(found.version, latest) < 0) return { state: 'update-available', ...known };
   return { state: 'current', ...known };
+}
+
+/** Stand-ins for the shared cache and the network. */
+export interface VersionLookup {
+  readonly cacheFile?: string;
+  readonly fetchImpl?: typeof fetch;
+}
+
+/** The file every runner shares its version answers in. */
+export function defaultCacheFile(): string {
+  return moxxyPath('cache', 'agent-cli-latest.json');
+}
+
+function cacheOption(opts: VersionLookup): { readonly cacheFile?: string } {
+  return opts.cacheFile ? { cacheFile: opts.cacheFile } : {};
+}
+
+function versionSourceOf(desc: AgentCliDescriptor, file: string | undefined, opts: AgentCliSearch & VersionLookup): AgentVersionSource {
+  const source: AgentCliSource = file ? agentCliOrigin(desc, file, originOptions(opts)) : { origin: 'unknown' };
+  return agentVersionSource(desc, source, {
+    ...(opts.home !== undefined ? { home: opts.home } : {}),
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
 }
 
 function originOptions(opts: AgentCliSearch): AgentCliOriginOptions {
@@ -393,7 +543,7 @@ async function installedVersion(
 
 export type AgentCliAction = 'install' | 'update';
 
-export interface AgentCliActionOptions extends AgentCliSearch {
+export interface AgentCliActionOptions extends AgentCliSearch, VersionLookup {
   /** Each line the installer or updater prints, without colour codes. */
   readonly onLine?: (line: string) => void;
   /** How far it got, from a percentage it printed. */
@@ -478,6 +628,16 @@ export async function runAgentCliAction(
     if (!found) return { ok: false, message: `${desc.name} is not installed.` };
     const source = agentCliOrigin(desc, found, originOptions(opts));
     if (source.origin === 'app') return { ok: false, message: `The ${desc.name} at ${found} is part of ${source.app ?? 'an app'} and updates with it.` };
+    if (source.winget && platform === 'win32') {
+      // winget owns this copy, and the agent's own update only prints this command.
+      return watch(
+        spawn('winget', [...wingetArgs('upgrade', source.winget.id), '--silent', '--accept-package-agreements'], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        }),
+        opts,
+      );
+    }
     const brew = source.homebrew && platform !== 'win32' ? path.posix.join(source.homebrew.prefix, 'bin', 'brew') : null;
     if (brew && source.homebrew && existsSync(brew)) {
       // Homebrew owns this copy; the agent's own update would put a second one elsewhere.
@@ -492,12 +652,18 @@ export async function runAgentCliAction(
       } catch (err) {
         return { ok: false, message: err instanceof Error ? err.message : String(err) };
       }
+      const before = opts.cacheFile ? await readCliVersion(target) : null;
       child = spawnExecutableTarget(target, await updateArgsFor(desc, target, opts), {
         env: updaterEnv(found, opts.hostPathDirs ?? [], process.env, platform),
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: platform !== 'win32',
         windowsHide: true,
       });
+      const result = await watch(child, opts);
+      if (opts.cacheFile && result.ok && before && before === (await readCliVersion(target))) {
+        await rememberNotBrought(opts.cacheFile, versionSourceOf(desc, found, opts).key);
+      }
+      return result;
     }
   }
   return watch(child, opts);
@@ -510,7 +676,9 @@ async function updateArgsFor(desc: AgentCliDescriptor, target: ExecutableTarget,
     readCliVersion(target),
     (opts.latest ?? ((pkg: string) => latestAgentVersion(pkg)))(desc.npmPackage).catch(() => null),
   ]);
-  return installed && latest && majorOf(installed) < majorOf(latest) ? desc.majorUpdateArgs : desc.updateArgs;
+  // A version below the minimum may not know the major flag; the plain update brings it up first.
+  const canMove = installed && compareVersions(installed, desc.minimumVersion) >= 0;
+  return canMove && latest && majorOf(installed) < majorOf(latest) ? desc.majorUpdateArgs : desc.updateArgs;
 }
 
 function majorOf(version: string): number {

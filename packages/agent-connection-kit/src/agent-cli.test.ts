@@ -4,7 +4,7 @@
  * CLIs here are real executables in a temporary home; only the npm registry
  * is stood in for.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -17,6 +17,7 @@ import {
   OPENCODE_CLI,
   agentCliOrigin,
   agentCliTargetAt,
+  agentVersionSource,
   checkAgentCli,
   findAgentCli,
   installInvocation,
@@ -608,4 +609,101 @@ describe('installing and updating a CLI', () => {
 
     expect(await running).toEqual({ ok: false, message: 'Stopped.' });
    }, INSTALL_TIMEOUT_MS);
+});
+
+describe('the source of the newest version an install can get', () => {
+  const answer = (body: string): typeof fetch => (async () => new Response(body)) as typeof fetch;
+
+  it("asks Anthropic's channel for a copy from its installer, not npm", async () => {
+    newHome();
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      urls.push(url);
+      return new Response('2.1.314\n');
+    }) as typeof fetch;
+
+    const source = agentVersionSource(CLAUDE_CLI, { origin: 'installer' }, { home, fetchImpl });
+
+    expect(await source.fetch()).toBe('2.1.314');
+    expect(urls).toEqual(['https://downloads.claude.ai/claude-code-releases/latest']);
+  });
+
+  it('follows the channel the person set in Claude', async () => {
+    newHome();
+    mkdirSync(path.join(home!, '.claude'));
+    writeFileSync(path.join(home!, '.claude', 'settings.json'), '{"autoUpdatesChannel":"stable"}');
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      urls.push(url);
+      return new Response('2.1.308');
+    }) as typeof fetch;
+
+    await agentVersionSource(CLAUDE_CLI, { origin: 'installer' }, { home, fetchImpl }).fetch();
+
+    expect(urls).toEqual(['https://downloads.claude.ai/claude-code-releases/stable']);
+  });
+
+  it('asks Homebrew for a Homebrew copy', async () => {
+    const homebrew = { prefix: '/opt/homebrew', name: 'claude-code', cask: true };
+
+    const source = agentVersionSource(CLAUDE_CLI, { origin: 'homebrew', homebrew }, { fetchImpl: answer('{"version":"2.1.308"}') });
+
+    expect(await source.fetch()).toBe('2.1.308');
+  });
+
+  it('asks winget for a winget copy, in any language', async () => {
+    const run = async () => 'Znaleziono Anthropic Claude Code [Anthropic.ClaudeCode]\nWersja: 2.1.302\nWydawca: Anthropic\n';
+
+    const source = agentVersionSource(CLAUDE_CLI, { origin: 'winget', winget: { id: 'Anthropic.ClaudeCode' } }, { run });
+
+    expect(await source.fetch()).toBe('2.1.302');
+  });
+
+  it('keeps npm for an npm copy', () => {
+    expect(agentVersionSource(CLAUDE_CLI, { origin: 'npm' }).key).toBe('@anthropic-ai/claude-code');
+  });
+
+  it('knows a copy winget installed', () => {
+    const file = 'C:\\Users\\M\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe\\claude.exe';
+
+    expect(agentCliOrigin(CLAUDE_CLI, file, { platform: 'win32', realpath: (f) => f })).toEqual({
+      origin: 'winget',
+      winget: { id: 'Anthropic.ClaudeCode' },
+    });
+  });
+
+  it('offers no update the source does not have', async () => {
+    newHome();
+    cli(CLAUDE_CLI, '.local/bin/claude', '2.1.314');
+    const cacheFile = path.join(home!, 'latest.json');
+    const fetchImpl = answer('2.1.314');
+
+    const report = await checkAgentCli(CLAUDE_CLI, { home, pathEnv: '', refresh: true, cacheFile, fetchImpl });
+
+    expect(report).toMatchObject({ state: 'current', latest: '2.1.314' });
+  });
+
+  it('stops offering a version an update could not bring', async () => {
+    newHome();
+    const file = cli(CODEX_CLI, 'tools/codex', '0.166.0', "console.log('Already up to date')");
+    const cacheFile = path.join(home!, 'latest.json');
+    const fetchImpl = (async () => Response.json({ version: '0.167.0' })) as typeof fetch;
+    const search = { home, pathEnv: path.dirname(file), cacheFile, fetchImpl };
+    expect(await checkAgentCli(CODEX_CLI, { ...search, refresh: true })).toMatchObject({ state: 'update-available' });
+
+    await runAgentCliAction(CODEX_CLI, 'update', search);
+
+    expect(await checkAgentCli(CODEX_CLI, { ...search, refresh: true })).toMatchObject({ state: 'current' });
+  });
+});
+
+describe('an OpenCode too old for --major', () => {
+  it('takes the plain upgrade first', async () => {
+    newHome();
+    cli(OPENCODE_CLI, '.opencode/bin/opencode', '1.18.34', "console.log(args.join(' '))");
+
+    const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '', latest: async () => '2.2.5' });
+
+    expect(result).toEqual({ ok: true, message: 'upgrade' });
+  });
 });

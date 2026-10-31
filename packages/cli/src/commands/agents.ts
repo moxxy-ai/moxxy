@@ -8,6 +8,7 @@ import {
   checkAgentCli,
   runAgentCliAction,
   type AgentCliDescriptor,
+  defaultCacheFile,
 } from '@moxxy/agent-connection-kit';
 import { agentCliApp, agentCliFile } from '@moxxy/chat-model';
 import type { AgentCliReport } from '@moxxy/sdk';
@@ -89,6 +90,7 @@ export async function runAgentsCommand(argv: ParsedArgv, deps: AgentsDeps = {}):
   }
   const result = await runAgentCliAction(desc, action, {
     ...search,
+    cacheFile: defaultCacheFile(),
     onLine: (line) => out(`${colors.dim(line)}\n`),
   });
   if (!result.ok) {

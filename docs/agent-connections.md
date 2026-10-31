@@ -61,7 +61,10 @@ A CLI older than the version Moxxy was checked against must be updated before th
 |---|---|
 | The vendor's installer (`~/.local/bin`, `~/.opencode/bin`), a global npm install, or anything else | the agent's own command (`claude update`, `codex update`, `opencode upgrade`) |
 | Homebrew (`Caskroom` or `Cellar`) | `brew upgrade [--cask] <name>` with the Homebrew it belongs to; the agent's own command when that `brew` is not there |
+| winget (`Microsoft\WinGet\Packages`, Windows) | `winget upgrade --id <package> --exact` |
 | Inside a macOS app (`*.app/Contents/`, e.g. the Codex in ChatGPT.app) | none: the app updates it, so Moxxy offers no **Update** and runs nothing |
+
+Moxxy offers only a version that copy's own way of updating has: Anthropic's release channel (`autoUpdatesChannel`, default `latest`) for Claude's installer, Homebrew's or winget's catalogue for theirs, npm otherwise. If an update ends well and the version stays the same, that version is not offered again. An OpenCode below the minimum takes the plain `opencode upgrade` first, since `--major` needs 1.19.
 
 Moxxy never removes a copy, and the desktop never updates an agent during a turn. The desktop puts the Node it installed for you first on its own `PATH`; the agent's own update runs with that folder last, so an update that asks `npm` how the agent was installed (`opencode upgrade` does) reaches the npm of your terminal, the one that installed it. An agent that lives in the desktop's Node folder keeps it first.
 

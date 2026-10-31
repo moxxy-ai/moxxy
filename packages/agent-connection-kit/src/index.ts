@@ -34,6 +34,8 @@ export {
   agentCliTargetAt,
   checkAgentCli,
   agentCliOrigin,
+  agentVersionSource,
+  defaultCacheFile,
   findAgentCli,
   PATH_FALLBACK_ENV,
   installInvocation,

@@ -399,7 +399,7 @@ export type AgentCliState = 'missing' | 'update-required' | 'update-available' |
  * installer, Homebrew, a global npm install, inside an app (which updates it
  * itself), or none of these.
  */
-export type AgentCliOrigin = 'installer' | 'homebrew' | 'npm' | 'app' | 'unknown';
+export type AgentCliOrigin = 'installer' | 'homebrew' | 'winget' | 'npm' | 'app' | 'unknown';
 
 /** The last check of an agent connection's CLI, as every surface shows it. */
 export interface AgentCliReport {
