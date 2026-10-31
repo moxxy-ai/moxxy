@@ -80,3 +80,18 @@ test('SECURITY.md lists no advisory the policy no longer accepts, so a cleared r
   const listed = [...section.matchAll(/^\| \[(GHSA(?:-[a-z0-9]{4}){3})\]/gm)].map((match) => match[1]);
   assert.deepEqual(listed.sort(), ACCEPTED_ADVISORIES.map((entry) => entry.id).sort());
 });
+
+test('a fix out of reach is accepted only for that fix and the reviewed versions', () => {
+  const entry = { ...accepted[0], fixOutOfReach: '>=2.0.0', versions: ['1.0.0'] };
+  const reviewed = advisory({ patched_versions: '>=2.0.0' });
+  assert.deepEqual(evaluateAudit([reviewed], [entry]).unmitigated, []);
+
+  const otherFix = advisory({ patched_versions: '>=3.0.0' });
+  assert.deepEqual(evaluateAudit([otherFix], [entry]).unmitigated, [otherFix]);
+
+  const otherVersion = advisory({
+    patched_versions: '>=2.0.0',
+    findings: [{ version: '1.5.0', paths: ['apps__docs>tool>dev-only-lib'] }],
+  });
+  assert.deepEqual(evaluateAudit([otherVersion], [entry]).unmitigated, [otherVersion]);
+});
