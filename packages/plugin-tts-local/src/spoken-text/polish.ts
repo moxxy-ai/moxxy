@@ -89,7 +89,14 @@ const NUMBERED_ABBREVIATIONS: readonly Expansion[] = [
 
 /** English terms a Polish reading gets wrong; measured against a recognizer. */
 const RESPELLINGS: readonly Expansion[] = [
-  [word('openai', 'giu'), 'ołpen ej aj'],
+  [word('openai', 'giu'), 'Ołpen Ej Aj'],
+  [word('moxxy', 'giu'), 'Moksi'],
+  [word('chatgpt', 'giu'), 'czat dżi pi ti'],
+  [word('oauth', 'giu'), 'Oauf'],
+  [word('MIT', 'gu'), 'em aj ti'],
+  [word('docker compose', 'giu'), 'doker kompołz'],
+  [word('code review', 'giu'), 'kod riwju'],
+  [word('coolify', 'giu'), 'Kulifaj'],
   [word('pull request(\\p{L}*)', 'giu'), 'pul rikłest'],
   [word('commit(\\p{L}*)', 'giu'), 'komit'],
   [word('push', 'giu'), 'pusz'],
