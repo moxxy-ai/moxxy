@@ -26,6 +26,10 @@ export interface AgentCliJob {
   readonly fraction: number | null;
   /** Why it failed; null while running or after it worked. */
   readonly error: string | null;
+  /** What to know about one that ended without proof it worked; null otherwise. */
+  readonly note: string | null;
+  /** What brings it back: the same again, or an install when the update took the copy with it. */
+  readonly retry: AgentCliAction;
 }
 
 export interface AgentConnectionView {
@@ -51,7 +55,7 @@ export function agentConnectionView(
   const { job } = local;
   const view = (state: AgentConnectionState, detail: string, action: AgentConnectionAction | null): AgentConnectionView => ({
     state,
-    detail: job?.error && action !== null ? job.error : detail,
+    detail: job?.note ?? (job?.error && action !== null ? job.error : detail),
     action,
     progress: null,
   });

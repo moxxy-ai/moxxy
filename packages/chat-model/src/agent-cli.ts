@@ -38,12 +38,14 @@ export function agentCliNotice(connection: AgentConnectionLike): AgentCliNotice 
       const old = `${agent} ${report.installed ?? ''}`.trim() + `${where} is older than Moxxy works with`;
       return app
         ? { ...base, severity: 'required', action: null, text: `${old} — it is part of ${app}, which updates it` }
-        : { ...base, severity: 'required', action: 'update', text: `${old} — update it to ${report.minimum} or newer` };
+        : report.manualUpdate
+          ? { ...base, severity: 'required', action: null, text: `${old} — ${report.manualUpdate}` }
+          : { ...base, severity: 'required', action: 'update', text: `${old} — update it to ${report.minimum} or newer` };
     }
     case 'update-available':
       // An app brings its own copy up to date; there is nothing to do here.
       return report.latest && !app
-        ? { ...base, severity: 'available', action: 'update', text: `${agent} ${report.latest} is out — you have ${report.installed ?? 'an older one'}${where}` }
+        ? { ...base, severity: 'available', action: report.manualUpdate ? null : 'update', text: `${agent} ${report.latest} is out — you have ${report.installed ?? 'an older one'}${where}${report.manualUpdate ? ` — ${report.manualUpdate}` : ''}` }
         : null;
     default:
       return null;
@@ -51,7 +53,7 @@ export function agentCliNotice(connection: AgentConnectionLike): AgentCliNotice 
 }
 
 /** How the file's origin reads after its path; the installer's and an unknown one need no word. */
-const ORIGIN_LABEL: Readonly<Record<AgentCliOrigin, string>> = { installer: '', homebrew: 'Homebrew', npm: 'npm', app: '', unknown: '' };
+const ORIGIN_LABEL: Readonly<Record<AgentCliOrigin, string>> = { installer: '', homebrew: 'Homebrew', winget: 'winget', npm: 'npm', bun: 'bun', pnpm: 'pnpm', yarn: 'yarn', volta: 'Volta', 'vite-plus': 'Vite+', mise: 'mise', app: '', unknown: '' };
 
 /** The file a check was about, with where it came from ("/opt/homebrew/bin/claude (Homebrew)"); null when none was found. */
 export function agentCliFile(report: AgentCliReport): string | null {
@@ -76,4 +78,21 @@ export function activeAgentCliNotice(
 ): AgentCliNotice | null {
   const info = providers.find((p) => p.name === activeProvider);
   return info ? agentCliNotice(info) : null;
+}
+
+/**
+ * All that is worth saying at once: the active connection in full, then the
+ * updates of the others. An agent not in use is never asked to install, and
+ * gets only what the person can close.
+ */
+export function agentCliNotices(
+  providers: ReadonlyArray<AgentConnectionLike>,
+  activeProvider: string | null | undefined,
+): ReadonlyArray<AgentCliNotice> {
+  const active = activeAgentCliNotice(providers, activeProvider);
+  const others = providers
+    .filter((p) => p.name !== activeProvider)
+    .map(agentCliNotice)
+    .filter((n): n is AgentCliNotice => n?.severity === 'available');
+  return active ? [active, ...others] : others;
 }

@@ -3315,32 +3315,6 @@ button.trigger__chip { text-align: left; cursor: pointer; }
 .account-limit[data-state='near'] { color: var(--color-amber-text); }
 .account-limit[data-state='reached'] { color: var(--color-red-text); }
 
-/* The active agent's CLI: missing, too old, or behind the vendor's latest.
- * One quiet line above the message box, with its fix after the words. */
-.agent-cli-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  padding: 0 var(--space-4);
-  color: var(--color-amber-text);
-  font-size: var(--type-label);
-}
-.agent-cli-bar[data-severity='required'] { color: var(--color-red-text); }
-.agent-cli-bar__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-cli-bar__fix {
-  flex-shrink: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-.agent-cli-bar__close { margin-left: auto; flex-shrink: 0; }
-
 /* What the agent runs in the background and when it comes back by itself, above the message box,
  * drawn as the steps bar beside it is: the lead in the text colour, the rest muted. Each line opens
  * the Agents pane. The running dot breathes the way the mark does (opacity only), and holds still
@@ -4604,12 +4578,17 @@ button.trigger__chip { text-align: left; cursor: pointer; }
   align-items: flex-start;
   gap: var(--space-8);
   padding: var(--space-8) var(--space-6) var(--space-8) var(--space-12);
-  background: var(--color-card-bg);
-  border: 1px solid var(--color-card-border-strong);
+  background: color-mix(in srgb, var(--color-card-bg) 74%, var(--color-text) 12%);
+  backdrop-filter: blur(20px) saturate(1.2);
   border-radius: var(--radius-card);
   box-shadow: var(--color-card-shadow);
   color: var(--color-text);
   pointer-events: auto;
+  transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
+  @starting-style {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
 }
 .toast__dot {
   flex-shrink: 0;
@@ -4663,6 +4642,102 @@ button.toast__open { cursor: pointer; }
   background: transparent;
   border: none;
   cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease, transform 120ms var(--ease-out);
+}
+.toast__dismiss:active { transform: scale(0.94); }
+@media (hover: hover) and (pointer: fine) {
+  .toast__dismiss:hover { color: var(--color-text); background: var(--color-input-soft); }
+}
+
+/* The agent CLI card: held until settled, so it is the one toast with a mark,
+ * an action and progress. A failure may run long; it opens in place. */
+.agent-update {
+  position: relative;
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-12) var(--space-32) var(--space-12) var(--space-16);
+}
+.agent-mark {
+  flex-shrink: 0;
+  align-self: flex-start;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  fill: currentColor;
+  color: var(--color-text);
+}
+.agent-mark[data-agent='claude'] { fill: #d97757; }
+.agent-mark--letter { display: grid; place-items: center; font-size: var(--type-ui); font-weight: 600; }
+.agent-update__main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.agent-update .toast__title { white-space: normal; font-weight: 600; }
+.agent-update__detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+.agent-update__detail[data-expanded='true'] { display: block; }
+.agent-update[data-failed='true'] .agent-update__detail { color: var(--color-red-text); }
+.agent-update__more {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--type-meta);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.agent-update__fix {
+  flex-shrink: 0;
+  padding: var(--space-6) var(--space-12);
+  border: 1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
+  border-radius: var(--radius-block);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--type-meta);
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 120ms var(--ease-out), background-color 120ms ease;
+}
+.agent-update__fix:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) {
+  .agent-update__fix:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
+}
+.agent-update__close { position: absolute; top: var(--space-6); right: var(--space-6); }
+.agent-update__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin-top: var(--space-6);
+}
+.agent-update__progress .setup-progress { flex: 1; }
+.agent-update__percent {
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+.setup-progress[data-indeterminate='true'] .setup-progress__fill {
+  width: 40%;
+  transition: none;
+  animation: setup-progress-slide 1.1s linear infinite;
+}
+@keyframes setup-progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
 }
 
 /* The bar a long setup shows (a model download in Settings → Voice). */
@@ -4680,7 +4755,9 @@ button.toast__open { cursor: pointer; }
   transition: transform 240ms var(--ease-out);
 }
 @media (prefers-reduced-motion: reduce) {
-  .toast.anim-fade-up { animation: none; }
+  .toast { transition: opacity 200ms ease; }
+  @starting-style { .toast { transform: none; } }
+  .setup-progress[data-indeterminate='true'] .setup-progress__fill { animation: none; width: 100%; opacity: 0.5; }
   .setup-progress__fill { transition: none; }
 }
 

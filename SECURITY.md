@@ -43,7 +43,11 @@ We deliberately do not claim "sandboxed by default." If your threat model includ
 
 CI rejects any dependency with a published advisory (`pnpm audit:security`). An advisory that has **no fixed release yet** cannot be cleared by upgrading, so it is accepted here, in the open, until upstream ships a fix. The list is enforced from `scripts/security-audit-policy.mjs`, and a test fails when this table and that list differ.
 
-None at the moment. (`node-forge`, GHSA-86w9-cpqp-85rv, was accepted here until the mobile app and its Expo tooling, the only path that reached it, were removed.)
+| Advisory | Package | Reached through | Why it stays |
+|---|---|---|---|
+| [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) | `minimatch` 3.1.5, 5.1.9 | `electron-builder`, build time only | The fix exists only in 11.0.1 and later. Lines 3 and 5 have none, and `electron-builder` pins `@electron/asar` 3.4.1, which cannot run on 11. Entries like this name the fix and versions they cover (`fixOutOfReach`, `versions`) and fail when either changes. |
+
+(`node-forge`, GHSA-86w9-cpqp-85rv, was accepted here until the mobile app and its Expo tooling, the only path that reached it, were removed.)
 
 An accepted entry is not permanent. The audit fails again, and the entry must be removed, as soon as any of these happens:
 

@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useActionCatalog, useChat } from '@moxxy/client-core';
 import { useTurnSteps } from './useTurnSteps';
-import { useAgentCliNotice } from './useAgentCliNotice';
+import { useAgentCliNotices } from './useAgentCliNotice';
+import { useAgentUpdateToast } from '../notices/useAgentUpdateToast';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
@@ -160,7 +161,7 @@ export function ChatSurface({
   // round-trips per refresh and two chances to disagree about the active model.
   const agent = useAgentSession(workspaceId, !ready || chat.activeTurnId !== null || chat.sending, modelOwner);
   // The active agent's account limit, recorded in the conversation, until it resets.
-  const agentCli = useAgentCliNotice(agent.info);
+  useAgentUpdateToast(useAgentCliNotices(agent.info));
   const activeAgentName = agent.info?.providers.find((p) => p.name === agent.info?.activeProvider)?.agentName;
   // An agent connection's agent using the computer with its own tools: Moxxy can only stop its turn.
   const agentComputer = useAgentComputer(chat.events, chat.activeTurnId !== null, activeAgentName);
@@ -349,7 +350,6 @@ export function ChatSurface({
           compacting={chat.compacting}
           activeTurnId={chat.activeTurnId}
           turnSteps={turnSteps}
-          agentCli={agentCli}
           workspaceId={workspaceId}
           onOpenVoiceCall={voiceCall.open}
           onSend={(p, atts) => void chat.send(p, atts)}

@@ -124,12 +124,27 @@ describe('moxxy agents install / update', () => {
 
   it('updates by the command name or the connection name', async () => {
     const upgraded = path.join(newHome(), 'upgraded');
-    cli('opencode', '.opencode/bin/opencode', '1.18.0', `if (args[0] === 'upgrade') { console.log('Upgraded'); require('fs').writeFileSync(${JSON.stringify(upgraded)}, ''); }`);
+    cli(
+      'opencode',
+      '.opencode/bin/opencode',
+      '1.18.0',
+      `if (args[0] === 'upgrade') { const fs = require('fs'), self = process.argv[1]; fs.writeFileSync(self, fs.readFileSync(self, 'utf8').replace('"1.18.0"', '"1.19.0"')); console.log('Upgraded'); fs.writeFileSync(${JSON.stringify(upgraded)}, 'yes'); }`,
+    );
 
     const { code } = await run(['update', 'opencode']);
 
     expect(code).toBe(0);
     expect(existsSync(upgraded)).toBe(true);
+  });
+
+  it('says so when an update that exited cleanly changed nothing', async () => {
+    newHome();
+    cli('opencode', '.opencode/bin/opencode', '1.18.0', `if (args[0] === 'upgrade') console.log('Upgraded');`);
+
+    const { code, out } = await run(['update', 'opencode']);
+
+    expect(code).toBe(0);
+    expect(out).toContain('is still 1.18.0');
   });
 
   it('fails with the reason when it does not work', async () => {

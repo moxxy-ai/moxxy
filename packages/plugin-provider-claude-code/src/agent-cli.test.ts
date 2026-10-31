@@ -51,13 +51,13 @@ describe.skipIf(process.platform === 'win32')('the claude CLI', () => {
     expect(await checkClaudeCliAuth('claude')).toMatchObject({ state: 'signed-in' });
   });
 
-  it('is checked for updates against the version the registry last gave', async () => {
+  it('is checked for updates against the version its release channel last gave', async () => {
     installed('2.1.250 (Claude Code)');
     const moxxyHome = path.join(home ?? '', 'moxxy');
     mkdirSync(path.join(moxxyHome, 'cache'), { recursive: true });
     writeFileSync(
       path.join(moxxyHome, 'cache', 'agent-cli-latest.json'),
-      JSON.stringify({ '@anthropic-ai/claude-code': { version: '2.1.300', at: Date.now() } }),
+      JSON.stringify({ 'channel:claude': { version: '2.1.300', at: Date.now() } }),
     );
     process.env.MOXXY_HOME = moxxyHome;
     const cli = claudeCodeProviderDef.agentCli;
@@ -73,7 +73,7 @@ describe.skipIf(process.platform === 'win32')('the claude CLI', () => {
     installed('2.1.300 (Claude Code)', 'if [ "$1" = "auth" ]; then echo \'{"loggedIn":true,"email":"ada@example.com"}\'; exit 0; fi');
     const moxxyHome = path.join(home ?? '', 'moxxy');
     mkdirSync(path.join(moxxyHome, 'cache'), { recursive: true });
-    writeFileSync(path.join(moxxyHome, 'cache', 'agent-cli-latest.json'), JSON.stringify({ '@anthropic-ai/claude-code': { version: '2.1.300', at: Date.now() } }));
+    writeFileSync(path.join(moxxyHome, 'cache', 'agent-cli-latest.json'), JSON.stringify({ 'channel:claude': { version: '2.1.300', at: Date.now() } }));
     process.env.MOXXY_HOME = moxxyHome;
     const cli = claudeCodeProviderDef.agentCli;
     assertDefined(cli, 'the provider checks its CLI');

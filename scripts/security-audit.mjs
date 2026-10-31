@@ -34,5 +34,5 @@ if (stale.length > 0) {
 }
 
 console.log(
-  `Security audit passed: 0 unmitigated advisories; ${advisories.length} accepted with no upstream fix.`,
+  `Security audit passed: 0 unmitigated advisories; ${advisories.length} accepted without a usable fix.`,
 );
