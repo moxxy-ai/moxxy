@@ -115,6 +115,19 @@ describe('the agent CLI toast', () => {
     expect(getToasts()).toEqual([]);
   });
 
+  it('keeps a failed update on the card after the check stops offering that version', async () => {
+    host({}, { ok: false, message: 'Codex is still 0.155.1: the update changed nothing.' });
+    const { rerender } = render(<Bar sessionInfo={info(report({}))} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Update Codex' }));
+    await screen.findByText('Update failed: Codex');
+
+    rerender(<Bar sessionInfo={info(report({ state: 'current', latest: '0.155.1' }))} />);
+
+    expect(screen.getByText('Codex is still 0.155.1: the update changed nothing.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByTestId('agent-update-toast')).toBeNull());
+  });
+
   it('stays closed for that version once closed', async () => {
     const calls = host();
     render(<Bar sessionInfo={info(report({}))} />);

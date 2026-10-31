@@ -56,7 +56,14 @@ export function useAgentCliNotices(info: AgentCliNoticeInfo | null | undefined):
   if (!info || !prefs) return [];
   const dismissed = prefs.dismissedAgentUpdates;
   const views: AgentCliNoticeView[] = [];
-  for (const notice of agentCliNotices(info.providers, info.activeProvider)) {
+  const notices = agentCliNotices(info.providers, info.activeProvider);
+  // A failed update can leave nothing to offer, and its card must outlast that to say why.
+  const failures = info.providers.flatMap((p): AgentCliNotice[] =>
+    jobs[p.name]?.error && p.agentCli && !notices.some((n) => n.provider === p.name)
+      ? [{ provider: p.name, command: p.agentCli.command, severity: 'available', action: 'update', text: jobs[p.name]?.error ?? '' }]
+      : [],
+  );
+  for (const notice of [...notices, ...failures]) {
     const entry = info.providers.find((p) => p.name === notice.provider);
     const report = entry?.agentCli;
     if (!entry || !report) continue;
