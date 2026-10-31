@@ -30,6 +30,7 @@ export function TargetSessionPicker({
       style={{
         display: 'inline-flex',
         alignItems: 'center',
+        maxWidth: '100%',
         gap: 'var(--space-6)',
         fontSize: 'var(--type-label)',
         color: 'var(--color-text-dim)',
@@ -41,7 +42,9 @@ export function TargetSessionPicker({
         aria-label={label === '' ? 'Runs in' : undefined}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
-        style={{ maxWidth: 220 }}
+        // Never wider than its cell: long session titles used to push it over
+        // the next column.
+        style={{ maxWidth: 'min(220px, 100%)' }}
       >
         <option value="">Any session (unpinned)</option>
         {/* A binding to a since-deleted session would otherwise show blank — keep

@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-openai",
-  "version": "0.46.0",
+  "version": "0.47.0",
   "description": "OpenAI (and OpenAI-compatible: z.ai, xAI, Google, Ollama/local) LLMProvider plugin for moxxy. Streams Responses for OpenAI and selected compatible vendors, with Chat Completions compatibility; translates moxxy ProviderRequest/Event ↔ the OpenAI wire shape. Register it into an @moxxy/core Session to route turns to OpenAI-compatible models.",
   "keywords": [
     "moxxy",

@@ -1,5 +1,16 @@
 # @moxxy/plugin-mcp
 
+## 0.47.0
+
+### Patch Changes
+
+- 53709f4: Move @hono/node-server to 2.1.3, the fix for GHSA-rmxm-3fg6-px4f (`serveStatic` decoded the request path twice, so a static path could slip past middleware). It reaches Moxxy through the MCP SDK's HTTP server.
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+
 ## 0.46.0
 
 ### Patch Changes

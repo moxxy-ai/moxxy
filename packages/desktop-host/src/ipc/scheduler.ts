@@ -1,7 +1,7 @@
 import type { ScheduleSummary } from '@moxxy/desktop-ipc-contract';
-import { ScheduleStore, describeScheduleEntry } from '@moxxy/plugin-scheduler';
+import { ScheduleStore, describeScheduleEntry, scheduleDraftProblem } from '@moxxy/plugin-scheduler';
 import type { DeskStore } from '../desks';
-import { buildSessionNameResolver, handle, type SessionNameResolver } from './shared';
+import { buildSessionNameResolver, handle, IpcError, type SessionNameResolver } from './shared';
 
 const defaultStore = new ScheduleStore();
 
@@ -13,6 +13,16 @@ export function registerSchedulerHandlers(
     store.invalidate();
     const [entries, resolveName] = await Promise.all([store.list(), buildSessionNameResolver(desks)]);
     return entries.map((e) => toScheduleSummary(e, resolveName));
+  });
+
+  handle('scheduler.create', async ({ targetSessionId, ...draft }) => {
+    const problem = scheduleDraftProblem(draft, Date.now());
+    if (problem) throw new IpcError('invalid-payload', problem);
+    const created = await store.create({
+      ...draft,
+      ...(targetSessionId ? { ownerSessionId: targetSessionId } : {}),
+    });
+    return toScheduleSummary(created, await buildSessionNameResolver(desks));
   });
 
   handle('scheduler.setEnabled', async ({ id, enabled }) => {

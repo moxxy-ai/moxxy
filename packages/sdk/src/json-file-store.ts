@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { withFileLock } from './file-lock.js';
 import { createMutex, type Mutex } from './mutex.js';
 import { writeFileAtomic, type WriteFileAtomicOptions } from './fs-utils.js';
 
@@ -58,6 +59,13 @@ export interface JsonFileStoreOptions<T extends { id: string }> {
   readonly stringify?: (fileObject: Record<string, unknown>) => string;
   /** Atomic-write options forwarded to {@link writeFileAtomic} (e.g. `mode`). */
   readonly writeOptions?: WriteFileAtomicOptions;
+  /**
+   * Other processes write this file too (the desktop, the CLI and every
+   * runner share `schedules.json`). Re-read it before every read and every
+   * change, so one process never misses — or writes over — another's change.
+   * Default `false`: the first read is cached until {@link JsonFileStore.invalidate}.
+   */
+  readonly sharedWithOtherProcesses?: boolean;
 }
 
 /**
@@ -97,6 +105,7 @@ export function createJsonFileStore<T extends { id: string }>(
     fileFields = { version: 1 },
     stringify = prettyJson,
     writeOptions,
+    sharedWithOtherProcesses = false,
   } = opts;
 
   let cache: T[] | null = null;
@@ -106,7 +115,7 @@ export function createJsonFileStore<T extends { id: string }>(
   let loading: Promise<void> | null = null;
   const mutex: Mutex = createMutex();
 
-  async function loadIntoCache(): Promise<void> {
+  async function readItems(): Promise<T[]> {
     let raw: string | null;
     try {
       raw = await readFile(file, 'utf8');
@@ -114,17 +123,20 @@ export function createJsonFileStore<T extends { id: string }>(
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         raw = null;
       } else if (onReadError) {
-        cache = await onReadError(err);
-        return;
+        return onReadError(err);
       } else {
         throw err;
       }
     }
-    cache = await load(raw);
+    return load(raw);
+  }
+
+  async function loadIntoCache(): Promise<void> {
+    cache = await readItems();
   }
 
   function ensureLoaded(): Promise<void> {
-    if (cache) return Promise.resolve();
+    if (cache && !sharedWithOtherProcesses) return Promise.resolve();
     if (loading) return loading;
     loading = loadIntoCache().finally(() => {
       loading = null;
@@ -147,8 +159,11 @@ export function createJsonFileStore<T extends { id: string }>(
       return cache!.find((item) => item.id === id) ?? null;
     },
     async mutate(fn): Promise<void> {
-      await mutex.run(async () => {
-        await ensureLoaded();
+      const change = async (): Promise<void> => {
+        // A shared file is read afresh here, never joined to a read that began
+        // before the last write, so the change lands on the file as it is now.
+        if (sharedWithOtherProcesses) cache = await readItems();
+        else await ensureLoaded();
         const updated = await fn(cache!.slice());
         // Persist first so a write failure (ENOSPC/EACCES/EIO) leaves the
         // in-memory cache consistent with disk — advancing the cache before the
@@ -156,7 +171,8 @@ export function createJsonFileStore<T extends { id: string }>(
         // mutate and silently defeat the crash-atomic guarantee.
         await persist(updated);
         cache = updated;
-      });
+      };
+      await mutex.run(() => (sharedWithOtherProcesses ? withFileLock(file, change) : change()));
     },
     invalidate(): void {
       cache = null;

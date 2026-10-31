@@ -4512,8 +4512,7 @@ button.trigger__chip { text-align: left; cursor: pointer; }
   color: var(--color-text-dim);
 }
 
-/* Schedules and webhooks carry fewer columns than workflows. */
-.data-table--sched .data-row { grid-template-columns: 10px minmax(0, 1.4fr) minmax(0, 1fr) 200px 68px; }
+/* Webhooks carry fewer columns than workflows. */
 .data-table--hooks .data-row { grid-template-columns: 10px minmax(0, 1.2fr) minmax(0, 1.4fr) 200px 68px; }
 
 /* --- Approvals ---------------------------------------------------
@@ -5071,4 +5070,120 @@ button.toast__open { cursor: pointer; }
   margin: 0;
   font-size: var(--type-meta);
   color: var(--color-text-dim);
+}
+
+/* --- Schedules ---------------------------------------------------
+ * Automations → Schedules: the Settings card list (a card per schedule), and the
+ * New schedule form. */
+
+.sched-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-20) var(--space-32) var(--space-40);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+.sched-pane__error,
+.sched-form__error {
+  margin: 0;
+  padding: var(--space-6) var(--space-8);
+  border: 1px solid var(--color-red-border);
+  background: var(--color-red-wash);
+  border-radius: var(--radius-block);
+  font-size: var(--type-row);
+  color: var(--color-red-text);
+}
+.sched-pane__loading { display: flex; flex-direction: column; gap: var(--space-8); }
+
+/* Under a schedule's repeat: its window, next and last run, a skipped run and
+ * where it comes from, a line each, cut on their own; the title holds them all. */
+.sched-row__more {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: var(--space-2);
+  min-width: 0;
+  font-size: var(--type-meta);
+  color: var(--color-text-dim);
+}
+.sched-row__more:empty { display: none; }
+.sched-row__more span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sched-row__actions { display: flex; align-items: center; gap: var(--space-8); flex-shrink: 0; }
+/* On and Paused take one width, so the session picker beside them does not move. */
+.sched-row__actions .tag { min-width: 60px; justify-content: center; }
+/* The picker's label sizes itself to the whole session title while the select
+ * inside stops at its own cap, which left a gap; a capped box around it holds both. */
+.sched-row__picker { display: flex; max-width: 220px; min-width: 0; }
+.sched-row__where {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-row);
+  color: var(--color-text-dim);
+}
+
+.sched-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 44px var(--space-20);
+  border: 1px dashed var(--color-card-border);
+  border-radius: var(--radius-card);
+  color: var(--color-text-dim);
+  text-align: center;
+}
+.sched-empty__title { margin: var(--space-4) 0 0; font-size: var(--type-ui); font-weight: 600; color: var(--color-text); }
+.sched-empty__text { margin: 0 0 var(--space-8); max-width: 380px; font-size: var(--type-row); }
+
+.sched-form { display: flex; flex-direction: column; gap: var(--space-16); }
+.sched-form__pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-12);
+}
+.sched-form__pair--tight { gap: var(--space-8); }
+.sched-form__field { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.sched-form__field > input,
+.sched-form__field > select,
+.sched-form__field > textarea { width: 100%; box-sizing: border-box; }
+.sched-form__field textarea { min-height: 76px; }
+.sched-form__label { font-size: var(--type-row); font-weight: 600; color: var(--color-text-muted); }
+.sched-form__hint { font-size: var(--type-meta); color: var(--color-text-dim); }
+.sched-form__problem { font-size: var(--type-meta); color: var(--color-red-text); }
+/* A ring, not the border: the fields set their border inline. */
+.sched-form [aria-invalid='true'] { box-shadow: 0 0 0 1px var(--color-red); }
+.sched-form__window {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-block);
+}
+.sched-form__switch { display: flex; align-items: center; justify-content: space-between; gap: var(--space-12); }
+.sched-form__switch > div { display: flex; flex-direction: column; gap: var(--space-2); }
+.sched-form__summary {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-block);
+  background: var(--color-input-soft);
+  font-size: var(--type-row);
+  color: var(--color-text);
+}
+.sched-form__summary svg { flex-shrink: 0; margin-top: var(--space-2); color: var(--color-text-muted); }
+
+/* A dialog that pops: it grows from just smaller and transparent, staying
+ * centred, while its backdrop fades in. It leaves at once, faster than it came. */
+.moxxy-modal--pop { animation: moxxy-pop-in var(--motion-overlay) var(--ease-out) both; }
+.moxxy-modal-backdrop:has(> .moxxy-modal--pop) { animation: moxxy-fade-in var(--motion-overlay) var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .moxxy-modal--pop { animation: moxxy-fade-in var(--motion-overlay) var(--ease-out) both; }
 }

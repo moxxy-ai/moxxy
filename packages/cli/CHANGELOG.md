@@ -1,5 +1,28 @@
 # @moxxy/cli
 
+## 0.47.0
+
+### Minor Changes
+
+- ded9828: Show and set a schedule's time window outside the chat. `moxxy schedule add` takes `--from` and `--until` next to `--cron`, refused by the same rules as the `schedule_create` tool. `moxxy schedule list` prints the window and its next fire now comes from the scheduler itself, so it no longer says "in a few minutes" for a window that opens at 23:00. The desktop Schedules list shows the window under the cron ("29.10, 23:00 → 30.10, 07:00", or "ended …" once it is over, which is why the schedule is off), and its "When" cell no longer cuts the next fire short. The "Runs in" session picker (schedules, workflows, webhooks) no longer grows past its column over the State toggle when session titles are long.
+- 24bd7f3: One set of rules for a new schedule, wherever it comes from. The `schedule_create` tool, `moxxy schedule add` and the desktop's New schedule form now check a draft with the same `scheduleDraftProblem` (split into `scheduleShapeProblem` and `scheduleTimingProblem`). A one-shot time more than a minute in the past is refused everywhere: the tool tells the model to ask the user for a new time, and the CLI exits with code 2 instead of only warning. A time set for the current minute still runs.
+
+  Two processes changing the schedules file at the same moment no longer lose each other's change: a store created with `sharedWithOtherProcesses` takes a short-lived `<file>.lock` around each change, and takes over a lock left behind for more than 10 seconds by a process that died.
+
+  The New schedule form starts with "Runs in" set to the chat you are in. It checks a custom cron as you type and shows an example when it is wrong. When the host refuses a save, the reason appears under the field it is about, in the form's own words; anything else shows as a sentence at the bottom of the form. The Schedules screen says "Next run: starting now" instead of "due now", and reads the list again a few seconds after the soonest run starts instead of waiting for the next 30-second refresh.
+
+### Patch Changes
+
+- 1e49040: A time window no run falls inside is refused instead of saved. "Every 5 minutes from 03:47 to 03:49" would never run, because the next run is 03:50: the `schedule_create` tool, `moxxy schedule add` and the desktop's New schedule form now say so, and the form's sentence no longer promises runs. `firstFireBetween` in `@moxxy/sdk/cron` finds the first fire inside a window.
+
+  An idle scheduler no longer touches `schedules.json`. Every running Moxxy rewrote the file on each 30-second tick while syncing skill schedules, even with nothing to change. It now compares first, and takes the file lock and writes only when something changed.
+
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+
 ## 0.46.0
 
 ### Minor Changes

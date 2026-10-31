@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -55,6 +55,11 @@ function mkSkill(
   };
 }
 
+const readRowNames = async (file: string): Promise<string[]> => {
+  const parsed = JSON.parse(await readFile(file, 'utf8')) as { schedules: ReadonlyArray<{ name: string }> };
+  return parsed.schedules.map((row) => row.name);
+};
+
 describe('syncSkillSchedules — single batched write', () => {
   let dir: string;
   let store: ScheduleStore;
@@ -66,6 +71,38 @@ describe('syncSkillSchedules — single batched write', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await removeDir(dir);
+  });
+
+  describe('when no skill schedule changed', () => {
+    const skills = fakeRegistry([mkSkill('a', { cron: '0 9 * * *' })]);
+    const file = () => path.join(dir, 'schedules.json');
+
+    it('leaves the file alone', async () => {
+      // A write goes through tmp + rename, so it always gives the file a new inode.
+      await syncSkillSchedules(skills, store);
+      const before = await stat(file());
+
+      expect(await syncSkillSchedules(skills, store)).toEqual({ added: 0, removed: 0, updated: 0 });
+
+      expect((await stat(file())).ino).toBe(before.ino);
+    });
+
+    it('does not wait for the lock another process holds', async () => {
+      await syncSkillSchedules(skills, store);
+      await writeFile(`${file()}.lock`, '12345');
+
+      // Taking the lock would wait 10 s for it to go stale, past this test's timeout.
+      await expect(syncSkillSchedules(skills, store)).resolves.toEqual({ added: 0, removed: 0, updated: 0 });
+    }, 2_000);
+
+    it('still removes a hidden row of a skill that is gone', async () => {
+      const row = await store.create({ name: 'gone', prompt: 'p', cron: '0 9 * * *', source: 'skill', skillName: 'gone' });
+      await store.delete(row.id);
+
+      await syncSkillSchedules(fakeRegistry([]), store);
+
+      expect(await readRowNames(file())).toEqual([]);
+    });
   });
 
   it('a mixed add/update/remove sync performs exactly ONE atomic write', async () => {
