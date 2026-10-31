@@ -714,21 +714,34 @@ describe('an OpenCode too old for --major', () => {
 });
 
 describe('an update that would wait forever', () => {
+  // OpenCode on Windows is a native program; this stand-in is a Node script, so it says so.
+  const testCli: AgentCliDescriptor = { ...OPENCODE_CLI, windowsShim: { entry: 'node_modules/opencode-test/cli.cjs', runs: 'node' } };
+
   it('stops at a question nobody can answer and says so', async () => {
     newHome();
-    cli(OPENCODE_CLI, '.opencode/bin/opencode', '2.2.5', "process.stdout.write('Install anyways? '); setTimeout(() => {}, 30_000);");
+    cli(testCli, '.opencode/bin/opencode', '2.2.5', "process.stdout.write('Install anyways? '); setTimeout(() => {}, 30_000);");
 
-    const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '' });
+    const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: noRegistry });
 
     expect(result.ok).toBe(false);
     expect(result.message).toContain('Install anyways?');
   });
 
+  it('quotes the question, not the rest of the prompt drawn after it', async () => {
+    newHome();
+    const prompt = '│\\n◆  Install anyways?\\n│  ○ Yes\\n│  ● No\\n└\\n';
+    cli(testCli, '.opencode/bin/opencode', '2.2.5', `process.stdout.write('${prompt}'); setTimeout(() => {}, 30_000);`);
+
+    const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: noRegistry });
+
+    expect(result.message).toBe('It asked to confirm, and Moxxy cannot answer: "Install anyways?" Run the update in a terminal.');
+  });
+
   it('stops one that goes silent', async () => {
     newHome();
-    cli(OPENCODE_CLI, '.opencode/bin/opencode', '2.2.5', 'setTimeout(() => {}, 30_000);');
+    cli(testCli, '.opencode/bin/opencode', '2.2.5', 'setTimeout(() => {}, 30_000);');
 
-    const result = await runAgentCliAction(OPENCODE_CLI, 'update', { home, pathEnv: '', silenceLimitMs: 200 });
+    const result = await runAgentCliAction(testCli, 'update', { home, pathEnv: '', latest: noRegistry, silenceLimitMs: 200 });
 
     expect(result).toMatchObject({ ok: false, message: expect.stringContaining('nothing printed') });
   });

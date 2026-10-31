@@ -695,6 +695,12 @@ const ASKS_TO_CONFIRM = /\b(?:install anyways|continue anyway|proceed)\?|\(y\/n\
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const PERCENT = /(\d{1,3}(?:\.\d+)?)%/;
 
+/** The line that asks, without the frame a prompt draws around it; its choices come after it. */
+function askedQuestion(text: string): string {
+  const line = text.split(/\r\n|\r|\n/).find((candidate) => ASKS_TO_CONFIRM.test(candidate)) ?? '';
+  return line.replace(/^[^\p{L}\p{N}(]+/u, '').trim();
+}
+
 function watch(child: ChildProcess, opts: AgentCliActionOptions): Promise<AgentCliActionResult> {
   const limitMs = opts.silenceLimitMs ?? SILENCE_LIMIT_MS;
   return new Promise((resolve) => {
@@ -738,7 +744,7 @@ function watch(child: ChildProcess, opts: AgentCliActionOptions): Promise<AgentC
         heard();
         const text = (pending + chunk.toString('utf8')).replace(ANSI, '');
         if (ASKS_TO_CONFIRM.test(text)) {
-          end(`It asked to confirm, and Moxxy cannot answer: "${text.trim().split(/\r\n|\r|\n/).at(-1) ?? ''}" Run the update in a terminal.`);
+          end(`It asked to confirm, and Moxxy cannot answer: "${askedQuestion(text)}" Run the update in a terminal.`);
           return;
         }
         const parts = (pending + chunk.toString('utf8')).split(/\r\n|\r|\n/);
