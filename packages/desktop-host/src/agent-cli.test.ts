@@ -11,9 +11,9 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fakeInstaller, writeFakeCli } from '@moxxy/vitest-preset/fake-cli';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
-import { OPENCODE_CLI, type AgentCliDescriptor } from '@moxxy/agent-connection-kit';
+import { CODEX_CLI, OPENCODE_CLI, checkAgentCli, type AgentCliDescriptor } from '@moxxy/agent-connection-kit';
 import type { AgentCliProgress } from '@moxxy/desktop-ipc-contract';
-import { checkAgentClis, runAgentCli, type AgentCliRunner } from './agent-cli';
+import { agentConnectionsWithoutRunner, checkAgentClis, runAgentCli, type AgentCliRunner } from './agent-cli';
 
 let home: string | undefined;
 afterEach(() => {
@@ -260,5 +260,44 @@ describe('checking every agent CLI', () => {
     await checkAgentClis([broken, ok]);
 
     expect(ok.checks).toBe(1);
+  });
+});
+
+describe('agent connections before any runner is up', () => {
+  // The vendors' registry is the one thing stood in for: it is the network.
+  const checkIn = (dir: string) => (desc: AgentCliDescriptor) =>
+    checkAgentCli(desc, { home: dir, pathEnv: '' }, { latest: async () => null });
+
+  it('lists every agent connection with where its CLI stands on this computer', async () => {
+    const dir = newHome();
+    const codex = writeFakeCli(path.join(dir, '.local', 'bin', 'codex'), "console.log('codex-cli 0.166.0')", {
+      windowsEntry: CODEX_CLI.windowsShim.entry,
+    });
+
+    const entries = await agentConnectionsWithoutRunner(checkIn(dir));
+
+    expect(entries.map((entry) => [entry.name, entry.agentName, entry.agentCli?.state])).toEqual([
+      ['claude-code', 'Claude Code', 'missing'],
+      ['codex-agent', 'Codex', 'current'],
+      ['opencode', 'OpenCode', 'missing'],
+    ]);
+    expect(entries[1]).toMatchObject({
+      ready: false,
+      enabled: true,
+      active: false,
+      authKind: 'oauth',
+      kind: 'builtin',
+      keyName: 'CODEX_AGENT_API_KEY',
+      agentCli: { installed: '0.166.0', path: codex },
+    });
+  });
+
+  it('still lists a connection whose CLI could not be checked, without its state', async () => {
+    const entries = await agentConnectionsWithoutRunner(async () => {
+      throw new Error('cannot read');
+    });
+
+    expect(entries.map((entry) => entry.name)).toEqual(['claude-code', 'codex-agent', 'opencode']);
+    expect(entries.every((entry) => entry.agentCli === undefined)).toBe(true);
   });
 });

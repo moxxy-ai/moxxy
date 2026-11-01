@@ -54,10 +54,17 @@ export interface ProviderConnect {
   readonly agent: ReturnType<typeof useAgentConnections>;
 }
 
+/** The first coding agent: it signs in on its own account, with no API key to find first. */
+function defaultProvider(catalog: ReadonlyArray<ProviderCatalogEntry>): string {
+  const first = catalog.find((entry) => entry.kind === 'agent') ?? catalog[0];
+  assertDefined(first, 'the catalog is never empty here');
+  return first.name;
+}
+
 export function useProviderConnect(): ProviderConnect {
   const [catalog, setCatalog] = useState<ReadonlyArray<ProviderCatalogEntry>>(FALLBACK_CATALOG);
-  const [provider, setProvider] = useState('anthropic');
-  const [authKind, setAuthKind] = useState<'oauth' | 'api-key'>('api-key');
+  const [provider, setProvider] = useState(() => defaultProvider(FALLBACK_CATALOG));
+  const [authKind, setAuthKind] = useState<'oauth' | 'api-key'>('oauth');
   const [secret, setSecret] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,9 +79,7 @@ export function useProviderConnect(): ProviderConnect {
       .then((list) => {
         if (cancelled || list.length === 0) return;
         setCatalog(list);
-        const first = list[0];
-        assertDefined(first, 'catalog has a first entry when non-empty');
-        setProvider((cur) => (list.some((entry) => entry.name === cur) ? cur : first.name));
+        setProvider((cur) => (list.some((entry) => entry.name === cur) ? cur : defaultProvider(list)));
       })
       .catch(() => {
         /* keep static fallback */

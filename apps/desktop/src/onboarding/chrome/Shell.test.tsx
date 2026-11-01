@@ -65,4 +65,21 @@ describe('the onboarding frame', () => {
     expect(screen.queryByText(/^Step /u)).toBeNull();
     expect(screen.queryByRole('list', { name: 'Setup steps' })).toBeNull();
   });
+
+  it('says under the form what the launch is still setting up, while it does', () => {
+    const { rerender } = render(
+      <Shell steps={STEPS} currentIndex={2} status="Moxxy is still setting up: Agent runtime (2 of 3).">
+        <span>form</span>
+      </Shell>,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Moxxy is still setting up: Agent runtime (2 of 3).');
+
+    rerender(
+      <Shell steps={STEPS} currentIndex={2} status={null}>
+        <span>form</span>
+      </Shell>,
+    );
+    expect(screen.queryByRole('status')).toBeNull();
+  });
 });
