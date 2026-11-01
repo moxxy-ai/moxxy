@@ -1,5 +1,13 @@
 # @moxxy/plugin-provider-acp
 
+## 0.47.1
+
+### Patch Changes
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+  - @moxxy/agent-connection-kit@0.1.3
+
 ## 0.47.0
 
 ### Patch Changes

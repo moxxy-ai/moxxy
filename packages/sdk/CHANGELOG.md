@@ -1,5 +1,11 @@
 # @moxxy/sdk
 
+## 0.47.1
+
+### Patch Changes
+
+- 89457c4: On Windows, Moxxy runs pnpm 11 and later when it was installed with npm. That pnpm ships a native `pnpm.exe` behind its `pnpm.cmd`, with no JavaScript file beside it, and Moxxy refused it with "Cannot resolve pnpm JavaScript entry beside Windows shim". Moxxy now runs that `pnpm.exe` directly, still without a shell.
+
 ## 0.47.0
 
 ### Minor Changes
