@@ -41,6 +41,31 @@ test('an accepted advisory stops being accepted once a fix is published', () => 
   assert.deepEqual(evaluateAudit([fixed], accepted).unmitigated, [fixed]);
 });
 
+const fixOnlyInNewerMajor = [
+  {
+    id: 'GHSA-aaaa-bbbb-cccc',
+    module: 'dev-only-lib',
+    paths: ['apps__docs>tool>dev-only-lib'],
+    fixedOnlyIn: '>=2.0.1',
+    reason: 'test fixture: the tool needs the 1.x API',
+  },
+];
+
+test('an accepted advisory fixed only in a major its reviewed path cannot use passes', () => {
+  const onlyInNewerMajor = advisory({ patched_versions: '>=2.0.1' });
+  assert.deepEqual(evaluateAudit([onlyInNewerMajor], fixOnlyInNewerMajor), { unmitigated: [], stale: [] });
+});
+
+test('an advisory accepted for a newer-major fix is unmitigated once the reported fix changes', () => {
+  const backported = advisory({ patched_versions: '>=1.0.1 <2.0.0 || >=2.0.1' });
+  assert.deepEqual(evaluateAudit([backported], fixOnlyInNewerMajor).unmitigated, [backported]);
+});
+
+test('an advisory accepted for a newer-major fix is unmitigated when no fix is reported at all', () => {
+  const unfixed = advisory();
+  assert.deepEqual(evaluateAudit([unfixed], fixOnlyInNewerMajor).unmitigated, [unfixed]);
+});
+
 test('an accepted advisory reached through an unreviewed path is unmitigated', () => {
   const elsewhere = advisory({
     findings: [{ version: '1.0.0', paths: ['packages__cli>dev-only-lib'] }],

@@ -41,13 +41,17 @@ We deliberately do not claim "sandboxed by default." If your threat model includ
 
 ## Known dependency advisories awaiting an upstream fix
 
-CI rejects any dependency with a published advisory (`pnpm audit:security`). An advisory that has **no fixed release yet** cannot be cleared by upgrading, so it is accepted here, in the open, until upstream ships a fix. The list is enforced from `scripts/security-audit-policy.mjs`, and a test fails when this table and that list differ.
+CI rejects any dependency with a published advisory (`pnpm audit:security`). An advisory that has **no fixed release yet** cannot be cleared by upgrading, so it is accepted here, in the open, until upstream ships a fix. So is one fixed **only in a major version** the reviewed path cannot load. The list is enforced from `scripts/security-audit-policy.mjs`, and a test fails when this table and that list differ.
 
-None at the moment. (`node-forge`, GHSA-86w9-cpqp-85rv, was accepted here until the mobile app and its Expo tooling, the only path that reached it, were removed.)
+| Advisory | Package | Reached through | Why it is accepted |
+|---|---|---|---|
+| [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) | `minimatch` 3 and 5 (glob DoS) | `electron-builder` → `@electron/asar`; `electron-builder` → `ejs` → `jake` → `filelist` | Fixed only in minimatch 11, which drops the default export these versions' callers load; the newest `electron-builder` still pins both. It runs only while the desktop installers are built, on globs Moxxy writes itself, and ships in no installer. minimatch 9 and 10 are moved to 11. |
+
+(`node-forge`, GHSA-86w9-cpqp-85rv, was accepted here until the mobile app and its Expo tooling, the only path that reached it, were removed.)
 
 An accepted entry is not permanent. The audit fails again, and the entry must be removed, as soon as any of these happens:
 
-- upstream publishes a fixed version (upgrade, then delete the entry and its row here);
+- upstream publishes a fixed version (upgrade, then delete the entry and its row here), or, for a fix only in a newer major, the reported fix range changes;
 - the package is reached through any dependency path other than the reviewed one;
 - the advisory is no longer reported.
 

@@ -115,6 +115,12 @@ entry `agent` or `api`. Skipping the workspace step keeps the built-in Moxxy
 workspace, whose folder is `~/Moxxy` (inside `MOXXY_HOME` when that is set):
 the app starts its first runner there (`initialRunnerTarget` in
 `@moxxy/desktop-host`), and the step says so before the person skips.
+The provider step starts on the first coding agent, not on an API key. While
+the first launch still sets up behind the form, one muted line under the card
+names the setup step and says that signing in and starting the agent wait for
+it (`onboarding/setup-notice.ts`); the full setup screen does not cover
+onboarding. Creating a workspace goes on as soon as it exists and does not wait
+for its agent to start; a failure is said in red under the fields.
 
 Menus are one component, `shell/menu/PopoverMenu.tsx`, positioned by
 `shell/menu/usePopover.ts`. A menu opened with the pointer grows from the

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
 import { setActiveBus } from './shared';
 import { registerSettingsHandlers } from './settings';
+import { checkAgentCli } from '@moxxy/agent-connection-kit';
+import { agentConnectionsWithoutRunner } from '../agent-cli';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
@@ -129,6 +131,24 @@ describe('settings.providers', () => {
 
     expect(await providers({}, undefined)).toEqual([
       expect.objectContaining({ name: 'codex-agent', agentName: 'Codex', agentCli }),
+    ]);
+  });
+
+  it('lists the agent connections from this computer while no runner is up, so one can be installed', async () => {
+    const pool = { activeWorkspaceId: () => 'w1', get: () => ({ remote: () => null }) };
+    const handlers = new Map<string, Handler>();
+    setActiveBus({ handle: (channel: string, fn: Handler) => void handlers.set(channel, fn) } as never);
+    registerSettingsHandlers(pool as never, {
+      agentConnectionsWithoutRunner: () =>
+        agentConnectionsWithoutRunner((desc) => checkAgentCli(desc, { home, pathEnv: '' }, { latest: async () => null })),
+    });
+    const providers = handlers.get('settings.providers');
+    assertDefined(providers, 'settings.providers handler');
+
+    expect(await providers({}, undefined)).toEqual([
+      expect.objectContaining({ name: 'claude-code', agentCli: expect.objectContaining({ state: 'missing' }) }),
+      expect.objectContaining({ name: 'codex-agent', agentCli: expect.objectContaining({ state: 'missing' }) }),
+      expect.objectContaining({ name: 'opencode', agentCli: expect.objectContaining({ state: 'missing' }) }),
     ]);
   });
 });

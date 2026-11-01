@@ -4959,6 +4959,14 @@ button.toast__open { cursor: pointer; }
   color: var(--color-text);
 }
 
+.onboard__status {
+  margin: 0;
+  text-align: center;
+  font-size: var(--type-row);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
 .onboard__card {
   display: flex;
   flex-direction: column;

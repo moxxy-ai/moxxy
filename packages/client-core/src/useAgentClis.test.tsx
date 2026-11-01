@@ -4,13 +4,22 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { AgentCliProgress, AgentCliRunResult, MoxxyApi } from '@moxxy/desktop-ipc-contract';
+import { SESSION_INFO_REFRESH_EVENT, type AgentCliProgress, type AgentCliRunResult, type MoxxyApi } from '@moxxy/desktop-ipc-contract';
+import { configurePlatform } from './platform.js';
 import { __setApiOverride } from './transport.js';
 import { useAgentClis } from './useAgentClis.js';
 
 afterEach(() => {
   __setApiOverride(null);
+  configurePlatform({});
 });
+
+/** The events the hook sends on the platform's bus, in order. */
+function recordBus(): string[] {
+  const sent: string[] = [];
+  configurePlatform({ eventBus: { on: () => () => undefined, emit: (event) => void sent.push(event) } });
+  return sent;
+}
 
 function host() {
   const calls: Array<[string, unknown]> = [];
@@ -83,5 +92,37 @@ describe('useAgentClis', () => {
 
     expect(h.calls).toContainEqual(['agents.check', undefined]);
     await waitFor(() => expect(result.current.checking).toBe(false));
+  });
+
+  // With no runner up yet (a first run), no runner says its state changed, so the views read it again themselves.
+  it('has every view read the agents again once an install ends, failed or not', async () => {
+    const h = host();
+    const sent = recordBus();
+    const { result } = renderHook(() => useAgentClis());
+
+    await act(async () => {
+      const done = result.current.run('codex-agent', 'install');
+      h.finish({ ok: true, message: 'Installed' });
+      await done;
+    });
+    await act(async () => {
+      const done = result.current.run('opencode', 'install');
+      h.finish({ ok: false, message: 'npm failed' });
+      await done;
+    });
+
+    expect(sent).toEqual([SESSION_INFO_REFRESH_EVENT, SESSION_INFO_REFRESH_EVENT]);
+  });
+
+  it('has every view read the agents again after checking them', async () => {
+    host();
+    const sent = recordBus();
+    const { result } = renderHook(() => useAgentClis());
+
+    await act(async () => {
+      await result.current.check();
+    });
+
+    expect(sent).toEqual([SESSION_INFO_REFRESH_EVENT]);
   });
 });
