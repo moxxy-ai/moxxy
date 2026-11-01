@@ -1,5 +1,13 @@
 # @moxxy/plugin-browser
 
+## 0.47.1
+
+### Patch Changes
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+  - @moxxy/jev@0.2.7
+
 ## 0.47.0
 
 ### Patch Changes

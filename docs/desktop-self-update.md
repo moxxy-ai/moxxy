@@ -196,7 +196,8 @@ plan's steps while the update downloads, and the setup steps plus **Start
 Moxxy** after the restart. It leaves by itself once the runner is connected. It
 stays only when there is something to read — a step that failed, or a backup
 that was kept — and then has one button. On a first install the same setup runs
-behind the welcome screens instead of covering them.
+behind the welcome screens instead of covering them; a line under the onboarding
+card names the running step (`apps/desktop/src/onboarding/setup-notice.ts`).
 
 - `useUpdateActivity` (`@moxxy/client-core`) holds the plan, progress and setup
   state; `update-screen-model.ts` turns them into what the screen shows;

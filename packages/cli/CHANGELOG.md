@@ -1,5 +1,24 @@
 # @moxxy/cli
 
+## 0.47.1
+
+### Patch Changes
+
+- 2af11f0: The WhatsApp channel's `follow-redirects` moves to 1.16.2, past GHSA-mrwp-f3q8-3g9p (custom credentials could follow a redirect). Lint and the macOS installer build move their `minimatch` 9 and 10 to 11, past GHSA-g3hv-75wg-m249; the `minimatch` 3 and 5 that `electron-builder` pins have no fix they can load, run only while installers are built, and are listed in `SECURITY.md`.
+- a927b2f: Moxxy finds Codex where its Windows installer puts it, `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`. After **Install Codex** the row said "Not installed" again: Moxxy looked only on its own `PATH`, which the installer changes for new windows only, and in `~/.local/bin`.
+
+  First run on the desktop no longer waits minutes in silence while setup runs behind it:
+
+  - The provider step starts on a coding agent instead of an API key, and lists the agents with their **Install** button straight away. Before, the rows came only from the agent runtime, which starts after setup.
+  - An install, an update or a check refreshes the rows even before the runtime is up.
+  - Under the form, onboarding says which setup step runs and that signing in and starting the agent wait for it.
+  - **Create workspace** goes on as soon as the workspace exists, instead of waiting for its agent to start.
+  - A workspace that could not be created says why and stays on the step.
+  - A workspace picked on Windows is named after its folder (`moxxy`), not its whole path, in onboarding and in the sidebar's **New workspace**.
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+
 ## 0.47.0
 
 ### Minor Changes

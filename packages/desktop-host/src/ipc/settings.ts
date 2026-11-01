@@ -11,10 +11,16 @@
 
 import { AGENT_CLIS } from '@moxxy/agent-connection-kit';
 
+import type { ProviderEntry } from '@moxxy/desktop-ipc-contract';
 import type { RunnerPool } from '../runner-pool';
 import { getInProcessPlugins, handle, mustRemote, mustSession, resolveSupervisor } from './shared';
 
-export function registerSettingsHandlers(pool: RunnerPool): void {
+export interface SettingsHandlerDeps {
+  /** The agent connections read on this computer, listed while no runner is up. */
+  readonly agentConnectionsWithoutRunner?: () => Promise<ProviderEntry[]>;
+}
+
+export function registerSettingsHandlers(pool: RunnerPool, deps: SettingsHandlerDeps = {}): void {
   // ---- Settings -----------------------------------------------------------
 
   handle('settings.fetchProviderModels', async ({ provider }) => {
@@ -47,7 +53,11 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
   handle('settings.providers', async (args) => {
     const sup = resolveSupervisor(pool, args?.workspaceId);
     const session = sup?.remote();
-    if (!session) return [];
+    if (!session) {
+      // On a first run the runner waits for setup; the agents can be installed meanwhile.
+      const list = deps.agentConnectionsWithoutRunner ?? (await import('../agent-cli')).agentConnectionsWithoutRunner;
+      return list();
+    }
     const info = session.getInfo();
     const readySet = new Set(info.readyProviders ?? []);
     // Stored (runtime-registered) entries carry the configure-relevant

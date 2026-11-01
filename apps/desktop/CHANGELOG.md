@@ -1,5 +1,34 @@
 # @moxxy/desktop
 
+## 0.47.1
+
+### Patch Changes
+
+- a927b2f: Moxxy finds Codex where its Windows installer puts it, `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`. After **Install Codex** the row said "Not installed" again: Moxxy looked only on its own `PATH`, which the installer changes for new windows only, and in `~/.local/bin`.
+
+  First run on the desktop no longer waits minutes in silence while setup runs behind it:
+
+  - The provider step starts on a coding agent instead of an API key, and lists the agents with their **Install** button straight away. Before, the rows came only from the agent runtime, which starts after setup.
+  - An install, an update or a check refreshes the rows even before the runtime is up.
+  - Under the form, onboarding says which setup step runs and that signing in and starting the agent wait for it.
+  - **Create workspace** goes on as soon as the workspace exists, instead of waiting for its agent to start.
+  - A workspace that could not be created says why and stays on the step.
+  - A workspace picked on Windows is named after its folder (`moxxy`), not its whole path, in onboarding and in the sidebar's **New workspace**.
+
+- Updated dependencies [2af11f0]
+- Updated dependencies [a927b2f]
+- Updated dependencies [89457c4]
+  - @moxxy/cli@0.47.1
+  - @moxxy/sdk@0.47.1
+  - @moxxy/chat-model@0.5.3
+  - @moxxy/client-core@0.15.1
+  - @moxxy/client-platform-web@0.1.78
+  - @moxxy/desktop-host@0.16.1
+  - @moxxy/desktop-ipc-contract@0.16.1
+  - @moxxy/plugin-vault@0.47.1
+  - @moxxy/runner@0.2.64
+  - @moxxy/workflows-builder@0.1.61
+
 ## 0.47.0
 
 ### Minor Changes

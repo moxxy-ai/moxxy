@@ -5,10 +5,9 @@
  * in ~/Moxxy, on a first run), so skipping keeps working there. First-run only.
  */
 
-import { useState } from 'react';
-import { useDesks } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
 import { StepCard, Fields, Nav, PrimaryButton, SuccessRow, inputStyle, pickerBtnStyle } from '../chrome';
+import { useWorkspaceStep } from '../useWorkspaceStep';
 
 export function WorkspaceStep({
   onNext,
@@ -17,33 +16,8 @@ export function WorkspaceStep({
   readonly onNext: () => void;
   readonly onBack: () => void;
 }): JSX.Element {
-  const desks = useDesks();
-  const [folder, setFolder] = useState<string | null>(null);
-  const [name, setName] = useState('My workspace');
-  const [creating, setCreating] = useState(false);
-
-  const onPickFolder = async (): Promise<void> => {
-    const f = await desks.pickFolder();
-    if (f) {
-      setFolder(f);
-      setName(f.split('/').filter(Boolean).pop() ?? 'My workspace');
-    }
-  };
-
-  const onCreate = async (): Promise<void> => {
-    if (!folder || !name.trim()) return;
-    setCreating(true);
-    try {
-      const desk = await desks.create(name.trim(), folder);
-      if (desk) await desks.setActive(desk.id);
-      onNext();
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const hasAny = desks.desks.length > 0;
-  const current = desks.desks.find((desk) => desk.id === desks.activeId) ?? null;
+  const step = useWorkspaceStep(onNext);
+  const { current, count, folder } = step;
 
   return (
     <StepCard
@@ -55,14 +29,10 @@ export function WorkspaceStep({
           text={`Skip, and I’ll work in “${current.name}” at ${current.cwd}. You can pick another folder later.`}
         />
       ) : (
-        hasAny && (
-          <SuccessRow
-            text={`You already have ${desks.desks.length} workspace${desks.desks.length === 1 ? '' : 's'}.`}
-          />
-        )
+        count > 0 && <SuccessRow text={`You already have ${count} workspace${count === 1 ? '' : 's'}.`} />
       )}
       <Fields>
-        <button type="button" onClick={() => void onPickFolder()} style={pickerBtnStyle}>
+        <button type="button" onClick={() => void step.pickFolder()} style={pickerBtnStyle}>
           <Icon name="workspace" size={16} />
           {folder ? folder : 'Choose a folder…'}
         </button>
@@ -72,17 +42,19 @@ export function WorkspaceStep({
               Name
             </span>
             <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              value={step.name}
+              onChange={(e) => step.setName(e.target.value)}
               style={inputStyle}
             />
           </label>
         )}
-        <PrimaryButton
-          onClick={() => void onCreate()}
-          disabled={!folder || !name.trim() || creating}
-        >
-          {creating ? 'Creating…' : 'Create workspace'}
+        {step.error && (
+          <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
+            {step.error}
+          </p>
+        )}
+        <PrimaryButton onClick={() => void step.create()} disabled={!step.canCreate}>
+          {step.creating ? 'Creating…' : 'Create workspace'}
         </PrimaryButton>
       </Fields>
       <Nav onBack={onBack} onNext={onNext} skip />
