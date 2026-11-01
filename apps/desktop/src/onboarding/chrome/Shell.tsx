@@ -18,10 +18,13 @@ function stateOf(index: number, current: number): 'done' | 'current' | 'ahead' {
 export function Shell({
   steps,
   currentIndex,
+  status = null,
   children,
 }: {
   readonly steps: ReadonlyArray<{ readonly id: string; readonly label: string }>;
   readonly currentIndex: number;
+  /** A line under the card about work going on behind the form, e.g. setup. */
+  readonly status?: string | null;
   readonly children: React.ReactNode;
 }): JSX.Element {
   // A recovery gate can be a single step; one mark out of one counts nothing.
@@ -58,6 +61,11 @@ export function Shell({
             {children}
           </div>
         </section>
+        {status && (
+          <p className="onboard__status" role="status">
+            {status}
+          </p>
+        )}
       </main>
     </div>
   );

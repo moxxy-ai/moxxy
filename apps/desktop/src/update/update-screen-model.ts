@@ -69,7 +69,7 @@ const UPDATE_STEPS: Readonly<Record<AppUpdatePlan['route'], Readonly<Record<AppU
   installer: { app: 'Download the update', installer: 'Download the new version', restart: 'Install and restart' },
 };
 
-const SETUP_STEPS: Readonly<Record<AppSetupStepId, string>> = {
+export const SETUP_STEPS: Readonly<Record<AppSetupStepId, string>> = {
   extensions: 'Extensions and tools',
   components: 'Agent runtime',
   connections: 'Model connections',

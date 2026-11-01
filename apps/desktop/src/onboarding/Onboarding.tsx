@@ -26,6 +26,7 @@ import { ONBOARDING_STEPS, type OnboardingCtx } from './flow';
 import { WelcomeStep } from './steps/WelcomeStep';
 import { NodeStep } from './steps/NodeStep';
 import { useRuntimeAutoInstall } from './useRuntimeAutoInstall';
+import { useSetupNotice } from './useSetupNotice';
 import { CliStep } from './steps/CliStep';
 import { ProviderStep } from './steps/ProviderStep';
 import { WorkspaceStep } from './steps/WorkspaceStep';
@@ -46,6 +47,7 @@ export function Onboarding({ phase, notice, onComplete }: Props): JSX.Element {
   const { prefs } = usePrefs();
   const ob = useOnboarding(phase);
   useRuntimeAutoInstall(ob);
+  const setupStatus = useSetupNotice();
 
   const ctx: OnboardingCtx = {
     full: !(prefs?.onboardingComplete ?? false),
@@ -63,7 +65,7 @@ export function Onboarding({ phase, notice, onComplete }: Props): JSX.Element {
   });
 
   return (
-    <Shell steps={flow.steps} currentIndex={flow.index}>
+    <Shell steps={flow.steps} currentIndex={flow.index} status={setupStatus}>
       {renderStep(
         flow.currentId,
         flow.next,

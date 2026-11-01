@@ -92,6 +92,12 @@ describe('finding a CLI', () => {
     expect(findAgentCli(OPENCODE_CLI, { home, pathEnv: '' })).toBe(file);
   });
 
+  it("finds Codex where its Windows installer puts it, which a running app's PATH does not have yet", () => {
+    const file = cli(CODEX_CLI, 'AppData/Local/Programs/OpenAI/Codex/bin/codex', 'codex-cli 0.166.0');
+
+    expect(findAgentCli(CODEX_CLI, { home, pathEnv: '' })).toBe(file);
+  });
+
   it('prefers the one on PATH, as a terminal would', () => {
     cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.150.0');
     const onPath = cli(CODEX_CLI, 'tools/codex', 'codex-cli 0.162.1');
@@ -390,6 +396,7 @@ describe('where a CLI came from', () => {
     expect(agentCliOrigin(CLAUDE_CLI, 'C:\\Users\\me\\.local\\bin\\claude.exe', options)).toEqual({ origin: 'installer' });
     expect(agentCliOrigin(CLAUDE_CLI, 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js', options)).toEqual({ origin: 'npm' });
     expect(agentCliOrigin(CLAUDE_CLI, 'c:\\users\\ME\\.LOCAL\\bin\\claude.exe', options)).toEqual({ origin: 'installer' });
+    expect(agentCliOrigin(CODEX_CLI, 'C:\\Users\\me\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe', options)).toEqual({ origin: 'installer' });
   });
 });
 

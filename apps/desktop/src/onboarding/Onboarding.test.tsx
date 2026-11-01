@@ -1,7 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { __setApiOverride } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Onboarding } from './Onboarding';
+
+// The host answers that this launch has nothing to set up.
+beforeEach(() => {
+  __setApiOverride({
+    invoke: async (cmd: string) => (cmd === 'app.setup' ? { reason: null, phase: 'done', steps: [], notes: [] } : undefined),
+    subscribe: () => () => undefined,
+  } as never);
+});
+afterEach(() => {
+  __setApiOverride(null);
+});
 
 vi.mock('@moxxy/client-core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@moxxy/client-core')>();

@@ -47,13 +47,44 @@ describe('ProviderStep', () => {
     render(<ProviderStep onNext={() => undefined} onBack={() => undefined} />);
 
     await waitFor(() => expect(screen.getByRole('option', { name: /codex-agent/ })).toBeInTheDocument());
-    expect(screen.queryByTestId('agent-row-codex-agent')).toBeNull();
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'codex-agent' } });
 
     const row = await screen.findByTestId('agent-row-codex-agent');
     expect(row).toHaveTextContent('Not installed');
     fireEvent.click(screen.getByRole('button', { name: 'Install Codex' }));
     await waitFor(() => expect(calls).toContainEqual(['agents.run', { provider: 'codex-agent', action: 'install' }]));
+  });
+
+  it('starts on the first coding agent, which signs in without an API key', async () => {
+    __setApiOverride({
+      invoke: async (cmd: string) => {
+        if (cmd === 'settings.providerCatalog') {
+          return [
+            { name: 'anthropic', kind: 'api' },
+            { name: 'openai', kind: 'api' },
+            { name: 'codex-agent', kind: 'agent' },
+            { name: 'opencode', kind: 'agent' },
+          ];
+        }
+        if (cmd === 'onboarding.providerAuthKind') return 'oauth';
+        return [];
+      },
+      subscribe: () => () => undefined,
+    } as never);
+    render(<ProviderStep onNext={() => undefined} onBack={() => undefined} />);
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue('codex-agent'));
+    expect(screen.queryByLabelText('API key')).toBeNull();
+  });
+
+  it('starts on a coding agent before the catalog has arrived', () => {
+    __setApiOverride({
+      invoke: () => new Promise(() => undefined),
+      subscribe: () => () => undefined,
+    } as never);
+    render(<ProviderStep onNext={() => undefined} onBack={() => undefined} />);
+
+    expect(screen.getByRole('combobox')).toHaveValue('claude-code');
   });
 
   it('groups the picker into coding agents and model APIs', async () => {

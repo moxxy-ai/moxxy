@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useDesks } from '@moxxy/client-core';
 import { useNow } from '@/lib/useNow';
+import { folderName } from '@/lib/folder-name';
 import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
@@ -212,7 +213,7 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
       </>
       {pendingFolder && (
         <NameWorkspaceModal
-          defaultName={pendingFolder.split('/').filter(Boolean).pop() ?? 'New workspace'}
+          defaultName={folderName(pendingFolder) ?? 'New workspace'}
           folder={pendingFolder}
           onCancel={() => setPendingFolder(null)}
           onSubmit={(name) => void onCreateWorkspace(name)}
