@@ -42,11 +42,17 @@ test('waits for a folder Windows holds for a moment after an agent exits', onlyW
   assert.equal(existsSync(dir), false);
 });
 
-test('a folder that stays held is reported, not thrown, so the checks keep their result', onlyWindows, async () => {
+test('a folder that stays held is reported, not thrown, so the checks keep their result', onlyWindows, async (t) => {
   const dir = workDir();
   const holder = await holdFolder(dir);
   try {
-    assert.match((await removeWorkDir(dir)) ?? '', /could not remove .*moxxy-agent-cli-env-.*\((EPERM|EBUSY)\)/);
+    const warning = await removeWorkDir(dir);
+    // Not every Windows holds it: the GitHub runner removes such a folder at once.
+    if (warning === null && !existsSync(dir)) {
+      t.skip('this Windows removes a folder a process is in');
+      return;
+    }
+    assert.match(warning ?? '', /could not remove .*moxxy-agent-cli-env-.*\((EPERM|EBUSY)\)/);
   } finally {
     holder.kill();
     await once(holder, 'exit');
