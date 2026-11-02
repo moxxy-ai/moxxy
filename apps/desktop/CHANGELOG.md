@@ -1,5 +1,31 @@
 # @moxxy/desktop
 
+## 0.48.1
+
+### Patch Changes
+
+- 56c1c6f: Telegram and Discord voice replies, Discord voice calls and the terminal's read aloud now speak a reply the way the desktop does: a table row by row, an address as a link to its site, and a code block as "(code block)" (left out entirely in a Discord voice call, as in Voice Mode). The text cleanup now lives in one place, `@moxxy/chat-model`, for every surface.
+- 72c7d1b: A click on a link in the chat, the mini chat or the media library opens a small menu. For a page: open it in the Moxxy browser, open it in the default browser, or copy it; the mini chat offers only the default browser, since the Moxxy browser is in the main window. A page opened in a Moxxy browser that was not open yet is the tab in front, not Google's start page, and the browser's + for a new tab sits right after the last tab instead of past an empty gap. For a file: open it, show it in Finder (File Explorer on Windows), add it to the agent, or copy its path. Cmd-click (Ctrl-click off a Mac) opens the link at once, as before. A link to GitHub or a Google page no longer opens in a sign-in window of the app but in the default browser, and links in the mini chat open at all. Links to files on Windows (`C:\…`, `file:///C:/…`) open instead of saying the file does not exist, and a missing file now says "This file is not there". A Windows path with a dot or an underscore after a backslash (`C:\Users\Jan\.config`) keeps it.
+- b09c7b3: Read aloud and Voice Mode read a table row by row, each value with the name of its column ("Claude: Wynik 9 z 9."), instead of all its cells in one run. A web address is no longer read out or broken into pieces at its dots: a link is said as a link to its site ("link do strony github"), a bare domain as the site's name, and a link with its own text by that text.
+- a12f70b: Read aloud, Voice Mode and the channel voice replies also read a table written without the pipes at its edges (`Agent | Wynik` over `--- | ---`) row by row. A line of dashes under every column is what makes a table, so a sentence with a pipe in it is still read as a sentence.
+- 0ce1f19: The local voice reads a version of three parts after the word "version" ("Wersja 2.1.316", "Version 2.1.316") as one number with every dot said, instead of "dwa kropka jeden" followed by a bare dot.
+- e7854f6: Read aloud no longer stalls for seconds on a reply built to be slow, such as a long run of spaces in a table, commas after a link, unclosed brackets or a long path. Every check that prepares text for speech now takes time in step with the length of the text.
+- Updated dependencies [56c1c6f]
+- Updated dependencies [b09c7b3]
+- Updated dependencies [a12f70b]
+- Updated dependencies [0ce1f19]
+- Updated dependencies [e7854f6]
+  - @moxxy/cli@0.48.1
+  - @moxxy/client-core@0.16.1
+  - @moxxy/chat-model@0.5.5
+  - @moxxy/client-platform-web@0.1.80
+  - @moxxy/sdk@0.48.1
+  - @moxxy/plugin-vault@0.48.1
+  - @moxxy/desktop-host@0.17.1
+  - @moxxy/desktop-ipc-contract@0.17.1
+  - @moxxy/runner@0.2.66
+  - @moxxy/workflows-builder@0.1.63
+
 ## 0.48.0
 
 ### Minor Changes

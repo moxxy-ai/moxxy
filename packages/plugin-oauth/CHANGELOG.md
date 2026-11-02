@@ -1,5 +1,12 @@
 # @moxxy/plugin-oauth
 
+## 0.48.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.1
+- @moxxy/plugin-vault@0.48.1
+
 ## 0.48.0
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @moxxy/chat-model
 
+## 0.5.5
+
+### Patch Changes
+
+- a12f70b: Read aloud, Voice Mode and the channel voice replies also read a table written without the pipes at its edges (`Agent | Wynik` over `--- | ---`) row by row. A line of dashes under every column is what makes a table, so a sentence with a pipe in it is still read as a sentence.
+- e7854f6: Read aloud no longer stalls for seconds on a reply built to be slow, such as a long run of spaces in a table, commas after a link, unclosed brackets or a long path. Every check that prepares text for speech now takes time in step with the length of the text.
+  - @moxxy/sdk@0.48.1
+
 ## 0.5.4
 
 ### Patch Changes
