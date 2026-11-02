@@ -9,6 +9,10 @@
  * capability ({@link TextToSpeech} in `./platform`), implemented per platform.
  */
 
+import { detectSpeechLanguage, speakMarkdownTables, type SpeechLanguage } from '@moxxy/chat-model';
+
+import { isBareDomain, isWebAddress, siteName, spokenLink } from './spoken-links.js';
+
 const KEYCAP_EMOJI_RE = /[#*0-9]\uFE0F?\u20E3/gu;
 /** The degree sign is `So` too, but it is how a temperature is said. */
 const NON_VERBAL_SYMBOL_RE = /(?!°)\p{So}/gu;
@@ -49,8 +53,25 @@ function isUrlOrFileReference(value: string): boolean {
       && !FILE_EXTENSION_RE.test(candidate));
 }
 
-function keepLinkLabel(label: string): string {
-  return isUrlOrFileReference(label) ? ' ' : label;
+const TRAILING_PUNCTUATION_RE = /[),.;:!?]+$/u;
+const WEB_ADDRESS_RE = /\b(?:https?:\/\/|www\.)[^\s<>()[\]`]+/giu;
+
+/**
+ * A reference as it is said: a link as a link to its site, a bare domain as
+ * the site's name, a file path not at all, and anything else as written.
+ */
+function speakReference(value: string, language: SpeechLanguage): string {
+  const trimmed = value.trim();
+  const reference = trimmed.replace(TRAILING_PUNCTUATION_RE, '');
+  const after = trimmed.slice(reference.length);
+  if (isWebAddress(reference)) return `${spokenLink(reference, language)}${after}`;
+  if (isBareDomain(reference) && !FILE_EXTENSION_RE.test(reference)) return `${siteName(reference) ?? ' '}${after}`;
+  return isUrlOrFileReference(reference) ? ' ' : value;
+}
+
+/** The language of the prose around the addresses, which decides how a link is said. */
+function proseLanguage(markdown: string): SpeechLanguage {
+  return detectSpeechLanguage(markdown.replace(/\([^)]*\)|<[^>]*>/gu, ' ').replace(WEB_ADDRESS_RE, ' '));
 }
 
 /**
@@ -60,23 +81,23 @@ function keepLinkLabel(label: string): string {
  * "(code block)" rather than reading source line-by-line.
  */
 function normalizeSpeakableMarkdown(markdown: string, fencedCodeReplacement: string): string {
-  const stripped = markdown
+  const language = proseLanguage(markdown);
+  const stripped = speakMarkdownTables(markdown)
     // Fenced code is either summarized for explicit read-aloud or omitted in
     // a live conversation where announcing it interrupts the spoken answer.
     .replace(/```[\s\S]*?```/g, fencedCodeReplacement)
     .replace(/~~~[\s\S]*?~~~/g, fencedCodeReplacement)
-    // Images / links → their human-readable text (the URL is dropped, never
-    // spoken). Bare URLs in prose are stripped too so the engine doesn't read
-    // out "h-t-t-p-s-colon-slash-slash…".
+    // Images / links → their human-readable text; an address is never spelled
+    // out ("h-t-t-p-s-colon-slash-slash…") but said as a link to its site.
     .replace(/^\s*\[[^\]]+\]:\s*\S+.*$/gm, ' ')
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_match, label: string) => keepLinkLabel(label))
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, (_match, label: string) => keepLinkLabel(label))
-    .replace(/\[([^\]]+)\]\s*\[[^\]]*\]/g, (_match, label: string) => keepLinkLabel(label))
-    .replace(/<https?:\/\/[^>]+>/giu, ' ')
-    .replace(/\b(?:https?:\/\/|www\.)[^\s<>()[\]]+/giu, ' ')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_match, label: string) => speakReference(label, language))
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, (_match, label: string) => speakReference(label, language))
+    .replace(/\[([^\]]+)\]\s*\[[^\]]*\]/g, (_match, label: string) => speakReference(label, language))
+    .replace(/<(https?:\/\/[^>]+)>/giu, (_match, address: string) => spokenLink(address, language))
+    .replace(WEB_ADDRESS_RE, (address) => speakReference(address, language))
     // Inline code + emphasis → bare content. The `_italic_` rule requires
     // both underscores so snake_case identifiers survive.
-    .replace(/`([^`]+)`/g, (_match, code: string) => (isUrlOrFileReference(code) ? ' ' : code))
+    .replace(/`([^`]+)`/g, (_match, code: string) => speakReference(code, language))
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
@@ -93,9 +114,14 @@ function normalizeSpeakableMarkdown(markdown: string, fencedCodeReplacement: str
 
   const withoutPaths = stripped
     .replace(ABSOLUTE_FILE_PATH_RE, ' ')
-    .replace(FILE_PATH_RE, (match) => (SLASHED_PROSE_RE.test(match) ? match : ' '))
+    .replace(FILE_PATH_RE, (match) => {
+      if (SLASHED_PROSE_RE.test(match)) return match;
+      return isWebAddress(match) ? speakReference(match, language) : ' ';
+    })
     .replace(DOMAIN_RE, (match, offset: number, whole: string) =>
-      FILE_EXTENSION_RE.test(match) || DOTTED_PROSE_RE.test(match) || whole[offset - 1] === '@' ? match : ' ');
+      FILE_EXTENSION_RE.test(match) || DOTTED_PROSE_RE.test(match) || whole[offset - 1] === '@'
+        ? match
+        : speakReference(match, language));
 
   // Split on blank lines into paragraphs; soft-wrap newlines collapse to
   // spaces. Each paragraph gets terminal punctuation so the engine pauses

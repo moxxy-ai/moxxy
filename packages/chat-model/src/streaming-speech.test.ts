@@ -107,6 +107,45 @@ describe('IncrementalSpeechSegmenter', () => {
     ]);
   });
 
+  it('keeps a web address inside its sentence', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push(
+      'Raport jest tutaj: https://github.com/moxxy-ai/moxxy/pull/692. Więcej w [dokumentacji](https://docs.moxxy.ai/voice) albo na www.moxxy.ai/blog?id=5. ',
+    )).toEqual([
+      'Raport jest tutaj: https://github.com/moxxy-ai/moxxy/pull/692.',
+      'Więcej w [dokumentacji](https://docs.moxxy.ai/voice) albo na www.moxxy.ai/blog?id=5.',
+    ]);
+  });
+
+  it('waits for the rest of an address that arrives in two pieces', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Wejdź na https://docs.moxxy.')).toEqual([]);
+    expect(segmenter.push('ai/voice i sprawdź. ')).toEqual(['Wejdź na https://docs.moxxy.ai/voice i sprawdź.']);
+  });
+
+  it('still says a sentence the text ends on at once', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Zaraz to sprawdzę.')).toEqual(['Zaraz to sprawdzę.']);
+  });
+
+  it('reads a table row by row once the table is complete', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Oto wyniki:\n| Agent | Wynik |\n|---|---|\n| Claude | 9 z 9. Bez uwag |\n')).toEqual([
+      'Oto wyniki:',
+    ]);
+    expect(segmenter.push('| Codex | 8 z 9 |\n\nKoniec. ')).toEqual([
+      'Claude: Wynik 9 z 9. Bez uwag.',
+      'Codex: Wynik 8 z 9.',
+      'Koniec.',
+    ]);
+  });
+
+  it('reads a table that ends the reply', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('| Agent | Wynik |\n|---|---|\n| Claude | 9 z 9 |')).toEqual([]);
+    expect(segmenter.flush()).toEqual(['Claude: Wynik 9 z 9.']);
+  });
+
   it('forces a natural word-boundary chunk for a very long sentence', () => {
     const segmenter = new IncrementalSpeechSegmenter({ maxChars: 56 });
     const chunks = segmenter.push(

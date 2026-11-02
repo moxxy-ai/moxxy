@@ -1,3 +1,5 @@
+import { isTableLine, speakTable } from './speech-tables.js';
+
 export type SpeechLanguage = 'pl' | 'en';
 
 const POLISH_WORDS: ReadonlySet<string> = new Set([
@@ -304,6 +306,12 @@ export class IncrementalSpeechSegmenter {
   private extract(final: boolean): string[] {
     const chunks: string[] = [];
     while (this.buffer.trim()) {
+      const table = this.takeTable(final);
+      if (table === 'incomplete') break;
+      if (table) {
+        chunks.push(...table);
+        continue;
+      }
       const natural = scanNaturalBoundary(this.buffer);
       const forced = natural.boundary === null
         && !natural.protectedAtEnd
@@ -316,6 +324,24 @@ export class IncrementalSpeechSegmenter {
     }
     if (final && this.buffer.trim()) this.take(this.buffer.length, chunks);
     return chunks;
+  }
+
+  /**
+   * A table at the start of the buffer, read row by row once its last line is in
+   * (`incomplete` until then); `null` when the buffer does not start with one.
+   */
+  private takeTable(final: boolean): string[] | 'incomplete' | null {
+    if (!isTableLine(this.buffer)) return null;
+    const lines = this.buffer.split('\n');
+    let count = 0;
+    while (count < lines.length && isTableLine(lines[count] ?? '')) count += 1;
+    const next = lines[count];
+    const complete = final || count < lines.length - 1 || (next !== undefined && next.trim() !== '');
+    if (!complete) return 'incomplete';
+    const rows = speakTable(lines.slice(0, count));
+    if (!rows) return null;
+    this.buffer = lines.slice(count).join('\n').trimStart();
+    return rows;
   }
 
   private take(boundary: number, chunks: string[]): void {
@@ -348,20 +374,40 @@ function scanNaturalBoundary(text: string): NaturalBoundaryScan {
     if (inlineCode) continue;
 
     const char = text[i];
-    if (char === '\n' && i > 0 && text[i - 1] === '\n') {
+    if (char === '\n' && i > 0 && (text[i - 1] === '\n' || isTableLine(text.slice(i + 1)))) {
       return { boundary: i + 1, protectedAtEnd: false };
     }
     if (char === '!' || char === '?') {
-      return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
+      const end = includeClosingPunctuation(text, i + 1);
+      if (end === text.length || isSpace(text[end])) return { boundary: end, protectedAtEnd: false };
     }
     if (char === '.' && isSentencePeriod(text, i)) {
-      return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
+      const end = includeClosingPunctuation(text, i + 1);
+      // A dot the text ends on may still be the dot of an address ("https://moxxy." + "ai").
+      if (end === text.length) {
+        return isAddressSoFar(text, i)
+          ? { boundary: null, protectedAtEnd: true }
+          : { boundary: end, protectedAtEnd: false };
+      }
+      if (isSpace(text[end])) return { boundary: end, protectedAtEnd: false };
     }
-    if ((char === ';' || (char === ':' && !isClockColon(text, i))) && i + 1 >= MIN_CLAUSE_CHARS) {
+    if ((char === ';' || (char === ':' && !isClockColon(text, i)))
+      && i + 1 >= MIN_CLAUSE_CHARS && isSpace(text[i + 1])) {
       return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
     }
   }
   return { boundary: null, protectedAtEnd: fence !== null || inlineCode };
+}
+
+/** Only a mark followed by a space ends a sentence: in an address it does not ("moxxy.ai/blog?id=5"). */
+function isSpace(char: string | undefined): boolean {
+  return char !== undefined && /\s/u.test(char);
+}
+
+/** The word before the dot at `index` already looks like an address, so the dot may not end it. */
+function isAddressSoFar(text: string, index: number): boolean {
+  const word = text.slice(0, index).split(/\s/u).at(-1) ?? '';
+  return /:\/\/|^www\.|[./@]/iu.test(word);
 }
 
 /** The colon of a time such as 10:10, which only reads as one phrase. */
