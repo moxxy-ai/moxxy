@@ -11,9 +11,15 @@ export const STATUS_TEXT: Readonly<Record<AgentWorkStatus, string>> = {
 
 /** One line under a work's name: what kind it is, and how long it ran or has been running. */
 export function workMeta(item: AgentWorkItem, nowMs: number): string {
-  const kind = item.kind === 'command' ? 'Command' : item.agentType && item.agentType !== 'default' ? item.agentType : 'Helper';
+  const kind = workKind(item.kind, item.agentType);
   const took = duration(item, nowMs);
   return took ? `${kind} · ${took}` : kind;
+}
+
+/** What kind of work it is, in a word: a command, or the kind a helper was started as. */
+export function workKind(kind: AgentWorkItem['kind'], agentType: string | null): string {
+  if (kind === 'command') return 'Command';
+  return agentType && agentType !== 'default' ? agentType : 'Helper';
 }
 
 function duration(item: AgentWorkItem, nowMs: number): string | null {

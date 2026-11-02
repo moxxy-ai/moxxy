@@ -57,6 +57,7 @@ import { registerAppsHandlers } from './ipc/apps';
 import { registerAnonymizerHandlers } from './ipc/anonymizer';
 import { registerGitHandlers } from './ipc/git';
 import { registerSurfaceHandlers } from './ipc/surfaces';
+import { registerTerminalHandlers } from './ipc/terminal';
 import { registerBrowserHandlers } from './ipc/browser';
 import type { BrowserHost } from '@moxxy/plugin-browser/host';
 import { registerDesksHandlers } from './ipc/desks';
@@ -144,6 +145,7 @@ export function registerIpcHandlers(
     registerAnonymizerHandlers(pool, desks);
     registerGitHandlers(desks);
     registerSurfaceHandlers(pool);
+    registerTerminalHandlers(desks);
     if (opts.browser) registerBrowserHandlers(opts.browser);
     registerDesksHandlers(pool, desks);
     registerWorkflowsHandlers(pool, desks);
