@@ -44,7 +44,7 @@
     "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
