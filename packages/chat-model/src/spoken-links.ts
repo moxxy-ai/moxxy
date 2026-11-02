@@ -4,7 +4,7 @@
  * ("link do strony github") and a bare domain as the site's name ("moxxy").
  */
 
-import type { SpeechLanguage } from '@moxxy/chat-model';
+import type { SpeechLanguage } from './streaming-speech.js';
 
 /** Second-level labels of country domains such as bbc.co.uk or onet.com.pl. */
 const SECOND_LEVEL_LABELS: ReadonlySet<string> = new Set(['ac', 'co', 'com', 'edu', 'gov', 'net', 'org']);

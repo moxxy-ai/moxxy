@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toSpeakableText, toVoiceConversationText } from './speech.js';
+import { toSpeakableText, toVoiceConversationText } from './speech-text.js';
 
 describe('toSpeakableText', () => {
   it('strips heading markers but keeps the heading text', () => {

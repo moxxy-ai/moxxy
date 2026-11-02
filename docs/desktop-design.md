@@ -186,7 +186,8 @@ row once it is complete, each row one sentence that names the column of every
 value ("Claude: Wynik 9 z 9."; `speech-tables.ts`). An address is never spelled
 out: a link is said as a link to its site ("link do strony github", "a link to
 github"), a bare domain as the site's name, and a link with its own text by that
-text (`spoken-links.ts` in `@moxxy/client-core`). Supertonic reads
+text (`speech-text.ts` and `spoken-links.ts` in `@moxxy/chat-model`, which the
+TUI and the Telegram and Discord voice replies use too). Supertonic reads
 at 1.3 times its own speed, about 140 words a minute, and a reply of one or two
 words at its own speed, because faster it blurs. It pads every sentence with
 about half a second of silence on each side, so `@moxxy/plugin-tts-local` cuts
