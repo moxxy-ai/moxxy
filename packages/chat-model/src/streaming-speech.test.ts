@@ -140,6 +140,25 @@ describe('IncrementalSpeechSegmenter', () => {
     ]);
   });
 
+  it('reads a table written without the pipes at the edges', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Oto wyniki:\nAgent | Wynik\n--- | ---\nClaude | 9 z 9. Bez uwag\nCodex | 8 z 9\n\nKoniec. ')).toEqual([
+      'Oto wyniki:',
+      'Claude: Wynik 9 z 9. Bez uwag.',
+      'Codex: Wynik 8 z 9.',
+      'Koniec.',
+    ]);
+  });
+
+  it('keeps a sentence with a pipe in it as a sentence', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Użyj a | b w powłoce. Potem sprawdź wynik.\nI gotowe. ')).toEqual([
+      'Użyj a | b w powłoce.',
+      'Potem sprawdź wynik.',
+      'I gotowe.',
+    ]);
+  });
+
   it('reads a table that ends the reply', () => {
     const segmenter = new IncrementalSpeechSegmenter();
     expect(segmenter.push('| Agent | Wynik |\n|---|---|\n| Claude | 9 z 9 |')).toEqual([]);

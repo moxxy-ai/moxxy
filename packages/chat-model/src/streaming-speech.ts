@@ -1,4 +1,4 @@
-import { isTableLine, speakTable } from './speech-tables.js';
+import { isTableLine, isTableRow, speakTable, startsTable } from './speech-tables.js';
 
 export type SpeechLanguage = 'pl' | 'en';
 
@@ -331,10 +331,13 @@ export class IncrementalSpeechSegmenter {
    * (`incomplete` until then); `null` when the buffer does not start with one.
    */
   private takeTable(final: boolean): string[] | 'incomplete' | null {
-    if (!isTableLine(this.buffer)) return null;
     const lines = this.buffer.split('\n');
-    let count = 0;
-    while (count < lines.length && isTableLine(lines[count] ?? '')) count += 1;
+    if (!(lines[0] ?? '').includes('|')) return null;
+    // Until its second line is in, only a line that starts with a pipe waits to be a table.
+    if (lines.length < 3 && !final) return isTableLine(this.buffer) ? 'incomplete' : null;
+    if (!startsTable(this.buffer)) return null;
+    let count = 2;
+    while (isTableRow(lines[count])) count += 1;
     const next = lines[count];
     const complete = final || count < lines.length - 1 || (next !== undefined && next.trim() !== '');
     if (!complete) return 'incomplete';
@@ -374,7 +377,7 @@ function scanNaturalBoundary(text: string): NaturalBoundaryScan {
     if (inlineCode) continue;
 
     const char = text[i];
-    if (char === '\n' && i > 0 && (text[i - 1] === '\n' || isTableLine(text.slice(i + 1)))) {
+    if (char === '\n' && i > 0 && (text[i - 1] === '\n' || startsTable(text.slice(i + 1)))) {
       return { boundary: i + 1, protectedAtEnd: false };
     }
     if (char === '!' || char === '?') {

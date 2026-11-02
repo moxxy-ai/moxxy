@@ -183,7 +183,10 @@ A clock time such as 10:10, the number of a list item and a web address stay
 inside their sentence: only a mark followed by a space ends one
 (`IncrementalSpeechSegmenter` in `@moxxy/chat-model`). A table is read row by
 row once it is complete, each row one sentence that names the column of every
-value ("Claude: Wynik 9 z 9."; `speech-tables.ts`). An address is never spelled
+value ("Claude: Wynik 9 z 9."; `speech-tables.ts`). A table may be written
+without the pipes at its edges (`Agent | Wynik`): what makes it a table is the
+line of dashes under every column name, so a sentence with a pipe in it is read
+as a sentence. An address is never spelled
 out: a link is said as a link to its site ("link do strony github", "a link to
 github"), a bare domain as the site's name, and a link with its own text by that
 text (`speech-text.ts` and `spoken-links.ts` in `@moxxy/chat-model`, which the

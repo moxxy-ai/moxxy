@@ -8,13 +8,41 @@
 const TABLE_LINE = /^\s*\|/u;
 const SEPARATOR_LINE = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/u;
 
-/** Whether a line can belong to a table. */
+/** A line that starts with a pipe, as most tables are written. */
 export function isTableLine(line: string): boolean {
   return TABLE_LINE.test(line);
 }
 
+/** A line that can be a row: Markdown also allows a table without the pipes at its edges. */
+export function isTableRow(line: string | undefined): boolean {
+  return line !== undefined && line.includes('|') && line.trim() !== '';
+}
+
 function cells(line: string): string[] {
   return line.trim().replace(/^\|/u, '').replace(/\|$/u, '').split('|').map((cell) => cell.trim());
+}
+
+/** A line of dashes under every column of `header`; a lone `---` under prose is a heading underline. */
+function isSeparatorFor(header: string, line: string | undefined): boolean {
+  return line !== undefined && SEPARATOR_LINE.test(line) && cells(line).length === cells(header).length;
+}
+
+/** A table starts at `lines[index]`: a row of names with its line of dashes under it. */
+function tableStartsAt(lines: readonly string[], index: number): boolean {
+  const header = lines[index];
+  return header !== undefined && isTableRow(header) && isSeparatorFor(header, lines[index + 1]);
+}
+
+/** `text` starts with a table, or with a line that already shows it will be one. */
+export function startsTable(text: string): boolean {
+  return isTableLine(text) || tableStartsAt(text.split('\n', 2), 0);
+}
+
+/** How many lines from `index` a table that starts there takes. */
+function tableLength(lines: readonly string[], index: number): number {
+  let end = index + 2;
+  while (isTableRow(lines[end])) end += 1;
+  return end - index;
 }
 
 /** Ending punctuation is the sentence's, not the cell's. */
@@ -27,8 +55,8 @@ function bare(cell: string): string {
  * are no table: Markdown needs the line of dashes under the column names.
  */
 export function speakTable(lines: readonly string[]): string[] | null {
-  const [header, separator, ...rows] = lines;
-  if (header === undefined || separator === undefined || !SEPARATOR_LINE.test(separator)) return null;
+  if (!tableStartsAt(lines, 0)) return null;
+  const [header = '', , ...rows] = lines;
   const names = cells(header);
   return rows
     .map((row) => {
@@ -47,17 +75,15 @@ export function speakMarkdownTables(markdown: string): string {
   const lines = markdown.split('\n');
   const out: string[] = [];
   for (let index = 0; index < lines.length;) {
-    if (!isTableLine(lines[index] ?? '')) {
+    if (!tableStartsAt(lines, index)) {
       out.push(lines[index] ?? '');
       index += 1;
       continue;
     }
-    let end = index;
-    while (end < lines.length && isTableLine(lines[end] ?? '')) end += 1;
-    const block = lines.slice(index, end);
-    const spoken = speakTable(block);
-    out.push(...(spoken ? spoken.flatMap((sentence, at) => (at === 0 ? [sentence] : ['', sentence])) : block));
-    index = end;
+    const length = tableLength(lines, index);
+    const spoken = speakTable(lines.slice(index, index + length)) ?? [];
+    out.push(...spoken.flatMap((sentence, at) => (at === 0 ? [sentence] : ['', sentence])));
+    index += length;
   }
   return out.join('\n');
 }

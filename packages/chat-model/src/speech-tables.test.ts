@@ -27,6 +27,18 @@ describe('speakTable', () => {
     expect(speakTable(['| Kroki |', '|---|', '| Zbuduj |', '| Przetestuj |'])).toEqual(['Zbuduj.', 'Przetestuj.']);
   });
 
+  it('reads a table written without the pipes at the edges', () => {
+    expect(speakTable(['Agent | Wynik', '--- | ---', 'Claude | 9 z 9', 'Codex | 8 z 9'])).toEqual([
+      'Claude: Wynik 9 z 9.',
+      'Codex: Wynik 8 z 9.',
+    ]);
+  });
+
+  it('is no table when the dashes do not stand under every column', () => {
+    expect(speakTable(['a | b', '---'])).toBeNull();
+    expect(speakTable(['| a | b |', '|---|'])).toBeNull();
+  });
+
   it('is no table without the line of dashes under the names', () => {
     expect(speakTable(['| a | b |', '| c | d |'])).toBeNull();
   });
@@ -43,6 +55,12 @@ describe('speakMarkdownTables', () => {
       '',
       'Koniec.',
     ].join('\n'));
+  });
+
+  it('turns a table without edge pipes into sentences and keeps a heading underline alone', () => {
+    expect(speakMarkdownTables('Wyniki:\nAgent | Wynik\n---|---\nClaude | 9 z 9\n\nUżyj a | b\n---')).toBe(
+      'Wyniki:\nClaude: Wynik 9 z 9.\n\nUżyj a | b\n---',
+    );
   });
 
   it('leaves lines that only start with a pipe alone', () => {
