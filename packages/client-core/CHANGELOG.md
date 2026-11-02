@@ -1,5 +1,20 @@
 # @moxxy/client-core
 
+## 0.16.0
+
+### Minor Changes
+
+- 725ad81: Settings → Voice is now one page: the Voice Mode engine, the dictation models (Parakeet, Whisper turbo, OpenAI) and the voices that read replies aloud, each with a line on what sets it apart. Parakeet and Whisper turbo download from their row only when someone asks for them. A saved `local-piper` choice moves to `local-supertonic` on its own, and the local-voice names in the IPC and client APIs no longer mention an engine.
+
+### Patch Changes
+
+- c3270fa: The local voice now says VS Code, Node.js, file names such as `tsconfig.json`, and pairs such as CI/CD the way people do. It no longer reads CI or CV after a capitalized word as Roman numerals. CI/CD, TCP/IP, and/or and i/lub no longer vanish before speech as if they were file paths.
+- Updated dependencies [725ad81]
+  - @moxxy/desktop-ipc-contract@0.17.0
+  - @moxxy/chat-model@0.5.4
+  - @moxxy/sdk@0.48.0
+  - @moxxy/workflows-builder@0.1.62
+
 ## 0.15.1
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @moxxy/agent-connection-kit
 
+## 0.1.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.0
+
 ## 0.1.3
 
 ### Patch Changes

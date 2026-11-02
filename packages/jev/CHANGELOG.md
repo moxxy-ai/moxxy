@@ -1,5 +1,11 @@
 # @moxxy/jev
 
+## 0.2.8
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.0
+
 ## 0.2.7
 
 ### Patch Changes

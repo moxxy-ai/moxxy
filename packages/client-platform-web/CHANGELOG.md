@@ -1,5 +1,15 @@
 # @moxxy/client-platform-web
 
+## 0.1.79
+
+### Patch Changes
+
+- 725ad81: Settings → Voice is now one page: the Voice Mode engine, the dictation models (Parakeet, Whisper turbo, OpenAI) and the voices that read replies aloud, each with a line on what sets it apart. Parakeet and Whisper turbo download from their row only when someone asks for them. A saved `local-piper` choice moves to `local-supertonic` on its own, and the local-voice names in the IPC and client APIs no longer mention an engine.
+- Updated dependencies [c3270fa]
+- Updated dependencies [725ad81]
+  - @moxxy/client-core@0.16.0
+  - @moxxy/sdk@0.48.0
+
 ## 0.1.78
 
 ### Patch Changes
