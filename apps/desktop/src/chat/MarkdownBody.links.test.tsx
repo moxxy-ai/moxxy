@@ -118,6 +118,15 @@ describe('a link to a file on this machine', () => {
     });
   });
 
+  it('opens a Windows path with a dot or an underscore after a backslash as written', async () => {
+    const invoke = installApi();
+    render(<MarkdownBody text={'[cfg](C:\\Users\\Jan\\.config\\notes.md)'} />);
+
+    fireEvent.click(screen.getByRole('link', { name: 'cfg' }), SKIP_MENU);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('files.open', { path: 'C:/Users/Jan/.config/notes.md' }));
+  });
+
   it('says so beside the link when the file cannot be opened', async () => {
     installApi(vi.fn(async () => {
       throw new Error('No application knows how to open this file');

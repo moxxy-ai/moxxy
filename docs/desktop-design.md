@@ -239,7 +239,10 @@ not open yet.
 
 A file link is a `file://` URL or an absolute path, spaces and all: `/Users/…`
 on macOS and Linux, `C:\…` or `C:/…` on Windows, and `file:///C:/…` reads as
-`C:/…`. A network path (`\\server\share`, `//server`) is not one: opening it
+`C:/…`. Markdown drops a backslash before punctuation (`C:\Users\.config`
+would read `C:\Users.config`), so before parsing, a link to a Windows drive gets
+forward slashes, which Windows reads the same (`windowsLinkSlashes`).
+A network path (`\\server\share`, `//server`) is not one: opening it
 makes Windows sign in to that server. Open goes through the host, never the
 browser: the file's own app for a type that only views or plays, otherwise the
 file manager (`chat/local-file-link.ts`, `files.open`); Show in Finder always

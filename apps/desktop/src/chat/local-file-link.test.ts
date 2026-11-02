@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { localFilePath } from './local-file-link';
+import { localFilePath, windowsLinkSlashes } from './local-file-link';
 
 describe('localFilePath (links the agent writes to files on this machine)', () => {
   it('reads a file:// URL, decoding escapes', () => {
@@ -42,5 +42,18 @@ describe('localFilePath (links the agent writes to files on this machine)', () =
   it('refuses a Windows network path: opening one hands the sign-in to that server', () => {
     expect(localFilePath('\\\\server\\share\\clip.mp4')).toBeNull();
     expect(localFilePath('//server/share/clip.mp4')).toBeNull();
+  });
+});
+
+describe('windowsLinkSlashes (a Windows path Markdown would change)', () => {
+  it('turns the backslashes of a link to a Windows drive into slashes, so Markdown cannot eat one', () => {
+    expect(windowsLinkSlashes('[cfg](C:\\Users\\Jan\\.config\\notes.md) i [d](<D:\\Moje _pliki\\a.md>)')).toBe(
+      '[cfg](C:/Users/Jan/.config/notes.md) i [d](<D:/Moje _pliki/a.md>)',
+    );
+  });
+
+  it('leaves prose, web links and code alone', () => {
+    const text = 'Folder C:\\Users\\Jan\\.config, [x](https://a.b/c\\d)\n```\n[y](C:\\a\\.b)\n```';
+    expect(windowsLinkSlashes(text)).toBe(text);
   });
 });

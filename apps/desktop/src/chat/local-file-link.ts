@@ -56,3 +56,31 @@ export async function openLocalFile(filePath: string): Promise<void> {
 export function fileFailureLabel(reason: string): string {
   return reason.includes('file not found') ? 'This file is not there' : 'Couldn’t open this file';
 }
+
+/** A link destination on a Windows drive: `](C:\…` or `](<C:\…`. */
+const WINDOWS_LINK_DESTINATION = /\]\((<?)([A-Za-z]:\\[^)>\n]*)/gu;
+const FENCE = /^\s*(?:```|~~~)/u;
+
+/**
+ * Markdown reads a backslash before punctuation as an escape and drops it, so
+ * `[a](C:\Users\Jan\.config\a.md)` would reach the app as `C:\Users\Jan.config\a.md`,
+ * a file that is not there. Before the text is parsed, a link to a Windows
+ * drive gets forward slashes, which Windows reads the same. Code blocks keep
+ * what was written.
+ */
+export function windowsLinkSlashes(markdown: string): string {
+  if (!markdown.includes(':\\')) return markdown;
+  let inFence = false;
+  return markdown
+    .split('\n')
+    .map((line) => {
+      if (FENCE.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+      return line.replace(WINDOWS_LINK_DESTINATION, (_whole, angle: string, path: string) =>
+        `](${angle}${path.replaceAll('\\', '/')}`);
+    })
+    .join('\n');
+}

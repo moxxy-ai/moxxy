@@ -11,7 +11,7 @@
 
 import { memo, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type UrlTransform } from 'react-markdown';
-import { localFilePath } from './local-file-link';
+import { localFilePath, windowsLinkSlashes } from './local-file-link';
 import { linkTarget } from './link-menu';
 import { ChatLink } from './ChatLink';
 import { CopyBlock } from './markdown/CopyBlock';
@@ -194,7 +194,7 @@ const MarkdownContent = memo(function MarkdownContent({
   });
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
-      {text}
+      {windowsLinkSlashes(text)}
     </ReactMarkdown>
   );
 });
