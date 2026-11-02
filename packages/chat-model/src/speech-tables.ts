@@ -5,8 +5,12 @@
  * "Claude: Wynik 9 z 9." The first cell names the row, as people read a table.
  */
 
+import { trimTrailing } from './trim-trailing.js';
+
 const TABLE_LINE = /^\s*\|/u;
-const SEPARATOR_LINE = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/u;
+/** One cell of the line of dashes, checked per cell: one pattern for the whole line backtracks on long runs of spaces. */
+const SEPARATOR_CELL = /^:?-{3,}:?$/u;
+const SENTENCE_PUNCTUATION = new Set(['.', ',', ';', ':']);
 
 /** A line that starts with a pipe, as most tables are written. */
 export function isTableLine(line: string): boolean {
@@ -24,7 +28,9 @@ function cells(line: string): string[] {
 
 /** A line of dashes under every column of `header`; a lone `---` under prose is a heading underline. */
 function isSeparatorFor(header: string, line: string | undefined): boolean {
-  return line !== undefined && SEPARATOR_LINE.test(line) && cells(line).length === cells(header).length;
+  if (line === undefined) return false;
+  const marks = cells(line);
+  return marks.length === cells(header).length && marks.every((mark) => SEPARATOR_CELL.test(mark));
 }
 
 /** A table starts at `lines[index]`: a row of names with its line of dashes under it. */
@@ -47,7 +53,7 @@ function tableLength(lines: readonly string[], index: number): number {
 
 /** Ending punctuation is the sentence's, not the cell's. */
 function bare(cell: string): string {
-  return cell.replace(/[.,;:]+$/u, '');
+  return trimTrailing(cell, SENTENCE_PUNCTUATION);
 }
 
 /**

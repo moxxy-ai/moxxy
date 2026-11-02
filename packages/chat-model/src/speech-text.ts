@@ -13,6 +13,7 @@
 import { speakMarkdownTables } from './speech-tables.js';
 import { isBareDomain, isWebAddress, siteName, spokenLink } from './spoken-links.js';
 import { detectSpeechLanguage, type SpeechLanguage } from './streaming-speech.js';
+import { trimTrailing } from './trim-trailing.js';
 
 const KEYCAP_EMOJI_RE = /[#*0-9]\uFE0F?\u20E3/gu;
 /** The degree sign is `So` too, but it is how a temperature is said. */
@@ -45,16 +46,17 @@ function stripNonVerbalArtifacts(text: string): string {
 }
 
 function isUrlOrFileReference(value: string): boolean {
-  const candidate = value.trim().replace(/[),.;:!?]+$/u, '');
+  const candidate = trimTrailing(value.trim(), TRAILING_PUNCTUATION);
   return /^(?:https?:\/\/|www\.)/iu.test(candidate)
     || /^(?:~[\\/]|\.{1,2}[\\/]|[A-Za-z]:[\\/]|\/)/u.test(candidate)
-    || /(?:[\\/][^\\/]+)+\.[A-Za-z0-9]{2,8}(?::\d+(?::\d+)?)?$/u.test(candidate)
+    // Only the last part of a path decides; repeating the parts before it made long paths slow.
+    || /[\\/][^\\/]+\.[A-Za-z0-9]{2,8}(?::\d+(?::\d+)?)?$/u.test(candidate)
     || FILE_EXTENSION_RE.test(candidate)
     || (/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>)]*)?$/iu.test(candidate)
       && !FILE_EXTENSION_RE.test(candidate));
 }
 
-const TRAILING_PUNCTUATION_RE = /[),.;:!?]+$/u;
+const TRAILING_PUNCTUATION = new Set([')', ',', '.', ';', ':', '!', '?']);
 const WEB_ADDRESS_RE = /\b(?:https?:\/\/|www\.)[^\s<>()[\]`]+/giu;
 
 /**
@@ -63,7 +65,7 @@ const WEB_ADDRESS_RE = /\b(?:https?:\/\/|www\.)[^\s<>()[\]`]+/giu;
  */
 function speakReference(value: string, language: SpeechLanguage): string {
   const trimmed = value.trim();
-  const reference = trimmed.replace(TRAILING_PUNCTUATION_RE, '');
+  const reference = trimTrailing(trimmed, TRAILING_PUNCTUATION);
   const after = trimmed.slice(reference.length);
   if (isWebAddress(reference)) return `${spokenLink(reference, language)}${after}`;
   if (isBareDomain(reference) && !FILE_EXTENSION_RE.test(reference)) return `${siteName(reference) ?? ' '}${after}`;
@@ -72,7 +74,7 @@ function speakReference(value: string, language: SpeechLanguage): string {
 
 /** The language of the prose around the addresses, which decides how a link is said. */
 function proseLanguage(markdown: string): SpeechLanguage {
-  return detectSpeechLanguage(markdown.replace(/\([^)]*\)|<[^>]*>/gu, ' ').replace(WEB_ADDRESS_RE, ' '));
+  return detectSpeechLanguage(markdown.replace(/\([^()]*\)|<[^<>]*>/gu, ' ').replace(WEB_ADDRESS_RE, ' '));
 }
 
 /**

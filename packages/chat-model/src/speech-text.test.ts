@@ -159,3 +159,25 @@ describe('toVoiceConversationText', () => {
     )).toBe('blog Dalsze szczegóły są w pliku.');
   });
 });
+
+describe('speaking text built to be slow', () => {
+  it('stays fast when nothing closes them', () => {
+    const started = performance.now();
+    toSpeakableText('('.repeat(50_000));
+    toSpeakableText('<'.repeat(50_000));
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
+  it('stays fast on a link or an address that ends in a long run of commas', () => {
+    const started = performance.now();
+    toSpeakableText(`[${','.repeat(50_000)}x](https://example.com)`);
+    toSpeakableText(`https://example.com/${','.repeat(50_000)}x`);
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
+  it('stays fast on a long path that never reaches a file name', () => {
+    const started = performance.now();
+    toSpeakableText(`[x${'/a'.repeat(25_000)}!](https://example.com)`);
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+});

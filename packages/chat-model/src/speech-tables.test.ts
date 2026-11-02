@@ -39,6 +39,13 @@ describe('speakTable', () => {
     expect(speakTable(['| a | b |', '|---|'])).toBeNull();
   });
 
+  it('stays fast on a long line that only almost looks like a table', () => {
+    const started = performance.now();
+    expect(speakTable(['a | b', `---${' '.repeat(50_000)}x`])).toBeNull();
+    expect(speakTable(['| a | b |', '|---|---|', `| x | ${','.repeat(50_000)}y |`])).toHaveLength(1);
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
   it('is no table without the line of dashes under the names', () => {
     expect(speakTable(['| a | b |', '| c | d |'])).toBeNull();
   });
