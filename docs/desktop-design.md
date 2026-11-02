@@ -217,12 +217,37 @@ an exhausted account limit already explains the end and gets no extra note.
 The terminal and messaging channels use the same wording; the note
 does not become an assistant message or get read aloud by a channel.
 
-A link the agent writes to a file on this computer (a `file://` URL or an
-absolute path, spaces and all) opens through the host, never in the browser:
-the file's own app for a type that only views or plays, otherwise the file
-manager (`chat/local-file-link.ts`, `files.open`). A click that cannot open it
-leaves a short red "Couldn’t open this file" beside the link, with the reason
-under the pointer, instead of doing nothing.
+A click on a link the agent wrote opens a small menu beside it, in the main
+chat and the mini chat alike (`chat/ChatLink.tsx`, `chat/useLinkMenu.ts`,
+`chat/link-menu.ts`). For a page: Open in Moxxy browser, Open in browser (the
+default browser), Copy link. For a file on this computer: Open, Show in Finder
+(File Explorer on Windows, the file manager on Linux), Add to agent, Copy path.
+Cmd-click on a Mac, Ctrl-click elsewhere, skips the menu and does the usual
+thing: a page in the default browser, a file in its app. Right-click opens the
+menu too. A link the app cannot open (`mailto:`) reads as plain text.
+
+A page never opens in a window of the app. A link used to go through
+`target="_blank"`, and the main window turns a new window on a sign-in host
+(github.com, accounts.google.com) into the in-app sign-in popup, so a link to a
+pull request opened there; the mini chat refuses new windows, so its links did
+nothing. Now the chat asks the host: `onboarding.openExternal` for the default
+browser, `browser.showUrl` for the Moxxy browser. The pane lives in the main
+window, so main brings that window forward and sends it `browser.showUrl` with
+one id per click; the workbench shows the browser and the pane opens the address
+in a new tab (`shell/surfaces/browser-link-requests.ts`), even when the pane was
+not open yet.
+
+A file link is a `file://` URL or an absolute path, spaces and all: `/Users/…`
+on macOS and Linux, `C:\…` or `C:/…` on Windows, and `file:///C:/…` reads as
+`C:/…`. A network path (`\\server\share`, `//server`) is not one: opening it
+makes Windows sign in to that server. Open goes through the host, never the
+browser: the file's own app for a type that only views or plays, otherwise the
+file manager (`chat/local-file-link.ts`, `files.open`); Show in Finder always
+only shows it (`files.reveal`). Add to agent attaches the file as the file tree
+does, so a file outside the workspace is refused with a pointer to Attach file.
+An action that fails leaves a short red note beside the link, "This file is not
+there" for a missing file, otherwise "Couldn’t open this file" or "Couldn’t open
+this link", with the host's reason under the pointer.
 
 `chat/trace/TraceEntry.tsx` maps an entry's kind to its side and owns the row.
 The bubble is drawn by the block inside it (`UserBlock`, `AssistantBlock`).
@@ -514,7 +539,7 @@ an agent image without making its tile a different colour. Clicking opens the
 existing image preview, with previous/next controls and arrow keys through the
 filtered images. File and link rows share one layout: a quiet icon, a truncated
 name, then size or host and date. Missing local files say so and cannot open.
-Links open as links in the chat do; the library never fetches a page preview.
+Links open through the same link menu as in the chat; the library never fetches a page preview.
 Empty, loading, search-without-results and read-error states are distinct.
 
 The full log is indexed into a disposable cache per chat that holds no

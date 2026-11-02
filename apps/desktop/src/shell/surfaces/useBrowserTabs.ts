@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { onBrowserRequest, takeBrowserRequests } from './browser-link-requests';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import type { BrowserControlState, BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
 
@@ -192,6 +193,13 @@ export function useBrowserTabs(): BrowserTabsApi {
   const openPane = useCallback((url: string) => {
     setPanes((prev) => [...prev, { key: `p${++paneSeq.current}`, initialUrl: url }]);
   }, []);
+
+  // A chat link asked for an address in the Moxxy browser: each becomes a new tab.
+  useEffect(() => {
+    const take = (): void => takeBrowserRequests().forEach(openPane);
+    take();
+    return onBrowserRequest(take);
+  }, [openPane]);
 
   /**
    * Close a tab by dropping the pane that hosts it.

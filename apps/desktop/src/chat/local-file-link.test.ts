@@ -26,7 +26,21 @@ describe('localFilePath (links the agent writes to files on this machine)', () =
     expect(localFilePath('#section')).toBeNull();
   });
 
+  it('reads a file:// URL to a Windows drive without a slash before the drive', () => {
+    expect(localFilePath('file:///C:/Users/Jan/Moje%20dokumenty/raport.docx')).toBe('C:/Users/Jan/Moje dokumenty/raport.docx');
+  });
+
+  it('reads a bare Windows path with either kind of slash', () => {
+    expect(localFilePath('C:\\Users\\Jan\\raport.docx')).toBe('C:\\Users\\Jan\\raport.docx');
+    expect(localFilePath('d:/Projekty/Moje%20notatki.md')).toBe('d:/Projekty/Moje notatki.md');
+  });
+
   it('refuses a file URL on another host', () => {
     expect(localFilePath('file://server/share/clip.mp4')).toBeNull();
+  });
+
+  it('refuses a Windows network path: opening one hands the sign-in to that server', () => {
+    expect(localFilePath('\\\\server\\share\\clip.mp4')).toBeNull();
+    expect(localFilePath('//server/share/clip.mp4')).toBeNull();
   });
 });

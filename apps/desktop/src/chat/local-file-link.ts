@@ -2,7 +2,7 @@ import { api } from '@moxxy/client-core';
 
 /**
  * Links the agent writes to files on this machine — `file:///…` URLs or bare
- * absolute paths. They must not go through `target="_blank"`: markdown
+ * absolute paths, from macOS and Linux (`/Users/…`) or Windows (`C:\…`). They must not go through `target="_blank"`: markdown
  * sanitizing empties a `file:` href and a bare path resolves against the app's
  * own URL, so either way the click opened the app itself in the OS browser.
  * They open through `files.open` instead.
@@ -16,12 +16,26 @@ export function localFilePath(href: string | undefined): string | null {
     try {
       const url = new URL(href);
       if (url.host !== '' && url.host !== 'localhost') return null;
-      return decodeURIComponent(url.pathname);
+      // `file:///C:/x` has the path `/C:/x`; Windows has no file at `\C:\x`.
+      return decodeURIComponent(url.pathname).replace(SLASH_BEFORE_DRIVE, '');
     } catch {
       return null;
     }
   }
-  return href.startsWith('/') && !href.startsWith('//') ? decodeEscapes(href) : null;
+  return isAbsoluteLocalPath(href) ? decodeEscapes(href) : null;
+}
+
+/** `C:\…` or `C:/…`: a path on a Windows drive. */
+const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[\\/]/u;
+const SLASH_BEFORE_DRIVE = /^\/(?=[A-Za-z]:[\\/])/u;
+
+/**
+ * A path from the root of this machine. A network path (`//server/share`,
+ * `\\server\share`) is not one: opening it makes Windows sign in to that
+ * server, which would hand the user's credentials to whoever the agent named.
+ */
+function isAbsoluteLocalPath(href: string): boolean {
+  return (href.startsWith('/') && !href.startsWith('//')) || WINDOWS_DRIVE_PATH.test(href);
 }
 
 /** A `%` that does not start an escape (`100%.md`) leaves the path as written. */
@@ -36,4 +50,9 @@ function decodeEscapes(path: string): string {
 /** Ask the host to open (or reveal) a linked local file; rejects with why it could not. */
 export async function openLocalFile(filePath: string): Promise<void> {
   await api().invoke('files.open', { path: filePath });
+}
+
+/** What the chat says beside a link that did not open; the host's reason stays in the tooltip. */
+export function fileFailureLabel(reason: string): string {
+  return reason.includes('file not found') ? 'This file is not there' : 'Couldn’t open this file';
 }
