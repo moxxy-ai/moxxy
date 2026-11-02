@@ -65,8 +65,18 @@ export function expandClosing(expansions: readonly Expansion[]): Pass {
   );
 }
 
-/** Tags are never spoken: the model has no emphasis tag, and in Polish its ten expression tags give silence or read out as words. */
-export const dropTags: Pass = (text) => text.replace(/<\/?[a-z][\w-]*(?:\s[^<>]*)?\/?>/giu, '');
+const TAG = /<\/?[a-z][\w-]*(?:\s[^<>]*)?\/?>/giu;
+
+/** Tags are never spoken: the model has no emphasis tag, and in Polish its ten expression tags give silence or read out as words.
+ *  Repeated until none is left, since dropping `<b>` from `<scr<b>ipt>` forms a new tag. */
+export const dropTags: Pass = (text) => {
+  let current = text;
+  for (let previous = ''; previous !== current;) {
+    previous = current;
+    current = current.replace(TAG, '');
+  }
+  return current;
+};
 
 /** Between two capitals a slash is a pair of acronyms, as in CI/CD. */
 export const ACRONYM_PAIR: Expansion = [/(?<=\p{Lu})\/(?=\p{Lu})/gu, ' '];

@@ -283,6 +283,11 @@ describe('normalizeForSpeech: every language', () => {
     expect(normalizeForSpeech('Hello <en>there</en> friend.', 'en')).toBe('Hello there friend.');
   });
 
+  it('drops a tag that only forms once a tag inside it is gone', () => {
+    expect(normalizeForSpeech('Gotowe <scr<b>ipt> teraz.', 'pl')).toBe('Gotowe teraz.');
+    expect(normalizeForSpeech('Done <<b>laugh> now.', 'en')).toBe('Done now.');
+  });
+
   it('keeps comparisons that only look like tags', () => {
     expect(normalizeForSpeech('If a < b then stop.', 'en')).toBe('If a < b then stop.');
   });

@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_VOICE,
@@ -24,15 +26,16 @@ describe('VOICE_CATALOG', () => {
   });
 
   it('resolves every file sherpa needs under the extracted archive', () => {
-    const root = ['/models', DEFAULT_VOICE.id, DEFAULT_VOICE.archiveRootDir].join('/');
+    const file = (name: string): string =>
+      path.join('/models', DEFAULT_VOICE.id, DEFAULT_VOICE.archiveRootDir, name);
     expect(voiceModelPaths(DEFAULT_VOICE, '/models')).toEqual({
-      durationPredictor: `${root}/duration_predictor.int8.onnx`,
-      textEncoder: `${root}/text_encoder.int8.onnx`,
-      vectorEstimator: `${root}/vector_estimator.int8.onnx`,
-      vocoder: `${root}/vocoder.int8.onnx`,
-      ttsJson: `${root}/tts.json`,
-      unicodeIndexer: `${root}/unicode_indexer.bin`,
-      voiceStyle: `${root}/voice.bin`,
+      durationPredictor: file('duration_predictor.int8.onnx'),
+      textEncoder: file('text_encoder.int8.onnx'),
+      vectorEstimator: file('vector_estimator.int8.onnx'),
+      vocoder: file('vocoder.int8.onnx'),
+      ttsJson: file('tts.json'),
+      unicodeIndexer: file('unicode_indexer.bin'),
+      voiceStyle: file('voice.bin'),
     });
   });
 });
