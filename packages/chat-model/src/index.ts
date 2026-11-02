@@ -7,6 +7,8 @@ export * from './question-note.js';
 export * from './log.js';
 export * from './id.js';
 export * from './streaming-speech.js';
+export * from './speech-tables.js';
+export { toSpeakableText, toVoiceConversationText } from './speech-text.js';
 export * from './voice-feedback-scheduler.js';
 export * from './voice-operations.js';
 export { accountLimitText, conversationAccountLimit, conversationAccountUsage } from './account-limit.js';
