@@ -527,6 +527,8 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // A path the agent wrote into a chat link; the host re-checks it is an
   // existing absolute path and never executes it (see ipc/files.ts).
   'files.open': z.object({ path: z.string().min(1).max(4096) }).strict(),
+  'files.reveal': z.object({ path: z.string().min(1).max(4096) }).strict(),
+  'browser.showUrl': z.object({ url: httpUrl }).strict(),
   'channels.setRunMode': z.object({ channelId, mode: z.enum(['manual', 'app', 'background']) }),
   'channels.setModel': z.object({
     channelId,

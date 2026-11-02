@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { hasBrowserRequests, onBrowserRequest, takeBrowserRequests } from './browser-link-requests';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import type { BrowserControlState, BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
 
@@ -176,10 +177,12 @@ export function useBrowserTabs(): BrowserTabsApi {
 
   // One entry per <webview> this pane renders. The first is the user's home
   // tab; the rest arrive because the agent asked for them — main cannot create
-  // the element itself, so it sends `browser.openTab` and we oblige.
-  const [panes, setPanes] = useState<ReadonlyArray<{ key: string; initialUrl: string; requestId?: string }>>([
-    { key: 'home', initialUrl: HOME_URL },
-  ]);
+  // the element itself, so it sends `browser.openTab` and we oblige. A pane
+  // opened for a chat link starts at the link alone: with a home tab beside
+  // it, whichever page loaded last would end up in front.
+  const [panes, setPanes] = useState<ReadonlyArray<{ key: string; initialUrl: string; requestId?: string }>>(() =>
+    hasBrowserRequests() ? [] : [{ key: 'home', initialUrl: HOME_URL }],
+  );
   const paneSeq = useRef(0);
   const [handoff, setHandoff] = useState<{
     requestId: string;
@@ -192,6 +195,16 @@ export function useBrowserTabs(): BrowserTabsApi {
   const openPane = useCallback((url: string) => {
     setPanes((prev) => [...prev, { key: `p${++paneSeq.current}`, initialUrl: url }]);
   }, []);
+
+  // A chat link asked for an address in the Moxxy browser: each becomes a new
+  // tab. Before paint, so a pane started without its home tab is never drawn
+  // empty; and should another pane have taken the links first, it gets one.
+  useLayoutEffect(() => {
+    const take = (): void => takeBrowserRequests().forEach(openPane);
+    take();
+    setPanes((prev) => (prev.length > 0 ? prev : [{ key: 'home', initialUrl: HOME_URL }]));
+    return onBrowserRequest(take);
+  }, [openPane]);
 
   /**
    * Close a tab by dropping the pane that hosts it.

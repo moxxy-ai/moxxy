@@ -200,6 +200,13 @@ export interface IpcCommands {
    *  and images open in their default app; anything that could run (scripts,
    *  apps, unknown types) and folders are only shown in the file manager. */
   'files.open': (args: { path: string }) => Promise<{ opened: 'app' | 'folder' }>;
+  /** Show a linked local file in the file manager (Finder, File Explorer, the
+   *  Linux file manager), whatever its type. Opens nothing. */
+  'files.reveal': (args: { path: string }) => Promise<void>;
+  /** Open a web address from a chat link in the Moxxy browser: main brings the
+   *  main window forward and sends it `browser.showUrl`. Any window may ask, so
+   *  the mini chat can too. Only http(s). */
+  'browser.showUrl': (args: { url: string }) => Promise<void>;
   /** Run `moxxy vault set <NAME>_API_KEY` with the given secret piped
    *  on stdin, then call `provider.setActive` on the running session
    *  so the next turn picks it up without a relaunch. */

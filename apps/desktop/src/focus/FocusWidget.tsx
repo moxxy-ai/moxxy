@@ -48,6 +48,7 @@ import {
 import { Inactive } from './Inactive';
 import { Active } from './Active';
 import { MiniText } from './MiniText';
+import { MoxxyBrowserContext } from '../chat/moxxy-browser-context';
 import { useTheme } from '@/lib/useTheme';
 import { useFocusTileGesture, type FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import { useInactiveReplyPreview } from './useInactiveReplyPreview';
@@ -118,11 +119,13 @@ export function FocusWidget(): JSX.Element {
   useTheme();
   const workspaceId = useActiveWorkspaceId();
   return (
-    <>
+    // The Mini Chat's links open in the default browser: the Moxxy browser
+    // lives in the main window, which may be closed.
+    <MoxxyBrowserContext.Provider value={false}>
       <ConnectionBridge />
       <ChatStoreBridge />
       <Surface workspaceId={workspaceId} />
-    </>
+    </MoxxyBrowserContext.Provider>
   );
 }
 

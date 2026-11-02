@@ -102,6 +102,10 @@ export interface IpcEvents {
    *  that element belongs to the renderer — so the pane makes one and echoes
    *  `requestId` back through `browser.registerTab`. */
   'browser.openTab': { requestId: string; url: string };
+  /** A chat link asked for this address in the Moxxy browser: the main window
+   *  shows its browser pane and opens the address in a new tab. `requestId`
+   *  is one per click, so two chats hearing it still open one tab. */
+  'browser.showUrl': { requestId: string; url: string };
   /** Main asking the pane to put keyboard focus on a tab's view, so the key it
    *  is about to send actually lands on the page rather than in the app. */
   'browser.focusTab': { requestId: string; tabId: string };

@@ -73,6 +73,7 @@ import { ChatMediaStore } from './chat-media/store';
 import { electronFingerprint, electronThumbnail } from './chat-media/electron-images';
 import { registerChannelsHandlers } from './ipc/channels';
 import { electronFiles, registerFilesHandlers } from './ipc/files';
+import { registerBrowserLinkHandlers } from './ipc/browser-link';
 import { registerVoiceHandlers, type VoiceHandlerDependencies } from './ipc/voice';
 
 let stopBotModelWatch: (() => void) | null = null;
@@ -116,6 +117,9 @@ export function registerIpcHandlers(
     readonly browser?: BrowserHost;
     /** Native, main-process browser opener used by hosted OAuth login. */
     readonly openExternal?: (url: string) => Promise<void>;
+    /** Open `url` in the main window's browser pane (`browser.showUrl`); false
+     *  when that window is closed. Omitted ⇒ the command says the browser is unavailable. */
+    readonly showInMoxxyBrowser?: (url: string) => boolean;
   } = {},
 ): void {
   followBotModels(pool);
@@ -161,6 +165,7 @@ export function registerIpcHandlers(
     });
     registerVoiceHandlers(pool, opts.voice);
     registerFilesHandlers();
+    registerBrowserLinkHandlers(opts.showInMoxxyBrowser);
   }
 }
 

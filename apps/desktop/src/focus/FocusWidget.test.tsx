@@ -1617,6 +1617,29 @@ describe('FocusWidget bidirectional sync', () => {
     });
   });
 
+  it('offers a web link in the default browser only, since the Mini Chat has no Moxxy browser', async () => {
+    installFakeApi({
+      historyEvents: [
+        event(1, { type: 'user_prompt', turnId: 't-link', source: 'user', text: 'Where are the docs?' } as never),
+        event(2, {
+          type: 'assistant_message',
+          turnId: 't-link',
+          source: 'model',
+          content: 'See [docs](https://example.com/docs).',
+          stopReason: 'end_turn',
+        } as never),
+      ],
+    });
+    render(<FocusWidget />);
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    fireEvent.click(await screen.findByRole('link', { name: 'docs' }));
+
+    const items = within(screen.getByRole('menu')).getAllByRole('menuitem').map((item) => item.textContent);
+    expect(items).toEqual(['Open in browser', 'Copy link']);
+  });
+
   it('renders canonical tool activity in mini chat and exposes its details', async () => {
     installFakeApi({
       historyEvents: [
