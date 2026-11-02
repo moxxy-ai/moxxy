@@ -1,5 +1,14 @@
 # @moxxy/channel-kit
 
+## 0.48.1
+
+### Patch Changes
+
+- Updated dependencies [a12f70b]
+- Updated dependencies [e7854f6]
+  - @moxxy/chat-model@0.5.5
+  - @moxxy/sdk@0.48.1
+
 ## 0.48.0
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @moxxy/plugin-channel-whatsapp
 
+## 0.48.1
+
+### Patch Changes
+
+- @moxxy/channel-kit@0.48.1
+- @moxxy/sdk@0.48.1
+- @moxxy/core@0.48.1
+- @moxxy/plugin-vault@0.48.1
+
 ## 0.48.0
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
-import { detectSpeechLanguage } from '@moxxy/chat-model';
+import { detectSpeechLanguage, toSpeakableText, toVoiceConversationText } from '@moxxy/chat-model';
 import type { SynthesizeOptions, Synthesizer } from '@moxxy/sdk';
 
 /**
@@ -25,33 +25,11 @@ export interface SynthesizerSource {
 }
 
 /**
- * Strip markdown down to what should be *spoken*. Code fences become a short
- * "(code omitted)" placeholder (reading a diff aloud is noise), links keep only
- * their label, and the inline emphasis/heading/quote/bullet marks are removed
- * so a TTS engine doesn't voice the punctuation. Whitespace is collapsed.
+ * Markdown as it is *spoken*: the same text the app reads aloud — a table row
+ * by row, an address as a link to its site, a code block as a short aside.
  */
 export function toSpeech(markdown: string): string {
-  let t = markdown ?? '';
-  // Fenced code blocks (closed, then any unterminated trailing fence) → a short
-  // spoken placeholder. Must run BEFORE inline-code stripping (fences contain
-  // backticks).
-  t = t.replace(/```[\s\S]*?```/g, ' (code omitted) ');
-  t = t.replace(/```[\s\S]*$/g, ' (code omitted) ');
-  // Images `![alt](url)` → alt; links `[label](url)` → label.
-  t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');
-  t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
-  // Inline code `x` → x.
-  t = t.replace(/`([^`]+)`/g, '$1');
-  // Emphasis / strikethrough marks.
-  t = t.replace(/(\*\*|__|~~|\*|_)/g, '');
-  // Leading heading / blockquote / list markers (line-anchored).
-  t = t.replace(/^\s{0,3}#{1,6}\s*/gm, '');
-  t = t.replace(/^\s{0,3}>\s?/gm, '');
-  t = t.replace(/^\s{0,3}[-*+]\s+/gm, '');
-  // Collapse runs of spaces/tabs and excess blank lines.
-  t = t.replace(/[ \t]+/g, ' ');
-  t = t.replace(/\n{3,}/g, '\n\n');
-  return t.trim();
+  return toSpeakableText(markdown ?? '');
 }
 
 /** Default ceiling on the characters we hand a TTS backend for one reply. Long
@@ -76,6 +54,8 @@ function truncateForSpeech(text: string, max: number): string {
 export interface SynthesizeReplyOptions extends SynthesizeOptions {
   /** Max characters of speech text handed to the backend. Default 1200. */
   readonly maxChars?: number;
+  /** Said in a live conversation (a voice call): code is left out, as in the app's Voice Mode. */
+  readonly conversation?: boolean;
 }
 
 export type SynthesizeReplyResult =
@@ -87,7 +67,7 @@ export type SynthesizeReplyResult =
 
 /**
  * Synthesize a reply through the session's active synthesizer. Cleans markdown
- * for speech ({@link toSpeech}), truncates sensibly, and NEVER throws — every
+ * for speech as the app does ({@link toSpeech}), truncates sensibly, and NEVER throws — every
  * failure mode is a typed `ok:false` result so the turn path stays intact.
  */
 export async function synthesizeReply(
@@ -103,7 +83,8 @@ export async function synthesizeReply(
   }
   if (!synth) return { ok: false, reason: 'no-synthesizer' };
 
-  const speech = truncateForSpeech(toSpeech(text), opts.maxChars ?? DEFAULT_MAX_SPEECH_CHARS);
+  const spoken = opts.conversation ? toVoiceConversationText(text ?? '') : toSpeech(text);
+  const speech = truncateForSpeech(spoken, opts.maxChars ?? DEFAULT_MAX_SPEECH_CHARS);
   if (!speech) return { ok: false, reason: 'empty' };
 
   const synthOpts: SynthesizeOptions = {};

@@ -218,9 +218,10 @@ function dottedWords(written: string): string {
 const readVersions: Pass = (text) => text
   .replace(word('[vV](\\d+(?:\\.\\d+)*)'), (_written, version: string, offset: number, whole: string) =>
     /^version/u.test(wordBefore(whole, offset)) ? dottedWords(version) : `version ${dottedWords(version)}`)
+  // A version of three parts or more first, so the next rule cannot take "2.1" out of "2.1.316".
+  .replace(word('\\d+(?:\\.\\d+){2,}'), dottedWords)
   .replace(word('\\d+\\.\\d+'), (written, offset: number, whole: string) =>
-    /^version/u.test(wordBefore(whole, offset)) ? dottedWords(written) : written)
-  .replace(word('\\d+(?:\\.\\d+){2,}'), dottedWords);
+    /^version/u.test(wordBefore(whole, offset)) ? dottedWords(written) : written);
 
 function scaledAmount(whole: string, fraction: string | undefined, scale: string): string {
   const name = scale === 'k' ? 'thousand' : scale;

@@ -28,7 +28,7 @@ export async function speakForCall(
   /** Picks the voice where the synthesizer has one per language (none of the current ones). */
   language?: string,
 ): Promise<Uint8Array | null> {
-  const voiced = await synthesizeReply(session, text, language ? { language } : {});
+  const voiced = await synthesizeReply(session, text, { conversation: true, ...(language ? { language } : {}) });
   if (!voiced.ok) {
     onUnvoiced?.(voiced.error ?? voiced.reason);
     return null;

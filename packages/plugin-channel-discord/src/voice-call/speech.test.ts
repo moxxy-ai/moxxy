@@ -96,5 +96,26 @@ describe('speech in a call', () => {
 
     expect(languages).toEqual(['pl']);
   });
+  it('says a reply as the desktop Voice Mode does: no code, an address as a link to its site', async () => {
+    const session = conversation();
+    const said: string[] = [];
+    session.synthesizers.register(
+      defineSynthesizer({
+        name: 'tts',
+        create: () => ({
+          name: 'tts',
+          synthesize: async (text) => {
+            said.push(text);
+            return { audio: new Uint8Array([79, 103, 103, 83]), mimeType: 'audio/ogg' };
+          },
+        }),
+      }),
+    );
+    session.synthesizers.setActive('tts');
+
+    await speakForCall(session, 'Zmiana jest tu: https://github.com/moxxy-ai/moxxy/pull/7 ```ts\nconst x = 1;\n```', undefined, 'pl');
+
+    expect(said).toEqual(['Zmiana jest tu: link do strony github.']);
+  });
 });
 

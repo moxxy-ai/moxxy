@@ -149,9 +149,21 @@ describe('MediaPane', () => {
     fireEvent.click(await screen.findByTestId('media-kind-link'));
     const ticket = await screen.findByRole('link', { name: /Visual Concert tickets/ });
     expect(ticket).toHaveAttribute('href', 'https://tickets.example/visual');
-    expect(ticket).toHaveAttribute('target', '_blank');
+    expect(ticket).not.toHaveAttribute('target');
     expect(ticket).toHaveAttribute('rel', 'noreferrer noopener');
     expect(ticket).toHaveTextContent('tickets.example');
+  });
+
+  it('offers the link menu on a link, so it opens in the default browser and never in a window of the app', async () => {
+    const invoke = host();
+    render(<MediaPane workspaceId="w1" />);
+    fireEvent.click(await screen.findByTestId('media-kind-link'));
+    fireEvent.click(await screen.findByRole('link', { name: /Visual Concert tickets/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open in browser' }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('onboarding.openExternal', { url: 'https://tickets.example/visual' }),
+    );
   });
 
   it('finds by words, and says when nothing matches', async () => {

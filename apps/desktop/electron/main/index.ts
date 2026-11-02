@@ -7,6 +7,7 @@
  *   - the IPC wiring
  */
 
+import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow } from 'electron';
 
 // Set the user-facing app name BEFORE app.whenReady so the macOS
@@ -938,6 +939,14 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers([electronBus], pool, desks, {
     openExternal: (url) => shell.openExternal(url),
+    // A chat link opened in the Moxxy browser. Only the main window offers it
+    // (the Mini Chat leaves it out), so the window asking is the one to show it.
+    showInMoxxyBrowser: (url) => {
+      const win = mainWindow;
+      if (!win || win.isDestroyed()) return false;
+      win.webContents.send('browser.showUrl', { requestId: randomUUID(), url });
+      return true;
+    },
     update: {
       publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
       // Dev/test escape hatch: point the updater at a local manifest. Ignored in

@@ -102,6 +102,7 @@ describe('normalizeForSpeech: Polish', () => {
     ['Wersja v1.2.3 trafiła tu.', 'Wersja jeden kropka dwa kropka trzy trafiła tu.'],
     ['Wydaliśmy v1.2.3 wczoraj.', 'Wydaliśmy wersję jeden kropka dwa kropka trzy wczoraj.'],
     ['Paczka 0.46.0 działa.', 'Paczka zero kropka czterdzieści sześć kropka zero działa.'],
+    ['Wersja 2.1.316 jest gotowa.', 'Wersja dwa kropka jeden kropka trzysta szesnaście jest gotowa.'],
   ])('reads versions: %s', (input, spoken) => {
     expect(normalizeForSpeech(input, 'pl')).toBe(spoken);
   });
@@ -223,6 +224,7 @@ describe('normalizeForSpeech: English', () => {
     ['This is the 21st build.', 'This is the twenty first build.'],
     ['The build took 3.5 seconds.', 'The build took three point five seconds.'],
     ['Version v1.2.3 is out.', 'Version one point two point three is out.'],
+    ['Version 2.1.316 is out.', 'Version two point one point three hundred sixteen is out.'],
     ['Dr. Smith vs. Mr. Jones.', 'Doctor Smith versus Mister Jones.'],
     ['Use a helper, e.g. this one.', 'Use a helper, for example this one.'],
     ['Write to jan@example.com about #123.', 'Write to jan at example dot com about number one hundred twenty three.'],

@@ -1,5 +1,12 @@
 # @moxxy/plugin-provider-local
 
+## 0.48.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.1
+- @moxxy/plugin-provider-openai@0.48.1
+
 ## 0.48.0
 
 ### Patch Changes

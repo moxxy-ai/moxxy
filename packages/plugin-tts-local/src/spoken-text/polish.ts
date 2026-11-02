@@ -324,9 +324,10 @@ const readVersions: Pass = (text) => text
     if (/^wers/u.test(before)) return dottedWords(version);
     return `${before === 'w' ? 'wersji' : 'wersję'} ${dottedWords(version)}`;
   })
+  // A version of three parts or more first, so the next rule cannot take "2.1" out of "2.1.316".
+  .replace(word('\\d+(?:\\.\\d+){2,}'), dottedWords)
   .replace(word('\\d+\\.\\d+'), (written, offset: number, whole: string) =>
-    /^wers/u.test(wordBefore(whole, offset)) ? dottedWords(written) : written)
-  .replace(word('\\d+(?:\\.\\d+){2,}'), dottedWords);
+    /^wers/u.test(wordBefore(whole, offset)) ? dottedWords(written) : written);
 
 function scaledAmount(whole: string, fraction: string | undefined, mark: string): string {
   const scale = SCALES[mark.replace('.', '')];

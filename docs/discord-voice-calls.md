@@ -25,7 +25,8 @@ the agent answers, and the answer is read aloud. You can interrupt it.
 - Replies are spoken with the active voice (Settings → Voice) and kept short
   and speakable. The bot starts talking as soon as the agent has written its
   first sentence, and voices the next two while one plays — the same sentence
-  splitting as the desktop's Voice Mode. Each sentence is voiced in its
+  splitting and the same spoken text as the desktop's Voice Mode: code is left
+  out, a table is read row by row and an address is said as a link to its site. Each sentence is voiced in its
   language, starting from the language you asked in, so a voice with one model
   per language (local Supertonic: Polish and English) answers a Polish question in
   Polish.

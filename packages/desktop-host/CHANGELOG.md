@@ -1,5 +1,26 @@
 # @moxxy/desktop-host
 
+## 0.17.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.1
+- @moxxy/core@0.48.1
+- @moxxy/config@0.48.1
+- @moxxy/plugin-browser@0.48.1
+- @moxxy/plugin-computer-control@0.48.1
+- @moxxy/plugin-provider-local@0.48.1
+- @moxxy/plugin-provider-openai@0.48.1
+- @moxxy/plugin-scheduler@0.48.1
+- @moxxy/plugin-stt-whisper@0.48.1
+- @moxxy/plugin-tts-gemini@0.48.1
+- @moxxy/plugin-vault@0.48.1
+- @moxxy/plugin-webhooks@0.48.1
+- @moxxy/agent-connection-kit@0.1.5
+- @moxxy/desktop-ipc-contract@0.17.1
+- @moxxy/runner@0.2.66
+- @moxxy/workspace-registry@0.2.49
+
 ## 0.17.0
 
 ### Minor Changes

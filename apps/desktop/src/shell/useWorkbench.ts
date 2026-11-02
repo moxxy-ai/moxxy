@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { onAgentWorkFocus } from '@moxxy/client-core';
+import { api, onAgentWorkFocus } from '@moxxy/client-core';
 import type { WorkbenchTab } from './Workbench';
 import { useAgentSurfaceReveal } from './surfaces/useAgentSurfaceReveal';
+import { askBrowserFor } from './surfaces/browser-link-requests';
 
 /** The pane a first open lands on, before any pane has been used. */
 const FIRST_TAB: WorkbenchTab = 'files';
@@ -50,6 +51,14 @@ export function useWorkbench(workspaceId: string | null): WorkbenchState {
   }, [tab, setTab]);
 
   useAgentSurfaceReveal(workspaceId, setTab);
+  // A chat link opened in the Moxxy browser: show the browser; the pane opens the address.
+  useEffect(
+    () => api().subscribe('browser.showUrl', (request) => {
+      setTab('browser');
+      askBrowserFor(request);
+    }),
+    [setTab],
+  );
   // The chat's "Agent continued" and the composer's background marker open the Agents pane.
   useEffect(
     () => onAgentWorkFocus((asked) => {

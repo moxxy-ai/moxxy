@@ -17,6 +17,7 @@ let tmp: string;
 let opened: string[];
 let revealed: string[];
 let open: (p: string) => Promise<unknown>;
+let reveal: (p: string) => Promise<unknown>;
 
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-files-'));
@@ -37,6 +38,9 @@ beforeEach(async () => {
   const handler = handlers.get('files.open');
   if (!handler) throw new Error('files.open was not registered');
   open = (p) => handler({ path: p });
+  const revealHandler = handlers.get('files.reveal');
+  if (!revealHandler) throw new Error('files.reveal was not registered');
+  reveal = (p) => revealHandler({ path: p });
 });
 
 afterEach(async () => {
@@ -80,5 +84,24 @@ describe('files.open (a local file link in the chat)', () => {
 
   it('refuses a relative path', async () => {
     await expect(open('clip.mp4')).rejects.toThrow(/absolute/u);
+  });
+});
+
+describe('files.reveal (Show in Finder from a link menu)', () => {
+  it('shows even a file its default app could open in the file manager', async () => {
+    const clip = await file('trailer.mp4');
+
+    await reveal(clip);
+    expect(revealed).toEqual([clip]);
+    expect(opened).toEqual([]);
+  });
+
+  it('says so when the file is gone', async () => {
+    await expect(reveal(path.join(tmp, 'missing.mp4'))).rejects.toThrow(/not found/u);
+    expect(revealed).toEqual([]);
+  });
+
+  it('refuses a relative path', async () => {
+    await expect(reveal('clip.mp4')).rejects.toThrow(/absolute/u);
   });
 });
