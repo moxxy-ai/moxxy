@@ -12,7 +12,9 @@ import {
   LEGACY_PIPER_SYNTHESIZER_NAME,
   LOCAL_SUPERTONIC_SYNTHESIZER_NAME,
 } from './index.js';
-import { DEFAULT_VOICE, voiceModelPaths } from './voices.js';
+import { DEFAULT_VOICE, SPEAKING_PACE, voiceModelPaths } from './voices.js';
+import { SILENCE_KEPT_AFTER_MS, SILENCE_KEPT_BEFORE_MS } from './trim-silence.js';
+import { WAV_HEADER_BYTES } from './wav.js';
 import type { HostClientLike } from './host-client.js';
 import type { HostRequest } from './host-protocol.js';
 
@@ -75,13 +77,13 @@ describe('LocalSupertonicSynthesizer.synthesize', () => {
 
   it('fetches the pinned voice and returns WAV bytes', async () => {
     const { synth, host, ensure } = makeSynth();
-    const out = await synth.synthesize('hello world');
+    const out = await synth.synthesize('hello there world');
     expect(out.mimeType).toBe('audio/wav');
     expect(String.fromCharCode(...out.audio.subarray(0, 4))).toBe('RIFF');
     expect(ensure.urls).toEqual([DEFAULT_VOICE.url]);
     expect(host.reqs[0]!.model).toEqual(voiceModelPaths(DEFAULT_VOICE, '/models/tts'));
-    expect(host.reqs[0]!.text).toBe('hello world');
-    expect(host.reqs[0]!.speed).toBe(1);
+    expect(host.reqs[0]!.text).toBe('hello there world');
+    expect(host.reqs[0]!.speed).toBe(SPEAKING_PACE);
     expect(host.reqs[0]!.sid).toBe(1);
     expect(host.reqs[0]!.numSteps).toBe(8);
   });
@@ -115,10 +117,46 @@ describe('LocalSupertonicSynthesizer.synthesize', () => {
 
   it('maps and clamps rate onto sherpa speed', async () => {
     const { synth, host } = makeSynth();
-    await synth.synthesize('fast', { rate: 5 });
-    await synth.synthesize('slow', { rate: 0.1 });
-    await synth.synthesize('normal');
-    expect(host.reqs.map((r) => r.speed)).toEqual([2.0, 0.5, 1.0]);
+    await synth.synthesize('this one is fast', { rate: 5 });
+    await synth.synthesize('this one is slow', { rate: 0.1 });
+    await synth.synthesize('this one is normal');
+    expect(host.reqs.map((r) => r.speed)).toEqual([2.0, 0.5, SPEAKING_PACE]);
+  });
+
+  it('reads at a conversational pace, keeping the small changes a sentence asks for', async () => {
+    const { synth, host } = makeSynth();
+    await synth.synthesize('Is this the right question?', { rate: 1.02 });
+    await synth.synthesize('And then it trailed off…', { rate: 0.94 });
+    expect(SPEAKING_PACE).toBe(1.3);
+    expect(host.reqs.map((r) => r.speed)).toEqual([1.33, 1.22]);
+  });
+
+  it('reads a reply of one or two words at natural speed, where a faster one blurs', async () => {
+    const { synth, host } = makeSynth();
+    await synth.synthesize('Gotowe.', { language: 'pl' });
+    await synth.synthesize('Hej!', { language: 'pl', rate: 1.06 });
+    await synth.synthesize('Nie wiem.', { language: 'pl' });
+    await synth.synthesize('Zaraz to sprawdzę.', { language: 'pl' });
+    expect(host.reqs.map((r) => r.speed)).toEqual([1, 1.06, 1, SPEAKING_PACE]);
+  });
+
+  it('cuts the silence the model leaves around a sentence', async () => {
+    const sampleRate = 44_100;
+    const silence = new Float32Array(sampleRate / 2);
+    const speech = new Float32Array(sampleRate / 10).fill(0.3);
+    const padded = new Float32Array([...silence, ...speech, ...silence]);
+    const host: HostClientLike = {
+      async synthesize() {
+        return { samples: padded, sampleRate };
+      },
+      shutdown() {},
+    };
+    const { synth } = makeSynth({ hostFactory: () => host });
+
+    const out = await synth.synthesize('Gotowe.', { language: 'pl' });
+
+    const playedMs = ((out.audio.byteLength - WAV_HEADER_BYTES) / 2 / sampleRate) * 1000;
+    expect(playedMs).toBeCloseTo(SILENCE_KEPT_BEFORE_MS + 100 + SILENCE_KEPT_AFTER_MS, 0);
   });
 
   it('respects a pre-aborted signal', async () => {

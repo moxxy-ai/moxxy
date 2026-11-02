@@ -88,6 +88,25 @@ describe('IncrementalSpeechSegmenter', () => {
     ]);
   });
 
+  it('does not split a clock time at its colon', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Najpierw pójdą zaległe zadania z wczoraj, a dzisiejsze z 10:10 dopiero po nich. ')).toEqual([
+      'Najpierw pójdą zaległe zadania z wczoraj, a dzisiejsze z 10:10 dopiero po nich.',
+    ]);
+    expect(segmenter.push('Zaległe skończą się więc mniej więcej około godziny 10:40. ')).toEqual([
+      'Zaległe skończą się więc mniej więcej około godziny 10:40.',
+    ]);
+  });
+
+  it('keeps the number of a list item with its text', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Co się stanie:\n\n1. **10:00:** otwierasz laptopa.\n2. Moxxy zaczyna pracę.\n')).toEqual([
+      'Co się stanie:',
+      '1. **10:00:** otwierasz laptopa.',
+      '2. Moxxy zaczyna pracę.',
+    ]);
+  });
+
   it('forces a natural word-boundary chunk for a very long sentence', () => {
     const segmenter = new IncrementalSpeechSegmenter({ maxChars: 56 });
     const chunks = segmenter.push(

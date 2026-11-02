@@ -58,6 +58,23 @@ export const VOICE_CATALOG: readonly VoiceEntry[] = [DEFAULT_VOICE];
  *  corpus 5 steps are a third faster but start to lose digits of a number. */
 export const DENOISING_STEPS = 8;
 
+/** Supertonic at speed 1 reads Polish at about 100 words a minute, far slower
+ *  than people talk. 1.3 gives about 140 and a local transcriber still reads it
+ *  as well as 1.2; from 1.4 syllables start to run together. A sentence's own
+ *  rate multiplies this. */
+export const SPEAKING_PACE = 1.3;
+
+/** Up to this many words, a faster reading blurs ("Gotowe." came out as
+ *  silence or "towe"), so such a reply is read at natural speed. */
+const SHORT_REPLY_WORDS = 2;
+
+/** The pace for one piece of spoken text: conversational, or natural for a
+ *  reply of a word or two. */
+export function speakingPace(spokenText: string): number {
+  const words = spokenText.match(/[\p{L}\p{N}]+/gu)?.length ?? 0;
+  return words <= SHORT_REPLY_WORDS ? 1 : SPEAKING_PACE;
+}
+
 /** The languages Supertonic 3 reads. */
 export const SUPERTONIC_LANGUAGES: ReadonlySet<string> = new Set([
   'ar', 'bg', 'cs', 'da', 'de', 'el', 'en', 'es', 'et', 'fi', 'fr',

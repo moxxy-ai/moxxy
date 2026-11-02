@@ -179,6 +179,14 @@ from its row (`local-transcription.ts` in `@moxxy/desktop-host`,
 
 Read aloud speaks with the voice chosen in Settings → Voice. With Supertonic 3
 (or any voice but Gemini) it reads sentence by sentence, as Voice Mode does.
+A clock time such as 10:10 and the number of a list item stay inside their
+sentence (`IncrementalSpeechSegmenter` in `@moxxy/chat-model`). Supertonic reads
+at 1.3 times its own speed, about 140 words a minute, and a reply of one or two
+words at its own speed, because faster it blurs. It pads every sentence with
+about half a second of silence on each side, so `@moxxy/plugin-tts-local` cuts
+that to 30 ms before and 100 ms after the speech; with the queue's own pause
+sentences follow each other after about a quarter of a second
+(`speakingPace` in `voices.ts`, `trim-silence.ts`).
 With Gemini Flash-Lite it sends the whole answer in one request, or in parts
 of up to 3,000 characters cut between sentences for a long one, so it does not
 spend a request per sentence against Gemini's rate limit. Each part is kept on

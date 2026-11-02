@@ -357,17 +357,29 @@ function scanNaturalBoundary(text: string): NaturalBoundaryScan {
     if (char === '.' && isSentencePeriod(text, i)) {
       return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
     }
-    if ((char === ';' || char === ':') && i + 1 >= MIN_CLAUSE_CHARS) {
+    if ((char === ';' || (char === ':' && !isClockColon(text, i))) && i + 1 >= MIN_CLAUSE_CHARS) {
       return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
     }
   }
   return { boundary: null, protectedAtEnd: fence !== null || inlineCode };
 }
 
+/** The colon of a time such as 10:10, which only reads as one phrase. */
+function isClockColon(text: string, index: number): boolean {
+  return /\d/.test(text[index - 1] ?? '') && /\d/.test(text[index + 1] ?? '');
+}
+
+/** The period of a numbered list item ("1. "), which belongs to the item's text. */
+function isListNumberPeriod(text: string, index: number): boolean {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  return /^[ \t]*\d{1,3}$/.test(text.slice(lineStart, index)) && /\s/.test(text[index + 1] ?? '');
+}
+
 function isSentencePeriod(text: string, index: number): boolean {
   const previous = text[index - 1];
   const next = text[index + 1];
   if (previous && next && /\d/.test(previous) && /\d/.test(next)) return false;
+  if (isListNumberPeriod(text, index)) return false;
   if (previous && /\d/.test(previous) && /^\s+\p{Ll}/u.test(text.slice(index + 1))) return false;
   const lower = text.toLocaleLowerCase();
   return !ABBREVIATIONS.some((abbreviation) => {

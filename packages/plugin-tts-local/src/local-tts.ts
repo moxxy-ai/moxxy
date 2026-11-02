@@ -26,9 +26,11 @@ import {
 import { HostClient, type HostClientLike } from './host-client.js';
 import { resolveSherpaLibDir, sherpaEnv, sherpaPlatformPackage } from './platform.js';
 import { normalizeForSpeech } from './spoken-text/index.js';
+import { trimSilence } from './trim-silence.js';
 import {
   DEFAULT_VOICE,
   DENOISING_STEPS,
+  speakingPace,
   speechLanguage,
   voiceModelPaths,
   type VoiceEntry,
@@ -51,6 +53,12 @@ const DEFAULT_NUM_THREADS = 2;
 export function clampSpeed(rate: number | undefined): number {
   if (rate === undefined || !Number.isFinite(rate)) return 1.0;
   return Math.min(MAX_SPEED, Math.max(MIN_SPEED, rate));
+}
+
+/** The speed sent to the model: the sentence's own rate at the pace its length allows. */
+function speakingSpeed(rate: number | undefined, spokenText: string): number {
+  const relative = rate === undefined || !Number.isFinite(rate) ? 1 : rate;
+  return clampSpeed(Math.round(relative * speakingPace(spokenText) * 100) / 100);
 }
 
 export interface LocalSupertonicOptions {
@@ -123,15 +131,16 @@ export class LocalSupertonicSynthesizer implements Synthesizer {
     opts.signal?.throwIfAborted();
 
     const lang = speechLanguage(opts.language, text);
+    const spoken = normalizeForSpeech(text, lang);
     const host = this.getHost();
     const { samples, sampleRate } = await host.synthesize({
       voiceKey: paths.vocoder,
       model: paths,
       numThreads: this.numThreads,
       provider: this.provider,
-      text: normalizeForSpeech(text, lang),
+      text: spoken,
       sid: voice.speakerId,
-      speed: clampSpeed(opts.rate),
+      speed: speakingSpeed(opts.rate, spoken),
       lang,
       numSteps: DENOISING_STEPS,
     });
@@ -143,7 +152,7 @@ export class LocalSupertonicSynthesizer implements Synthesizer {
         context: { voice: voice.id },
       });
     }
-    return { audio: encodeWav(samples, sampleRate), mimeType: this.mimeType };
+    return { audio: encodeWav(trimSilence(samples, sampleRate), sampleRate), mimeType: this.mimeType };
   }
 
   /** Kill this synthesizer's sidecar (if any) and drop registration. */
