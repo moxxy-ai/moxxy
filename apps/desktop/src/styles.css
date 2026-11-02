@@ -1552,6 +1552,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   min-width: 0;
   padding: 0 var(--space-4);
   background: var(--color-app-bg);
+  /* What a tab's width is a share of (`cqi` below): the strip is as wide as the
+   * pane, while the tab list is only as wide as its tabs. */
+  container-type: inline-size;
 }
 
 /* Only as wide as the tabs need, so the new-tab button sits against the last
@@ -1575,8 +1578,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  /* Narrow panes keep more tabs in view; a wide one lets titles breathe. */
-  width: clamp(120px, 22%, 220px);
+  /* Narrow panes keep more tabs in view; a wide one lets titles breathe. A
+   * share of the strip, not of the list: 22% of a list sized by its own tabs
+   * left the list at 220 px around a 120 px tab, and the + past the gap. */
+  width: clamp(120px, 22cqi, 220px);
   height: calc(100% - 2 * var(--space-4));
   padding-right: var(--space-2);
   border-radius: var(--radius-chip);

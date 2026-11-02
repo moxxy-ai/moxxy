@@ -82,3 +82,14 @@ describe('styles.css — every work panel tab stays in view', () => {
     expect(narrow?.[2]).toMatch(/\.bench__tab:not\(\[data-active='true'\]\)\s+\.bench__tab-label\s*\{\s*display:\s*none/);
   });
 });
+
+describe('styles.css — the browser tab strip', () => {
+  it('sizes a tab from the strip, so the new-tab button sits right after the last tab', () => {
+    // A tab at a share of the tab list, which is only as wide as its tabs, is a
+    // cycle: Chromium kept the list at the widest tab (220 px), drew the tab at
+    // 120 px, and left the + floating past an empty gap.
+    expect(rule('.browser__tab')).not.toMatch(/width:[^;]*%/);
+    expect(rule('.browser__tabs')).toMatch(/container-type:\s*inline-size/);
+    expect(rule('.browser__tab')).toMatch(/width:\s*clamp\(120px,\s*22cqi,\s*220px\)/);
+  });
+});

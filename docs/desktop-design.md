@@ -243,7 +243,12 @@ window, the only window that offers it, so main sends that window
 `browser.showUrl` with one id per click (and says the browser is unavailable
 when the window is closed); the workbench shows the browser and the pane opens
 the address in a new tab (`shell/surfaces/browser-link-requests.ts`), even when
-the pane was not open yet.
+the pane was not open yet. A pane opened for a link starts at the link alone,
+without its home tab: with both, whichever page loaded last came to the front,
+often Google. In the browser's own tab strip a tab is a share of the strip's
+width (`22cqi`, the strip being a size container), not of the tab list: the list
+is only as wide as its tabs, so a share of it left the list wider than its one
+tab and the + for a new tab past an empty gap.
 
 A file link is a `file://` URL or an absolute path, spaces and all: `/Users/…`
 on macOS and Linux, `C:\…` or `C:/…` on Windows, and `file:///C:/…` reads as

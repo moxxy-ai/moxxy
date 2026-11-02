@@ -75,6 +75,23 @@ describe('a chat link opened in the Moxxy browser', () => {
     act(() => askBrowserFor({ requestId: 'b2', url: 'https://after.example' }));
     expect(result.current.panes.map((p) => p.initialUrl)).toContain('https://after.example');
   });
+
+  it('starts the pane at the link instead of the home page, so the link is the tab in front', () => {
+    installApi();
+    askBrowserFor({ requestId: 'b3', url: 'https://first.example' });
+
+    const { result } = renderHook(() => useBrowserTabs());
+
+    expect(result.current.panes.map((p) => p.initialUrl)).toEqual(['https://first.example']);
+  });
+
+  it('starts at the home page when no link is waiting', () => {
+    installApi();
+
+    const { result } = renderHook(() => useBrowserTabs());
+
+    expect(result.current.panes.map((p) => p.initialUrl)).toEqual([HOME_URL]);
+  });
 });
 
 describe('closing a tab', () => {

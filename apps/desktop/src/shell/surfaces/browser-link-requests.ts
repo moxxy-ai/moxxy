@@ -17,6 +17,11 @@ export function askBrowserFor(request: { readonly requestId: string; readonly ur
   for (const listener of listeners) listener();
 }
 
+/** Whether an address is waiting, without taking it: the pane starts at it then, not at the home page. */
+export function hasBrowserRequests(): boolean {
+  return pending.length > 0;
+}
+
 /** Every waiting address, once. */
 export function takeBrowserRequests(): string[] {
   return pending.splice(0);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { askBrowserFor, onBrowserRequest, takeBrowserRequests } from './browser-link-requests';
+import { askBrowserFor, hasBrowserRequests, onBrowserRequest, takeBrowserRequests } from './browser-link-requests';
 
 describe('browser link requests (a chat link waiting for the browser pane)', () => {
   it('keeps an address until the pane takes it, then forgets it', () => {
@@ -16,5 +16,14 @@ describe('browser link requests (a chat link waiting for the browser pane)', () 
     off();
     expect(heard).toBe(1);
     expect(takeBrowserRequests()).toEqual(['https://c.d']);
+  });
+
+  it('tells whether an address waits without taking it', () => {
+    expect(hasBrowserRequests()).toBe(false);
+    askBrowserFor({ requestId: 'r3', url: 'https://e.f' });
+    expect(hasBrowserRequests()).toBe(true);
+    expect(hasBrowserRequests()).toBe(true);
+    takeBrowserRequests();
+    expect(hasBrowserRequests()).toBe(false);
   });
 });
