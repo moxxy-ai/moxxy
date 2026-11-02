@@ -51,10 +51,23 @@ const REVEAL_LABEL: Readonly<Record<System, string>> = {
   linux: 'Show in folder',
 };
 
-export function linkMenuItems(target: LinkTarget, system: System): ReadonlyArray<LinkMenuItem> {
+export interface LinkMenuPlace {
+  /** The window has the Moxxy browser beside it: the main window, not the Mini Chat. */
+  readonly moxxyBrowser: boolean;
+}
+
+const MAIN_WINDOW: LinkMenuPlace = { moxxyBrowser: true };
+
+export function linkMenuItems(
+  target: LinkTarget,
+  system: System,
+  place: LinkMenuPlace = MAIN_WINDOW,
+): ReadonlyArray<LinkMenuItem> {
   if (target.kind === 'web') {
     return [
-      { action: 'open-in-moxxy', label: 'Open in Moxxy browser', icon: 'globe' },
+      ...(place.moxxyBrowser
+        ? [{ action: 'open-in-moxxy', label: 'Open in Moxxy browser', icon: 'globe' } as const]
+        : []),
       { action: 'open-in-browser', label: 'Open in browser', icon: 'link' },
       { action: 'copy-link', label: 'Copy link', icon: 'copy' },
     ];

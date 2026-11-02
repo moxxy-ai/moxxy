@@ -7,6 +7,7 @@ import { useCopy } from '@/lib/useCopy';
 import { linkMenuItems, opensAtOnce, systemOf, type LinkAction, type LinkTarget } from './link-menu';
 import { fileFailureLabel, openLocalFile } from './local-file-link';
 import { openWebLink } from './web-link';
+import { useHasMoxxyBrowser } from './moxxy-browser-context';
 
 const MENU_WIDTH = 224;
 
@@ -29,10 +30,12 @@ function baseName(path: string): string {
  * A link in the chat: a click opens a menu of what can be done with it, and
  * Cmd-click (Ctrl-click off a Mac) does the usual thing at once — a page in
  * the default browser, a file in its app. The same in the main chat and the
- * mini chat, since both render the transcript through `MarkdownBody`.
+ * mini chat, since both render the transcript through `MarkdownBody`, except
+ * that the Mini Chat has no Moxxy browser to offer (`MoxxyBrowserContext`).
  */
 export function useLinkMenu(target: LinkTarget): LinkMenu {
   const system = systemOf(typeof navigator === 'undefined' ? '' : navigator.platform);
+  const moxxyBrowser = useHasMoxxyBrowser();
   const popover = usePopover<HTMLAnchorElement, HTMLDivElement>({ side: 'bottom', align: 'start', width: MENU_WIDTH });
   const { copied, copy } = useCopy();
   const [failure, setFailure] = useState<LinkMenu['failure']>(null);
@@ -71,13 +74,13 @@ export function useLinkMenu(target: LinkTarget): LinkMenu {
   }, [target, attempt, copy]);
 
   const entries = useMemo(
-    () => linkMenuItems(target, system).map((item) => ({
+    () => linkMenuItems(target, system, { moxxyBrowser }).map((item) => ({
       id: item.action,
       label: item.label,
       icon: item.icon,
       onSelect: () => run(item.action),
     })),
-    [target, system, run],
+    [target, system, moxxyBrowser, run],
   );
 
   const onClick = useCallback((event: MouseEvent): void => {

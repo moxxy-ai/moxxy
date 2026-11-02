@@ -226,16 +226,24 @@ Cmd-click on a Mac, Ctrl-click elsewhere, skips the menu and does the usual
 thing: a page in the default browser, a file in its app. Right-click opens the
 menu too. A link the app cannot open (`mailto:`) reads as plain text.
 
+The Mini Chat leaves Open in Moxxy browser out of a page's menu: the Moxxy
+browser is in the main window, and opening a page there would pull that window
+up, out of focus mode, and with the main window closed it would have to make
+that window and wait until it listens. The focus
+widget sets `MoxxyBrowserContext` to false (`chat/moxxy-browser-context.ts`),
+and the menu reads it; everywhere else it is true.
+
 A page never opens in a window of the app. A link used to go through
 `target="_blank"`, and the main window turns a new window on a sign-in host
 (github.com, accounts.google.com) into the in-app sign-in popup, so a link to a
 pull request opened there; the mini chat refuses new windows, so its links did
 nothing. Now the chat asks the host: `onboarding.openExternal` for the default
 browser, `browser.showUrl` for the Moxxy browser. The pane lives in the main
-window, so main brings that window forward and sends it `browser.showUrl` with
-one id per click; the workbench shows the browser and the pane opens the address
-in a new tab (`shell/surfaces/browser-link-requests.ts`), even when the pane was
-not open yet.
+window, the only window that offers it, so main sends that window
+`browser.showUrl` with one id per click (and says the browser is unavailable
+when the window is closed); the workbench shows the browser and the pane opens
+the address in a new tab (`shell/surfaces/browser-link-requests.ts`), even when
+the pane was not open yet.
 
 A file link is a `file://` URL or an absolute path, spaces and all: `/Users/…`
 on macOS and Linux, `C:\…` or `C:/…` on Windows, and `file:///C:/…` reads as

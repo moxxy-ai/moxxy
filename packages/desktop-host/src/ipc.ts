@@ -117,9 +117,9 @@ export function registerIpcHandlers(
     readonly browser?: BrowserHost;
     /** Native, main-process browser opener used by hosted OAuth login. */
     readonly openExternal?: (url: string) => Promise<void>;
-    /** Bring the main window forward and open `url` in its browser pane
-     *  (`browser.showUrl`). Omitted ⇒ the command says the browser is unavailable. */
-    readonly showInMoxxyBrowser?: (url: string) => void;
+    /** Open `url` in the main window's browser pane (`browser.showUrl`); false
+     *  when that window is closed. Omitted ⇒ the command says the browser is unavailable. */
+    readonly showInMoxxyBrowser?: (url: string) => boolean;
   } = {},
 ): void {
   followBotModels(pool);

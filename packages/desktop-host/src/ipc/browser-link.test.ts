@@ -9,7 +9,7 @@ import { registerBrowserLinkHandlers } from './browser-link';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
-function register(show?: (url: string) => void): (url: string) => Promise<unknown> {
+function register(show?: (url: string) => boolean): (url: string) => Promise<unknown> {
   const handlers = new Map<string, Handler>();
   setActiveBus({
     handle: (channel: IpcCommandName, handler: Handler) => handlers.set(channel, handler),
@@ -24,7 +24,7 @@ describe('browser.showUrl (Open in Moxxy browser from a link menu)', () => {
   it('hands a web address to the main window', async () => {
     // The main window is the boundary: recorded, not shown.
     const shown: string[] = [];
-    const showUrl = register((url) => void shown.push(url));
+    const showUrl = register((url) => shown.push(url) > 0);
 
     await showUrl('https://github.com/moxxy-ai/moxxy');
     expect(shown).toEqual(['https://github.com/moxxy-ai/moxxy']);
@@ -32,7 +32,7 @@ describe('browser.showUrl (Open in Moxxy browser from a link menu)', () => {
 
   it('refuses anything but http(s)', async () => {
     const shown: string[] = [];
-    const showUrl = register((url) => void shown.push(url));
+    const showUrl = register((url) => shown.push(url) > 0);
 
     await expect(showUrl('file:///etc/passwd')).rejects.toThrow(/unsafe/u);
     await expect(showUrl('javascript:alert(1)')).rejects.toThrow(/unsafe/u);
@@ -41,5 +41,9 @@ describe('browser.showUrl (Open in Moxxy browser from a link menu)', () => {
 
   it('says the browser is not there when no main window can show it', async () => {
     await expect(register()('https://a.b')).rejects.toThrow(/unavailable/u);
+  });
+
+  it('says so when the main window is closed, rather than opening one without the page', async () => {
+    await expect(register(() => false)('https://a.b')).rejects.toThrow(/unavailable/u);
   });
 });

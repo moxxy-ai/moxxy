@@ -35,6 +35,12 @@ describe('linkMenuItems', () => {
     ]);
   });
 
+  it('leaves the Moxxy browser out where the window has none, as in the Mini Chat', () => {
+    expect(
+      linkMenuItems({ kind: 'web', url: 'https://a.b' }, 'mac', { moxxyBrowser: false }).map((item) => item.label),
+    ).toEqual(['Open in browser', 'Copy link']);
+  });
+
   it('offers opening, the file manager of this system, attaching and copying for a file', () => {
     const labels = (system: 'mac' | 'windows' | 'linux') =>
       linkMenuItems({ kind: 'file', path: '/a/b.md' }, system).map((item) => item.label);

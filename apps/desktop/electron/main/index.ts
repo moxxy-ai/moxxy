@@ -939,22 +939,13 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers([electronBus], pool, desks, {
     openExternal: (url) => shell.openExternal(url),
-    // A chat link opened in the Moxxy browser, from the main chat or the mini
-    // chat: the pane is the main window's, so bring that window forward first.
+    // A chat link opened in the Moxxy browser. Only the main window offers it
+    // (the Mini Chat leaves it out), so the window asking is the one to show it.
     showInMoxxyBrowser: (url) => {
-      void (async () => {
-        const created = !mainWindow || mainWindow.isDestroyed();
-        if (created) await createWindow();
-        const win = mainWindow;
-        if (!win || win.isDestroyed()) return;
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
-        if (process.platform === 'darwin') app.focus({ steal: true });
-        const send = (): void => win.webContents.send('browser.showUrl', { requestId: randomUUID(), url });
-        if (created && win.webContents.isLoading()) win.webContents.once('did-finish-load', send);
-        else send();
-      })();
+      const win = mainWindow;
+      if (!win || win.isDestroyed()) return false;
+      win.webContents.send('browser.showUrl', { requestId: randomUUID(), url });
+      return true;
     },
     update: {
       publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
