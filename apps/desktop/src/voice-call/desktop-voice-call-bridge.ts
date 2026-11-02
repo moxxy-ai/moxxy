@@ -16,9 +16,9 @@ export interface DesktopVoiceCallSnapshot {
   readonly activity: VoiceToolActivity | null;
   readonly errorReason: string | null;
   readonly microphoneMuted: boolean;
-  readonly localPiperInstallRequired: boolean;
-  readonly localPiperInstalling: boolean;
-  readonly localPiperInstallError: string | null;
+  readonly localVoiceInstallRequired: boolean;
+  readonly localVoiceInstalling: boolean;
+  readonly localVoiceInstallError: string | null;
   readonly queuedTurns: ReadonlyArray<DesktopVoiceQueuedTurn>;
 }
 
@@ -26,7 +26,7 @@ export type DesktopVoiceCallCommand =
   | 'open'
   | 'close'
   | 'retry'
-  | 'install-local-piper'
+  | 'install-local-voice'
   | 'mute-microphone'
   | 'unmute-microphone';
 
@@ -106,9 +106,9 @@ const snapshotSchema = z.object({
   activity: activitySchema.nullable(),
   errorReason: z.string().max(500).nullable(),
   microphoneMuted: z.boolean(),
-  localPiperInstallRequired: z.boolean(),
-  localPiperInstalling: z.boolean(),
-  localPiperInstallError: z.string().max(500).nullable(),
+  localVoiceInstallRequired: z.boolean(),
+  localVoiceInstalling: z.boolean(),
+  localVoiceInstallError: z.string().max(500).nullable(),
   queuedTurns: z.array(queuedTurnSchema).max(32).default([]),
 }).strict();
 function isUint8ArrayView(value: unknown): value is Uint8Array {
@@ -132,7 +132,7 @@ const messageSchema = z.discriminatedUnion('type', [
       'open',
       'close',
       'retry',
-      'install-local-piper',
+      'install-local-voice',
       'mute-microphone',
       'unmute-microphone',
     ]),

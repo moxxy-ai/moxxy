@@ -12,7 +12,6 @@ export interface VoiceSettingsState {
   readonly apiKeyDraft: string;
   readonly voices: ReadonlyArray<GeminiVoiceInfo>;
   readonly selectedVoiceId: string;
-  readonly localPiperInstalled: boolean;
   readonly loadingVoices: boolean;
   readonly busy: boolean;
   readonly error: string | null;
@@ -21,7 +20,7 @@ export interface VoiceSettingsState {
   readonly saveGeminiApiKey: () => Promise<void>;
   readonly loadVoices: () => Promise<void>;
   readonly useGeminiVoice: () => Promise<void>;
-  readonly useLocalPiper: () => Promise<void>;
+  readonly useLocalVoice: () => Promise<void>;
 }
 
 /** Owns IPC and async state for Settings → Voice; the view only renders and
@@ -33,21 +32,16 @@ export function useVoiceSettings(): VoiceSettingsState {
   const hasGeminiKey = geminiKey.hasKey;
   const [voices, setVoices] = useState<ReadonlyArray<GeminiVoiceInfo>>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState('Fola');
-  const [localPiperInstalled, setLocalPiperInstalled] = useState(false);
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
-    void Promise.all([
-      api().invoke('voice.getSettings'),
-      api().invoke('voice.isLocalPiperInstalled'),
-    ]).then(([settings, installed]) => {
+    void api().invoke('voice.getSettings').then((settings) => {
       if (!current) return;
       setBackend(settings.backend);
       setSelectedVoiceId(settings.voiceId);
-      setLocalPiperInstalled(installed);
     }).catch((reason: unknown) => {
       if (current) setError(errorMessage(reason));
     }).finally(() => {
@@ -93,13 +87,12 @@ export function useVoiceSettings(): VoiceSettingsState {
     }
   }, [hasGeminiKey, selectedVoiceId]);
 
-  const useLocalPiper = useCallback(async () => {
+  const useLocalVoice = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      await api().invoke('voice.useLocalPiper');
-      setBackend('local-piper');
-      setLocalPiperInstalled(true);
+      await api().invoke('voice.useLocalVoice');
+      setBackend('local-supertonic');
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -114,7 +107,6 @@ export function useVoiceSettings(): VoiceSettingsState {
     apiKeyDraft: geminiKey.draft,
     voices,
     selectedVoiceId,
-    localPiperInstalled,
     loadingVoices,
     busy: busy || geminiKey.busy,
     error: error ?? geminiKey.error,
@@ -123,7 +115,7 @@ export function useVoiceSettings(): VoiceSettingsState {
     saveGeminiApiKey: geminiKey.save,
     loadVoices,
     useGeminiVoice,
-    useLocalPiper,
+    useLocalVoice,
   };
 }
 

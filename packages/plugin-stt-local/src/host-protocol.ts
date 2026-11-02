@@ -20,11 +20,13 @@ export interface TranscribeRequest {
   readonly type: 'transcribe';
   /** Cache key for the loaded recognizer (the absolute encoder path). */
   readonly modelKey: string;
-  /** Absolute path to the Whisper encoder `.onnx`. */
+  /** Absolute path to the encoder `.onnx`. */
   readonly encoder: string;
-  /** Absolute path to the Whisper decoder `.onnx`. */
+  /** Absolute path to the decoder `.onnx`. */
   readonly decoder: string;
-  /** Absolute path to `<id>-tokens.txt`. */
+  /** Absolute path to the joiner `.onnx`: set for a transducer, absent for Whisper. */
+  readonly joiner?: string;
+  /** Absolute path to the tokens file. */
   readonly tokens: string;
   /** Inference thread count. */
   readonly numThreads: number;
@@ -109,15 +111,7 @@ export function createMessageHandler(loadSherpa: LoadSherpa): HostMessageHandler
         recognizer = new mod.OfflineRecognizer({
           featConfig: { sampleRate: 16_000, featureDim: 80 },
           modelConfig: {
-            whisper: {
-              encoder: req.encoder,
-              decoder: req.decoder,
-              // `language`/`task` are present in the OfflineWhisperModelConfig
-              // types but exercised by no upstream example — pass them through
-              // best-effort (empty language ⇒ Whisper auto-detects anyway).
-              language: req.language,
-              task: req.task,
-            },
+            ...engineConfig(req),
             tokens: req.tokens,
             numThreads: req.numThreads,
             provider: req.provider,
@@ -144,6 +138,26 @@ export function createMessageHandler(loadSherpa: LoadSherpa): HostMessageHandler
     } catch (err) {
       return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'runtime' } };
     }
+  };
+}
+
+function engineConfig(req: HostRequest): Record<string, unknown> {
+  if (req.joiner) {
+    return {
+      transducer: { encoder: req.encoder, decoder: req.decoder, joiner: req.joiner },
+      modelType: 'nemo_transducer',
+    };
+  }
+  return {
+    whisper: {
+      encoder: req.encoder,
+      decoder: req.decoder,
+      // `language`/`task` are present in the OfflineWhisperModelConfig
+      // types but exercised by no upstream example — pass them through
+      // best-effort (empty language ⇒ Whisper auto-detects anyway).
+      language: req.language,
+      task: req.task,
+    },
   };
 }
 

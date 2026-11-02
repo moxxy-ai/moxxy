@@ -73,6 +73,8 @@ const vaultKeyName = z
 
 const optionalWorkspace = z.string().min(1).max(256).optional();
 
+const localTranscriptionModelSchema = z.enum(['parakeet', 'turbo']);
+
 const chatMediaItemArgs = z
   .object({ workspaceId: z.string().min(1).max(256), id: z.string().min(1).max(200) })
   .strict();
@@ -86,7 +88,7 @@ const speechLanguage = z
   .string()
   .max(35)
   .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/, 'must be a BCP-47 language tag');
-/** Piper's supported range. The conversational planner uses a much narrower
+/** The offline voice's supported range. The conversational planner uses a much narrower
  *  band, but every renderer/remote caller is still bounded at the IPC edge. */
 const speechRate = z.number().finite().min(0.5).max(2);
 /** ~9 MB of payload per inline attachment (an 8 MB file, as base64 inflates
@@ -188,20 +190,21 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // Optional offline voice installation spawns the CLI and changes the active
   // synthesizer. The host owns the exact package/name; renderer input is never
   // accepted, preventing package-spec / CLI-argument injection.
-  'voice.isLocalPiperInstalled': z.undefined(),
-  'voice.installLocalPiper': z.undefined(),
+  'voice.isLocalVoiceInstalled': z.undefined(),
+  'voice.installLocalVoice': z.undefined(),
   'voice.listGeminiVoices': z.undefined(),
   'voice.useGeminiTts': z.object({
     voiceId: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/),
   }).strict(),
-  'voice.useLocalPiper': z.undefined(),
+  'voice.useLocalVoice': z.undefined(),
   'voice.getSettings': z.undefined(),
   // Switching transcription spawns the CLI to install a fixed package and
-  // restarts runners; the renderer supplies nothing.
+  // restarts runners; the renderer only names one of the host's fixed models.
   'voice.getTranscription': z.undefined(),
-  'voice.useLocalTranscription': z.undefined(),
+  'voice.useLocalTranscription': z.object({ model: localTranscriptionModelSchema }).strict(),
   'voice.cancelLocalTranscription': z.undefined(),
   'voice.useCloudTranscription': z.undefined(),
+  'voice.removeLocalTranscriptionModel': z.object({ model: localTranscriptionModelSchema }).strict(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
   // GPT-Live spends the host's OpenAI API key: the renderer supplies
   // only its WebRTC offer; instructions, model and history stay host-owned.

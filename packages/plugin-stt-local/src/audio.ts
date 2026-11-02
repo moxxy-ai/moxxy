@@ -7,6 +7,7 @@
  *   - `pcm16ToFloat32`  int16 little-endian bytes → Float32 in [-1, 1]
  *   - `downmixToMono`   interleaved N-channel Float32 → averaged mono
  *   - `resampleLinear`  linear-interpolation resample between two rates
+ *   - `splitAtSilence`  long audio → pieces cut where the speaker paused
  *   - `parseWav`        RIFF/WAVE header parse → PCM16 samples (float) + rate +
  *                       channels; rejects non-PCM16 (float/compressed) WAV
  *
@@ -217,4 +218,49 @@ function ascii4(bytes: Uint8Array, off: number): string {
 
 function wavError(detail: string): MoxxyError {
   return new MoxxyError({ code: 'CONFIG_INVALID', message: `Invalid WAV audio: ${detail}` });
+}
+
+/** Pauses are looked for this far before the limit, in frames this long. */
+const CUT_SEARCH_SECONDS = 10;
+const CUT_FRAME_SECONDS = 0.1;
+
+/** The quietest moment between `from` and `to`; `to` itself when nothing is quieter. */
+function quietestCut(samples: Float32Array, from: number, to: number, frame: number): number {
+  const energy = (end: number): number => {
+    let sum = 0;
+    for (let i = end - frame; i < end; i += 1) sum += (samples[i] ?? 0) ** 2;
+    return sum;
+  };
+  let cut = to;
+  let quietest = energy(to);
+  for (let end = to - frame; end - frame >= from; end -= frame) {
+    const current = energy(end);
+    if (current < quietest) {
+      quietest = current;
+      cut = end - Math.floor(frame / 2);
+    }
+  }
+  return cut;
+}
+
+/**
+ * Cut audio into pieces of at most `maxSeconds`, at the quietest moment of the
+ * last seconds before each limit, so no word is split where the speaker paused.
+ * Pieces are copies: over IPC a view would drag the whole recording with it.
+ */
+export function splitAtSilence(samples: Float32Array, sampleRate: number, maxSeconds: number): Float32Array[] {
+  const limit = Math.floor(maxSeconds * sampleRate);
+  if (samples.length <= limit) return [samples];
+  const search = Math.min(limit, Math.floor(CUT_SEARCH_SECONDS * sampleRate));
+  const frame = Math.max(1, Math.floor(CUT_FRAME_SECONDS * sampleRate));
+  const parts: Float32Array[] = [];
+  let start = 0;
+  while (samples.length - start > limit) {
+    const to = start + limit;
+    const end = quietestCut(samples, to - search, to, frame);
+    parts.push(samples.slice(start, end));
+    start = end;
+  }
+  parts.push(samples.slice(start));
+  return parts;
 }

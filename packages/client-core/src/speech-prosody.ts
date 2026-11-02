@@ -1,5 +1,5 @@
 export interface SpeechProsody {
-  /** Piper speaking-rate multiplier. Kept deliberately close to natural speed. */
+  /** Speaking-rate multiplier. Kept deliberately close to natural speed. */
   readonly rate: number;
   /** Extra silence after this generated clip before the queue advances. */
   readonly pauseAfterMs: number;
@@ -15,7 +15,7 @@ const CLOSING_PUNCTUATION = new Set(['"', "'", '”', '’', ']', ')']);
  * Derive a subtle, deterministic cadence from one speakable chunk. This is
  * intentionally rule-based: equal input always sounds equal, while punctuation
  * and sentence length still produce the small tempo/pause changes people use in
- * conversation. Piper has no semantic emotion control, so the planner stays
+ * conversation. The local voice has no semantic emotion control, so the planner stays
  * within conservative bounds that do not distort its voices.
  */
 export function planSpeechProsody(text: string): SpeechProsody {

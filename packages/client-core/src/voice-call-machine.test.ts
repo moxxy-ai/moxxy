@@ -134,12 +134,12 @@ describe('voice call state machine', () => {
   it('keeps an error visible until retry or close', () => {
     const failed = apply([
       { type: 'open' },
-      { type: 'failed', reason: 'Local Piper is not active.' },
+      { type: 'failed', reason: 'offline voice is not active.' },
     ]);
     expect(failed).toEqual({
       active: true,
       phase: 'error',
-      errorReason: 'Local Piper is not active.',
+      errorReason: 'offline voice is not active.',
       microphoneMuted: false,
     });
 

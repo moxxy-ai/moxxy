@@ -60,6 +60,53 @@ describe('IncrementalSpeechSegmenter', () => {
     ]);
   });
 
+  it.each([
+    'Mieszkam przy ul. Długiej i czekam na odpowiedź serwera.',
+    'Testy obejmują m.in. logowanie oraz wysyłkę wiadomości.',
+    'Spotkanie jest o godz. ósmej w głównym biurze firmy.',
+    'Trwało to ok. pięć minut i zakończyło się sukcesem.',
+    'Budżet wynosi 5 tys. złotych i starczy na cały kwartał.',
+    'Budowę skończono w 2025 r. po bardzo długiej przerwie.',
+    'To jest Smith vs. Jones w sądzie najwyższym stanu.',
+  ])('keeps one sentence across an abbreviation: %s', (sentence) => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push(`${sentence} `)).toEqual([sentence]);
+  });
+
+  it('does not end a sentence on a Polish ordinal', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Zajęliśmy 2. miejsce w tegorocznym rankingu. ')).toEqual([
+      'Zajęliśmy 2. miejsce w tegorocznym rankingu.',
+    ]);
+  });
+
+  it('still ends a sentence on a number', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Wynik końcowy tego testu to 2. Teraz sprawdzam kolejny. ')).toEqual([
+      'Wynik końcowy tego testu to 2.',
+      'Teraz sprawdzam kolejny.',
+    ]);
+  });
+
+  it('does not split a clock time at its colon', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Najpierw pójdą zaległe zadania z wczoraj, a dzisiejsze z 10:10 dopiero po nich. ')).toEqual([
+      'Najpierw pójdą zaległe zadania z wczoraj, a dzisiejsze z 10:10 dopiero po nich.',
+    ]);
+    expect(segmenter.push('Zaległe skończą się więc mniej więcej około godziny 10:40. ')).toEqual([
+      'Zaległe skończą się więc mniej więcej około godziny 10:40.',
+    ]);
+  });
+
+  it('keeps the number of a list item with its text', () => {
+    const segmenter = new IncrementalSpeechSegmenter();
+    expect(segmenter.push('Co się stanie:\n\n1. **10:00:** otwierasz laptopa.\n2. Moxxy zaczyna pracę.\n')).toEqual([
+      'Co się stanie:',
+      '1. **10:00:** otwierasz laptopa.',
+      '2. Moxxy zaczyna pracę.',
+    ]);
+  });
+
   it('forces a natural word-boundary chunk for a very long sentence', () => {
     const segmenter = new IncrementalSpeechSegmenter({ maxChars: 56 });
     const chunks = segmenter.push(

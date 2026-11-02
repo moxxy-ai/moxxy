@@ -198,8 +198,8 @@ export function ChatSurface({
     active: voiceCall.active,
     phase: voiceCall.phase,
     microphoneMuted: voiceCall.microphoneMuted,
-    localPiperInstallRequired: voiceCall.localPiperInstallRequired,
-    localPiperInstalling: voiceCall.localPiperInstalling,
+    localVoiceInstallRequired: voiceCall.localVoiceInstallRequired,
+    localVoiceInstalling: voiceCall.localVoiceInstalling,
     activeOperations: voiceCall.activeOperations,
     events: chat.events,
     agentTurn: {
@@ -327,14 +327,14 @@ export function ChatSurface({
               rail={voicePresentation.rail}
               agentWork={voicePresentation.agentWork}
               microphoneMuted={voiceCall.microphoneMuted}
-              localPiperInstallRequired={voiceCall.localPiperInstallRequired}
-              localPiperInstalling={voiceCall.localPiperInstalling}
-              localPiperInstallError={voiceCall.localPiperInstallError}
+              localVoiceInstallRequired={voiceCall.localVoiceInstallRequired}
+              localVoiceInstalling={voiceCall.localVoiceInstalling}
+              localVoiceInstallError={voiceCall.localVoiceInstallError}
               errorReason={voiceCall.errorReason}
               inputAnalyser={voiceCall.inputAnalyser}
               outputAnalyser={voiceCall.outputAnalyser}
               onRetry={voiceCall.retry}
-              onInstallLocalPiper={voiceCall.installLocalPiper}
+              onInstallLocalVoice={voiceCall.installLocalVoice}
               onMuteMicrophone={voiceCall.muteMicrophone}
               onUnmuteMicrophone={voiceCall.unmuteMicrophone}
               onClose={voiceCall.close}

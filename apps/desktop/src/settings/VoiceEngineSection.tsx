@@ -18,7 +18,7 @@ const ENGINE_OPTIONS: ReadonlyArray<{ id: VoiceEnginePreference; label: string }
 ];
 
 const ENGINE_DETAIL: Readonly<Record<VoiceEnginePreference, string>> = {
-  local: 'Your speech is transcribed and answered by the Moxxy agent, then read aloud by the voice chosen under Read aloud. Works offline with local transcription and Piper.',
+  local: 'Your speech is transcribed and answered by the Moxxy agent, then read aloud by the voice chosen below. Works offline with local transcription and Supertonic.',
   'gpt-live': 'A live GPT-Live conversation on your OpenAI API key. It knows the chat and talks with you itself; when you ask for something to be done, your exact words go to the Moxxy agent and GPT-Live reads back the real result. OpenAI bills each minute to your key.',
 };
 

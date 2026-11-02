@@ -1,19 +1,23 @@
 import { definePlugin, defineTranscriber, type Plugin } from '@moxxy/sdk';
 
 import {
+  createLocalParakeetTranscriber,
   createLocalWhisperTranscriber,
+  LOCAL_PARAKEET_TRANSCRIBER_NAME,
   LOCAL_WHISPER_TRANSCRIBER_NAME,
   shutdownLocalStt,
-  type LocalWhisperOptions,
+  type LocalSttOptions,
 } from './local-stt.js';
 
 export {
-  LocalWhisperTranscriber,
+  LocalSttTranscriber,
+  createLocalParakeetTranscriber,
   createLocalWhisperTranscriber,
   shutdownLocalStt,
+  LOCAL_PARAKEET_TRANSCRIBER_NAME,
   LOCAL_WHISPER_TRANSCRIBER_NAME,
-  type LocalWhisperOptions,
-  type WhisperModelPaths,
+  type LocalSttOptions,
+  type LocalSttModelPaths,
 } from './local-stt.js';
 export {
   MODEL_CATALOG,
@@ -25,8 +29,8 @@ export {
   modelBytes,
   modelDir,
   defaultModelsDir,
-  type WhisperModelEntry,
-  type WhisperModelId,
+  type LocalSttModelEntry,
+  type LocalSttModelId,
 } from './models.js';
 export {
   pcm16ToFloat32,
@@ -54,14 +58,14 @@ export {
 export interface BuildLocalSttPluginOptions {
   /** Build-time defaults / test seams for the transcriber (injected
    *  `ensureModelFilesImpl`, `hostFactory`, `fetchImpl`, `modelsDir`, `log`, …). */
-  readonly defaults?: LocalWhisperOptions;
+  readonly defaults?: LocalSttOptions;
 }
 
 /**
- * Build the @moxxy/plugin-stt-local plugin. Registers exactly one transcriber,
- * `local-whisper`, backed by sherpa-onnx Whisper models running in a forked
- * sidecar. Side-effect free at load: no model is downloaded and no process is
- * spawned until the first `transcribe`. Per-activation config
+ * Build the @moxxy/plugin-stt-local plugin. Registers two transcribers,
+ * `local-whisper` and `local-parakeet`, backed by sherpa-onnx models running in
+ * a forked sidecar. Side-effect free at load: no model is downloaded and no
+ * process is spawned until the first `transcribe`. Per-activation config
  * (`session.transcribers.setActive('local-whisper', { model, language,
  * numThreads })`) overrides the build-time defaults.
  *
@@ -83,6 +87,12 @@ export function buildLocalSttPlugin(opts: BuildLocalSttPluginOptions = {}): Plug
         createClient: (config: Record<string, unknown>) =>
           createLocalWhisperTranscriber({ ...defaults, ...configToOptions(config) }),
       }),
+      defineTranscriber({
+        name: LOCAL_PARAKEET_TRANSCRIBER_NAME,
+        displayName: 'Local Parakeet (offline, 25 languages)',
+        createClient: (config: Record<string, unknown>) =>
+          createLocalParakeetTranscriber({ ...defaults, ...configToOptions(config) }),
+      }),
     ],
     // Kill every spawned sidecar when the session/runner shuts down.
     hooks: { onShutdown: () => shutdownLocalStt() },
@@ -93,8 +103,8 @@ export function buildLocalSttPlugin(opts: BuildLocalSttPluginOptions = {}): Plug
  *  known string `model` / `language` / `provider` and a positive-integer
  *  `numThreads` are honored so a malformed config can't break `createClient` or
  *  route to a bad model (unknown ids are caught by `requireModel`). */
-function configToOptions(config: Record<string, unknown>): Partial<LocalWhisperOptions> {
-  const out: { -readonly [K in keyof LocalWhisperOptions]?: LocalWhisperOptions[K] } = {};
+function configToOptions(config: Record<string, unknown>): Partial<LocalSttOptions> {
+  const out: { -readonly [K in keyof LocalSttOptions]?: LocalSttOptions[K] } = {};
   if (typeof config.model === 'string' && config.model) out.model = config.model;
   if (typeof config.language === 'string') out.language = config.language;
   if (typeof config.provider === 'string' && config.provider) out.provider = config.provider;

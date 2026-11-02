@@ -10,20 +10,25 @@
  */
 
 const KEYCAP_EMOJI_RE = /[#*0-9]\uFE0F?\u20E3/gu;
-const NON_VERBAL_SYMBOL_RE = /\p{So}/gu;
+/** The degree sign is `So` too, but it is how a temperature is said. */
+const NON_VERBAL_SYMBOL_RE = /(?!°)\p{So}/gu;
 const EMOJI_MODIFIER_RE = /\p{Emoji_Modifier}/gu;
 const EMOJI_JOINER_RE = /(?:\uFE0E|\uFE0F|\u200D|[\u{E0020}-\u{E007F}])/gu;
 const DOMAIN_RE = /\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>)]*)?/giu;
 const FILE_EXTENSION_RE = /\.(?:js|jsx|ts|tsx|mjs|cjs|json|jsonl|ya?ml|toml|md|mdx|txt|log|pdf|docx|xlsx|pptx|csv|tsv|py|rs|go|java|kt|c|h|cpp|hpp|cs|php|sh|bash|zsh|sql|html|css|scss|xml|ini|env|conf|png|jpe?g|svg|webp|wav|mp3|ogg)(?::\d+(?::\d+)?)?$/iu;
 const ABSOLUTE_FILE_PATH_RE = /(?<![\p{L}\p{N}_])(?:~[\\/]|[A-Za-z]:[\\/]|\/)[^<>\r\n`"'()[\],;!?]*?\.[A-Za-z]{2,8}(?::\d+(?::\d+)?)?(?=$|[\s),;.!?])/gu;
 const FILE_PATH_RE = /(?<![\p{L}\p{N}_])(?:~[\\/]|\.{1,2}[\\/]|[A-Za-z]:[\\/]|\/)?(?:[\p{L}\p{N}_.@+-]+[\\/])+[\p{L}\p{N}_.@+-]+(?:\.[A-Za-z0-9]{2,8})?(?::\d+(?::\d+)?)?(?![\p{L}\p{N}_])/gu;
+/** Fractions, slashed dates, speeds, acronym pairs and either-or words: prose that only looks like a path. */
+/** Prose that a domain pattern would swallow: "m.in." is "among others". */
+const DOTTED_PROSE_RE = /^m\.in$/iu;
+const SLASHED_PROSE_RE = /^(?:\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?)+|(?:k?m|mi|[kKMG][bB])\/(?:h|s|min)|\p{Lu}{1,5}\/\p{Lu}{1,5}|and\/or|i\/lub)[.,;:!?]?$/u;
 
 function stripNonVerbalArtifacts(text: string): string {
   return text
     // Remove complete keycap sequences first so their ASCII base is not left
     // behind after the surrounding emoji marks disappear.
     .replace(KEYCAP_EMOJI_RE, ' ')
-    // Emoji, flags and dingbats are visual tone, not words Piper should
+    // Emoji, flags and dingbats are visual tone, not words the voice should
     // pronounce. Joiners/modifiers must be removed as well because they are
     // separate Unicode code points in compound emoji.
     .replace(NON_VERBAL_SYMBOL_RE, ' ')
@@ -88,8 +93,9 @@ function normalizeSpeakableMarkdown(markdown: string, fencedCodeReplacement: str
 
   const withoutPaths = stripped
     .replace(ABSOLUTE_FILE_PATH_RE, ' ')
-    .replace(FILE_PATH_RE, ' ')
-    .replace(DOMAIN_RE, (match) => (FILE_EXTENSION_RE.test(match) ? match : ' '));
+    .replace(FILE_PATH_RE, (match) => (SLASHED_PROSE_RE.test(match) ? match : ' '))
+    .replace(DOMAIN_RE, (match, offset: number, whole: string) =>
+      FILE_EXTENSION_RE.test(match) || DOTTED_PROSE_RE.test(match) || whole[offset - 1] === '@' ? match : ' ');
 
   // Split on blank lines into paragraphs; soft-wrap newlines collapse to
   // spaces. Each paragraph gets terminal punctuation so the engine pauses
@@ -114,7 +120,7 @@ export function toSpeakableText(markdown: string): string {
 
 /**
  * Voice-call prose omits fenced source entirely. The transcript still shows
- * the original answer, while Piper speaks only the surrounding explanation.
+ * the original answer, while the voice speaks only the surrounding explanation.
  */
 export function toVoiceConversationText(markdown: string): string {
   const withoutCode = markdown

@@ -183,7 +183,7 @@ describe('playAudioClip', () => {
     expect(revoked).toEqual([created[0]]);
   });
 
-  it('exposes a Web Audio analyser during Piper playback and releases it on end', async () => {
+  it('exposes a Web Audio analyser during voice playback and releases it on end', async () => {
     const analyser = { connect: vi.fn(), disconnect: vi.fn() };
     const source = { connect: vi.fn(), disconnect: vi.fn() };
     const close = vi.fn(async () => undefined);
@@ -219,7 +219,7 @@ describe('playAudioClip', () => {
   });
 
   it('keeps ONE audio context across clips instead of one per sentence', async () => {
-    // Piper streams a sentence at a time, so a context built and torn down per
+    // Speech arrives a sentence at a time, so a context built and torn down per
     // clip means opening and closing the audio device between every sentence —
     // which is audible as a cut right where the speech should run on.
     const makeNode = () => ({ connect: vi.fn(), disconnect: vi.fn() });
