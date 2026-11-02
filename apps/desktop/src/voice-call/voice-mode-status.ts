@@ -14,7 +14,7 @@ const STATUS: Readonly<Record<VoiceCallPhase, VoiceModeStatus>> = Object.freeze(
   thinking: { title: 'Thinking', detail: 'Using the context from this conversation' },
   working: { title: 'Working', detail: 'Operations remain visible until they finish' },
   'waiting-for-input': { title: 'Needs your input', detail: 'Answer the request to continue' },
-  synthesizing: { title: 'Preparing voice', detail: 'Local Piper is generating the next sentence' },
+  synthesizing: { title: 'Preparing voice', detail: 'Supertonic is generating the next sentence' },
   speaking: { title: 'Speaking', detail: 'Speak at any time to interrupt' },
   paused: { title: 'Microphone off', detail: 'Moxxy will not listen until you turn it back on' },
   error: { title: 'Voice mode stopped', detail: 'Resolve the issue and try again' },
@@ -27,19 +27,19 @@ export function resolveVoicePhaseStatus(phase: VoiceCallPhase): VoiceModeStatus 
 export function resolveVoiceModeStatus({
   phase,
   microphoneMuted,
-  localPiperInstallRequired,
-  localPiperInstalling,
+  localVoiceInstallRequired,
+  localVoiceInstalling,
 }: {
   readonly phase: VoiceCallPhase;
   readonly microphoneMuted: boolean;
-  readonly localPiperInstallRequired: boolean;
-  readonly localPiperInstalling: boolean;
+  readonly localVoiceInstallRequired: boolean;
+  readonly localVoiceInstalling: boolean;
 }): VoiceModeStatus {
-  if (localPiperInstalling) {
+  if (localVoiceInstalling) {
     return { title: 'Installing local voice', detail: 'Downloading the offline voice package' };
   }
-  if (localPiperInstallRequired) {
-    return { title: 'Local voice required', detail: 'Install Local Piper once to use Voice Mode' };
+  if (localVoiceInstallRequired) {
+    return { title: 'Local voice required', detail: 'Install the offline voice once to use Voice Mode' };
   }
 
   const status = resolveVoicePhaseStatus(phase);

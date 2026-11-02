@@ -18,17 +18,17 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput(command, {...args, command:'restart'})).toThrow();
     expect(() => validateIpcInput(command, {...args, executable:'other'})).toThrow();
   });
-  it('accepts no payload for the fixed Local Piper installer commands', () => {
+  it('accepts no payload for the fixed offline voice installer commands', () => {
     expect(() => validateIpcInput(
-      'voice.isLocalPiperInstalled' as IpcCommandName,
+      'voice.isLocalVoiceInstalled' as IpcCommandName,
       undefined,
     )).not.toThrow();
     expect(() => validateIpcInput(
-      'voice.installLocalPiper' as IpcCommandName,
+      'voice.installLocalVoice' as IpcCommandName,
       undefined,
     )).not.toThrow();
     expect(() => validateIpcInput(
-      'voice.installLocalPiper' as IpcCommandName,
+      'voice.installLocalVoice' as IpcCommandName,
       { packageName: 'attacker-controlled-package' },
     )).toThrow();
   });
@@ -36,7 +36,6 @@ describe('IPC payload validation', () => {
   it('accepts no payload for the fixed transcription switch commands', () => {
     for (const command of [
       'voice.getTranscription',
-      'voice.useLocalTranscription',
       'voice.cancelLocalTranscription',
       'voice.useCloudTranscription',
     ] as IpcCommandName[]) {

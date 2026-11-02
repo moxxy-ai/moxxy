@@ -48,6 +48,32 @@ describe('toSpeakableText', () => {
     )).toBe('The announcement is live. Read the details.');
   });
 
+  it('keeps fractions, dates and units that look like paths', () => {
+    expect(toSpeakableText('Pół to 1/2 szklanki.')).toBe('Pół to 1/2 szklanki.');
+    expect(toSpeakableText('Jechał 50 km/h przez miasto.')).toBe('Jechał 50 km/h przez miasto.');
+    expect(toSpeakableText('Termin to 12/05/2026.')).toBe('Termin to 12/05/2026.');
+    expect(toSpeakableText('Łącze ma 300 Mb/s.')).toBe('Łącze ma 300 Mb/s.');
+  });
+
+  it('keeps acronym pairs and either-or words that look like paths', () => {
+    expect(toSpeakableText('GitLab używa CI/CD, a nie Actions.')).toBe('GitLab używa CI/CD, a nie Actions.');
+    expect(toSpeakableText('Test A/B przez TCP/IP.')).toBe('Test A/B przez TCP/IP.');
+    expect(toSpeakableText('Wybierz i/lub zamknij.')).toBe('Wybierz i/lub zamknij.');
+    expect(toSpeakableText('Use this and/or that.')).toBe('Use this and/or that.');
+  });
+
+  it('keeps a Polish abbreviation that looks like a domain', () => {
+    expect(toSpeakableText('Testy obejmują m.in. logowanie.')).toBe('Testy obejmują m.in. logowanie.');
+  });
+
+  it('keeps the degree sign of a temperature', () => {
+    expect(toSpeakableText('Na dworze jest 20°C.')).toBe('Na dworze jest 20°C.');
+  });
+
+  it('keeps an e-mail address readable', () => {
+    expect(toSpeakableText('Napisz na jan@example.com dzisiaj.')).toBe('Napisz na jan@example.com dzisiaj.');
+  });
+
   it('omits local and repository file paths', () => {
     expect(toSpeakableText(
       'Open `/Users/kamil/project/src/main.ts:12` and `packages/app/src/main.ts` now.',

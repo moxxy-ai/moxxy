@@ -1,5 +1,42 @@
 # @moxxy/desktop
 
+## 0.48.0
+
+### Minor Changes
+
+- 36a5938: Local transcription can now run on Parakeet TDT 0.6B v3 as well as Whisper turbo, as the `local-parakeet` transcriber: it works out the spoken language itself, reads long recordings piece by piece and gives its memory back after five idle minutes.
+- d184e4a: The offline voice now says numbers, amounts, dates, times, units, abbreviations, acronyms and Roman numerals the way a Polish or English speaker does, and "m.in." and the degree sign no longer disappear before a reply is read aloud.
+- 0469db3: The offline voice is now Supertonic 3 instead of Piper: one voice that reads Polish and English, with the old `local-piper` name still working for saved settings.
+- c4949e3: Moving to Supertonic goes through the full installer, because its model and native plugin ship only with the app: runner protocol v33 changes nothing on the wire and refuses a JS-only update. The launch after the one that copied Supertonic removes the three Piper voices. Supertonic's Open RAIL-M licence now ships with the plugin, and a desktop build without it fails.
+- 725ad81: Settings → Voice is now one page: the Voice Mode engine, the dictation models (Parakeet, Whisper turbo, OpenAI) and the voices that read replies aloud, each with a line on what sets it apart. Parakeet and Whisper turbo download from their row only when someone asks for them. A saved `local-piper` choice moves to `local-supertonic` on its own, and the local-voice names in the IPC and client APIs no longer mention an engine.
+
+### Patch Changes
+
+- 1958c33: The offline voice no longer reads out a tag that only forms once a tag inside it is dropped, such as `<scr<b>ipt>`.
+- 824c9e6: The offline voice reads at about 140 words a minute instead of 100, and sentences follow each other after about a quarter of a second instead of a second: Supertonic's silence around every sentence is cut, and a clock time such as 10:10 or the number of a list item no longer breaks a sentence into pieces. A reply of one or two words stays at natural speed so it remains clear.
+- 3e2c1c0: The local voice now says Moxxy, ChatGPT, OAuth, the MIT licence, Docker Compose, code review and Coolify clearly inside Polish sentences, and OpenAI at the start of one.
+- c3270fa: The local voice now says VS Code, Node.js, file names such as `tsconfig.json`, and pairs such as CI/CD the way people do. It no longer reads CI or CV after a capitalized word as Roman numerals. CI/CD, TCP/IP, and/or and i/lub no longer vanish before speech as if they were file paths.
+- 7bb9953: Read aloud keeps fractions, slashed dates, speeds like km/h and e-mail addresses instead of dropping them as paths and domains.
+- Updated dependencies [36a5938]
+- Updated dependencies [1958c33]
+- Updated dependencies [824c9e6]
+- Updated dependencies [3e2c1c0]
+- Updated dependencies [c3270fa]
+- Updated dependencies [d184e4a]
+- Updated dependencies [0469db3]
+- Updated dependencies [c4949e3]
+- Updated dependencies [725ad81]
+  - @moxxy/cli@0.48.0
+  - @moxxy/client-core@0.16.0
+  - @moxxy/desktop-host@0.17.0
+  - @moxxy/desktop-ipc-contract@0.17.0
+  - @moxxy/client-platform-web@0.1.79
+  - @moxxy/chat-model@0.5.4
+  - @moxxy/sdk@0.48.0
+  - @moxxy/plugin-vault@0.48.0
+  - @moxxy/runner@0.2.65
+  - @moxxy/workflows-builder@0.1.62
+
 ## 0.47.1
 
 ### Patch Changes

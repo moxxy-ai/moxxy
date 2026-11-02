@@ -9,7 +9,7 @@ import type { RunnerSupervisor } from '../runner-supervisor';
 import { setActiveBus } from './shared';
 import { registerVoiceHandlers } from './voice';
 import type { GeminiVoiceInfo } from '@moxxy/desktop-ipc-contract';
-import type { TranscriptionSwitch } from '../local-whisper';
+import type { TranscriptionSwitch } from '../local-transcription';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -19,7 +19,7 @@ function register(options: {
   readonly setRealtimeCaptureActive?: (active: boolean) => Promise<void>;
   readonly listGeminiVoices?: () => Promise<ReadonlyArray<GeminiVoiceInfo>>;
   readonly useGeminiTts?: (voiceId: string) => Promise<void>;
-  readonly useLocalPiper?: () => Promise<void>;
+  readonly useLocalVoice?: () => Promise<void>;
   readonly getSettings?: () => Promise<{ backend: string | null; voiceId: string }>;
   readonly transcription?: TranscriptionSwitch;
 }) {
@@ -42,7 +42,7 @@ function register(options: {
     setRealtimeCaptureActive: options.setRealtimeCaptureActive ?? (async () => undefined),
     ...(options.listGeminiVoices ? { listGeminiVoices: options.listGeminiVoices } : {}),
     ...(options.useGeminiTts ? { useGeminiTts: options.useGeminiTts } : {}),
-    ...(options.useLocalPiper ? { useLocalPiper: options.useLocalPiper } : {}),
+    ...(options.useLocalVoice ? { useLocalVoice: options.useLocalVoice } : {}),
     ...(options.getSettings ? { getSettings: options.getSettings } : {}),
     ...(options.transcription ? { transcription: options.transcription } : {}),
   });
@@ -53,8 +53,8 @@ describe('registerVoiceHandlers', () => {
   it('reports package presence and restarts every runner after installation', async () => {
     const { handlers, install, restart } = register({ installed: false });
 
-    await expect(handlers.get('voice.isLocalPiperInstalled')?.()).resolves.toBe(false);
-    await expect(handlers.get('voice.installLocalPiper')?.()).resolves.toBeUndefined();
+    await expect(handlers.get('voice.isLocalVoiceInstalled')?.()).resolves.toBe(false);
+    await expect(handlers.get('voice.installLocalVoice')?.()).resolves.toBeUndefined();
     expect(install).toHaveBeenCalledOnce();
     expect(restart).toHaveBeenCalledTimes(2);
   });
@@ -66,7 +66,7 @@ describe('registerVoiceHandlers', () => {
       install: vi.fn(async () => { throw failure; }),
     });
 
-    await expect(handlers.get('voice.installLocalPiper')?.()).rejects.toBe(failure);
+    await expect(handlers.get('voice.installLocalVoice')?.()).rejects.toBe(failure);
     expect(restart).not.toHaveBeenCalled();
   });
 
@@ -87,33 +87,32 @@ describe('registerVoiceHandlers', () => {
     const voices = [{ id: 'Fola', displayName: 'Fola', languageCode: 'en-US' }];
     const listGeminiVoices = vi.fn(async () => voices);
     const useGeminiTts = vi.fn(async (_voiceId: string) => undefined);
-    const useLocalPiper = vi.fn(async () => undefined);
+    const useLocalVoice = vi.fn(async () => undefined);
     const getSettings = vi.fn(async () => ({ backend: 'gemini-tts', voiceId: 'Fola' }));
     const { handlers } = register({
       installed: true,
       listGeminiVoices,
       useGeminiTts,
-      useLocalPiper,
+      useLocalVoice,
       getSettings,
     });
 
     await expect(handlers.get('voice.listGeminiVoices')?.()).resolves.toEqual(voices);
     await expect(handlers.get('voice.useGeminiTts')?.({ voiceId: 'Fola' })).resolves.toBeUndefined();
-    await expect(handlers.get('voice.useLocalPiper')?.()).resolves.toBeUndefined();
+    await expect(handlers.get('voice.useLocalVoice')?.()).resolves.toBeUndefined();
     await expect(handlers.get('voice.getSettings')?.()).resolves.toEqual({
       backend: 'gemini-tts', voiceId: 'Fola',
     });
     expect(handlers.has('voice.getUsage')).toBe(false);
     expect(useGeminiTts).toHaveBeenCalledWith('Fola');
-    expect(useLocalPiper).toHaveBeenCalledOnce();
+    expect(useLocalVoice).toHaveBeenCalledOnce();
   });
 
   it('routes the transcription switch commands to the host-owned switch', async () => {
     const settings = {
-      mode: 'local' as const,
+      choice: 'turbo' as const,
       active: 'local-whisper',
-      modelReady: true,
-      modelBytes: 1_000,
+      models: [{ id: 'turbo' as const, ready: true, bytes: 1_000 }],
       setup: null,
       error: null,
     };
@@ -122,14 +121,17 @@ describe('registerVoiceHandlers', () => {
       useLocal: vi.fn(async () => undefined),
       cancelLocal: vi.fn(async () => undefined),
       useCloud: vi.fn(async () => undefined),
+      removeModel: vi.fn(async () => undefined),
     };
     const { handlers, restart } = register({ installed: true, transcription });
 
     await expect(handlers.get('voice.getTranscription')?.()).resolves.toEqual(settings);
-    await expect(handlers.get('voice.useLocalTranscription')?.()).resolves.toBeUndefined();
+    await expect(handlers.get('voice.useLocalTranscription')?.({ model: 'parakeet' })).resolves.toBeUndefined();
     await expect(handlers.get('voice.cancelLocalTranscription')?.()).resolves.toBeUndefined();
     await expect(handlers.get('voice.useCloudTranscription')?.()).resolves.toBeUndefined();
-    expect(transcription.useLocal).toHaveBeenCalledOnce();
+    await expect(handlers.get('voice.removeLocalTranscriptionModel')?.({ model: 'turbo' })).resolves.toBeUndefined();
+    expect(transcription.useLocal).toHaveBeenCalledWith('parakeet');
+    expect(transcription.removeModel).toHaveBeenCalledWith('turbo');
     expect(transcription.cancelLocal).toHaveBeenCalledOnce();
     expect(transcription.useCloud).toHaveBeenCalledOnce();
     // The switch restarts runners itself; the handlers add no restart of their own.
@@ -151,10 +153,11 @@ describe('registerVoiceHandlers', () => {
       }),
       cancelLocal: vi.fn(async () => undefined),
       useCloud: vi.fn(async () => undefined),
+      removeModel: vi.fn(async () => undefined),
     };
     const { handlers } = register({ installed: true, transcription });
 
-    await expect(handlers.get('voice.useLocalTranscription')?.()).rejects.toThrow(
+    await expect(handlers.get('voice.useLocalTranscription')?.({ model: 'parakeet' })).rejects.toThrow(
       'Local transcription could not start, so Moxxy stays on Cloud: offline',
     );
   });

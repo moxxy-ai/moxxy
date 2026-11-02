@@ -1,5 +1,12 @@
 # @moxxy/isolator-subprocess
 
+## 0.0.74
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.0
+- @moxxy/plugin-security@0.48.0
+
 ## 0.0.73
 
 ### Patch Changes

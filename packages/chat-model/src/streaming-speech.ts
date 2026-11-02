@@ -212,7 +212,7 @@ const ENGLISH_SUFFIX_RE = /(?:ed|ful|ing|less|ly|ment|ness|sion|tion)$/u;
 const POLISH_CLUSTER_RE = /(?:cz|dzi|prz|rz|sz)/u;
 
 /**
- * Lightweight deterministic detector for the two local Piper languages.
+ * Lightweight deterministic detector for the two languages the local voice is mostly used in.
  * It deliberately scores prose words rather than identifiers, so `pnpm`,
  * `useEffect`, and other technical names do not make a Polish sentence switch
  * voice. Ambiguous short fragments inherit the preceding segment's language.
@@ -254,15 +254,24 @@ const MIN_CLAUSE_CHARS = 48;
 const ABBREVIATIONS: ReadonlyArray<string> = [
   'dr.',
   'e.g.',
+  'godz.',
   'i.e.',
   'itd.',
   'itp.',
+  'm.in.',
   'mr.',
   'mrs.',
   'ms.',
   'np.',
+  'ok.',
   'prof.',
+  'r.',
   'tj.',
+  'tys.',
+  'tzn.',
+  'tzw.',
+  'ul.',
+  'vs.',
 ];
 
 /** Incrementally turns provider text deltas into natural speakable chunks. */
@@ -348,17 +357,30 @@ function scanNaturalBoundary(text: string): NaturalBoundaryScan {
     if (char === '.' && isSentencePeriod(text, i)) {
       return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
     }
-    if ((char === ';' || char === ':') && i + 1 >= MIN_CLAUSE_CHARS) {
+    if ((char === ';' || (char === ':' && !isClockColon(text, i))) && i + 1 >= MIN_CLAUSE_CHARS) {
       return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
     }
   }
   return { boundary: null, protectedAtEnd: fence !== null || inlineCode };
 }
 
+/** The colon of a time such as 10:10, which only reads as one phrase. */
+function isClockColon(text: string, index: number): boolean {
+  return /\d/.test(text[index - 1] ?? '') && /\d/.test(text[index + 1] ?? '');
+}
+
+/** The period of a numbered list item ("1. "), which belongs to the item's text. */
+function isListNumberPeriod(text: string, index: number): boolean {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  return /^[ \t]*\d{1,3}$/.test(text.slice(lineStart, index)) && /\s/.test(text[index + 1] ?? '');
+}
+
 function isSentencePeriod(text: string, index: number): boolean {
   const previous = text[index - 1];
   const next = text[index + 1];
   if (previous && next && /\d/.test(previous) && /\d/.test(next)) return false;
+  if (isListNumberPeriod(text, index)) return false;
+  if (previous && /\d/.test(previous) && /^\s+\p{Ll}/u.test(text.slice(index + 1))) return false;
   const lower = text.toLocaleLowerCase();
   return !ABBREVIATIONS.some((abbreviation) => {
     for (let dot = abbreviation.indexOf('.'); dot >= 0; dot = abbreviation.indexOf('.', dot + 1)) {

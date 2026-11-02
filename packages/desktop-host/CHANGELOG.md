@@ -1,5 +1,32 @@
 # @moxxy/desktop-host
 
+## 0.17.0
+
+### Minor Changes
+
+- c4949e3: Moving to Supertonic goes through the full installer, because its model and native plugin ship only with the app: runner protocol v33 changes nothing on the wire and refuses a JS-only update. The launch after the one that copied Supertonic removes the three Piper voices. Supertonic's Open RAIL-M licence now ships with the plugin, and a desktop build without it fails.
+- 725ad81: Settings → Voice is now one page: the Voice Mode engine, the dictation models (Parakeet, Whisper turbo, OpenAI) and the voices that read replies aloud, each with a line on what sets it apart. Parakeet and Whisper turbo download from their row only when someone asks for them. A saved `local-piper` choice moves to `local-supertonic` on its own, and the local-voice names in the IPC and client APIs no longer mention an engine.
+
+### Patch Changes
+
+- Updated dependencies [725ad81]
+  - @moxxy/desktop-ipc-contract@0.17.0
+  - @moxxy/workspace-registry@0.2.48
+  - @moxxy/sdk@0.48.0
+  - @moxxy/core@0.48.0
+  - @moxxy/config@0.48.0
+  - @moxxy/plugin-browser@0.48.0
+  - @moxxy/plugin-computer-control@0.48.0
+  - @moxxy/plugin-provider-local@0.48.0
+  - @moxxy/plugin-provider-openai@0.48.0
+  - @moxxy/plugin-scheduler@0.48.0
+  - @moxxy/plugin-stt-whisper@0.48.0
+  - @moxxy/plugin-tts-gemini@0.48.0
+  - @moxxy/plugin-vault@0.48.0
+  - @moxxy/plugin-webhooks@0.48.0
+  - @moxxy/agent-connection-kit@0.1.4
+  - @moxxy/runner@0.2.65
+
 ## 0.16.1
 
 ### Patch Changes

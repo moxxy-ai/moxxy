@@ -1,5 +1,12 @@
 # @moxxy/plugin-provider-anthropic
 
+## 0.48.0
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.0
+- @moxxy/plugin-browser@0.48.0
+
 ## 0.47.1
 
 ### Patch Changes

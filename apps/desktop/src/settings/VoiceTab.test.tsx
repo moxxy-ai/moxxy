@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { __setApiOverride } from '@moxxy/client-core';
 import type { TranscriptionSettings, VoiceEnginePreference } from '@moxxy/desktop-ipc-contract';
@@ -10,14 +10,22 @@ afterEach(() => {
   __resetVoiceEngineForTests();
 });
 
-const MODEL_BYTES = 1_036_613_791;
 const CLOUD: TranscriptionSettings = {
-  mode: 'cloud',
+  choice: 'cloud',
   active: null,
-  modelReady: false,
-  modelBytes: MODEL_BYTES,
+  models: [
+    { id: 'parakeet', ready: false, bytes: 670_478_372 },
+    { id: 'turbo', ready: false, bytes: 1_036_613_791 },
+  ],
   setup: null,
   error: null,
+};
+const WHISPER_HERE: TranscriptionSettings = {
+  ...CLOUD,
+  models: [
+    { id: 'parakeet', ready: false, bytes: 670_478_372 },
+    { id: 'turbo', ready: true, bytes: 1_036_613_791 },
+  ],
 };
 
 /** Sends a `voice.transcription.changed` from the host; set by `installApi`. */
@@ -28,8 +36,10 @@ function installApi(
   engine: VoiceEnginePreference = 'local',
   useLocalTranscription: () => Promise<void> = async () => undefined,
   vaultEntries: Array<{ name: string }> = [],
+  initial: TranscriptionSettings = CLOUD,
+  backend = 'local-supertonic',
 ) {
-  let transcription: TranscriptionSettings = CLOUD;
+  let transcription: TranscriptionSettings = initial;
   let changed: (settings: TranscriptionSettings) => void = () => undefined;
   pushTranscription = (settings) => {
     transcription = settings;
@@ -43,9 +53,9 @@ function installApi(
     }
     if (command === 'prefs.read') return { voiceEngine: engine };
     if (command === 'prefs.update') return {};
-    if (command === 'voice.getSettings') return { backend: 'local-piper', voiceId: 'Fola' };
+    if (command === 'voice.getSettings') return { backend, voiceId: 'Fola' };
     if (command === 'settings.vaultEntries') return vaultEntries;
-    if (command === 'voice.isLocalPiperInstalled') return true;
+    if (command === 'voice.isLocalVoiceInstalled') return true;
     if (command === 'voice.listGeminiVoices') {
       return [{ id: 'Fola', displayName: 'Fola', languageCode: 'en-US' }];
     }
@@ -61,17 +71,22 @@ function installApi(
   return invoke;
 }
 
-function openSection(name: 'conversation' | 'read-aloud' | 'transcription'): void {
-  fireEvent.click(screen.getByTestId(`voice-section-${name}`));
+function row(name: string): HTMLElement {
+  return screen.getByTestId(`voice-model-${name}`);
+}
+
+/** Models come from the host, so their rows appear once it has answered. */
+async function modelsLoaded(): Promise<void> {
+  await screen.findByTestId('voice-model-parakeet');
 }
 
 describe('VoiceTab', () => {
-  it('asks for the OpenAI API key once, for every OpenAI voice feature', async () => {
+  it('asks for the OpenAI API key once, in the OpenAI row', async () => {
     const invoke = installApi();
     render(<VoiceTab />);
 
-    const field = await screen.findByLabelText(/^OpenAI API key/u);
-    expect(screen.getByText(/GPT-Live and OpenAI transcription both use this key/u)).toBeTruthy();
+    const field = await within(row('cloud')).findByLabelText(/^OpenAI API key/u);
+    expect(within(row('cloud')).getByText(/GPT-Live uses this key too/u)).toBeTruthy();
     fireEvent.change(field, { target: { value: 'sk-test' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save OpenAI key' }));
 
@@ -81,21 +96,28 @@ describe('VoiceTab', () => {
     await screen.findByText(/key saved in this device vault/u);
   });
 
-  it('splits voice into Conversation, Read aloud and Transcription tabs', async () => {
+  it('shows everything on one page, each model with its description', async () => {
     installApi();
     render(<VoiceTab />);
 
-    expect(screen.getByTestId('voice-section-conversation').getAttribute('data-active')).toBe('true');
+    await modelsLoaded();
+    expect(screen.queryByTestId('voice-section-conversation')).toBeNull();
     expect(screen.getByTestId('voice-engine-gpt-live')).toBeTruthy();
-    expect(screen.queryByTestId('transcription-cloud')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Dictation model' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Reading replies aloud' })).toBeTruthy();
+    expect(row('parakeet').textContent).toContain('Fast. Detects the spoken language itself, in 25 languages. Download size: 670 MB.');
+    expect(row('turbo').textContent).toContain('Slower. Works in about 100 languages. Download size: 1.0 GB.');
+    expect(row('cloud').textContent).toContain('Runs in the cloud on your OpenAI API key.');
+    expect(row('supertonic').textContent).toContain('Reads replies aloud on this computer, in Polish and English.');
+    expect(row('gemini').textContent).toContain('Gemini Flash-Lite');
+  });
 
-    openSection('read-aloud');
-    expect(screen.getByRole('heading', { name: 'Local Piper' })).toBeTruthy();
-    expect(screen.queryByTestId('voice-engine-gpt-live')).toBeNull();
+  it('never mentions Piper', async () => {
+    installApi();
+    const { container } = render(<VoiceTab />);
+    await screen.findByText(/Download size: 670 MB/u);
 
-    openSection('transcription');
-    expect(await screen.findByTestId('transcription-cloud')).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: 'Local Piper' })).toBeNull();
+    expect(container.textContent).not.toMatch(/piper/iu);
   });
 
   it('describes GPT-Live and the Classic engine without any ChatGPT login', async () => {
@@ -107,26 +129,19 @@ describe('VoiceTab', () => {
     expect(screen.queryByText(/ChatGPT login/u)).toBeNull();
   });
 
-  it('offers OpenAI transcription on the API key, and says when the key is missing', async () => {
+  it('says when OpenAI is chosen but its key is missing', async () => {
     installApi();
     render(<VoiceTab />);
-    openSection('transcription');
 
-    const openai = await screen.findByTestId('transcription-cloud');
-    expect(openai.textContent).toBe('OpenAI');
-    expect(screen.getByText(/transcribed by OpenAI with your OpenAI API key/u)).toBeTruthy();
-    expect(await screen.findByText(/Add your OpenAI API key above to use OpenAI transcription/u)).toBeTruthy();
-    expect(screen.queryByText(/ChatGPT login/u)).toBeNull();
+    expect(await screen.findByText(/Add your OpenAI API key to use OpenAI transcription/u)).toBeTruthy();
+    expect(within(row('cloud')).getByText('In use')).toBeTruthy();
   });
 
   it('saves a Gemini key, loads account voices and activates the chosen voice', async () => {
     const invoke = installApi();
     render(<VoiceTab />);
-    openSection('read-aloud');
 
-    expect(screen.getByText(/played one sentence at a time, with up to two upcoming sentences prepared ahead/i))
-      .toBeTruthy();
-    await screen.findByText('Current voice: Local · Piper');
+    await within(row('supertonic')).findByText('In use');
     fireEvent.change(screen.getByLabelText(/Gemini API key/u), { target: { value: 'test-key' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save key' }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.vaultSet', {
@@ -139,79 +154,109 @@ describe('VoiceTab', () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('voice.useGeminiTts', { voiceId: 'Fola' }));
   });
 
-  it('switches the Voice Mode engine, and Read aloud says GPT-Live speaks for itself', async () => {
+  it('switches the Voice Mode engine, and reading aloud says GPT-Live speaks for itself', async () => {
     const invoke = installApi('local');
     render(<VoiceTab />);
 
     fireEvent.click(screen.getByTestId('voice-engine-gpt-live'));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('prefs.update', { voiceEngine: 'gpt-live' }));
 
-    openSection('read-aloud');
-    expect(screen.queryByRole('heading', { name: 'Gemini Flash-Lite' })).toBeNull();
-    expect(screen.queryByRole('heading', { name: 'Local Piper' })).toBeNull();
+    expect(screen.queryByTestId('voice-model-gemini')).toBeNull();
+    expect(screen.queryByTestId('voice-model-supertonic')).toBeNull();
     expect(screen.getByText(/GPT-Live speaks with its own voice/u)).toBeTruthy();
   });
 
   it('shows no usage or cost estimate', async () => {
     const invoke = installApi();
     render(<VoiceTab />);
-    openSection('read-aloud');
-    await screen.findByText('Current voice: Local · Piper');
+    await within(row('supertonic')).findByText('In use');
 
     expect(screen.queryByText(/Estimated Gemini usage/u)).toBeNull();
     expect(invoke).not.toHaveBeenCalledWith('voice.getUsage');
   });
 
-  it('asks before the first switch to Local downloads the model, then shows the download with a way to stop it', async () => {
+  it('downloads a model from its row, shows how far along it is and can stop', async () => {
     let finish = (): void => undefined;
     const invoke = installApi('local', () => new Promise<void>((resolve) => { finish = resolve; }));
     render(<VoiceTab />);
-    openSection('transcription');
 
-    const cloud = await screen.findByTestId('transcription-cloud');
-    await waitFor(() => expect(cloud.getAttribute('data-active')).toBe('true'));
+    await modelsLoaded();
+    fireEvent.click(within(row('parakeet')).getByRole('button', { name: 'Download' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('voice.useLocalTranscription', { model: 'parakeet' }));
 
-    fireEvent.click(screen.getByTestId('transcription-local'));
-    const dialog = await screen.findByRole('dialog', { name: 'Download Whisper turbo?' });
-    expect(dialog.textContent).toMatch(/downloads it once \(about 1\.0 GB\)/u);
-    expect(invoke).not.toHaveBeenCalledWith('voice.useLocalTranscription');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('voice.useLocalTranscription'));
-    expect(screen.queryByRole('dialog')).toBeNull();
-
-    pushTranscription({ ...CLOUD, setup: { phase: 'downloading', receivedBytes: 300_000_000, totalBytes: MODEL_BYTES } });
-    const bar = screen.getByRole('progressbar', { name: 'Downloading Whisper turbo' });
-    expect(bar.getAttribute('aria-valuenow')).toBe('28');
-    expect(screen.getByText('300 of 1037 MB')).toBeTruthy();
-    // The pill shows where it is going while the switch runs.
-    expect(screen.getByTestId('transcription-local').getAttribute('data-active')).toBe('true');
+    pushTranscription({
+      ...CLOUD,
+      setup: { model: 'parakeet', phase: 'downloading', receivedBytes: 300_000_000, totalBytes: 670_478_372 },
+    });
+    const bar = within(row('parakeet')).getByRole('progressbar', { name: 'Downloading Parakeet' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('44');
+    expect(within(row('parakeet')).getByText('300 of 670 MB')).toBeTruthy();
+    // The other models wait for this one.
+    expect((within(row('turbo')).getByRole('button', { name: 'Download' }) as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel download' }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('voice.cancelLocalTranscription'));
 
-    pushTranscription({ ...CLOUD, modelReady: true, setup: { phase: 'starting' } });
+    pushTranscription({ ...CLOUD, setup: { model: 'parakeet', phase: 'starting' } });
     expect(screen.queryByRole('progressbar')).toBeNull();
-    expect(screen.getByText(/Starting local transcription/u)).toBeTruthy();
+    expect(within(row('parakeet')).getByText(/Starting Parakeet/u)).toBeTruthy();
 
-    pushTranscription({ ...CLOUD, mode: 'local', active: 'local-whisper', modelReady: true });
+    pushTranscription({
+      ...CLOUD,
+      choice: 'parakeet',
+      active: 'local-parakeet',
+      models: [
+        { id: 'parakeet', ready: true, bytes: 670_478_372 },
+        { id: 'turbo', ready: false, bytes: 1_036_613_791 },
+      ],
+    });
     finish();
-    await screen.findByText(/Whisper turbo runs on this computer/u);
-    await waitFor(() => expect(screen.getByTestId('transcription-local').getAttribute('data-active')).toBe('true'));
+    await within(row('parakeet')).findByText('In use');
   });
 
-  it('downloads nothing when the person says not now', async () => {
-    const invoke = installApi();
+  it('offers Use and Remove for a downloaded model, and Remove only when it is not in use', async () => {
+    const invoke = installApi('local', async () => undefined, [], WHISPER_HERE);
     render(<VoiceTab />);
-    openSection('transcription');
-    const cloud = await screen.findByTestId('transcription-cloud');
-    await waitFor(() => expect(cloud.getAttribute('data-active')).toBe('true'));
 
-    fireEvent.click(screen.getByTestId('transcription-local'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Not now' }));
+    await modelsLoaded();
+    fireEvent.click(within(row('turbo')).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('voice.removeLocalTranscriptionModel', { model: 'turbo' }));
+    fireEvent.click(within(row('turbo')).getByRole('button', { name: 'Use' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('voice.useLocalTranscription', { model: 'turbo' }));
 
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(invoke).not.toHaveBeenCalledWith('voice.useLocalTranscription');
-    expect(screen.getByTestId('transcription-cloud').getAttribute('data-active')).toBe('true');
+    pushTranscription({ ...WHISPER_HERE, choice: 'turbo', active: 'local-whisper' });
+    expect(within(row('turbo')).queryByRole('button', { name: 'Remove' })).toBeNull();
+    expect(within(row('turbo')).getByText('In use')).toBeTruthy();
+  });
+
+  it('offers Try again on the model that failed', async () => {
+    installApi('local', async () => { throw new Error('Parakeet could not be downloaded, so Moxxy stays on OpenAI: HTTP 503'); });
+    render(<VoiceTab />);
+
+    await modelsLoaded();
+    fireEvent.click(within(row('parakeet')).getByRole('button', { name: 'Download' }));
+
+    expect(await within(row('parakeet')).findByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toMatch(/HTTP 503/u);
+    expect(within(row('turbo')).getByRole('button', { name: 'Download' })).toBeTruthy();
+  });
+
+  it('says when a chosen local model is not running', async () => {
+    installApi('local', async () => undefined, [], { ...WHISPER_HERE, choice: 'turbo', active: null });
+    render(<VoiceTab />);
+
+    await modelsLoaded();
+    expect(within(row('turbo')).getByText(/not running yet/iu)).toBeTruthy();
+  });
+
+  it('switches back to the local voice from its row', async () => {
+    const invoke = installApi('local', async () => undefined, [], CLOUD, 'gemini-tts');
+    render(<VoiceTab />);
+
+    await within(row('gemini')).findByText('In use');
+    fireEvent.click(within(row('supertonic')).getByRole('button', { name: 'Use' }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('voice.useLocalVoice'));
+    await within(row('supertonic')).findByText('In use');
   });
 });

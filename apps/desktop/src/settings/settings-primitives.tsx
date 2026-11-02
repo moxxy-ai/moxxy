@@ -106,7 +106,8 @@ export function CardGroup({
 }: {
   readonly id: string;
   readonly title: string;
-  readonly count: number;
+  /** How many rows it holds; left out when the group is a short, fixed choice. */
+  readonly count?: number;
   /** One line on what sets the group apart; left out when the name says enough. */
   readonly description?: string;
   readonly children: React.ReactNode;
@@ -118,9 +119,11 @@ export function CardGroup({
         <h3 id={headingId} className="card-group__title">
           {title}
         </h3>
-        <span className="card-group__count" aria-hidden="true">
-          {count}
-        </span>
+        {count !== undefined && (
+          <span className="card-group__count" aria-hidden="true">
+            {count}
+          </span>
+        )}
         {description && <p className="card-group__description">{description}</p>}
       </header>
       <CardList>{children}</CardList>

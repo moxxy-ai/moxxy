@@ -120,6 +120,27 @@ describe('createMessageHandler', () => {
     });
   });
 
+  it('configures a transducer when the request carries a joiner', async () => {
+    const s = fakeSherpa();
+    const handle = createMessageHandler(() => s.module);
+    await handle(req({ joiner: '/models/parakeet/joiner.int8.onnx' }));
+    expect(s.lastConfig).toEqual({
+      featConfig: { sampleRate: 16_000, featureDim: 80 },
+      modelConfig: {
+        transducer: {
+          encoder: '/models/base/base-encoder.onnx',
+          decoder: '/models/base/base-decoder.onnx',
+          joiner: '/models/parakeet/joiner.int8.onnx',
+        },
+        modelType: 'nemo_transducer',
+        tokens: '/models/base/base-tokens.txt',
+        numThreads: 2,
+        provider: 'cpu',
+        debug: false,
+      },
+    });
+  });
+
   it('surfaces a detected language when the native result reports one', async () => {
     const s = fakeSherpa({ text: 'cześć', lang: 'pl' });
     const handle = createMessageHandler(() => s.module);

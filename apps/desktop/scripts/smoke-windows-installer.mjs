@@ -70,19 +70,19 @@ try {
   // Reproduce the real clean-machine contract: Node/npm are present, but Git
   // is not a desktop prerequisite. The copied seed lock must keep npm from
   // re-resolving WhatsApp → Baileys → libsignal through a git URL while adding
-  // the unrelated optional Piper package.
+  // the unrelated optional local voice package.
   const noGitEnv = {
     ...smokeEnv,
     PATH: path.dirname(process.execPath),
   };
-  const piperInstall = run(
+  const localVoiceInstall = run(
     runtimePath,
     [cliBin, 'plugins', 'install', '@moxxy/plugin-tts-local'],
     180_000,
     noGitEnv,
   );
-  if (!/installed @moxxy\/plugin-tts-local/i.test(piperInstall)) {
-    throw new Error('Installed CLI did not report a successful Local Piper install');
+  if (!/installed @moxxy\/plugin-tts-local/i.test(localVoiceInstall)) {
+    throw new Error('Installed CLI did not report a successful local voice install');
   }
   run(
     runtimePath,
@@ -92,7 +92,7 @@ try {
   );
   run(
     runtimePath,
-    [cliBin, 'plugins', 'set-default', 'synthesizer', 'local-piper'],
+    [cliBin, 'plugins', 'set-default', 'synthesizer', 'local-supertonic'],
     60_000,
     noGitEnv,
   );
@@ -116,7 +116,7 @@ try {
       'package.json',
     ),
   );
-  console.log('Installed and selected Local Piper without Git on PATH.');
+  console.log('Installed and selected the local voice without Git on PATH.');
 
   server = spawn(runtimePath, [cliBin, 'serve'], {
     env: smokeEnv,

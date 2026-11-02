@@ -222,10 +222,10 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     id: 'tts-local',
     label: 'Local voice (offline TTS)',
     description:
-      'Fully on-device text-to-speech (English + Polish) via sherpa-onnx Piper voices. No API key; each voice is a one-time ~64 MB verified download.',
+      'Fully on-device text-to-speech (English + Polish) with Supertonic 3 via sherpa-onnx. No API key; a one-time ~129 MB verified download.',
     packageName: '@moxxy/plugin-tts-local',
     installSpec: '@moxxy/plugin-tts-local',
-    provides: [{ category: 'synthesizer', name: 'local-piper' }],
+    provides: [{ category: 'synthesizer', name: 'local-supertonic' }],
   },
   {
     id: 'tts-gemini',
@@ -243,7 +243,10 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
       'Fully on-device speech-to-text via sherpa-onnx multilingual Whisper (English + Polish). No API key; the model is a one-time verified download (base ~198 MB by default; small ~610 MB recommended for Polish).',
     packageName: '@moxxy/plugin-stt-local',
     installSpec: '@moxxy/plugin-stt-local',
-    provides: [{ category: 'transcriber', name: 'local-whisper' }],
+    provides: [
+      { category: 'transcriber', name: 'local-whisper' },
+      { category: 'transcriber', name: 'local-parakeet' },
+    ],
   },
   {
     id: 'provider-admin',

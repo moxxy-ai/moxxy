@@ -24,7 +24,7 @@ describe('deriveFocusAudioVisualization', () => {
     })).toEqual({ analyser: input, source: 'microphone' });
   });
 
-  it('prioritizes Piper output while Moxxy speaks', () => {
+  it('prioritizes voice output while Moxxy speaks', () => {
     const input = analyser(24);
     const output = analyser(96);
 

@@ -1,14 +1,19 @@
 import * as path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MOXXY_PCM16_24KHZ_MIME } from '@moxxy/sdk';
 import type { ensureModelFiles } from '@moxxy/model-fetch';
 
 import {
+  createLocalParakeetTranscriber,
   createLocalWhisperTranscriber,
-  type LocalWhisperOptions,
+  type LocalSttOptions,
 } from './local-stt.js';
-import { buildLocalSttPlugin, LOCAL_WHISPER_TRANSCRIBER_NAME } from './index.js';
+import {
+  buildLocalSttPlugin,
+  LOCAL_PARAKEET_TRANSCRIBER_NAME,
+  LOCAL_WHISPER_TRANSCRIBER_NAME,
+} from './index.js';
 import type { HostClientLike } from './host-client.js';
 import type { HostRequest, TranscribeResult } from './host-protocol.js';
 
@@ -60,7 +65,7 @@ function fakeEnsure(): { impl: typeof ensureModelFiles; calls: Parameters<typeof
 }
 
 function makeTranscriber(
-  over: Partial<LocalWhisperOptions> = {},
+  over: Partial<LocalSttOptions> = {},
   result?: TranscribeResult,
 ): {
   transcriber: ReturnType<typeof createLocalWhisperTranscriber>;
@@ -79,7 +84,7 @@ function makeTranscriber(
   return { transcriber, host, ensure };
 }
 
-describe('LocalWhisperTranscriber.transcribe', () => {
+describe('LocalSttTranscriber.transcribe', () => {
   it('defaults to the turbo model, decodes raw PCM, and returns the transcript', async () => {
     const { transcriber, host, ensure } = makeTranscriber();
     const out = await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
@@ -102,7 +107,7 @@ describe('LocalWhisperTranscriber.transcribe', () => {
   });
 
   it('rejects a removed model (small) left in config, before any download', () => {
-    expect(() => makeTranscriber({ model: 'small' })).toThrow(/Unknown local Whisper model "small"/);
+    expect(() => makeTranscriber({ model: 'small' })).toThrow(/Unknown local speech model "small"/);
   });
 
   it('passes a per-call language hint through to the recognizer', async () => {
@@ -183,15 +188,14 @@ describe('LocalWhisperTranscriber.transcribe', () => {
 describe('constructor validation', () => {
   it('throws CONFIG_INVALID for an unknown configured model', () => {
     expect(() => createLocalWhisperTranscriber({ model: 'medium' })).toThrow(
-      /Unknown local Whisper model/,
+      /Unknown local speech model/,
     );
   });
 });
 
 describe('buildLocalSttPlugin', () => {
-  it('registers exactly one transcriber named local-whisper', () => {
+  it('registers local-whisper first', () => {
     const plugin = buildLocalSttPlugin();
-    expect(plugin.transcribers).toHaveLength(1);
     const def = plugin.transcribers![0]!;
     expect(def.name).toBe(LOCAL_WHISPER_TRANSCRIBER_NAME);
     expect(def.displayName).toContain('Local Whisper');
@@ -222,5 +226,120 @@ describe('buildLocalSttPlugin', () => {
   it('exposes an onShutdown hook', () => {
     const plugin = buildLocalSttPlugin();
     expect(typeof plugin.hooks?.onShutdown).toBe('function');
+  });
+});
+
+describe('local-parakeet', () => {
+  /** A minute and a half of loud audio, as a 16-bit PCM WAV-free raw clip @ 24 kHz. */
+  const LONG_AUDIO = rawPcm16(24_000 * 90);
+
+  function makeParakeet(over: Partial<LocalSttOptions> = {}, result?: TranscribeResult) {
+    const host = fakeHost(result);
+    const ensure = fakeEnsure();
+    const hosts = { made: 0 };
+    const transcriber = createLocalParakeetTranscriber({
+      modelsDir: '/models/stt',
+      ensureModelFilesImpl: ensure.impl,
+      hostFactory: () => {
+        hosts.made += 1;
+        return host.host;
+      },
+      log: () => {},
+      ...over,
+    });
+    return { transcriber, host, ensure, hosts };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('downloads its four files and sends the joiner to the sidecar', async () => {
+    const { transcriber, host, ensure } = makeParakeet();
+    const out = await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
+    expect(transcriber.name).toBe(LOCAL_PARAKEET_TRANSCRIBER_NAME);
+    expect(out.text).toBe('hello world');
+    expect(ensure.calls[0]!.dir).toBe(path.join('/models/stt', 'parakeet'));
+    expect(ensure.calls[0]!.files.map((file) => file.name)).toEqual([
+      'encoder.int8.onnx',
+      'decoder.int8.onnx',
+      'joiner.int8.onnx',
+      'tokens.txt',
+    ]);
+    expect(host.reqs[0]!.joiner).toBe(path.join('/models/stt', 'parakeet', 'joiner.int8.onnx'));
+  });
+
+  it('reads a long recording piece by piece and joins the text', async () => {
+    const { transcriber, host } = makeParakeet();
+    const out = await transcriber.transcribe(LONG_AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
+    expect(host.reqs).toHaveLength(2);
+    expect(out.text).toBe('hello world hello world');
+    expect(out.durationSec).toBeCloseTo(90, 0);
+  });
+
+  it('stops between pieces when the caller aborts', async () => {
+    const controller = new AbortController();
+    const host = fakeHost();
+    const transcribe = host.host.transcribe.bind(host.host);
+    host.host.transcribe = async (req) => {
+      controller.abort(new Error('stop'));
+      return transcribe(req);
+    };
+    const transcriber = createLocalParakeetTranscriber({
+      modelsDir: '/models/stt',
+      ensureModelFilesImpl: fakeEnsure().impl,
+      hostFactory: () => host.host,
+      log: () => {},
+    });
+    await expect(
+      transcriber.transcribe(LONG_AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME, signal: controller.signal }),
+    ).rejects.toThrow(/stop/);
+    expect(host.reqs).toHaveLength(1);
+  });
+
+  it('does not report the hint as the language it heard', async () => {
+    const { transcriber } = makeParakeet();
+    const out = await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME, language: 'pl' });
+    expect(out.language).toBeUndefined();
+  });
+
+  it('gives its memory back after five idle minutes and loads again on the next use', async () => {
+    vi.useFakeTimers();
+    const { transcriber, host, hosts } = makeParakeet();
+    await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
+    await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
+    expect(host.shutdowns).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(host.shutdowns).toBe(1);
+    await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
+    expect(hosts.made).toBe(2);
+  });
+
+  it('keeps the model while another transcription is running', async () => {
+    vi.useFakeTimers();
+    const { transcriber, host } = makeParakeet();
+    await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    expect(host.shutdowns).toBe(0);
+  });
+
+  it('keeps Whisper loaded, as it always was', async () => {
+    vi.useFakeTimers();
+    const { transcriber, host } = makeTranscriber();
+    await transcriber.transcribe(AUDIO, { mimeType: MOXXY_PCM16_24KHZ_MIME });
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(host.shutdowns).toBe(0);
+  });
+
+  it('registers next to local-whisper without choosing itself', () => {
+    const plugin = buildLocalSttPlugin({ defaults: { modelsDir: '/models/stt' } });
+    expect(plugin.transcribers?.map((def) => def.name)).toEqual([
+      LOCAL_WHISPER_TRANSCRIBER_NAME,
+      LOCAL_PARAKEET_TRANSCRIBER_NAME,
+    ]);
+    const inst = plugin.transcribers![1]!.createClient({ model: 'turbo' });
+    expect(inst.name).toBe(LOCAL_PARAKEET_TRANSCRIBER_NAME);
   });
 });

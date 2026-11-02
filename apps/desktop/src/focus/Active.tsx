@@ -5,7 +5,7 @@
  * Presentational: voice capture is owned by the FocusWidget orchestrator
  * (so an in-flight transcription survives the switch to mini-text that
  * happens on stop). This component just reflects the recording state and
- * paints the selected microphone or Piper visualisation behind the controls.
+ * paints the selected microphone or voice visualisation behind the controls.
  */
 
 import { api } from '@moxxy/client-core';
@@ -44,7 +44,7 @@ export function Active({
   voiceModePhase,
   voiceModeErrorReason,
   voiceModeMuted,
-  localPiperInstallRequired,
+  localVoiceInstallRequired,
   petPhase,
   petInputAnalyser,
   petOutputAnalyser,
@@ -74,7 +74,7 @@ export function Active({
   readonly voiceModePhase: VoiceCallPhase;
   readonly voiceModeErrorReason: string | null;
   readonly voiceModeMuted: boolean;
-  readonly localPiperInstallRequired: boolean;
+  readonly localVoiceInstallRequired: boolean;
   readonly petPhase: VoiceCallPhase;
   readonly petInputAnalyser: unknown | null;
   readonly petOutputAnalyser: unknown | null;
@@ -139,7 +139,7 @@ export function Active({
             <Icon name="phone-down" size={17} />
           </ActionButton>
         )}
-        {voiceModeActive && voiceModePhase === 'error' && !localPiperInstallRequired && (
+        {voiceModeActive && voiceModePhase === 'error' && !localVoiceInstallRequired && (
           <ActionButton
             onClick={onRetryVoiceMode}
             aria-label="Retry voice mode"
@@ -159,7 +159,7 @@ export function Active({
             <VoiceMicrophoneActionIcon muted={voiceModeMuted} />
           </ActionButton>
         )}
-        {voiceModeActive && voiceModePhase === 'error' && !localPiperInstallRequired && (
+        {voiceModeActive && voiceModePhase === 'error' && !localVoiceInstallRequired && (
           <span role="alert" style={style.visuallyHidden}>
             {voiceModeErrorReason ?? 'Voice mode could not continue'}
           </span>

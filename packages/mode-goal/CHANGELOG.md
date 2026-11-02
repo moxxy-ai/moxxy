@@ -1,5 +1,11 @@
 # @moxxy/mode-goal
 
+## 0.48.0
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.0
+
 ## 0.47.1
 
 ### Patch Changes
