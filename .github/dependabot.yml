@@ -43,15 +43,25 @@ updates:
         update-types: ['version-update:semver-major', 'version-update:semver-minor']
       - dependency-name: 'react-native-svg'
         update-types: ['version-update:semver-major', 'version-update:semver-minor']
-      # vite 8 is not supported by the stable electron-vite 5 (vite 5-7 only), which
-      # builds the desktop app; @vitejs/plugin-react 6 needs vite 8. Remove both
-      # entries once a stable electron-vite supports vite 8 (6.0 is in beta).
+      # The desktop app still builds on vite 6; @vitejs/plugin-react 6 needs vite 8.
+      # electron-vite 6, which builds the desktop app, supports vite 8, so both
+      # entries go once the desktop app is moved to vite 8 in its own change.
       - dependency-name: 'vite'
         update-types: ['version-update:semver-major']
       - dependency-name: '@vitejs/plugin-react'
         update-types: ['version-update:semver-major']
       # Tracks the minimum supported Node (engines >=22.19), not the latest release.
       - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # React 19 is its own migration: the global JSX namespace is gone from
+      # @types/react (hundreds of files), and the CLI moves to ink 6 with it.
+      - dependency-name: 'react'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'react-dom'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react-dom'
         update-types: ['version-update:semver-major']
       # ink >=6 needs React 19; waits for the React 19 migration.
       - dependency-name: 'ink'
