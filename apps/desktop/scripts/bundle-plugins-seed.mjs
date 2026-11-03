@@ -72,12 +72,12 @@ const SEED_PLUGINS = [
   'plugin-provider-admin',
   'plugin-mcp',
   'plugin-memory',
-  // Offline voice (Piper). Its voices ship beside it — see bundle-models-seed.mjs.
+  // Offline voice (Supertonic). Its model ships beside it — see bundle-models-seed.mjs.
   'plugin-tts-local',
   // Gemini voice: Settings → Voice offers it, so it must not depend on npm.
   'plugin-tts-gemini',
-  // Local transcription (Whisper turbo): Settings → Voice → Transcription
-  // offers it. Shares sherpa-onnx with Piper; its model downloads on first use.
+  // Local dictation (Parakeet, Whisper turbo): Settings → Voice offers them. Shares
+  // sherpa-onnx with the offline voice; a model downloads when someone chooses it.
   'plugin-stt-local',
 ];
 

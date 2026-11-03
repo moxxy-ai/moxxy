@@ -134,7 +134,8 @@ export const CODEX_CLI: AgentCliDescriptor = {
     posix: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
     windows: 'irm https://chatgpt.com/codex/install.ps1 | iex',
   },
-  installDirs: ['.local/bin'],
+  // install.ps1 puts it in %LOCALAPPDATA%\Programs\OpenAI\Codex\bin.
+  installDirs: ['.local/bin', 'AppData/Local/Programs/OpenAI/Codex/bin'],
   // The installer otherwise offers to start Codex and to remove other installs.
   installEnv: { CODEX_NON_INTERACTIVE: '1' },
   windowsShim: { entry: 'node_modules/@openai/codex/bin/codex.js', runs: 'node', native: codexWindowsPrograms },

@@ -1,5 +1,35 @@
 # @moxxy/agent-connection-kit
 
+## 0.1.5
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.1
+
+## 0.1.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.0
+
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+
+## 0.1.2
+
+### Patch Changes
+
+- 53709f4: Move @hono/node-server to 2.1.3, the fix for GHSA-rmxm-3fg6-px4f (`serveStatic` decoded the request path twice, so a static path could slip past middleware). It reaches Moxxy through the MCP SDK's HTTP server.
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+
 ## 0.1.1
 
 ### Patch Changes

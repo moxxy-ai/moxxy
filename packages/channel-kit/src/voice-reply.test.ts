@@ -81,34 +81,31 @@ function makeSpawn(opts: {
   return { spawn, calls };
 }
 
-describe('toSpeech — markdown → spoken text', () => {
-  it('replaces fenced code blocks with a spoken placeholder', () => {
+describe('toSpeech — markdown → spoken text, as the app reads it aloud', () => {
+  it('turns a fenced code block into the same short aside as the app', () => {
     const out = toSpeech('Here you go:\n```ts\nconst x = 1;\n```\nDone.');
-    expect(out).toContain('(code omitted)');
-    expect(out).not.toContain('const x');
-    expect(out).not.toContain('```');
+    expect(out).toBe('Here you go: (code block) Done.');
   });
 
-  it('handles an unterminated trailing fence', () => {
-    const out = toSpeech('Start\n```js\nleftover');
-    expect(out).toContain('(code omitted)');
-    expect(out).not.toContain('leftover');
+  it('keeps link labels and says an address as a link to its site', () => {
+    expect(toSpeech('See [the docs](https://x.y) or https://github.com/moxxy-ai/moxxy now.'))
+      .toBe('See the docs or a link to github now.');
+    expect(toSpeech('Raport jest tutaj: https://github.com/moxxy-ai/moxxy/pull/692.'))
+      .toBe('Raport jest tutaj: link do strony github.');
   });
 
-  it('keeps link labels and drops urls, strips emphasis/headings/quotes/bullets', () => {
-    const out = toSpeech(
-      '# Title\n\n**Bold** and _italic_ and `code` see [the docs](https://x.y)\n\n> quoted\n\n- item one\n- item two',
-    );
-    expect(out).toContain('Title');
-    expect(out).toContain('Bold and italic and code');
-    expect(out).toContain('the docs');
-    expect(out).not.toContain('https://x.y');
-    expect(out).not.toMatch(/[#>*_`]/);
-    expect(out).toContain('item one');
+  it('reads a table row by row, every value with the name of its column', () => {
+    expect(toSpeech('| Agent | Wynik |\n|---|---|\n| Claude | 9 z 9 |\n| Codex | 8 z 9 |'))
+      .toBe('Claude: Wynik 9 z 9. Codex: Wynik 8 z 9.');
+  });
+
+  it('strips emphasis, headings, quotes and bullets', () => {
+    const out = toSpeech('# Title\n\n**Bold** and _italic_ and `code`\n\n> quoted\n\n- item one\n- item two');
+    expect(out).toBe('Title. Bold and italic and code quoted item one item two.');
   });
 
   it('turns an image into its alt text', () => {
-    expect(toSpeech('![a cat](cat.png)')).toBe('a cat');
+    expect(toSpeech('![a cat](cat.png)')).toBe('a cat.');
   });
 });
 
@@ -142,7 +139,17 @@ describe('synthesizeReply', () => {
     });
     const r = await synthesizeReply(sessionWith(synth), 'Hello **world**');
     expect(r).toEqual({ ok: true, audio: new Uint8Array([9, 9]), mimeType: 'audio/mpeg' });
-    expect(seen).toBe('Hello world');
+    expect(seen).toBe('Hello world.');
+  });
+
+  it('leaves code out of a reply said in a live conversation, as Voice Mode does', async () => {
+    let seen = '';
+    const synth = fakeSynth((text) => {
+      seen = text;
+      return { audio: new Uint8Array([1]), mimeType: 'audio/ogg' };
+    });
+    await synthesizeReply(sessionWith(synth), 'Gotowe:\n```ts\nconst x = 1;\n```\nSprawdź teraz.', { conversation: true });
+    expect(seen).toBe('Gotowe: Sprawdź teraz.');
   });
 
   it('asks the backend for the language the reply is written in', async () => {

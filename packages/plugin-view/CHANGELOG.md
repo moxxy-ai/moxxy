@@ -1,5 +1,34 @@
 # @moxxy/plugin-view
 
+## 0.48.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.1
+
+## 0.48.0
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.0
+
+## 0.47.1
+
+### Patch Changes
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+
+## 0.47.0
+
+### Patch Changes
+
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+
 ## 0.46.0
 
 ### Patch Changes

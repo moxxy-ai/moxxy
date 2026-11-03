@@ -1,5 +1,75 @@
 # @moxxy/cli
 
+## 0.48.1
+
+### Patch Changes
+
+- 56c1c6f: Telegram and Discord voice replies, Discord voice calls and the terminal's read aloud now speak a reply the way the desktop does: a table row by row, an address as a link to its site, and a code block as "(code block)" (left out entirely in a Discord voice call, as in Voice Mode). The text cleanup now lives in one place, `@moxxy/chat-model`, for every surface.
+- b09c7b3: Read aloud and Voice Mode read a table row by row, each value with the name of its column ("Claude: Wynik 9 z 9."), instead of all its cells in one run. A web address is no longer read out or broken into pieces at its dots: a link is said as a link to its site ("link do strony github"), a bare domain as the site's name, and a link with its own text by that text.
+- a12f70b: Read aloud, Voice Mode and the channel voice replies also read a table written without the pipes at its edges (`Agent | Wynik` over `--- | ---`) row by row. A line of dashes under every column is what makes a table, so a sentence with a pipe in it is still read as a sentence.
+- 0ce1f19: The local voice reads a version of three parts after the word "version" ("Wersja 2.1.316", "Version 2.1.316") as one number with every dot said, instead of "dwa kropka jeden" followed by a bare dot.
+- e7854f6: Read aloud no longer stalls for seconds on a reply built to be slow, such as a long run of spaces in a table, commas after a link, unclosed brackets or a long path. Every check that prepares text for speech now takes time in step with the length of the text.
+  - @moxxy/sdk@0.48.1
+
+## 0.48.0
+
+### Minor Changes
+
+- 36a5938: Local transcription can now run on Parakeet TDT 0.6B v3 as well as Whisper turbo, as the `local-parakeet` transcriber: it works out the spoken language itself, reads long recordings piece by piece and gives its memory back after five idle minutes.
+- d184e4a: The offline voice now says numbers, amounts, dates, times, units, abbreviations, acronyms and Roman numerals the way a Polish or English speaker does, and "m.in." and the degree sign no longer disappear before a reply is read aloud.
+- 0469db3: The offline voice is now Supertonic 3 instead of Piper: one voice that reads Polish and English, with the old `local-piper` name still working for saved settings.
+- c4949e3: Moving to Supertonic goes through the full installer, because its model and native plugin ship only with the app: runner protocol v33 changes nothing on the wire and refuses a JS-only update. The launch after the one that copied Supertonic removes the three Piper voices. Supertonic's Open RAIL-M licence now ships with the plugin, and a desktop build without it fails.
+
+### Patch Changes
+
+- 1958c33: The offline voice no longer reads out a tag that only forms once a tag inside it is dropped, such as `<scr<b>ipt>`.
+- 824c9e6: The offline voice reads at about 140 words a minute instead of 100, and sentences follow each other after about a quarter of a second instead of a second: Supertonic's silence around every sentence is cut, and a clock time such as 10:10 or the number of a list item no longer breaks a sentence into pieces. A reply of one or two words stays at natural speed so it remains clear.
+- 3e2c1c0: The local voice now says Moxxy, ChatGPT, OAuth, the MIT licence, Docker Compose, code review and Coolify clearly inside Polish sentences, and OpenAI at the start of one.
+- c3270fa: The local voice now says VS Code, Node.js, file names such as `tsconfig.json`, and pairs such as CI/CD the way people do. It no longer reads CI or CV after a capitalized word as Roman numerals. CI/CD, TCP/IP, and/or and i/lub no longer vanish before speech as if they were file paths.
+  - @moxxy/sdk@0.48.0
+
+## 0.47.1
+
+### Patch Changes
+
+- 2af11f0: The WhatsApp channel's `follow-redirects` moves to 1.16.2, past GHSA-mrwp-f3q8-3g9p (custom credentials could follow a redirect). Lint and the macOS installer build move their `minimatch` 9 and 10 to 11, past GHSA-g3hv-75wg-m249; the `minimatch` 3 and 5 that `electron-builder` pins have no fix they can load, run only while installers are built, and are listed in `SECURITY.md`.
+- a927b2f: Moxxy finds Codex where its Windows installer puts it, `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`. After **Install Codex** the row said "Not installed" again: Moxxy looked only on its own `PATH`, which the installer changes for new windows only, and in `~/.local/bin`.
+
+  First run on the desktop no longer waits minutes in silence while setup runs behind it:
+
+  - The provider step starts on a coding agent instead of an API key, and lists the agents with their **Install** button straight away. Before, the rows came only from the agent runtime, which starts after setup.
+  - An install, an update or a check refreshes the rows even before the runtime is up.
+  - Under the form, onboarding says which setup step runs and that signing in and starting the agent wait for it.
+  - **Create workspace** goes on as soon as the workspace exists, instead of waiting for its agent to start.
+  - A workspace that could not be created says why and stays on the step.
+  - A workspace picked on Windows is named after its folder (`moxxy`), not its whole path, in onboarding and in the sidebar's **New workspace**.
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+
+## 0.47.0
+
+### Minor Changes
+
+- ded9828: Show and set a schedule's time window outside the chat. `moxxy schedule add` takes `--from` and `--until` next to `--cron`, refused by the same rules as the `schedule_create` tool. `moxxy schedule list` prints the window and its next fire now comes from the scheduler itself, so it no longer says "in a few minutes" for a window that opens at 23:00. The desktop Schedules list shows the window under the cron ("29.10, 23:00 → 30.10, 07:00", or "ended …" once it is over, which is why the schedule is off), and its "When" cell no longer cuts the next fire short. The "Runs in" session picker (schedules, workflows, webhooks) no longer grows past its column over the State toggle when session titles are long.
+- 24bd7f3: One set of rules for a new schedule, wherever it comes from. The `schedule_create` tool, `moxxy schedule add` and the desktop's New schedule form now check a draft with the same `scheduleDraftProblem` (split into `scheduleShapeProblem` and `scheduleTimingProblem`). A one-shot time more than a minute in the past is refused everywhere: the tool tells the model to ask the user for a new time, and the CLI exits with code 2 instead of only warning. A time set for the current minute still runs.
+
+  Two processes changing the schedules file at the same moment no longer lose each other's change: a store created with `sharedWithOtherProcesses` takes a short-lived `<file>.lock` around each change, and takes over a lock left behind for more than 10 seconds by a process that died.
+
+  The New schedule form starts with "Runs in" set to the chat you are in. It checks a custom cron as you type and shows an example when it is wrong. When the host refuses a save, the reason appears under the field it is about, in the form's own words; anything else shows as a sentence at the bottom of the form. The Schedules screen says "Next run: starting now" instead of "due now", and reads the list again a few seconds after the soonest run starts instead of waiting for the next 30-second refresh.
+
+### Patch Changes
+
+- 1e49040: A time window no run falls inside is refused instead of saved. "Every 5 minutes from 03:47 to 03:49" would never run, because the next run is 03:50: the `schedule_create` tool, `moxxy schedule add` and the desktop's New schedule form now say so, and the form's sentence no longer promises runs. `firstFireBetween` in `@moxxy/sdk/cron` finds the first fire inside a window.
+
+  An idle scheduler no longer touches `schedules.json`. Every running Moxxy rewrote the file on each 30-second tick while syncing skill schedules, even with nothing to change. It now compares first, and takes the file lock and writes only when something changed.
+
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+
 ## 0.46.0
 
 ### Minor Changes

@@ -1,5 +1,39 @@
 # @moxxy/plugin-plugins-admin
 
+## 0.48.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.1
+- @moxxy/config@0.48.1
+
+## 0.48.0
+
+### Patch Changes
+
+- c4949e3: Moving to Supertonic goes through the full installer, because its model and native plugin ship only with the app: runner protocol v33 changes nothing on the wire and refuses a JS-only update. The launch after the one that copied Supertonic removes the three Piper voices. Supertonic's Open RAIL-M licence now ships with the plugin, and a desktop build without it fails.
+  - @moxxy/sdk@0.48.0
+  - @moxxy/config@0.48.0
+
+## 0.47.1
+
+### Patch Changes
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+  - @moxxy/config@0.47.1
+
+## 0.47.0
+
+### Patch Changes
+
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+  - @moxxy/config@0.47.0
+
 ## 0.46.0
 
 ### Patch Changes

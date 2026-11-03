@@ -23,12 +23,12 @@
  */
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseAgentArgs, renderReport, summarize } from './agent-checks.mjs';
-import { findTarget, gitState, runCommand, runTarget } from './agent-cli-env.mjs';
+import { findTarget, gitState, removeWorkDir, runCommand, runTarget } from './agent-cli-env.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = (pkg, file = 'index.js') => pathToFileURL(path.join(repoRoot, 'packages', pkg, 'dist', file)).href;
@@ -396,4 +396,7 @@ main()
     console.error(`[FAIL] ${message(error)}`);
     process.exitCode = 1;
   })
-  .finally(() => rmSync(root, { recursive: true, force: true, maxRetries: 3 }));
+  .finally(async () => {
+    const warning = await removeWorkDir(root);
+    if (warning) console.warn(`[WARN] ${warning}`);
+  });

@@ -8,10 +8,10 @@ There is no paid-use confirmation dialog. The key card explains API billing.
 
 | Conversation engine | Behaviour |
 | --- | --- |
-| Classic (shown as Local) | Transcription → the Moxxy agent → read aloud. Local Whisper and Piper can work offline. |
+| Classic (shown as Local) | Transcription → the Moxxy agent → read aloud. Local dictation and Supertonic can work offline. |
 | GPT-Live | OpenAI's `gpt-live-1` holds the conversation over WebRTC. Explicit tasks run through the Moxxy agent. Requires an OpenAI API key. |
 
-Read aloud retains the existing Gemini Flash-Lite and Piper choices. New Gemini
+Read aloud offers Gemini Flash-Lite and Supertonic 3. New Gemini
 Live, Gemini transcription and further Gemini TTS work are deferred.
 
 ## Official OpenAI connection

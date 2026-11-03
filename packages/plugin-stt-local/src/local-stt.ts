@@ -1,8 +1,9 @@
 /**
- * The `local-whisper` Transcriber: fully local, on-device speech-to-text.
+ * The `local-whisper` and `local-parakeet` Transcribers: fully local, on-device
+ * speech-to-text. They differ only in the catalog entry they read.
  *
  * On the first transcription for a model it downloads + verifies that model's
- * Whisper files (once, via @moxxy/model-fetch), then decodes the inbound audio
+ * files (once, via @moxxy/model-fetch), then decodes the inbound audio
  * to Float32 mono @ 16 kHz IN-PROCESS (raw PCM / WAV) or via ffmpeg (compressed
  * containers) and hands the samples to the sherpa sidecar ({@link HostClient}).
  * No key, no network at transcription time.
@@ -29,7 +30,7 @@ import {
   type ModelFilesProgress,
 } from '@moxxy/model-fetch';
 
-import { TARGET_SAMPLE_RATE } from './audio.js';
+import { splitAtSilence, TARGET_SAMPLE_RATE } from './audio.js';
 import { decodeToMono16k } from './decode.js';
 import { HostClient, type HostClientLike } from './host-client.js';
 import {
@@ -39,27 +40,28 @@ import {
   modelDir,
   modelFiles,
   requireModel,
-  type WhisperModelEntry,
+  type LocalSttModelEntry,
 } from './models.js';
 import { resolveSherpaLibDir, sherpaEnv, sherpaPlatformPackage } from './platform.js';
 
-/** The single registered transcriber name. */
-export const LOCAL_WHISPER_TRANSCRIBER_NAME = 'local-whisper';
+export { LOCAL_PARAKEET_TRANSCRIBER_NAME, LOCAL_WHISPER_TRANSCRIBER_NAME } from './models.js';
 
 const DEFAULT_NUM_THREADS = 2;
 
 /** Resolved on-disk paths sherpa needs for one model. */
-export interface WhisperModelPaths {
+export interface LocalSttModelPaths {
   readonly encoder: string;
   readonly decoder: string;
+  readonly joiner?: string;
   readonly tokens: string;
 }
 
-export interface LocalWhisperOptions {
-  /** Model id. The only one is `turbo`, also the default. */
+export interface LocalSttOptions {
+  /** Model id, `turbo` by default. */
   readonly model?: string;
   /** Default Whisper language tag (BCP-47-ish, e.g. `en`, `pl`). Per-call
-   *  `TranscribeOptions.language` overrides it; omit to let Whisper auto-detect. */
+   *  `TranscribeOptions.language` overrides it; omit to let Whisper auto-detect.
+   *  Parakeet takes no hint: it works the language out itself. */
   readonly language?: string;
   /** Inference threads. Default 2. */
   readonly numThreads?: number;
@@ -84,7 +86,7 @@ export interface LocalWhisperOptions {
 
 /** Process-wide set of live transcribers so the plugin's `onShutdown` hook can
  *  kill every sidecar it spawned. */
-const ACTIVE_STT = new Set<LocalWhisperTranscriber>();
+const ACTIVE_STT = new Set<LocalSttTranscriber>();
 
 /** Shut down every live local transcriber (kills their sidecars). */
 export function shutdownLocalStt(): void {
@@ -92,10 +94,10 @@ export function shutdownLocalStt(): void {
   ACTIVE_STT.clear();
 }
 
-export class LocalWhisperTranscriber implements Transcriber {
-  readonly name = LOCAL_WHISPER_TRANSCRIBER_NAME;
+export class LocalSttTranscriber implements Transcriber {
+  readonly name: string;
 
-  private readonly model: WhisperModelEntry;
+  private readonly model: LocalSttModelEntry;
   private readonly defaultLanguage: string;
   private readonly numThreads: number;
   private readonly modelsDir: string;
@@ -110,11 +112,15 @@ export class LocalWhisperTranscriber implements Transcriber {
   private host: HostClientLike | null = null;
   /** In-flight model download promise — de-dupes concurrent first-use. */
   private ensuring: Promise<EnsureModelFilesResult> | null = null;
+  /** Transcriptions in flight: the model stays in memory while any is running. */
+  private running = 0;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(opts: LocalWhisperOptions = {}) {
+  constructor(opts: LocalSttOptions = {}) {
     // Validate the configured model up front so a bad config fails clearly at
     // construction rather than on the first (possibly channel-triggered) call.
     this.model = requireModel(opts.model ?? DEFAULT_MODEL_ID, 'model');
+    this.name = this.model.transcriber;
     this.defaultLanguage = typeof opts.language === 'string' ? opts.language.trim() : '';
     this.numThreads =
       opts.numThreads && Number.isInteger(opts.numThreads) && opts.numThreads > 0
@@ -151,39 +157,79 @@ export class LocalWhisperTranscriber implements Transcriber {
     const paths = await this.ensureModelFiles(opts.signal);
     opts.signal?.throwIfAborted();
 
-    const language = ((opts.language ?? this.defaultLanguage) || '').trim();
-    const host = this.getHost();
-    const result = await host.transcribe({
-      modelKey: paths.encoder,
-      encoder: paths.encoder,
-      decoder: paths.decoder,
-      tokens: paths.tokens,
-      numThreads: this.numThreads,
-      provider: this.provider,
-      language,
-      task: 'transcribe',
-      samples,
-      sampleRate: TARGET_SAMPLE_RATE,
-    });
+    const language = this.model.joiner ? '' : ((opts.language ?? this.defaultLanguage) || '').trim();
+    const { maxChunkSeconds } = this.model;
+    const parts = maxChunkSeconds ? splitAtSilence(samples, TARGET_SAMPLE_RATE, maxChunkSeconds) : [samples];
+    const texts: string[] = [];
+    let detected: string | undefined;
+
+    this.holdModel();
+    try {
+      for (const part of parts) {
+        opts.signal?.throwIfAborted();
+        const result = await this.getHost().transcribe({
+          modelKey: paths.encoder,
+          encoder: paths.encoder,
+          decoder: paths.decoder,
+          ...(paths.joiner ? { joiner: paths.joiner } : {}),
+          tokens: paths.tokens,
+          numThreads: this.numThreads,
+          provider: this.provider,
+          language,
+          task: 'transcribe',
+          samples: part,
+          sampleRate: TARGET_SAMPLE_RATE,
+        });
+        texts.push(result.text.trim());
+        detected ??= result.language;
+      }
+    } finally {
+      this.letModelGo();
+    }
 
     const durationSec = samples.length / TARGET_SAMPLE_RATE;
-    // Prefer Whisper's detected language; else the caller/default hint (when
-    // set) so downstream still gets a BCP-47 tag.
-    const reported = result.language ?? (language || undefined);
+    // Prefer the detected language; else the caller/default hint (when set) so
+    // downstream still gets a BCP-47 tag.
+    const reported = detected ?? (language || undefined);
     const out: {
       text: string;
       language?: string;
       durationSec?: number;
-    } = { text: result.text.trim(), durationSec };
+    } = { text: texts.filter(Boolean).join(' '), durationSec };
     if (reported) out.language = reported;
     return out;
   }
 
   /** Kill this transcriber's sidecar (if any) and drop registration. */
   shutdown(): void {
+    this.cancelIdleRelease();
     this.host?.shutdown();
     this.host = null;
     ACTIVE_STT.delete(this);
+  }
+
+  private holdModel(): void {
+    this.running += 1;
+    this.cancelIdleRelease();
+  }
+
+  /** The last transcription to finish starts the idle clock. Killing the sidecar
+   *  is what frees the model's memory; the next call forks a new one. */
+  private letModelGo(): void {
+    this.running -= 1;
+    const { idleReleaseMs } = this.model;
+    if (!idleReleaseMs || this.running > 0) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      this.host?.shutdown();
+      this.host = null;
+    }, idleReleaseMs);
+    this.idleTimer.unref?.();
+  }
+
+  private cancelIdleRelease(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
   }
 
   private getHost(): HostClientLike {
@@ -192,7 +238,7 @@ export class LocalWhisperTranscriber implements Transcriber {
   }
 
   /** Resolve on-disk paths for the model, downloading its files once. */
-  private async ensureModelFiles(signal?: AbortSignal): Promise<WhisperModelPaths> {
+  private async ensureModelFiles(signal?: AbortSignal): Promise<LocalSttModelPaths> {
     const dir = modelDir(this.model, this.modelsDir);
     let inflight = this.ensuring;
     if (!inflight) {
@@ -213,6 +259,7 @@ export class LocalWhisperTranscriber implements Transcriber {
     return {
       encoder: path.join(dir, this.model.encoder.name),
       decoder: path.join(dir, this.model.decoder.name),
+      ...(this.model.joiner ? { joiner: path.join(dir, this.model.joiner.name) } : {}),
       tokens: path.join(dir, this.model.tokens.name),
     };
   }
@@ -228,7 +275,7 @@ export class LocalWhisperTranscriber implements Transcriber {
         if (pct >= 100) return;
         started = true;
         const mb = Math.round(modelBytes(this.model) / 1_000_000);
-        this.log(`stt-local: first use — downloading Whisper ${this.model.id} (~${mb} MB) to ${this.modelsDir}, one-time`);
+        this.log(`stt-local: first use — downloading ${this.model.label} (~${mb} MB) to ${this.modelsDir}, one-time`);
       }
       if (pct >= lastPct + 10) {
         lastPct = pct - (pct % 10);
@@ -246,8 +293,8 @@ export class LocalWhisperTranscriber implements Transcriber {
       throw new MoxxyError({
         code: 'PLUGIN_LOAD_FAILED',
         message: pkg
-          ? `Local Whisper could not load the sherpa-onnx binary (${pkg}). Reinstall @moxxy/plugin-stt-local so its platform dependency is fetched.`
-          : `Local Whisper has no sherpa-onnx binary for ${process.platform}-${process.arch}.`,
+          ? `Local transcription could not load the sherpa-onnx binary (${pkg}). Reinstall @moxxy/plugin-stt-local so its platform dependency is fetched.`
+          : `Local transcription has no sherpa-onnx binary for ${process.platform}-${process.arch}.`,
         hint: 'Use the OpenAI Whisper backend instead, or run on a supported platform (macOS/Linux/Windows x64, macOS/Linux arm64).',
         context: { platform: process.platform, arch: process.arch },
       });
@@ -262,6 +309,10 @@ export class LocalWhisperTranscriber implements Transcriber {
   }
 }
 
-export function createLocalWhisperTranscriber(opts: LocalWhisperOptions = {}): LocalWhisperTranscriber {
-  return new LocalWhisperTranscriber(opts);
+export function createLocalWhisperTranscriber(opts: LocalSttOptions = {}): LocalSttTranscriber {
+  return new LocalSttTranscriber(opts);
+}
+
+export function createLocalParakeetTranscriber(opts: LocalSttOptions = {}): LocalSttTranscriber {
+  return new LocalSttTranscriber({ ...opts, model: 'parakeet' });
 }

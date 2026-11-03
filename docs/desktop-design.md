@@ -115,6 +115,12 @@ entry `agent` or `api`. Skipping the workspace step keeps the built-in Moxxy
 workspace, whose folder is `~/Moxxy` (inside `MOXXY_HOME` when that is set):
 the app starts its first runner there (`initialRunnerTarget` in
 `@moxxy/desktop-host`), and the step says so before the person skips.
+The provider step starts on the first coding agent, not on an API key. While
+the first launch still sets up behind the form, one muted line under the card
+names the setup step and says that signing in and starting the agent wait for
+it (`onboarding/setup-notice.ts`); the full setup screen does not cover
+onboarding. Creating a workspace goes on as soon as it exists and does not wait
+for its agent to start; a failure is said in red under the fields.
 
 Menus are one component, `shell/menu/PopoverMenu.tsx`, positioned by
 `shell/menu/usePopover.ts`. A menu opened with the pointer grows from the
@@ -150,28 +156,47 @@ That line always takes its height and is shown for the message under the
 pointer or holding focus, so revealing it moves nothing. On a touch screen it
 is always shown.
 
-Settings → Voice → Transcription picks where speech becomes text, for the chat
-microphone and Voice Mode's Local engine. Cloud is OpenAI over the ChatGPT
-login. Local is Whisper turbo on this computer (`@moxxy/plugin-stt-local`,
-shipped in the plugin seed). The first time, a dialog asks before anything
-downloads and says how big the model is (~1 GB) and that the app stays usable
-meanwhile. The main process then fetches the model's three int8 files from
-Hugging Face, in parallel and pinned by size and sha256 (`ensureModelFiles` in
-`@moxxy/model-fetch`), into `~/.moxxy/models/stt/turbo`, where the plugin finds
-them; nothing is unpacked, so it takes about as long as the bytes do. The card
-shows a progress bar with Cancel, and since the switch runs in the main process
-and reports on `voice.transcription.changed`, the download goes on and shows
-again when the person leaves the tab and comes back. After the download the
-switch enables the plugin, makes `local-whisper` the transcriber, restarts the
-runners and transcribes half a second of silence to load the model, so the
-first dictation does not wait. A notice says when Local is ready or why it
-could not start (see "Toasts"). A failed or cancelled switch leaves Moxxy on
-Cloud; choosing Cloud clears the choice (`local-whisper.ts` in
-`@moxxy/desktop-host`, `useTranscriptionSettings` and `TranscriptionSection` in
-the desktop).
+The dictation models in Settings → Voice pick where speech becomes text, for
+the chat microphone and Voice Mode's Classic engine. OpenAI runs in the cloud on
+the person's API key. Parakeet TDT 0.6B v3 and Whisper turbo run on this
+computer (`@moxxy/plugin-stt-local`, shipped in the plugin seed without any
+model). Each row says what sets the model apart and how big it is, and nothing
+downloads until someone presses Download there. The main process then fetches
+the model's int8 files from Hugging Face, in parallel and pinned by size and
+sha256 (`ensureModelFiles` in `@moxxy/model-fetch`), into
+`~/.moxxy/models/stt/<model>`, where the plugin finds them; nothing is unpacked,
+so it takes about as long as the bytes do. The row shows a progress bar with
+Cancel, and since the switch runs in the main process and reports on
+`voice.transcription.changed`, the download goes on and shows again when the
+person leaves the tab and comes back. After the download the switch enables the
+plugin, makes the model's transcriber active, restarts the runners and
+transcribes half a second of silence to load the model, so the first dictation
+does not wait. A notice says when the model is ready or why it could not start
+(see "Toasts"). A failed or cancelled switch leaves Moxxy on what it had; the
+row then offers Try again. A downloaded model that is not in use can be removed
+from its row (`local-transcription.ts` in `@moxxy/desktop-host`,
+`useTranscriptionSettings` and `DictationSection` in the desktop).
 
-Read aloud speaks with the voice chosen in Settings → Voice. With Local Piper
+Read aloud speaks with the voice chosen in Settings → Voice. With Supertonic 3
 (or any voice but Gemini) it reads sentence by sentence, as Voice Mode does.
+A clock time such as 10:10, the number of a list item and a web address stay
+inside their sentence: only a mark followed by a space ends one
+(`IncrementalSpeechSegmenter` in `@moxxy/chat-model`). A table is read row by
+row once it is complete, each row one sentence that names the column of every
+value ("Claude: Wynik 9 z 9."; `speech-tables.ts`). A table may be written
+without the pipes at its edges (`Agent | Wynik`): what makes it a table is the
+line of dashes under every column name, so a sentence with a pipe in it is read
+as a sentence. An address is never spelled
+out: a link is said as a link to its site ("link do strony github", "a link to
+github"), a bare domain as the site's name, and a link with its own text by that
+text (`speech-text.ts` and `spoken-links.ts` in `@moxxy/chat-model`, which the
+TUI and the Telegram and Discord voice replies use too). Supertonic reads
+at 1.3 times its own speed, about 140 words a minute, and a reply of one or two
+words at its own speed, because faster it blurs. It pads every sentence with
+about half a second of silence on each side, so `@moxxy/plugin-tts-local` cuts
+that to 30 ms before and 100 ms after the speech; with the queue's own pause
+sentences follow each other after about a quarter of a second
+(`speakingPace` in `voices.ts`, `trim-silence.ts`).
 With Gemini Flash-Lite it sends the whole answer in one request, or in parts
 of up to 3,000 characters cut between sentences for a long one, so it does not
 spend a request per sentence against Gemini's rate limit. Each part is kept on
@@ -192,12 +217,53 @@ an exhausted account limit already explains the end and gets no extra note.
 The terminal and messaging channels use the same wording; the note
 does not become an assistant message or get read aloud by a channel.
 
-A link the agent writes to a file on this computer (a `file://` URL or an
-absolute path, spaces and all) opens through the host, never in the browser:
-the file's own app for a type that only views or plays, otherwise the file
-manager (`chat/local-file-link.ts`, `files.open`). A click that cannot open it
-leaves a short red "Couldn’t open this file" beside the link, with the reason
-under the pointer, instead of doing nothing.
+A click on a link the agent wrote opens a small menu beside it, in the main
+chat and the mini chat alike (`chat/ChatLink.tsx`, `chat/useLinkMenu.ts`,
+`chat/link-menu.ts`). For a page: Open in Moxxy browser, Open in browser (the
+default browser), Copy link. For a file on this computer: Open, Show in Finder
+(File Explorer on Windows, the file manager on Linux), Add to agent, Copy path.
+Cmd-click on a Mac, Ctrl-click elsewhere, skips the menu and does the usual
+thing: a page in the default browser, a file in its app. Right-click opens the
+menu too. A link the app cannot open (`mailto:`) reads as plain text.
+
+The Mini Chat leaves Open in Moxxy browser out of a page's menu: the Moxxy
+browser is in the main window, and opening a page there would pull that window
+up, out of focus mode, and with the main window closed it would have to make
+that window and wait until it listens. The focus
+widget sets `MoxxyBrowserContext` to false (`chat/moxxy-browser-context.ts`),
+and the menu reads it; everywhere else it is true.
+
+A page never opens in a window of the app. A link used to go through
+`target="_blank"`, and the main window turns a new window on a sign-in host
+(github.com, accounts.google.com) into the in-app sign-in popup, so a link to a
+pull request opened there; the mini chat refuses new windows, so its links did
+nothing. Now the chat asks the host: `onboarding.openExternal` for the default
+browser, `browser.showUrl` for the Moxxy browser. The pane lives in the main
+window, the only window that offers it, so main sends that window
+`browser.showUrl` with one id per click (and says the browser is unavailable
+when the window is closed); the workbench shows the browser and the pane opens
+the address in a new tab (`shell/surfaces/browser-link-requests.ts`), even when
+the pane was not open yet. A pane opened for a link starts at the link alone,
+without its home tab: with both, whichever page loaded last came to the front,
+often Google. In the browser's own tab strip a tab is a share of the strip's
+width (`22cqi`, the strip being a size container), not of the tab list: the list
+is only as wide as its tabs, so a share of it left the list wider than its one
+tab and the + for a new tab past an empty gap.
+
+A file link is a `file://` URL or an absolute path, spaces and all: `/Users/…`
+on macOS and Linux, `C:\…` or `C:/…` on Windows, and `file:///C:/…` reads as
+`C:/…`. Markdown drops a backslash before punctuation (`C:\Users\.config`
+would read `C:\Users.config`), so before parsing, a link to a Windows drive gets
+forward slashes, which Windows reads the same (`windowsLinkSlashes`).
+A network path (`\\server\share`, `//server`) is not one: opening it
+makes Windows sign in to that server. Open goes through the host, never the
+browser: the file's own app for a type that only views or plays, otherwise the
+file manager (`chat/local-file-link.ts`, `files.open`); Show in Finder always
+only shows it (`files.reveal`). Add to agent attaches the file as the file tree
+does, so a file outside the workspace is refused with a pointer to Attach file.
+An action that fails leaves a short red note beside the link, "This file is not
+there" for a missing file, otherwise "Couldn’t open this file" or "Couldn’t open
+this link", with the host's reason under the pointer.
 
 `chat/trace/TraceEntry.tsx` maps an entry's kind to its side and owns the row.
 The bubble is drawn by the block inside it (`UserBlock`, `AssistantBlock`).
@@ -489,7 +555,7 @@ an agent image without making its tile a different colour. Clicking opens the
 existing image preview, with previous/next controls and arrow keys through the
 filtered images. File and link rows share one layout: a quiet icon, a truncated
 name, then size or host and date. Missing local files say so and cannot open.
-Links open as links in the chat do; the library never fetches a page preview.
+Links open through the same link menu as in the chat; the library never fetches a page preview.
 Empty, loading, search-without-results and read-error states are distinct.
 
 The full log is indexed into a disposable cache per chat that holds no
@@ -594,11 +660,15 @@ above are reimplemented here in Moxxy's own components.
 
 ## Voice settings and connection migration
 
-Voice uses the existing segmented control for Conversation, Read aloud and
-Transcription, with immediate switching. A shared OpenAI key card stays above
-these sections; the password field and save action use the existing input and
-button primitives, card border and text tokens. Saved-key state and failures
-are written in text, not conveyed only by colour. Each option is indexed for
+Voice is one page with no sections to switch between: the Voice Mode engine,
+then the dictation models, then the voices that read replies aloud. Each model
+is a row with its name, one line on what sets it apart, an In use badge and one
+action; a row's fields sit below it. The OpenAI key lives in the OpenAI row and
+says that GPT-Live uses it too. While GPT-Live is the engine, a note replaces
+the read-aloud rows, as that engine speaks with its own voice. The password
+fields and actions use the existing input and button primitives, card border and
+text tokens. Saved-key state and failures are written in text, not conveyed only
+by colour. Each option is indexed for
 ⌘K. Existing read-aloud choices remain available. API billing is explained inline;
 there is no paid-use modal. Recovery from the retired ChatGPT sign-in shows an
 inline explanation in the provider form; a successful move uses the normal toast.

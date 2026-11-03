@@ -1,5 +1,42 @@
 # @moxxy/plugin-tts-local
 
+## 0.48.1
+
+### Patch Changes
+
+- 0ce1f19: The local voice reads a version of three parts after the word "version" ("Wersja 2.1.316", "Version 2.1.316") as one number with every dot said, instead of "dwa kropka jeden" followed by a bare dot.
+- Updated dependencies [a12f70b]
+- Updated dependencies [e7854f6]
+  - @moxxy/chat-model@0.5.5
+  - @moxxy/sdk@0.48.1
+
+## 0.48.0
+
+### Patch Changes
+
+- Updated dependencies [725ad81]
+  - @moxxy/chat-model@0.5.4
+  - @moxxy/sdk@0.48.0
+
+## 0.47.1
+
+### Patch Changes
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+
+## 0.47.0
+
+### Patch Changes
+
+- Updated dependencies [e62b8a4]
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/model-fetch@0.2.1
+  - @moxxy/sdk@0.47.0
+
 ## 0.46.0
 
 ### Patch Changes

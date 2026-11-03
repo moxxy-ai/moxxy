@@ -5,6 +5,8 @@ import { Segmented } from '../../Segmented';
 import { linkHost, linkTitle, mediaDate, type MediaKind } from './media-library';
 import { useMediaPane } from './useMediaPane';
 import { useMediaTile } from './useMediaTile';
+import { PopoverMenu } from '../../menu/PopoverMenu';
+import { useLinkMenu } from '../../../chat/useLinkMenu';
 import './media.css';
 
 const SHELVES: ReadonlyArray<{ id: MediaKind; label: string }> = [
@@ -115,24 +117,7 @@ export function MediaPane({ workspaceId }: { readonly workspaceId: string | null
                         </span>
                       </button>
                     ) : (
-                      <a
-                        className="media-pane__row"
-                        href={item.url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        title={item.url}
-                      >
-                        <span className="media-pane__file-icon">
-                          <Icon name="link" size={19} />
-                        </span>
-                        <span className="media-pane__row-copy">
-                          <strong>{linkTitle(item)}</strong>
-                          <small>
-                            {linkHost(item.url)} · {mediaDate(item.ts, new Date())}
-                          </small>
-                        </span>
-                        <Icon name="chevron-right" size={14} />
-                      </a>
+                      <MediaLinkRow url={item.url} title={linkTitle(item)} ts={item.ts} />
                     )}
                   </li>
                 ))}
@@ -197,4 +182,39 @@ function fileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * A link from the chat, opened through the same link menu as in the chat, so
+ * it never lands in a window of the app.
+ */
+function MediaLinkRow({ url, title, ts }: { readonly url: string; readonly title: string; readonly ts: number }): JSX.Element {
+  const menu = useLinkMenu({ kind: 'web', url });
+  return (
+    <>
+      <a
+        ref={menu.popover.anchorRef}
+        className="media-pane__row"
+        href={url}
+        rel="noreferrer noopener"
+        title={url}
+        aria-haspopup="menu"
+        aria-expanded={menu.popover.open}
+        onClick={menu.onClick}
+        onContextMenu={menu.onContextMenu}
+      >
+        <span className="media-pane__file-icon">
+          <Icon name="link" size={19} />
+        </span>
+        <span className="media-pane__row-copy">
+          <strong>{title}</strong>
+          <small role={menu.failure ? 'alert' : undefined} title={menu.failure?.reason}>
+            {menu.failure?.label ?? (menu.copied ? 'Copied' : `${linkHost(url)} · ${mediaDate(ts, new Date())}`)}
+          </small>
+        </span>
+        <Icon name="chevron-right" size={14} />
+      </a>
+      <PopoverMenu popover={menu.popover} label="Link" entries={menu.entries} />
+    </>
+  );
 }

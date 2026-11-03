@@ -1,5 +1,67 @@
 # @moxxy/client-core
 
+## 0.16.1
+
+### Patch Changes
+
+- 56c1c6f: Telegram and Discord voice replies, Discord voice calls and the terminal's read aloud now speak a reply the way the desktop does: a table row by row, an address as a link to its site, and a code block as "(code block)" (left out entirely in a Discord voice call, as in Voice Mode). The text cleanup now lives in one place, `@moxxy/chat-model`, for every surface.
+- b09c7b3: Read aloud and Voice Mode read a table row by row, each value with the name of its column ("Claude: Wynik 9 z 9."), instead of all its cells in one run. A web address is no longer read out or broken into pieces at its dots: a link is said as a link to its site ("link do strony github"), a bare domain as the site's name, and a link with its own text by that text.
+- a12f70b: Read aloud, Voice Mode and the channel voice replies also read a table written without the pipes at its edges (`Agent | Wynik` over `--- | ---`) row by row. A line of dashes under every column is what makes a table, so a sentence with a pipe in it is still read as a sentence.
+- e7854f6: Read aloud no longer stalls for seconds on a reply built to be slow, such as a long run of spaces in a table, commas after a link, unclosed brackets or a long path. Every check that prepares text for speech now takes time in step with the length of the text.
+- Updated dependencies [a12f70b]
+- Updated dependencies [e7854f6]
+  - @moxxy/chat-model@0.5.5
+  - @moxxy/sdk@0.48.1
+  - @moxxy/desktop-ipc-contract@0.17.1
+  - @moxxy/workflows-builder@0.1.63
+
+## 0.16.0
+
+### Minor Changes
+
+- 725ad81: Settings → Voice is now one page: the Voice Mode engine, the dictation models (Parakeet, Whisper turbo, OpenAI) and the voices that read replies aloud, each with a line on what sets it apart. Parakeet and Whisper turbo download from their row only when someone asks for them. A saved `local-piper` choice moves to `local-supertonic` on its own, and the local-voice names in the IPC and client APIs no longer mention an engine.
+
+### Patch Changes
+
+- c3270fa: The local voice now says VS Code, Node.js, file names such as `tsconfig.json`, and pairs such as CI/CD the way people do. It no longer reads CI or CV after a capitalized word as Roman numerals. CI/CD, TCP/IP, and/or and i/lub no longer vanish before speech as if they were file paths.
+- Updated dependencies [725ad81]
+  - @moxxy/desktop-ipc-contract@0.17.0
+  - @moxxy/chat-model@0.5.4
+  - @moxxy/sdk@0.48.0
+  - @moxxy/workflows-builder@0.1.62
+
+## 0.15.1
+
+### Patch Changes
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+  - @moxxy/chat-model@0.5.3
+  - @moxxy/desktop-ipc-contract@0.16.1
+  - @moxxy/workflows-builder@0.1.61
+
+## 0.15.0
+
+### Minor Changes
+
+- 3879896: Create schedules from the desktop. Automations → Schedules has a New schedule button that opens a form: what Moxxy should do, how often (every few minutes or hours, every day, weekdays, every week, once, or a cron), optionally between two dates, a name filled in from the prompt and the chat it runs in. It says in one sentence what will happen, points at what is missing under each field, and never saves a schedule that could not run. The screen itself is redrawn as cards in the Settings look instead of a table: each schedule says its repeat in words ("Every 30 minutes"), then its window, next and last run; a schedule can be deleted (after a confirmation), and the list refreshes itself every 30 seconds.
+
+  Behind it: the new `scheduler.create` IPC command, checked in the host by `scheduleDraftProblem`, the scheduler's shared rules for a new schedule (`@moxxy/plugin-scheduler`); `useScheduler` gains `create` and an optional `refreshEveryMs`, and keeps one list for the whole window, so the Automations sidebar no longer misses a schedule created, paused or deleted on the screen; `Modal` takes a `className`.
+
+  Fixed: a running Moxxy no longer misses schedules created, paused or deleted by the desktop or `moxxy schedule`, and no longer writes its old copy back over them. Each process kept its first read of `schedules.json` for good; the store now reads the file again before every read and every change (`sharedWithOtherProcesses` in `createJsonFileStore`).
+
+### Patch Changes
+
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [ded9828]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+  - @moxxy/desktop-ipc-contract@0.16.0
+  - @moxxy/chat-model@0.5.2
+  - @moxxy/workflows-builder@0.1.60
+
 ## 0.14.1
 
 ### Patch Changes

@@ -1,5 +1,138 @@
 # @moxxy/desktop
 
+## 0.48.1
+
+### Patch Changes
+
+- 56c1c6f: Telegram and Discord voice replies, Discord voice calls and the terminal's read aloud now speak a reply the way the desktop does: a table row by row, an address as a link to its site, and a code block as "(code block)" (left out entirely in a Discord voice call, as in Voice Mode). The text cleanup now lives in one place, `@moxxy/chat-model`, for every surface.
+- 72c7d1b: A click on a link in the chat, the mini chat or the media library opens a small menu. For a page: open it in the Moxxy browser, open it in the default browser, or copy it; the mini chat offers only the default browser, since the Moxxy browser is in the main window. A page opened in a Moxxy browser that was not open yet is the tab in front, not Google's start page, and the browser's + for a new tab sits right after the last tab instead of past an empty gap. For a file: open it, show it in Finder (File Explorer on Windows), add it to the agent, or copy its path. Cmd-click (Ctrl-click off a Mac) opens the link at once, as before. A link to GitHub or a Google page no longer opens in a sign-in window of the app but in the default browser, and links in the mini chat open at all. Links to files on Windows (`C:\…`, `file:///C:/…`) open instead of saying the file does not exist, and a missing file now says "This file is not there". A Windows path with a dot or an underscore after a backslash (`C:\Users\Jan\.config`) keeps it.
+- b09c7b3: Read aloud and Voice Mode read a table row by row, each value with the name of its column ("Claude: Wynik 9 z 9."), instead of all its cells in one run. A web address is no longer read out or broken into pieces at its dots: a link is said as a link to its site ("link do strony github"), a bare domain as the site's name, and a link with its own text by that text.
+- a12f70b: Read aloud, Voice Mode and the channel voice replies also read a table written without the pipes at its edges (`Agent | Wynik` over `--- | ---`) row by row. A line of dashes under every column is what makes a table, so a sentence with a pipe in it is still read as a sentence.
+- 0ce1f19: The local voice reads a version of three parts after the word "version" ("Wersja 2.1.316", "Version 2.1.316") as one number with every dot said, instead of "dwa kropka jeden" followed by a bare dot.
+- e7854f6: Read aloud no longer stalls for seconds on a reply built to be slow, such as a long run of spaces in a table, commas after a link, unclosed brackets or a long path. Every check that prepares text for speech now takes time in step with the length of the text.
+- Updated dependencies [56c1c6f]
+- Updated dependencies [b09c7b3]
+- Updated dependencies [a12f70b]
+- Updated dependencies [0ce1f19]
+- Updated dependencies [e7854f6]
+  - @moxxy/cli@0.48.1
+  - @moxxy/client-core@0.16.1
+  - @moxxy/chat-model@0.5.5
+  - @moxxy/client-platform-web@0.1.80
+  - @moxxy/sdk@0.48.1
+  - @moxxy/plugin-vault@0.48.1
+  - @moxxy/desktop-host@0.17.1
+  - @moxxy/desktop-ipc-contract@0.17.1
+  - @moxxy/runner@0.2.66
+  - @moxxy/workflows-builder@0.1.63
+
+## 0.48.0
+
+### Minor Changes
+
+- 36a5938: Local transcription can now run on Parakeet TDT 0.6B v3 as well as Whisper turbo, as the `local-parakeet` transcriber: it works out the spoken language itself, reads long recordings piece by piece and gives its memory back after five idle minutes.
+- d184e4a: The offline voice now says numbers, amounts, dates, times, units, abbreviations, acronyms and Roman numerals the way a Polish or English speaker does, and "m.in." and the degree sign no longer disappear before a reply is read aloud.
+- 0469db3: The offline voice is now Supertonic 3 instead of Piper: one voice that reads Polish and English, with the old `local-piper` name still working for saved settings.
+- c4949e3: Moving to Supertonic goes through the full installer, because its model and native plugin ship only with the app: runner protocol v33 changes nothing on the wire and refuses a JS-only update. The launch after the one that copied Supertonic removes the three Piper voices. Supertonic's Open RAIL-M licence now ships with the plugin, and a desktop build without it fails.
+- 725ad81: Settings → Voice is now one page: the Voice Mode engine, the dictation models (Parakeet, Whisper turbo, OpenAI) and the voices that read replies aloud, each with a line on what sets it apart. Parakeet and Whisper turbo download from their row only when someone asks for them. A saved `local-piper` choice moves to `local-supertonic` on its own, and the local-voice names in the IPC and client APIs no longer mention an engine.
+
+### Patch Changes
+
+- 1958c33: The offline voice no longer reads out a tag that only forms once a tag inside it is dropped, such as `<scr<b>ipt>`.
+- 824c9e6: The offline voice reads at about 140 words a minute instead of 100, and sentences follow each other after about a quarter of a second instead of a second: Supertonic's silence around every sentence is cut, and a clock time such as 10:10 or the number of a list item no longer breaks a sentence into pieces. A reply of one or two words stays at natural speed so it remains clear.
+- 3e2c1c0: The local voice now says Moxxy, ChatGPT, OAuth, the MIT licence, Docker Compose, code review and Coolify clearly inside Polish sentences, and OpenAI at the start of one.
+- c3270fa: The local voice now says VS Code, Node.js, file names such as `tsconfig.json`, and pairs such as CI/CD the way people do. It no longer reads CI or CV after a capitalized word as Roman numerals. CI/CD, TCP/IP, and/or and i/lub no longer vanish before speech as if they were file paths.
+- 7bb9953: Read aloud keeps fractions, slashed dates, speeds like km/h and e-mail addresses instead of dropping them as paths and domains.
+- Updated dependencies [36a5938]
+- Updated dependencies [1958c33]
+- Updated dependencies [824c9e6]
+- Updated dependencies [3e2c1c0]
+- Updated dependencies [c3270fa]
+- Updated dependencies [d184e4a]
+- Updated dependencies [0469db3]
+- Updated dependencies [c4949e3]
+- Updated dependencies [725ad81]
+  - @moxxy/cli@0.48.0
+  - @moxxy/client-core@0.16.0
+  - @moxxy/desktop-host@0.17.0
+  - @moxxy/desktop-ipc-contract@0.17.0
+  - @moxxy/client-platform-web@0.1.79
+  - @moxxy/chat-model@0.5.4
+  - @moxxy/sdk@0.48.0
+  - @moxxy/plugin-vault@0.48.0
+  - @moxxy/runner@0.2.65
+  - @moxxy/workflows-builder@0.1.62
+
+## 0.47.1
+
+### Patch Changes
+
+- a927b2f: Moxxy finds Codex where its Windows installer puts it, `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`. After **Install Codex** the row said "Not installed" again: Moxxy looked only on its own `PATH`, which the installer changes for new windows only, and in `~/.local/bin`.
+
+  First run on the desktop no longer waits minutes in silence while setup runs behind it:
+
+  - The provider step starts on a coding agent instead of an API key, and lists the agents with their **Install** button straight away. Before, the rows came only from the agent runtime, which starts after setup.
+  - An install, an update or a check refreshes the rows even before the runtime is up.
+  - Under the form, onboarding says which setup step runs and that signing in and starting the agent wait for it.
+  - **Create workspace** goes on as soon as the workspace exists, instead of waiting for its agent to start.
+  - A workspace that could not be created says why and stays on the step.
+  - A workspace picked on Windows is named after its folder (`moxxy`), not its whole path, in onboarding and in the sidebar's **New workspace**.
+
+- Updated dependencies [2af11f0]
+- Updated dependencies [a927b2f]
+- Updated dependencies [89457c4]
+  - @moxxy/cli@0.47.1
+  - @moxxy/sdk@0.47.1
+  - @moxxy/chat-model@0.5.3
+  - @moxxy/client-core@0.15.1
+  - @moxxy/client-platform-web@0.1.78
+  - @moxxy/desktop-host@0.16.1
+  - @moxxy/desktop-ipc-contract@0.16.1
+  - @moxxy/plugin-vault@0.47.1
+  - @moxxy/runner@0.2.64
+  - @moxxy/workflows-builder@0.1.61
+
+## 0.47.0
+
+### Minor Changes
+
+- ded9828: Show and set a schedule's time window outside the chat. `moxxy schedule add` takes `--from` and `--until` next to `--cron`, refused by the same rules as the `schedule_create` tool. `moxxy schedule list` prints the window and its next fire now comes from the scheduler itself, so it no longer says "in a few minutes" for a window that opens at 23:00. The desktop Schedules list shows the window under the cron ("29.10, 23:00 → 30.10, 07:00", or "ended …" once it is over, which is why the schedule is off), and its "When" cell no longer cuts the next fire short. The "Runs in" session picker (schedules, workflows, webhooks) no longer grows past its column over the State toggle when session titles are long.
+- 3879896: Create schedules from the desktop. Automations → Schedules has a New schedule button that opens a form: what Moxxy should do, how often (every few minutes or hours, every day, weekdays, every week, once, or a cron), optionally between two dates, a name filled in from the prompt and the chat it runs in. It says in one sentence what will happen, points at what is missing under each field, and never saves a schedule that could not run. The screen itself is redrawn as cards in the Settings look instead of a table: each schedule says its repeat in words ("Every 30 minutes"), then its window, next and last run; a schedule can be deleted (after a confirmation), and the list refreshes itself every 30 seconds.
+
+  Behind it: the new `scheduler.create` IPC command, checked in the host by `scheduleDraftProblem`, the scheduler's shared rules for a new schedule (`@moxxy/plugin-scheduler`); `useScheduler` gains `create` and an optional `refreshEveryMs`, and keeps one list for the whole window, so the Automations sidebar no longer misses a schedule created, paused or deleted on the screen; `Modal` takes a `className`.
+
+  Fixed: a running Moxxy no longer misses schedules created, paused or deleted by the desktop or `moxxy schedule`, and no longer writes its old copy back over them. Each process kept its first read of `schedules.json` for good; the store now reads the file again before every read and every change (`sharedWithOtherProcesses` in `createJsonFileStore`).
+
+### Patch Changes
+
+- 1e49040: A time window no run falls inside is refused instead of saved. "Every 5 minutes from 03:47 to 03:49" would never run, because the next run is 03:50: the `schedule_create` tool, `moxxy schedule add` and the desktop's New schedule form now say so, and the form's sentence no longer promises runs. `firstFireBetween` in `@moxxy/sdk/cron` finds the first fire inside a window.
+
+  An idle scheduler no longer touches `schedules.json`. Every running Moxxy rewrote the file on each 30-second tick while syncing skill schedules, even with nothing to change. It now compares first, and takes the file lock and writes only when something changed.
+
+- 24bd7f3: One set of rules for a new schedule, wherever it comes from. The `schedule_create` tool, `moxxy schedule add` and the desktop's New schedule form now check a draft with the same `scheduleDraftProblem` (split into `scheduleShapeProblem` and `scheduleTimingProblem`). A one-shot time more than a minute in the past is refused everywhere: the tool tells the model to ask the user for a new time, and the CLI exits with code 2 instead of only warning. A time set for the current minute still runs.
+
+  Two processes changing the schedules file at the same moment no longer lose each other's change: a store created with `sharedWithOtherProcesses` takes a short-lived `<file>.lock` around each change, and takes over a lock left behind for more than 10 seconds by a process that died.
+
+  The New schedule form starts with "Runs in" set to the chat you are in. It checks a custom cron as you type and shows an example when it is wrong. When the host refuses a save, the reason appears under the field it is about, in the form's own words; anything else shows as a sentence at the bottom of the form. The Schedules screen says "Next run: starting now" instead of "due now", and reads the list again a few seconds after the soonest run starts instead of waiting for the next 30-second refresh.
+
+- 59e2daa: Move the desktop's dev-time `vite` to 6.4.5, the fix for GHSA-8g5g-mxqh-grgj (`server.fs.deny` could be bypassed with query strings on the dev server). Only the development server was affected; the packaged app does not ship Vite's server.
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [ded9828]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+  - @moxxy/cli@0.47.0
+  - @moxxy/desktop-ipc-contract@0.16.0
+  - @moxxy/desktop-host@0.16.0
+  - @moxxy/client-core@0.15.0
+  - @moxxy/desktop-ui@0.3.3
+  - @moxxy/chat-model@0.5.2
+  - @moxxy/client-platform-web@0.1.77
+  - @moxxy/plugin-vault@0.47.0
+  - @moxxy/runner@0.2.63
+  - @moxxy/workflows-builder@0.1.60
+
 ## 0.46.0
 
 ### Minor Changes

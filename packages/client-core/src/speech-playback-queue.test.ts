@@ -127,7 +127,7 @@ describe('SpeechPlaybackQueue voice-call policy', () => {
     queue.cancel();
   });
 
-  it('prewarms a cue once and reuses the in-memory Piper clip', async () => {
+  it('prewarms a cue once and reuses the in-memory voice clip', async () => {
     const synthesized: string[] = [];
     const played: string[] = [];
     configurePlatform({
@@ -374,7 +374,7 @@ describe('SpeechPlaybackQueue voice-call policy', () => {
     } as never);
     const queue = new SpeechPlaybackQueue('workspace-a', { requireSynthesizer: true });
 
-    queue.enqueue('To powinien powiedzieć Piper.');
+    queue.enqueue('To powinien powiedzieć voice.');
     await waitForPhase(queue, 'error');
 
     expect(queue.getSnapshot().errorReason).toMatch(/synthesizer/i);
@@ -383,7 +383,7 @@ describe('SpeechPlaybackQueue voice-call policy', () => {
   });
 
   it('forwards the real playback analyser to the voice surface', async () => {
-    const analyser = { kind: 'piper-output' };
+    const analyser = { kind: 'voice-output' };
     const onAnalyser = vi.fn();
     configurePlatform({
       tts: {
@@ -405,7 +405,7 @@ describe('SpeechPlaybackQueue voice-call policy', () => {
       onAnalyser,
     });
 
-    queue.enqueue('Hello from Piper.');
+    queue.enqueue('Hello from voice.');
     await waitForPhase(queue, 'speaking');
 
     expect(onAnalyser).toHaveBeenCalledWith(analyser);

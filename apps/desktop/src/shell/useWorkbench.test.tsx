@@ -9,11 +9,18 @@ import { act, renderHook } from '@testing-library/react';
 import { __setApiOverride, focusAgentWork } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { useWorkbench } from './useWorkbench';
+import { takeBrowserRequests } from './surfaces/browser-link-requests';
 
+// The IPC transport is the boundary: events main would push are captured so a test can play one.
+const listeners = new Map<string, (payload: unknown) => void>();
 beforeEach(() => {
+  listeners.clear();
   __setApiOverride({
     invoke: async () => undefined,
-    subscribe: () => () => undefined,
+    subscribe: (channel: string, listener: (payload: unknown) => void) => {
+      listeners.set(channel, listener);
+      return () => listeners.delete(channel);
+    },
   } as unknown as MoxxyApi);
 });
 afterEach(() => __setApiOverride(null));
@@ -40,6 +47,13 @@ describe('useWorkbench', () => {
     expect(result.current.tab).toBeNull();
     act(() => focusAgentWork('ws', 'b1'));
     expect(result.current.tab).toBe('agents');
+  });
+
+  it('opens the browser when a chat link asks for the Moxxy browser, and leaves the address for the pane', () => {
+    const { result } = renderHook(() => useWorkbench('ws'));
+    act(() => listeners.get('browser.showUrl')?.({ requestId: 'w1', url: 'https://github.com/moxxy-ai' }));
+    expect(result.current.tab).toBe('browser');
+    expect(takeBrowserRequests()).toEqual(['https://github.com/moxxy-ai']);
   });
 
   it('opens the browser in full view when nothing is open', () => {

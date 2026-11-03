@@ -7,12 +7,14 @@
  */
 import {
   AGENT_CLIS,
+  checkAgentCli,
   defaultCacheFile,
   runAgentCliAction,
   type AgentCliDescriptor,
   type AgentCliSearch,
 } from '@moxxy/agent-connection-kit';
-import type { AgentCliAction, AgentCliProgress, AgentCliRunResult } from '@moxxy/desktop-ipc-contract';
+import type { AgentCliReport } from '@moxxy/sdk';
+import type { AgentCliAction, AgentCliProgress, AgentCliRunResult, ProviderEntry } from '@moxxy/desktop-ipc-contract';
 import { delimiter } from 'node:path';
 import { fallbackPathDirs, spawnPath } from './cli-resolver';
 
@@ -38,6 +40,34 @@ function runnerSearch(): AgentCliSearch {
 }
 
 const running = new Set<string>();
+
+/**
+ * The agent connections as Settings and onboarding list them, read on this
+ * computer while no runner is up: on a first run the runner starts only once
+ * setup finishes, minutes later, and the person should be able to install
+ * an agent meanwhile. A runner, once up, reports the same entries itself.
+ */
+export async function agentConnectionsWithoutRunner(
+  check: (desc: AgentCliDescriptor) => Promise<AgentCliReport> = (desc) => checkAgentCli(desc, runnerSearch()),
+): Promise<ProviderEntry[]> {
+  const { builtinProviderKeyName } = await import('./provider-discovery');
+  return Promise.all(
+    Object.entries(AGENT_CLIS).map(async ([name, desc]) => {
+      const agentCli = await check(desc).catch(() => undefined);
+      return {
+        name,
+        ready: false,
+        enabled: true,
+        active: false,
+        authKind: 'oauth' as const,
+        kind: 'builtin' as const,
+        keyName: builtinProviderKeyName(name),
+        agentName: desc.name,
+        ...(agentCli ? { agentCli } : {}),
+      };
+    }),
+  );
+}
 
 /** Every runner checks its agent CLIs again; one that cannot (an older runner) is skipped. */
 export async function checkAgentClis(runners: ReadonlyArray<AgentCliRunner>): Promise<void> {

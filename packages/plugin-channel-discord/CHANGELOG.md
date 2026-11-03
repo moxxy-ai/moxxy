@@ -1,5 +1,54 @@
 # @moxxy/plugin-channel-discord
 
+## 0.48.1
+
+### Patch Changes
+
+- Updated dependencies [a12f70b]
+- Updated dependencies [e7854f6]
+  - @moxxy/chat-model@0.5.5
+  - @moxxy/channel-kit@0.48.1
+  - @moxxy/sdk@0.48.1
+  - @moxxy/core@0.48.1
+  - @moxxy/plugin-vault@0.48.1
+
+## 0.48.0
+
+### Patch Changes
+
+- 725ad81: Settings → Voice is now one page: the Voice Mode engine, the dictation models (Parakeet, Whisper turbo, OpenAI) and the voices that read replies aloud, each with a line on what sets it apart. Parakeet and Whisper turbo download from their row only when someone asks for them. A saved `local-piper` choice moves to `local-supertonic` on its own, and the local-voice names in the IPC and client APIs no longer mention an engine.
+- Updated dependencies [725ad81]
+  - @moxxy/chat-model@0.5.4
+  - @moxxy/channel-kit@0.48.0
+  - @moxxy/sdk@0.48.0
+  - @moxxy/core@0.48.0
+  - @moxxy/plugin-vault@0.48.0
+
+## 0.47.1
+
+### Patch Changes
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+  - @moxxy/channel-kit@0.47.1
+  - @moxxy/chat-model@0.5.3
+  - @moxxy/core@0.47.1
+  - @moxxy/plugin-vault@0.47.1
+
+## 0.47.0
+
+### Patch Changes
+
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+  - @moxxy/channel-kit@0.47.0
+  - @moxxy/chat-model@0.5.2
+  - @moxxy/core@0.47.0
+  - @moxxy/plugin-vault@0.47.0
+
 ## 0.46.0
 
 ### Patch Changes

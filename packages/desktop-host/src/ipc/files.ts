@@ -1,5 +1,6 @@
 /**
- * Local files the chat links to (`files.open`). The link is agent-authored, so
+ * Local files the chat links to (`files.open`, and `files.reveal` for the
+ * link menu's Show in Finder). The link is agent-authored, so
  * opening it must never RUN anything: only document / media / image types go
  * to their default app; scripts, apps, installers, unknown types and folders
  * (an `.app` bundle is a folder) are only revealed in the file manager, where
@@ -38,6 +39,22 @@ export const electronFiles: FilesHandlerDependencies = {
 
 export function registerFilesHandlers(dependencies: FilesHandlerDependencies = electronFiles): void {
   handle('files.open', ({ path: target }) => openLocalPath(target, dependencies));
+  handle('files.reveal', ({ path: target }) => revealLocalPath(target, dependencies));
+}
+
+/** The file at `target` as an absolute, normalized path; throws when it is not there. */
+async function existingPath(target: string): Promise<{ full: string; isFile: boolean }> {
+  if (!path.isAbsolute(target)) throw new IpcError('invalid-payload', 'expected an absolute path');
+  const full = path.normalize(target);
+  const info = await stat(full).catch(() => null);
+  if (!info) throw new IpcError('runner-error', `file not found: ${full}`);
+  return { full, isFile: info.isFile() };
+}
+
+/** Show a file in the file manager, whatever its type; opens nothing. */
+export async function revealLocalPath(target: string, dependencies: FilesHandlerDependencies): Promise<void> {
+  const { full } = await existingPath(target);
+  dependencies.showItemInFolder(full);
 }
 
 /**
@@ -48,12 +65,9 @@ export async function openLocalPath(
   target: string,
   dependencies: FilesHandlerDependencies,
 ): Promise<{ opened: 'app' | 'folder' }> {
-  if (!path.isAbsolute(target)) throw new IpcError('invalid-payload', 'expected an absolute path');
-  const full = path.normalize(target);
-  const info = await stat(full).catch(() => null);
-  if (!info) throw new IpcError('runner-error', `file not found: ${full}`);
+  const { full, isFile } = await existingPath(target);
   const ext = path.extname(full).slice(1).toLowerCase();
-  if (info.isFile() && OPENABLE.has(ext)) {
+  if (isFile && OPENABLE.has(ext)) {
     const error = await dependencies.openPath(full);
     if (error) throw new IpcError('runner-error', error);
     return { opened: 'app' };

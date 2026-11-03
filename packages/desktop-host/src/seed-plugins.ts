@@ -376,7 +376,7 @@ async function initializePackageLock(
 /**
  * Repair manifests written by desktop builds that briefly used `file:` specs
  * pointing at their build-time `moxxy-seed-tars-*` directory. That directory
- * is deleted after packaging, so a later `npm install` (including Local Piper)
+ * is deleted after packaging, so a later `npm install` (including the offline voice)
  * otherwise fails while resolving an unrelated, long-gone tarball.
  *
  * Only the exact first-party generated shape is touched. User-authored `file:`

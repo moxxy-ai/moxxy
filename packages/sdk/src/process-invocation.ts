@@ -101,7 +101,8 @@ export function findExecutable(
  *
  * Native executables and POSIX commands run directly. On Windows, supported
  * Node launchers are mapped to their known JS entrypoints and run through the
- * current Node/Electron runtime. Any other Windows script shim fails closed:
+ * current Node/Electron runtime, or to the native executable the launcher's
+ * package ships (pnpm 11+). Any other Windows script shim fails closed:
  * parsing an arbitrary .cmd/.bat/.ps1 would recreate the shell-injection
  * boundary this helper exists to remove.
  */
@@ -138,6 +139,8 @@ export function resolveExecutableTarget(
     : knownNodeCliEntries(executable, commandName);
   const entry = entries.find(isFile);
   if (!entry) {
+    const native = knownNativeCliExecutables(executable, commandName).find(isFile);
+    if (native) return { kind: 'direct', command: native };
     throw new Error(
       `Cannot resolve ${commandName} JavaScript entry beside Windows shim "${executable}". ` +
         'Refusing to run the .cmd file through a shell.',
@@ -212,6 +215,16 @@ function knownNodeCliEntries(shim: string, command: KnownNodeCli): string[] {
     path.join(binDir, '..', 'corepack', 'dist', 'yarn.js'),
     path.join(binDir, '..', 'yarn', 'bin', 'yarn.js'),
     path.join(binDir, '..', '@yarnpkg', 'cli-dist', 'bin', 'yarn.js'),
+  ];
+}
+
+/** pnpm 11+ ships a native pnpm.exe that its npm shim runs; no JS entry is left beside it. */
+function knownNativeCliExecutables(shim: string, command: KnownNodeCli): string[] {
+  if (command !== 'pnpm') return [];
+  const binDir = path.dirname(shim);
+  return [
+    path.join(binDir, 'node_modules', 'pnpm', 'pnpm.exe'),
+    path.join(binDir, '..', 'pnpm', 'pnpm.exe'),
   ];
 }
 

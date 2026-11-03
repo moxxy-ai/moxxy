@@ -1,3 +1,5 @@
+import { isTableLine, isTableRow, speakTable, startsTable } from './speech-tables.js';
+
 export type SpeechLanguage = 'pl' | 'en';
 
 const POLISH_WORDS: ReadonlySet<string> = new Set([
@@ -212,7 +214,7 @@ const ENGLISH_SUFFIX_RE = /(?:ed|ful|ing|less|ly|ment|ness|sion|tion)$/u;
 const POLISH_CLUSTER_RE = /(?:cz|dzi|prz|rz|sz)/u;
 
 /**
- * Lightweight deterministic detector for the two local Piper languages.
+ * Lightweight deterministic detector for the two languages the local voice is mostly used in.
  * It deliberately scores prose words rather than identifiers, so `pnpm`,
  * `useEffect`, and other technical names do not make a Polish sentence switch
  * voice. Ambiguous short fragments inherit the preceding segment's language.
@@ -254,15 +256,24 @@ const MIN_CLAUSE_CHARS = 48;
 const ABBREVIATIONS: ReadonlyArray<string> = [
   'dr.',
   'e.g.',
+  'godz.',
   'i.e.',
   'itd.',
   'itp.',
+  'm.in.',
   'mr.',
   'mrs.',
   'ms.',
   'np.',
+  'ok.',
   'prof.',
+  'r.',
   'tj.',
+  'tys.',
+  'tzn.',
+  'tzw.',
+  'ul.',
+  'vs.',
 ];
 
 /** Incrementally turns provider text deltas into natural speakable chunks. */
@@ -295,6 +306,12 @@ export class IncrementalSpeechSegmenter {
   private extract(final: boolean): string[] {
     const chunks: string[] = [];
     while (this.buffer.trim()) {
+      const table = this.takeTable(final);
+      if (table === 'incomplete') break;
+      if (table) {
+        chunks.push(...table);
+        continue;
+      }
       const natural = scanNaturalBoundary(this.buffer);
       const forced = natural.boundary === null
         && !natural.protectedAtEnd
@@ -307,6 +324,27 @@ export class IncrementalSpeechSegmenter {
     }
     if (final && this.buffer.trim()) this.take(this.buffer.length, chunks);
     return chunks;
+  }
+
+  /**
+   * A table at the start of the buffer, read row by row once its last line is in
+   * (`incomplete` until then); `null` when the buffer does not start with one.
+   */
+  private takeTable(final: boolean): string[] | 'incomplete' | null {
+    const lines = this.buffer.split('\n');
+    if (!(lines[0] ?? '').includes('|')) return null;
+    // Until its second line is in, only a line that starts with a pipe waits to be a table.
+    if (lines.length < 3 && !final) return isTableLine(this.buffer) ? 'incomplete' : null;
+    if (!startsTable(this.buffer)) return null;
+    let count = 2;
+    while (isTableRow(lines[count])) count += 1;
+    const next = lines[count];
+    const complete = final || count < lines.length - 1 || (next !== undefined && next.trim() !== '');
+    if (!complete) return 'incomplete';
+    const rows = speakTable(lines.slice(0, count));
+    if (!rows) return null;
+    this.buffer = lines.slice(count).join('\n').trimStart();
+    return rows;
   }
 
   private take(boundary: number, chunks: string[]): void {
@@ -339,26 +377,59 @@ function scanNaturalBoundary(text: string): NaturalBoundaryScan {
     if (inlineCode) continue;
 
     const char = text[i];
-    if (char === '\n' && i > 0 && text[i - 1] === '\n') {
+    if (char === '\n' && i > 0 && (text[i - 1] === '\n' || startsTable(text.slice(i + 1)))) {
       return { boundary: i + 1, protectedAtEnd: false };
     }
     if (char === '!' || char === '?') {
-      return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
+      const end = includeClosingPunctuation(text, i + 1);
+      if (end === text.length || isSpace(text[end])) return { boundary: end, protectedAtEnd: false };
     }
     if (char === '.' && isSentencePeriod(text, i)) {
-      return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
+      const end = includeClosingPunctuation(text, i + 1);
+      // A dot the text ends on may still be the dot of an address ("https://moxxy." + "ai").
+      if (end === text.length) {
+        return isAddressSoFar(text, i)
+          ? { boundary: null, protectedAtEnd: true }
+          : { boundary: end, protectedAtEnd: false };
+      }
+      if (isSpace(text[end])) return { boundary: end, protectedAtEnd: false };
     }
-    if ((char === ';' || char === ':') && i + 1 >= MIN_CLAUSE_CHARS) {
+    if ((char === ';' || (char === ':' && !isClockColon(text, i)))
+      && i + 1 >= MIN_CLAUSE_CHARS && isSpace(text[i + 1])) {
       return { boundary: includeClosingPunctuation(text, i + 1), protectedAtEnd: false };
     }
   }
   return { boundary: null, protectedAtEnd: fence !== null || inlineCode };
 }
 
+/** Only a mark followed by a space ends a sentence: in an address it does not ("moxxy.ai/blog?id=5"). */
+function isSpace(char: string | undefined): boolean {
+  return char !== undefined && /\s/u.test(char);
+}
+
+/** The word before the dot at `index` already looks like an address, so the dot may not end it. */
+function isAddressSoFar(text: string, index: number): boolean {
+  const word = text.slice(0, index).split(/\s/u).at(-1) ?? '';
+  return /:\/\/|^www\.|[./@]/iu.test(word);
+}
+
+/** The colon of a time such as 10:10, which only reads as one phrase. */
+function isClockColon(text: string, index: number): boolean {
+  return /\d/.test(text[index - 1] ?? '') && /\d/.test(text[index + 1] ?? '');
+}
+
+/** The period of a numbered list item ("1. "), which belongs to the item's text. */
+function isListNumberPeriod(text: string, index: number): boolean {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  return /^[ \t]*\d{1,3}$/.test(text.slice(lineStart, index)) && /\s/.test(text[index + 1] ?? '');
+}
+
 function isSentencePeriod(text: string, index: number): boolean {
   const previous = text[index - 1];
   const next = text[index + 1];
   if (previous && next && /\d/.test(previous) && /\d/.test(next)) return false;
+  if (isListNumberPeriod(text, index)) return false;
+  if (previous && /\d/.test(previous) && /^\s+\p{Ll}/u.test(text.slice(index + 1))) return false;
   const lower = text.toLocaleLowerCase();
   return !ABBREVIATIONS.some((abbreviation) => {
     for (let dot = abbreviation.indexOf('.'); dot >= 0; dot = abbreviation.indexOf('.', dot + 1)) {

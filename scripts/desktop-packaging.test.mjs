@@ -144,7 +144,7 @@ test('desktop resource verifier rejects a plugin seed without the Codex and Open
 });
 
 test('desktop resource verifier rejects a plugin seed without the offline voice', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-piper-resources-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-local-voice-resources-'));
   try {
     await writeValidResources(root, { offlineVoice: false });
 
@@ -179,6 +179,20 @@ test('desktop resource verifier rejects a plugin seed without the Gemini voice t
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false }),
       /plugins-seed manifest does not include @moxxy\/plugin-tts-gemini/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects an offline voice shipped without its model licence', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-model-licence-resources-'));
+  try {
+    await writeValidResources(root, { modelLicence: false });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /@moxxy\/plugin-tts-local ships no MODEL_LICENSE\.md/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -510,6 +524,7 @@ async function writeValidResources(
     offlineVoice = true,
     cloudVoice = true,
     offlineTranscription = true,
+    modelLicence = true,
   } = {},
 ) {
   const seedPackages = [
@@ -549,6 +564,9 @@ async function writeValidResources(
     await writePackage(path.join(seedDir, 'node_modules', name), name, {
       moxxy: { plugin: { entry: './dist/index.js', kind: 'provider' } },
     });
+  }
+  if (modelLicence && offlineVoice) {
+    await writeFile(path.join(seedDir, 'node_modules', '@moxxy', 'plugin-tts-local', 'MODEL_LICENSE.md'), 'licence');
   }
   await writeSeedFingerprints(seedDir);
   for (const target of Object.keys(RUNTIME_TARGETS)) {

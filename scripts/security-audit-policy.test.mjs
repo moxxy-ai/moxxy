@@ -41,6 +41,31 @@ test('an accepted advisory stops being accepted once a fix is published', () => 
   assert.deepEqual(evaluateAudit([fixed], accepted).unmitigated, [fixed]);
 });
 
+const fixOnlyInNewerMajor = [
+  {
+    id: 'GHSA-aaaa-bbbb-cccc',
+    module: 'dev-only-lib',
+    paths: ['apps__docs>tool>dev-only-lib'],
+    fixedOnlyIn: '>=2.0.1',
+    reason: 'test fixture: the tool needs the 1.x API',
+  },
+];
+
+test('an accepted advisory fixed only in a major its reviewed path cannot use passes', () => {
+  const onlyInNewerMajor = advisory({ patched_versions: '>=2.0.1' });
+  assert.deepEqual(evaluateAudit([onlyInNewerMajor], fixOnlyInNewerMajor), { unmitigated: [], stale: [] });
+});
+
+test('an advisory accepted for a newer-major fix is unmitigated once the reported fix changes', () => {
+  const backported = advisory({ patched_versions: '>=1.0.1 <2.0.0 || >=2.0.1' });
+  assert.deepEqual(evaluateAudit([backported], fixOnlyInNewerMajor).unmitigated, [backported]);
+});
+
+test('an advisory accepted for a newer-major fix is unmitigated when no fix is reported at all', () => {
+  const unfixed = advisory();
+  assert.deepEqual(evaluateAudit([unfixed], fixOnlyInNewerMajor).unmitigated, [unfixed]);
+});
+
 test('an accepted advisory reached through an unreviewed path is unmitigated', () => {
   const elsewhere = advisory({
     findings: [{ version: '1.0.0', paths: ['packages__cli>dev-only-lib'] }],
@@ -79,19 +104,4 @@ test('SECURITY.md lists no advisory the policy no longer accepts, so a cleared r
   const section = securityDoc.split('## Known dependency advisories awaiting an upstream fix')[1]?.split('\n## ')[0] ?? '';
   const listed = [...section.matchAll(/^\| \[(GHSA(?:-[a-z0-9]{4}){3})\]/gm)].map((match) => match[1]);
   assert.deepEqual(listed.sort(), ACCEPTED_ADVISORIES.map((entry) => entry.id).sort());
-});
-
-test('a fix out of reach is accepted only for that fix and the reviewed versions', () => {
-  const entry = { ...accepted[0], fixOutOfReach: '>=2.0.0', versions: ['1.0.0'] };
-  const reviewed = advisory({ patched_versions: '>=2.0.0' });
-  assert.deepEqual(evaluateAudit([reviewed], [entry]).unmitigated, []);
-
-  const otherFix = advisory({ patched_versions: '>=3.0.0' });
-  assert.deepEqual(evaluateAudit([otherFix], [entry]).unmitigated, [otherFix]);
-
-  const otherVersion = advisory({
-    patched_versions: '>=2.0.0',
-    findings: [{ version: '1.5.0', paths: ['apps__docs>tool>dev-only-lib'] }],
-  });
-  assert.deepEqual(evaluateAudit([otherVersion], [entry]).unmitigated, [otherVersion]);
 });

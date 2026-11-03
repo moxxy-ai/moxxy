@@ -168,6 +168,32 @@ describe('resolveExecutableTarget', () => {
     });
   });
 
+  it('runs the native pnpm.exe that pnpm 11+ installs beside its global npm shim', () => {
+    put('pnpm.cmd', '@echo off');
+    const executable = put(path.join('node_modules', 'pnpm', 'pnpm.exe'));
+
+    expect(
+      resolveExecutableTarget('pnpm', {
+        platform: 'win32',
+        pathEnv: root,
+        pathext: '.CMD',
+      }),
+    ).toEqual({ kind: 'direct', command: executable });
+  });
+
+  it('runs the native pnpm.exe of a project-local pnpm 11+ from node_modules/.bin', () => {
+    put(path.join('node_modules', '.bin', 'pnpm.cmd'), '@echo off');
+    const executable = put(path.join('node_modules', 'pnpm', 'pnpm.exe'));
+
+    expect(
+      resolveExecutableTarget('pnpm', {
+        platform: 'win32',
+        pathEnv: path.join(root, 'node_modules', '.bin'),
+        pathext: '.CMD',
+      }),
+    ).toEqual({ kind: 'direct', command: executable });
+  });
+
   it('accepts an explicit non-adjacent entrypoint for a known Windows launcher', () => {
     put('pnpm.cmd', '@echo off');
     const entry = put(path.join('tools', 'pnpm', 'bin', 'pnpm.cjs'));

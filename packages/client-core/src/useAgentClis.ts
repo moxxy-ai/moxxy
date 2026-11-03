@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { AgentCliAction, AgentCliProgress, AgentCliRunResult } from '@moxxy/desktop-ipc-contract';
+import {
+  SESSION_INFO_REFRESH_EVENT,
+  type AgentCliAction,
+  type AgentCliProgress,
+  type AgentCliRunResult,
+} from '@moxxy/desktop-ipc-contract';
+import { getPlatform } from './platform.js';
 import { api } from './transport.js';
 import { toErrorMessage } from './errors.js';
 import type { AgentCliJob } from './agentConnection.js';
@@ -16,6 +22,9 @@ export interface UseAgentClis {
   /** Forgets how a job ended. */
   readonly close: (provider: string) => void;
 }
+
+/** Before any runner is up no runner reports the new state, so every view reads it again. */
+const readAgain = (): void => getPlatform().eventBus?.emit(SESSION_INFO_REFRESH_EVENT);
 
 /**
  * The window's jobs live outside any screen: an update outlasts the one that
@@ -70,6 +79,7 @@ async function run(provider: string, action: AgentCliAction): Promise<AgentCliRu
     result = { ok: false, message: toErrorMessage(e) };
   }
   change(provider, () => afterRun(action, result));
+  readAgain();
   return result;
 }
 
@@ -111,6 +121,7 @@ export function useAgentClis(): UseAgentClis {
       forgetNotes();
     } finally {
       if (mounted.current) setChecking(false);
+      readAgain();
     }
   }, []);
 

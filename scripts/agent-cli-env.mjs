@@ -6,12 +6,29 @@
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { resolveExecutableTarget, spawnExecutableTarget } from '../packages/sdk/dist/server.js';
 
 /** Credentials a CLI would pick up from the environment instead of its home. */
 const CREDENTIAL_ENV = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENCODE_API_KEY'];
+
+/**
+ * Removes a check's work folder; null when it is gone, otherwise what to tell
+ * the developer. Windows refuses (EPERM, EBUSY) for a moment while an agent CLI that
+ * just exited still holds the folder, so this waits up to about 5.5 s. It is
+ * async because Node 24's `rmSync` gives up on EPERM at once, retries or not.
+ * A folder left behind never changes the checks' result.
+ */
+export async function removeWorkDir(dir) {
+  try {
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    return null;
+  } catch (error) {
+    return `could not remove ${dir} (${error.code ?? error.message}); delete it by hand`;
+  }
+}
 
 /** An environment whose every home-like directory is `home`, with the credential variables unset. */
 export function isolatedEnv(home, extra = {}) {

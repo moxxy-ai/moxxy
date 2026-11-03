@@ -7,6 +7,7 @@
  *   - the IPC wiring
  */
 
+import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow } from 'electron';
 
 // Set the user-facing app name BEFORE app.whenReady so the macOS
@@ -50,7 +51,9 @@ import {
   installAccountPortalRecovery,
   preferredCliEntry,
   seedModelsFromResources,
-  adoptSeededLocalPiper,
+  adoptSeededLocalVoice,
+  migrateLocalVoiceChoice,
+  removeRetiredVoices,
   prepareInstalledApp,
   StartupSetup,
   findNpm,
@@ -220,17 +223,21 @@ const startupSetup = new StartupSetup({
   log: (message) => console.log(`[moxxy] ${message}`),
 });
 
-/** Offline voice works on the first launch: the installer's Piper voices land
- *  in the models dir and a freshly seeded Piper becomes the voice. A failure
- *  here only means the voice downloads on first use, as it did before. */
+/** Offline voice works on the first launch: the installer's voice lands in the
+ *  models dir, a saved Piper choice moves to it, and a freshly seeded local voice
+ *  becomes the active one. The launch after that removes the Piper voices. A
+ *  failure here only means the voice downloads on first use, as it did before. */
 async function prepareOfflineVoice(moxxyHome: string, seeded: ReadonlyArray<string>): Promise<void> {
   try {
-    await seedModelsFromResources({
+    const models = await seedModelsFromResources({
       resourcesPath: process.resourcesPath,
       moxxyHome,
       log: (msg) => console.log(`[moxxy] ${msg}`),
     });
-    if (await adoptSeededLocalPiper(seeded)) console.log('[moxxy] offline voice selected');
+    if (await migrateLocalVoiceChoice()) console.log('[moxxy] offline voice moved to Supertonic');
+    if (await adoptSeededLocalVoice(seeded)) console.log('[moxxy] offline voice selected');
+    const retired = await removeRetiredVoices(models, moxxyHome);
+    if (retired.length > 0) console.log(`[moxxy] removed ${retired.length} old offline voice(s)`);
   } catch (err) {
     console.warn('[moxxy] offline voice preparation failed:', err);
   }
@@ -932,6 +939,14 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers([electronBus], pool, desks, {
     openExternal: (url) => shell.openExternal(url),
+    // A chat link opened in the Moxxy browser. Only the main window offers it
+    // (the Mini Chat leaves it out), so the window asking is the one to show it.
+    showInMoxxyBrowser: (url) => {
+      const win = mainWindow;
+      if (!win || win.isDestroyed()) return false;
+      win.webContents.send('browser.showUrl', { requestId: randomUUID(), url });
+      return true;
+    },
     update: {
       publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
       // Dev/test escape hatch: point the updater at a local manifest. Ignored in

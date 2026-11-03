@@ -17,9 +17,9 @@ describe('desktop voice-call bridge validation', () => {
         activity: null,
         errorReason: null,
         microphoneMuted: false,
-        localPiperInstallRequired: false,
-        localPiperInstalling: false,
-        localPiperInstallError: null,
+        localVoiceInstallRequired: false,
+        localVoiceInstalling: false,
+        localVoiceInstallError: null,
       },
     })).not.toBeNull();
 
@@ -33,9 +33,9 @@ describe('desktop voice-call bridge validation', () => {
         activity: null,
         errorReason: null,
         microphoneMuted: false,
-        localPiperInstallRequired: false,
-        localPiperInstalling: false,
-        localPiperInstallError: null,
+        localVoiceInstallRequired: false,
+        localVoiceInstalling: false,
+        localVoiceInstallError: null,
       },
     })).not.toBeNull();
 
@@ -49,9 +49,9 @@ describe('desktop voice-call bridge validation', () => {
         activity: null,
         errorReason: 'x'.repeat(501),
         microphoneMuted: false,
-        localPiperInstallRequired: false,
-        localPiperInstalling: false,
-        localPiperInstallError: null,
+        localVoiceInstallRequired: false,
+        localVoiceInstalling: false,
+        localVoiceInstallError: null,
       },
     })).toBeNull();
   });
@@ -73,12 +73,12 @@ describe('desktop voice-call bridge validation', () => {
     })).toBeNull();
   });
 
-  it('accepts the fixed Local Piper install command', () => {
+  it('accepts the fixed offline voice install command', () => {
     expect(parseDesktopVoiceCallMessage({
       type: 'command',
       source: 'focus',
       workspaceId: 'ws-1',
-      command: 'install-local-piper',
+      command: 'install-local-voice',
     })).not.toBeNull();
   });
 
@@ -109,9 +109,9 @@ describe('desktop voice-call bridge validation', () => {
         activity: null,
         errorReason: null,
         microphoneMuted: false,
-        localPiperInstallRequired: false,
-        localPiperInstalling: false,
-        localPiperInstallError: null,
+        localVoiceInstallRequired: false,
+        localVoiceInstalling: false,
+        localVoiceInstallError: null,
         queuedTurns: [{ id: 'q-1', prompt: 'Follow-up from the microphone' }],
       },
     });

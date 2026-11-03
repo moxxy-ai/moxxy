@@ -1,5 +1,37 @@
 # @moxxy/chat-model
 
+## 0.5.5
+
+### Patch Changes
+
+- a12f70b: Read aloud, Voice Mode and the channel voice replies also read a table written without the pipes at its edges (`Agent | Wynik` over `--- | ---`) row by row. A line of dashes under every column is what makes a table, so a sentence with a pipe in it is still read as a sentence.
+- e7854f6: Read aloud no longer stalls for seconds on a reply built to be slow, such as a long run of spaces in a table, commas after a link, unclosed brackets or a long path. Every check that prepares text for speech now takes time in step with the length of the text.
+  - @moxxy/sdk@0.48.1
+
+## 0.5.4
+
+### Patch Changes
+
+- 725ad81: Settings → Voice is now one page: the Voice Mode engine, the dictation models (Parakeet, Whisper turbo, OpenAI) and the voices that read replies aloud, each with a line on what sets it apart. Parakeet and Whisper turbo download from their row only when someone asks for them. A saved `local-piper` choice moves to `local-supertonic` on its own, and the local-voice names in the IPC and client APIs no longer mention an engine.
+  - @moxxy/sdk@0.48.0
+
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [89457c4]
+  - @moxxy/sdk@0.47.1
+
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [1e49040]
+- Updated dependencies [5f83fb5]
+- Updated dependencies [3879896]
+- Updated dependencies [24bd7f3]
+  - @moxxy/sdk@0.47.0
+
 ## 0.5.1
 
 ### Patch Changes

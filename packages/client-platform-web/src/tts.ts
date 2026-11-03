@@ -131,7 +131,7 @@ export function cancelSpeech(): void {
 /**
  * ONE audio context for the whole session, not one per clip.
  *
- * Piper streams a sentence at a time, so a context constructed and closed
+ * Speech arrives a sentence at a time, so a context constructed and closed
  * around each clip meant opening and tearing down the audio device between
  * every sentence — audible as a cut exactly where the speech should run on.
  * A context is cheap to keep and expensive to create, so it is kept warm and
@@ -232,7 +232,7 @@ function playAudioSource(
       } catch {
         // The visualizer is optional. If graph construction partially failed,
         // route the media element straight to the destination when possible so
-        // a visualization problem cannot silence otherwise valid Piper audio.
+        // a visualization problem cannot silence otherwise valid audio.
         try {
           source?.disconnect();
           if (audioContext && source) source.connect(audioContext.destination);

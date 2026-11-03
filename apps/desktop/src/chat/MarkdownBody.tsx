@@ -11,56 +11,18 @@
 
 import { memo, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type UrlTransform } from 'react-markdown';
-import { localFilePath } from './local-file-link';
-import { useLocalFileLink } from './useLocalFileLink';
+import { localFilePath, windowsLinkSlashes } from './local-file-link';
+import { linkTarget } from './link-menu';
+import { ChatLink } from './ChatLink';
 import { CopyBlock } from './markdown/CopyBlock';
 import { useStreamingMarkdownText } from './useStreamingMarkdownText';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 
-const LINK_STYLE: React.CSSProperties = {
-  color: 'var(--color-reference)',
-  textDecoration: 'underline',
-  textUnderlineOffset: '0.15em',
-};
-
 /** Keep links to local files (only as an `<a href>`) for the link component to
  *  route through the host; every other URL keeps the default scheme allow-list. */
 const urlTransform: UrlTransform = (url, key, node) =>
   node.tagName === 'a' && key === 'href' && localFilePath(url) ? url : defaultUrlTransform(url);
-
-/** A link to a file on this machine; a failed open says so beside it instead of doing nothing. */
-function LocalFileLink({
-  file,
-  node: _node,
-  ...p
-}: React.AnchorHTMLAttributes<HTMLAnchorElement> & { readonly file: string; readonly node?: unknown }): JSX.Element {
-  const { open, failure } = useLocalFileLink(file);
-  return (
-    <>
-      <a
-        {...p}
-        title={file}
-        onClick={(e) => {
-          e.preventDefault();
-          open();
-        }}
-        style={LINK_STYLE}
-      />
-      {failure && (
-        <span role="alert" title={failure} style={FAILURE_STYLE}>
-          Couldn’t open this file
-        </span>
-      )}
-    </>
-  );
-}
-
-const FAILURE_STYLE: React.CSSProperties = {
-  marginLeft: '0.4em',
-  fontSize: 'var(--type-meta)',
-  color: 'var(--color-red)',
-};
 
 const components: Components = {
   p: (p) => <p style={{ margin: '0 0 0.7em' }} {...p} />,
@@ -77,22 +39,10 @@ const components: Components = {
     <h3 style={{ margin: '0.9em 0 0.25em' }} {...p} />
   ),
   a: (p) => {
-    const file = localFilePath(p.href);
-    if (file) {
-      // A file on this machine opens through the host (`files.open`), never by
-      // navigating — see local-file-link.ts.
-      return <LocalFileLink {...p} file={file} />;
-    }
-    return (
-      <a
-        {...p}
-        target="_blank"
-        rel="noreferrer noopener"
-        // Reference, not the accent. The accent means the human commanded it; a
-        // link the agent cited is reference data, which is what this hue is for.
-        style={LINK_STYLE}
-      />
-    );
+    // Every link the app can open goes through the link menu, never by
+    // navigating — see ChatLink. Anything else (`mailto:`) stays plain text.
+    const link = linkTarget(p.href);
+    return link ? <ChatLink {...p} link={link} /> : <span>{p.children}</span>;
   },
   code: ({ className, children, ...rest }) => {
     const isBlock = /language-/.test(className ?? '');
@@ -244,7 +194,7 @@ const MarkdownContent = memo(function MarkdownContent({
   });
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
-      {text}
+      {windowsLinkSlashes(text)}
     </ReactMarkdown>
   );
 });

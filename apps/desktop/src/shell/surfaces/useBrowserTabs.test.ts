@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import { HOME_URL, normalizeAddress, useBrowserTabs } from './useBrowserTabs.js';
+import { askBrowserFor } from './browser-link-requests.js';
 
 /**
  * The address bar accepts what people actually type. Getting this wrong is
@@ -62,6 +63,35 @@ function installApi(): { calls: Array<{ channel: string; args: unknown }> } {
 afterEach(() => {
   cleanup();
   __setApiOverride(null as never);
+});
+
+describe('a chat link opened in the Moxxy browser', () => {
+  it('opens in a new tab, whether it came before the pane or after', () => {
+    installApi();
+    askBrowserFor({ requestId: 'b1', url: 'https://before.example' });
+    const { result } = renderHook(() => useBrowserTabs());
+    expect(result.current.panes.map((p) => p.initialUrl)).toContain('https://before.example');
+
+    act(() => askBrowserFor({ requestId: 'b2', url: 'https://after.example' }));
+    expect(result.current.panes.map((p) => p.initialUrl)).toContain('https://after.example');
+  });
+
+  it('starts the pane at the link instead of the home page, so the link is the tab in front', () => {
+    installApi();
+    askBrowserFor({ requestId: 'b3', url: 'https://first.example' });
+
+    const { result } = renderHook(() => useBrowserTabs());
+
+    expect(result.current.panes.map((p) => p.initialUrl)).toEqual(['https://first.example']);
+  });
+
+  it('starts at the home page when no link is waiting', () => {
+    installApi();
+
+    const { result } = renderHook(() => useBrowserTabs());
+
+    expect(result.current.panes.map((p) => p.initialUrl)).toEqual([HOME_URL]);
+  });
 });
 
 describe('closing a tab', () => {

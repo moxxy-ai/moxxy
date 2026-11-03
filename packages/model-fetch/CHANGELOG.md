@@ -1,5 +1,11 @@
 # @moxxy/model-fetch
 
+## 0.2.1
+
+### Patch Changes
+
+- e62b8a4: Make a test about stopping model downloads after one fails independent of timing: a download that starts after the failure counts as stopped too. No behaviour change.
+
 ## 0.2.0
 
 ### Minor Changes
