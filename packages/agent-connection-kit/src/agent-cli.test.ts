@@ -433,14 +433,17 @@ describe('where a CLI came from', () => {
     const exe = 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@opencode\\cli\\bin\\opencode.exe';
 
     expect(OPENCODE_CLI.npmPackage).toBe('@opencode/cli');
-    expect(agentCliOrigin(OPENCODE_CLI, exe, options)).toEqual({ origin: 'npm' });
+    expect(agentCliOrigin(OPENCODE_CLI, exe, options)).toEqual({ origin: 'npm', npmPrefix: 'C:\\Users\\me\\AppData\\Roaming\\npm' });
   });
 
   it('reads Windows paths the same way', () => {
     const options = { home: 'C:\\Users\\me', platform: 'win32' as const, realpath: asIs };
 
     expect(agentCliOrigin(CLAUDE_CLI, 'C:\\Users\\me\\.local\\bin\\claude.exe', options)).toEqual({ origin: 'installer' });
-    expect(agentCliOrigin(CLAUDE_CLI, 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js', options)).toEqual({ origin: 'npm' });
+    expect(agentCliOrigin(CLAUDE_CLI, 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js', options)).toEqual({
+      origin: 'npm',
+      npmPrefix: 'C:\\Users\\me\\AppData\\Roaming\\npm',
+    });
     expect(agentCliOrigin(CLAUDE_CLI, 'c:\\users\\ME\\.LOCAL\\bin\\claude.exe', options)).toEqual({ origin: 'installer' });
     expect(agentCliOrigin(CODEX_CLI, 'C:\\Users\\me\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe', options)).toEqual({ origin: 'installer' });
   });
@@ -990,6 +993,25 @@ describe('the way a copy is updated', () => {
 
   it("keeps OpenCode 1's npm package on OpenCode's own upgrade", () => {
     expect(plan(OPENCODE_CLI, '/Users/me/.nvm/lib/node_modules/opencode-ai/bin/opencode').kind).toBe('own');
+  });
+
+  it("updates a Windows npm install inside its own prefix, not the default one", () => {
+    // npm on Windows keeps packages in <prefix>\node_modules (no lib) and puts codex.cmd beside them.
+    const prefix = 'D:\\Testy\\mxtest\\npm';
+    const options = { platform: 'win32' as const, realpath: (f: string) => f, home: 'C:\\Users\\me' };
+    const shim = `${prefix}\\codex.cmd`;
+    const exists = (f: string) => f.replaceAll('\\', '/').toLowerCase() === 'd:/testy/mxtest/npm/node_modules/@openai/codex/package.json';
+    const args = ['install', '-g', '--prefix', prefix, '--allow-scripts=@openai/codex', '@openai/codex@latest'];
+
+    expect(agentCliOrigin(CODEX_CLI, shim, { ...options, exists })).toEqual({ origin: 'npm', npmPrefix: prefix });
+    expect(agentCliUpdatePlan(CODEX_CLI, shim, agentCliOrigin(CODEX_CLI, shim, { ...options, exists }))).toEqual({ kind: 'run', command: 'npm', args });
+    const entry = `${prefix}\\node_modules\\@openai\\codex\\bin\\codex.js`;
+    expect(agentCliUpdatePlan(CODEX_CLI, entry, agentCliOrigin(CODEX_CLI, entry, options))).toEqual({ kind: 'run', command: 'npm', args });
+  });
+
+  it("never gives an npm copy whose prefix is not proven to the agent's own update, which reaches another install", () => {
+    const file = 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex\\bin\\codex.js';
+    expect(agentCliUpdatePlan(CODEX_CLI, file, { origin: 'npm' })).toEqual({ kind: 'manual', hint: 'update it with npm (npm install -g @openai/codex@latest)' });
   });
 
   it('updates with the package tool on Windows too', () => {

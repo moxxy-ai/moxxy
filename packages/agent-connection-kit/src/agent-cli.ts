@@ -252,6 +252,8 @@ export interface AgentCliOriginOptions {
   readonly platform?: NodeJS.Platform;
   /** Follows links to the real file; defaults to the file system's. */
   readonly realpath?: (file: string) => string;
+  /** Whether a file is there; defaults to the file system's. */
+  readonly exists?: (file: string) => boolean;
 }
 
 /**
@@ -280,7 +282,9 @@ export function agentCliOrigin(desc: AgentCliDescriptor, file: string, opts: Age
   const seen = [file.replaceAll('\\', '/').toLowerCase(), slashed.toLowerCase()];
   const manager = PACKAGE_TOOLS.find((tool) => seen.some((p) => tool.owns.test(p)));
   if (manager) return { origin: manager.origin };
-  const npmPrefix = npmGlobalPrefix(slashed, desc.npmPackage);
+  const npmPrefix =
+    npmGlobalPrefix(real, desc.npmPackage, platform) ??
+    (platform === 'win32' ? npmWindowsShimPrefix(file, desc.npmPackage, opts.exists ?? existsSync) : null);
   if (npmPrefix) return { origin: 'npm', npmPrefix };
   if (seen.some((p) => MISE_PATH.test(p))) return { origin: 'mise' };
   for (const [folder, cask] of [['Caskroom', true], ['Cellar', false]] as const) {
@@ -324,14 +328,26 @@ const PACKAGE_TOOLS: ReadonlyArray<{
 
 const MISE_PATH = /\/mise\/(?:installs|shims)\//;
 
-/** The npm prefix of `real`; null for anything npm's global layout does not prove, such as a mise tool of its own. */
-function npmGlobalPrefix(real: string, pkg: string): string | null {
-  const lower = real.toLowerCase();
-  const at = lower.lastIndexOf(`/lib/node_modules/${pkg.toLowerCase()}/`);
+/**
+ * The npm prefix of `real`; null for anything npm's global layout does not
+ * prove, such as a mise tool of its own. npm keeps global packages in
+ * `<prefix>/lib/node_modules`, and on Windows in `<prefix>\\node_modules`.
+ */
+function npmGlobalPrefix(real: string, pkg: string, platform: NodeJS.Platform): string | null {
+  const lower = real.replaceAll('\\', '/').toLowerCase();
+  const layout = platform === 'win32' ? `/node_modules/${pkg.toLowerCase()}/` : `/lib/node_modules/${pkg.toLowerCase()}/`;
+  const at = lower.lastIndexOf(layout);
   if (at < 0 || lower.slice(0, at).includes('/node_modules/')) return null;
   const mise = /\/mise\/installs\/([^/]+)\/[^/]+$/.exec(lower.slice(0, at))?.[1];
   if (mise && mise !== 'node') return null;
   return at === 0 ? '/' : real.slice(0, at);
+}
+
+/** The prefix of a Windows npm shim (`<prefix>\\codex.cmd`), proven by the package beside it. */
+function npmWindowsShimPrefix(file: string, pkg: string, exists: (file: string) => boolean): string | null {
+  const dir = path.win32.dirname(file);
+  if (dir.replaceAll('\\', '/').toLowerCase().includes('/node_modules/')) return null;
+  return exists(path.win32.join(dir, 'node_modules', ...pkg.split('/'), 'package.json')) ? dir : null;
 }
 
 /** How a copy gets updated. */
@@ -366,6 +382,8 @@ export function agentCliUpdatePlan(
   if (source.origin === 'unknown' && slashed.includes('/node_modules/')) {
     return { kind: 'manual', hint: `update the project or tool that installed it (${desc.npmPackage})` };
   }
+  // The agent's own update would land in npm's default prefix, which may be another install.
+  if (source.origin === 'npm') return { kind: 'manual', hint: `update it with npm (npm install -g ${desc.npmPackage}@latest)` };
   return { kind: 'own' };
 }
 
