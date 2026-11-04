@@ -1,5 +1,12 @@
 # @moxxy/plugin-browser
 
+## 0.48.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.2
+- @moxxy/jev@0.2.10
+
 ## 0.48.1
 
 ### Patch Changes

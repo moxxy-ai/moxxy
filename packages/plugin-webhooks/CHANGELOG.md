@@ -1,5 +1,12 @@
 # @moxxy/plugin-webhooks
 
+## 0.48.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.2
+- @moxxy/plugin-tunnel-proxy@0.48.2
+
 ## 0.48.1
 
 ### Patch Changes

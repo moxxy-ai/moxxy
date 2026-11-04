@@ -1,5 +1,12 @@
 # @moxxy/plugin-provider-acp
 
+## 0.48.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.2
+- @moxxy/agent-connection-kit@0.1.6
+
 ## 0.48.1
 
 ### Patch Changes

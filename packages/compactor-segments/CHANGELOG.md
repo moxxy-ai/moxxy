@@ -1,5 +1,11 @@
 # @moxxy/compactor-segments
 
+## 0.0.23
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.2
+
 ## 0.0.22
 
 ### Patch Changes

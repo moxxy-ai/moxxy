@@ -1,5 +1,11 @@
 # @moxxy/plugin-stt-whisper
 
+## 0.48.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.2
+
 ## 0.48.1
 
 ### Patch Changes
