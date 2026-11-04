@@ -216,7 +216,8 @@ and npm for OpenCode); update runs the agent's own command (`claude update`,
 `codex update`, `opencode upgrade`), which knows how it was installed. Moxxy
 never updates a CLI by itself, and the desktop does not update one while a
 turn runs. A version Moxxy knows breaks with it is held back: Moxxy does not
-offer it as an update and says why.
+offer it as an update. If your agent already has such a version, Moxxy says
+once that it may not work well, and offers the fixed one when it is out.
 
 ## Conversations outlive the agent's session
 

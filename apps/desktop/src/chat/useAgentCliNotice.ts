@@ -51,7 +51,9 @@ function wording(notice: AgentCliNotice, agentName: string, report: AgentCliRepo
   if (job?.error) return { title: `${install ? 'Install' : 'Update'} failed: ${agentName}`, detail: job.error };
   if (job?.note) return { title: `Update finished: ${agentName}`, detail: job.note };
   if (install) return { title: `Not installed: ${agentName}`, detail: `${report.command} was not found on this computer` };
-  if (notice.severity === 'issue') return { title: `Known problem: ${agentName}`, detail: briefly(notice, agentName, report) };
+  if (notice.severity === 'issue' && report.knownIssue) {
+    return { title: `${agentName} ${report.knownIssue.version} may not work well with Moxxy`, detail: `${report.knownIssue.reason}. A fixed version is on the way.` };
+  }
   const title = `Update ${notice.severity === 'required' ? 'required' : 'available'}: ${agentName}`;
   return { title, detail: (notice.action && versions(report)) || briefly(notice, agentName, report) };
 }

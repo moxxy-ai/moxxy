@@ -210,37 +210,37 @@ describe('the agent CLI toast', () => {
 
   describe('a version Moxxy knows breaks', () => {
     const knownIssue = { version: '0.170.0', reason: 'Does not answer in Moxxy' };
-    const held = () => info(report({ state: 'current', installed: '0.162.1', latest: '0.162.1', knownIssue }));
+    const broken = () => info(report({ state: 'current', installed: '0.170.0', latest: '0.170.0', knownIssue }));
 
-    it('says why the update is held back, with nothing to run', async () => {
+    it('shows no card while the newest is held back and the installed one works', async () => {
       const calls = host();
-      render(<Bar sessionInfo={held()} />);
+      render(<Bar sessionInfo={info(report({ state: 'current', installed: '0.162.1', latest: '0.162.1', knownIssue }))} />);
+
+      await act(async () => undefined);
+      expect(screen.queryByTestId('agent-update-toast')).toBeNull();
+      expect(calls.some(([cmd]) => cmd === 'agents.run')).toBe(false);
+    });
+
+    it('says calmly that the installed one may not work, with nothing to run', async () => {
+      const calls = host();
+      render(<Bar sessionInfo={broken()} />);
 
       const card = await screen.findByTestId('agent-update-toast');
-      expect(card).toHaveTextContent('Known problem: Codex');
-      expect(card).toHaveTextContent('0.170.0 is out, but Moxxy holds it back: Does not answer in Moxxy');
+      expect(card).toHaveTextContent('Codex 0.170.0 may not work well with Moxxy');
+      expect(card).toHaveTextContent('Does not answer in Moxxy. A fixed version is on the way.');
       expect(screen.queryByRole('button', { name: 'Update Codex' })).toBeNull();
       expect(calls.some(([cmd]) => cmd === 'agents.run')).toBe(false);
     });
 
     it('stays closed for that version once closed', async () => {
       const calls = host();
-      render(<Bar sessionInfo={held()} />);
+      render(<Bar sessionInfo={broken()} />);
 
       await screen.findByTestId('agent-update-toast');
       await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Close' })));
 
       expect(calls).toContainEqual(['prefs.update', { dismissedAgentUpdates: { 'codex-agent': '0.170.0' } }]);
       expect(screen.queryByTestId('agent-update-toast')).toBeNull();
-    });
-
-    it('names the installed one as broken', async () => {
-      host();
-      render(<Bar sessionInfo={info(report({ state: 'current', installed: '0.170.0', latest: '0.170.0', knownIssue }))} />);
-
-      expect(await screen.findByTestId('agent-update-toast')).toHaveTextContent(
-        '0.170.0 has a known problem with Moxxy: Does not answer in Moxxy — wait for a fixed version',
-      );
     });
   });
 });

@@ -67,6 +67,24 @@ describe('AgentCliWatch', () => {
     expect(changes).toHaveBeenCalledTimes(2);
   });
 
+  it('says when Moxxy learns of a known problem with a version, or it is cleared', async () => {
+    let next: AgentCliReport = report('current', '0.166.0');
+    const watch = new AgentCliWatch(() => [agent('codex-agent', async () => next)], silentLogger);
+    const changes = vi.fn();
+    watch.onChange(changes);
+
+    await watch.check();
+    next = { ...report('current', '0.166.0', 2), knownIssue: { version: '0.166.0', reason: 'Turns hang' } };
+    await watch.check();
+    expect(changes).toHaveBeenCalledTimes(2);
+    next = { ...report('current', '0.166.0', 3), knownIssue: { version: '0.166.0', reason: 'Turns hang' } };
+    await watch.check();
+    expect(changes).toHaveBeenCalledTimes(2);
+    next = report('current', '0.166.0', 4);
+    await watch.check();
+    expect(changes).toHaveBeenCalledTimes(3);
+  });
+
   it('keeps checking the others when one check fails', async () => {
     const watch = new AgentCliWatch(
       () => [

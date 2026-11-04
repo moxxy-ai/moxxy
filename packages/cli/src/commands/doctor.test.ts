@@ -100,8 +100,8 @@ describe('buildAgentCliDoctorChecks', () => {
     const old = { ...codex('update-required', '0.150.0'), report: { ...codex('update-required', '0.150.0').report, latest: '0.150.0', knownIssue } };
 
     expect(buildAgentCliDoctorChecks([held, broken], new Set())).toEqual([
-      { id: 'agent:codex-agent', status: 'warn', message: 'Codex 0.162.1; 0.170.0 is out, but Moxxy holds it back: Loses the reply' },
-      { id: 'agent:codex-agent', status: 'warn', message: 'Codex 0.170.0; 0.170.0 has a known problem with Moxxy: Loses the reply — wait for a fixed version' },
+      { id: 'agent:codex-agent', status: 'ok', message: 'Codex 0.162.1, the latest' },
+      { id: 'agent:codex-agent', status: 'warn', message: 'Codex 0.170.0; 0.170.0 may not work well with Moxxy: Loses the reply. A fixed version is on the way' },
     ]);
     expect(buildAgentCliDoctorChecks([old], new Set(['codex-agent']))).toEqual([
       {
@@ -112,13 +112,11 @@ describe('buildAgentCliDoctorChecks', () => {
     ]);
   });
 
-  it('says the version installed has a known problem when a fixed one is out', () => {
+  it('offers the fixed version over a broken one installed as a plain update', () => {
     const knownIssue = { version: '0.160.0', reason: 'Loses the reply' };
     const broken = { ...codex('update-available', '0.160.0'), report: { ...codex('update-available', '0.160.0').report, latest: '0.166.0', knownIssue } };
 
-    expect(buildAgentCliDoctorChecks([broken], new Set())[0]?.message).toBe(
-      'Codex 0.160.0, which has a known problem with Moxxy: Loses the reply; 0.166.0 is out — moxxy agents update codex',
-    );
+    expect(buildAgentCliDoctorChecks([broken], new Set())[0]?.message).toBe('Codex 0.160.0; 0.166.0 is out — moxxy agents update codex');
   });
 
   it('names the file it checked and where it came from', () => {

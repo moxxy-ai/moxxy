@@ -6,7 +6,7 @@ export interface AgentCliNotice {
   readonly command: string;
   /**
    * `required`: the connection cannot work until it is installed or updated.
-   * `issue`: the installed or the newest version has a known problem with Moxxy, and there is nothing to run yet.
+   * `issue`: the installed version has a known problem with Moxxy, and no fixed one is out yet.
    */
   readonly severity: 'required' | 'available' | 'issue';
   /** What fixes it from Moxxy; null when only the app the CLI is part of can. */
@@ -34,8 +34,7 @@ export function agentCliNotice(connection: AgentConnectionLike): AgentCliNotice 
   const file = agentCliFile(report);
   const where = file ? ` at ${file}` : '';
   const app = agentCliApp(report);
-  const issue = report.knownIssue;
-  const heldBack = issue && issue.version !== report.installed ? agentCliKnownIssue(report, agent) : null;
+  const heldBack = agentCliHeldBack(report, agent);
   switch (report.state) {
     case 'missing':
       return { ...base, severity: 'required', action: 'install', text: `${agent} is not installed` };
@@ -51,9 +50,9 @@ export function agentCliNotice(connection: AgentConnectionLike): AgentCliNotice 
     }
     case 'update-available': {
       // An app brings its own copy up to date; there is nothing to do here.
-      const broken = issue && !heldBack ? `, which has a known problem with Moxxy: ${issue.reason}` : '';
+      // A broken version installed needs no word: the update is what fixes it.
       return report.latest && !app
-        ? { ...base, severity: 'available', action: report.manualUpdate ? null : 'update', text: `${agent} ${report.latest} is out — you have ${report.installed ?? 'an older one'}${where}${broken}${report.manualUpdate ? ` — ${report.manualUpdate}` : ''}` }
+        ? { ...base, severity: 'available', action: report.manualUpdate ? null : 'update', text: `${agent} ${report.latest} is out — you have ${report.installed ?? 'an older one'}${where}${report.manualUpdate ? ` — ${report.manualUpdate}` : ''}` }
         : null;
     }
     case 'current': {
@@ -66,17 +65,27 @@ export function agentCliNotice(connection: AgentConnectionLike): AgentCliNotice 
 }
 
 /**
- * What Moxxy knows is wrong with the installed version, or with the newest one
- * it holds back; null when nothing is. Every surface words it the same.
+ * What Moxxy knows is wrong with the installed version, while no fixed one is
+ * out; null otherwise. A held-back newest version is not told of here: the
+ * installed one works, and the person has nothing to do.
  * Without `agent` it starts at the version, for a line that names the agent already.
  */
 export function agentCliKnownIssue(report: AgentCliReport, agent?: string): string | null {
   const issue = report.knownIssue;
-  if (!issue) return null;
+  if (!issue || issue.version !== report.installed) return null;
   const which = agent ? `${agent} ${issue.version}` : issue.version;
-  return issue.version === report.installed
-    ? `${which} has a known problem with Moxxy: ${issue.reason} — wait for a fixed version`
-    : `${which} is out, but Moxxy holds it back: ${issue.reason}`;
+  return `${which} may not work well with Moxxy: ${issue.reason}. A fixed version is on the way`;
+}
+
+/**
+ * Why the newest version is not offered; null when it is. Said only where it
+ * matters: a version too old to work, which that update would have fixed.
+ */
+export function agentCliHeldBack(report: AgentCliReport, agent?: string): string | null {
+  const issue = report.knownIssue;
+  if (!issue || issue.version === report.installed) return null;
+  const which = agent ? `${agent} ${issue.version}` : issue.version;
+  return `${which} is out, but Moxxy holds it back: ${issue.reason}`;
 }
 
 /** How the file's origin reads after its path; the installer's and an unknown one need no word. */

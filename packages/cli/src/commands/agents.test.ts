@@ -98,7 +98,7 @@ describe('moxxy agents status', () => {
     expect(out).toMatch(/OpenCode\s+1\.19\.0\s+1\.19\.2 is out · moxxy agents update opencode/);
   });
 
-  it('says when a version Moxxy knows breaks is held back or installed', async () => {
+  it('names an installed version Moxxy knows breaks, and keeps quiet about a held-back newest one', async () => {
     cli('codex', '.local/bin/codex', 'codex-cli 0.162.1');
     cli('opencode', '.opencode/bin/opencode', '1.19.0');
     const blocked = async () => ({
@@ -108,17 +108,17 @@ describe('moxxy agents status', () => {
 
     const { out } = await run(['status'], { blocked });
 
-    expect(out).toMatch(/Codex\s+0\.162\.1\s+0\.162\.1 has a known problem with Moxxy: Loses the reply — wait for a fixed version/);
-    expect(out).toMatch(/OpenCode\s+1\.19\.0\s+1\.19\.2 is out, but Moxxy holds it back: Does not start/);
+    expect(out).toMatch(/Codex\s+0\.162\.1\s+0\.162\.1 may not work well with Moxxy: Loses the reply\. A fixed version is on the way/);
+    expect(out).toMatch(/OpenCode\s+1\.19\.0\s+up to date/);
   });
 
-  it('says the version installed has a known problem when a fixed one is out', async () => {
+  it('offers the fixed version over a broken one installed as a plain update', async () => {
     cli('codex', '.local/bin/codex', 'codex-cli 0.160.0');
     const blocked = async () => ({ codex: [{ version: '0.160.0', reason: 'Loses the reply' }] });
 
     const { out } = await run(['status'], { blocked });
 
-    expect(out).toMatch(/Codex\s+0\.160\.0\s+0\.162\.1 is out · yours has a known problem with Moxxy: Loses the reply · moxxy agents update codex/);
+    expect(out).toMatch(/Codex\s+0\.160\.0\s+0\.162\.1 is out · moxxy agents update codex\n/);
   });
 
   it('answers in JSON for scripts', async () => {

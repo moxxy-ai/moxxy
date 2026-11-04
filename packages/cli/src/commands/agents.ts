@@ -11,7 +11,7 @@ import {
   type AgentCliDescriptor,
   defaultCacheFile,
 } from '@moxxy/agent-connection-kit';
-import { agentCliApp, agentCliFile, agentCliKnownIssue } from '@moxxy/chat-model';
+import { agentCliApp, agentCliFile, agentCliHeldBack, agentCliKnownIssue } from '@moxxy/chat-model';
 import type { AgentCliReport } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { hasBoolFlag, helpRequested } from '../argv-helpers.js';
@@ -120,17 +120,15 @@ function describe(desc: AgentCliDescriptor, report: AgentCliReport): string {
   const app = agentCliApp(report);
   const fix = app ? `part of ${app}, which updates it` : `moxxy agents update ${desc.command}`;
   const issue = agentCliKnownIssue(report);
-  // Only a held-back newest version stands in the way of updating an old one.
-  const heldBack = report.knownIssue && report.knownIssue.version !== report.installed ? issue : null;
+  // A held-back newest version matters only when it stands in the way of updating one too old.
+  const heldBack = agentCliHeldBack(report);
   switch (report.state) {
     case 'missing':
       return `not installed · moxxy agents install ${desc.command}`;
     case 'update-required':
       return colors.yellow(`update required — Moxxy works with ${report.minimum} or newer · ${heldBack ?? fix}`);
-    case 'update-available': {
-      const broken = report.knownIssue && !heldBack ? ` · yours has a known problem with Moxxy: ${report.knownIssue.reason}` : '';
-      return `${report.latest ?? 'a newer version'} is out${broken} · ${fix}`;
-    }
+    case 'update-available':
+      return `${report.latest ?? 'a newer version'} is out · ${fix}`;
     case 'unknown':
       return colors.yellow('installed, but its version could not be read');
     case 'current':
