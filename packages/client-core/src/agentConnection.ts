@@ -89,6 +89,8 @@ export function agentConnectionView(
   if (report.state === 'update-available' && notice) {
     return view('update-available', withAccount(notice.text), 'update');
   }
+  // A version with a known problem: still usable, with nothing to run until a fixed one is out.
+  if (notice?.severity === 'issue') return view('connected', withAccount(notice.text), null);
   return view('connected', withAccount(`${agent} ${report.installed ?? ''}`.trim()), null);
 }
 

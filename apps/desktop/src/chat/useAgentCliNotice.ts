@@ -51,6 +51,7 @@ function wording(notice: AgentCliNotice, agentName: string, report: AgentCliRepo
   if (job?.error) return { title: `${install ? 'Install' : 'Update'} failed: ${agentName}`, detail: job.error };
   if (job?.note) return { title: `Update finished: ${agentName}`, detail: job.note };
   if (install) return { title: `Not installed: ${agentName}`, detail: `${report.command} was not found on this computer` };
+  if (notice.severity === 'issue') return { title: `Known problem: ${agentName}`, detail: briefly(notice, agentName, report) };
   const title = `Update ${notice.severity === 'required' ? 'required' : 'available'}: ${agentName}`;
   return { title, detail: (notice.action && versions(report)) || briefly(notice, agentName, report) };
 }
@@ -78,15 +79,17 @@ export function useAgentCliNotices(info: AgentCliNoticeInfo | null | undefined):
     if (!entry || !report) continue;
     const job = jobs[notice.provider];
     const ended = job && (job.error ?? job.note) ? job : null;
-    const latest = report.latest ?? null;
-    if (!ended && notice.severity === 'available' && latest !== null && dismissed?.[notice.provider] === latest) continue;
+    // What closing it is for: the version offered, or the one with a known problem.
+    const latest = (notice.severity === 'issue' ? report.knownIssue?.version : report.latest) ?? null;
+    const closable = notice.severity !== 'required';
+    if (!ended && closable && latest !== null && dismissed?.[notice.provider] === latest) continue;
     const action = ended ? ended.retry : notice.action;
     const agentName = entry.agentName ?? entry.name;
     const verb = verbOf(action);
     const retried = ended?.error ? (ended.retry === ended.action ? 'Try again' : verb) : verb;
     const closes = ended
       ? () => close(notice.provider)
-      : notice.severity === 'available' && latest !== null
+      : closable && latest !== null
         ? () => void update({ dismissedAgentUpdates: { ...dismissed, [notice.provider]: latest } })
         : undefined;
     const fix = action

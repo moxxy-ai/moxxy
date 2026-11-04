@@ -9,7 +9,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
-import { CLAUDE_AGENT_SDK_PACKAGE, ensureClaudeAgentSdk, installClaudeAgentSdk, loadClaudeAgentSdk } from './sdk-install.js';
+import { CLAUDE_CLI, compareVersions } from '@moxxy/agent-connection-kit';
+import {
+  CLAUDE_AGENT_SDK_PACKAGE,
+  CLAUDE_AGENT_SDK_VERSION,
+  ensureClaudeAgentSdk,
+  installClaudeAgentSdk,
+  loadClaudeAgentSdk,
+} from './sdk-install.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -120,5 +127,16 @@ fs.writeFileSync(path.join(pkg, 'sdk.mjs'), 'export function query() { return "i
     await expect(
       installClaudeAgentSdk({ home: path.join(root, 'sdk'), version: '0.3.296', pathEnv: path.join(root, 'empty') }),
     ).rejects.toThrow(/npm/);
+  });
+});
+
+describe('the pinned SDK and the oldest Claude Code Moxxy accepts', () => {
+  // Anthropic: "The SDK version tracks the bundled Claude Code version. SDK v0.3.191 bundles Claude Code v2.1.191."
+  // An older Claude Code than the SDK was built with ignores some of its options, permission rules among them.
+  it('accepts no Claude Code older than the one the pinned SDK was built with', () => {
+    const sdk = /^0\.3\.(\d+)$/.exec(CLAUDE_AGENT_SDK_VERSION);
+    expect(sdk, `SDK ${CLAUDE_AGENT_SDK_VERSION} is past 0.3.x: check which Claude Code it bundles (npm view ${CLAUDE_AGENT_SDK_PACKAGE} claudeCodeVersion) and update this rule`).not.toBeNull();
+    const builtWith = `2.1.${sdk![1]}`;
+    expect(compareVersions(CLAUDE_CLI.minimumVersion, builtWith), `raise CLAUDE_CLI.minimumVersion to ${builtWith}`).toBeGreaterThanOrEqual(0);
   });
 });

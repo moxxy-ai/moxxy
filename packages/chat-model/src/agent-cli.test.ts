@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentCliReport, ProviderInfo } from '@moxxy/sdk';
-import { activeAgentCliNotice, agentCliNotices, type AgentConnectionLike } from './agent-cli.js';
+import { activeAgentCliNotice, agentCliKnownIssue, agentCliNotices, type AgentConnectionLike } from './agent-cli.js';
 
 const report = (over: Partial<AgentCliReport>): AgentCliReport => ({
   state: 'current',
@@ -94,5 +94,54 @@ describe('agentCliNotices', () => {
     const others = [connection('a', 'missing'), connection('b', 'update-required'), connection('c', 'current')];
     expect(agentCliNotices(others, 'c')).toEqual([]);
     expect(agentCliNotices(others, 'a').map((n) => n.provider)).toEqual(['a']);
+  });
+});
+
+describe('a version Moxxy knows breaks', () => {
+  const issue = (version: string) => ({ version, reason: 'Does not answer in Moxxy' });
+  const notice = (over: Partial<AgentCliReport>) => activeAgentCliNotice([provider('codex-agent', report(over))], 'codex-agent');
+
+  it('says why the newest one is not offered, with nothing to run', () => {
+    expect(notice({ knownIssue: issue('0.170.0') })).toEqual({
+      provider: 'codex-agent',
+      command: 'codex',
+      severity: 'issue',
+      action: null,
+      text: 'Codex 0.170.0 is out, but Moxxy holds it back: Does not answer in Moxxy',
+    });
+  });
+
+  it('names the installed one, and says to wait for a fix', () => {
+    expect(notice({ installed: '0.170.0', latest: '0.170.0', knownIssue: issue('0.170.0') })).toMatchObject({
+      severity: 'issue',
+      action: null,
+      text: 'Codex 0.170.0 has a known problem with Moxxy: Does not answer in Moxxy — wait for a fixed version',
+    });
+  });
+
+  it('offers no update of one too old while the newest is held back', () => {
+    expect(notice({ state: 'update-required', installed: '0.150.0', latest: '0.150.0', knownIssue: issue('0.170.0') })).toMatchObject({
+      severity: 'required',
+      action: null,
+      text: 'Codex 0.150.0 is older than Moxxy works with — Codex 0.170.0 is out, but Moxxy holds it back: Does not answer in Moxxy',
+    });
+  });
+
+  it('offers the fixed version over the broken one installed', () => {
+    expect(notice({ state: 'update-available', installed: '0.170.0', latest: '0.171.0', knownIssue: issue('0.170.0') })).toMatchObject({
+      severity: 'available',
+      action: 'update',
+      text: 'Codex 0.171.0 is out — you have 0.170.0, which has a known problem with Moxxy: Does not answer in Moxxy',
+    });
+  });
+
+  it('is worded from the version on, for a line that names the agent already', () => {
+    expect(agentCliKnownIssue(report({ knownIssue: issue('0.170.0') }))).toBe('0.170.0 is out, but Moxxy holds it back: Does not answer in Moxxy');
+    expect(agentCliKnownIssue(report({}))).toBeNull();
+  });
+
+  it('tells of it for an agent nobody is using too, as a notice the person can close', () => {
+    const others = [{ name: 'a', agentCli: report({ knownIssue: issue('0.170.0') }) }, { name: 'b', agentCli: report({}) }];
+    expect(agentCliNotices(others, 'b').map((n) => [n.provider, n.severity])).toEqual([['a', 'issue']]);
   });
 });

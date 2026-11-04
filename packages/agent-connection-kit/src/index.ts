@@ -57,6 +57,7 @@ export {
   type WindowsNativeProgram,
   type LatestVersionOptions,
 } from './agent-cli.js';
+export { BLOCKED_AGENT_VERSIONS_URL, type BlockedAgentVersion, type BlockedAgentVersions } from './agent-versions-blocked.js';
 export { Inbox, untilStopped } from './inbox.js';
 export { oneOffPrompt, type OneOffPrompt } from './one-off-prompt.js';
 export {

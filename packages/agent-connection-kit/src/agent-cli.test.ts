@@ -4,7 +4,7 @@
  * CLIs here are real executables in a temporary home; only the npm registry
  * is stood in for.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -28,6 +28,7 @@ import {
   updaterEnv,
   type AgentCliDescriptor,
 } from './agent-cli.js';
+import { BLOCKED_AGENT_VERSIONS_URL } from './agent-versions-blocked.js';
 
 let home: string | undefined;
 afterEach(() => {
@@ -322,6 +323,48 @@ describe("the vendor's latest version", () => {
     await latestAgentVersion('@openai/codex', opts(true));
     expect(asked).toHaveLength(3);
     expect(JSON.parse(readFileSync(cacheFile, 'utf8'))).toMatchObject({ '@openai/codex': { version: '0.162.1' } });
+  });
+
+  it('keeps every answer when several agents are asked at once', async () => {
+    const cacheFile = path.join(newHome(), 'cache', 'agent-cli-latest.json');
+    const slow = (version: string, ms: number) => async () => {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      return version;
+    };
+
+    await Promise.all([
+      latestAgentVersion('@anthropic-ai/claude-code', { cacheFile, refresh: true, fetchLatest: slow('2.1.318', 30) }),
+      latestAgentVersion('@openai/codex', { cacheFile, refresh: true, fetchLatest: slow('0.166.0', 10) }),
+      latestAgentVersion('@opencode/cli', { cacheFile, refresh: true, fetchLatest: slow('2.2.5', 20) }),
+    ]);
+
+    expect(JSON.parse(readFileSync(cacheFile, 'utf8'))).toMatchObject({
+      '@anthropic-ai/claude-code': { version: '2.1.318' },
+      '@openai/codex': { version: '0.166.0' },
+      '@opencode/cli': { version: '2.2.5' },
+    });
+  });
+
+  it("waits for another process changing the file and keeps that process's answer", async () => {
+    const cacheFile = path.join(newHome(), 'cache', 'agent-cli-latest.json');
+    mkdirSync(path.dirname(cacheFile), { recursive: true });
+    writeFileSync(cacheFile, JSON.stringify({ '@openai/codex': { version: '0.166.0', at: 1 } }));
+    // Another runner holds the lock while it reads, changes and writes the file.
+    writeFileSync(`${cacheFile}.lock`, '1');
+
+    const asked = latestAgentVersion('@anthropic-ai/claude-code', { cacheFile, refresh: true, fetchLatest: async () => '2.1.318' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(JSON.parse(readFileSync(cacheFile, 'utf8'))).not.toHaveProperty(['@anthropic-ai/claude-code']);
+
+    writeFileSync(cacheFile, JSON.stringify({ '@openai/codex': { version: '0.166.0', at: 1 }, '@opencode/cli': { version: '2.2.5', at: 1 } }));
+    rmSync(`${cacheFile}.lock`);
+    await asked;
+
+    expect(JSON.parse(readFileSync(cacheFile, 'utf8'))).toMatchObject({
+      '@anthropic-ai/claude-code': { version: '2.1.318' },
+      '@openai/codex': { version: '0.166.0' },
+      '@opencode/cli': { version: '2.2.5' },
+    });
   });
 
   it('keeps the last answer when the registry cannot be reached', async () => {
@@ -1037,5 +1080,81 @@ describe('the way a copy is updated', () => {
     const report = await checkAgentCli(CLAUDE_CLI, { home, pathEnv: bin, latest: noRegistry });
 
     expect(report.manualUpdate).toBe('run pnpm add -g @anthropic-ai/claude-code@latest');
+  });
+});
+
+describe('a version Moxxy knows breaks', () => {
+  const reason = 'Does not answer in Moxxy';
+  const list = { codex: [{ version: '0.170.0', reason }] };
+  const at = (latest: string | null) =>
+    checkAgentCli(CODEX_CLI, { home, pathEnv: '' }, { latest: async () => latest, blocked: async () => list, now: () => 42 });
+
+  it('is not offered as an update, and the check says why', async () => {
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.162.1');
+
+    expect(await at('0.170.0')).toMatchObject({
+      state: 'current',
+      installed: '0.162.1',
+      latest: '0.162.1',
+      knownIssue: { version: '0.170.0', reason },
+    });
+  });
+
+  it('leaves a required update required, though there is nothing to update to yet', async () => {
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.150.0');
+
+    expect(await at('0.170.0')).toMatchObject({ state: 'update-required', knownIssue: { version: '0.170.0' } });
+  });
+
+  it('is named when it is the one installed', async () => {
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.170.0');
+
+    expect(await at('0.170.0')).toMatchObject({ state: 'current', knownIssue: { version: '0.170.0', reason } });
+  });
+
+  it('still offers the fixed version over a broken one installed', async () => {
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.170.0');
+
+    expect(await at('0.171.0')).toMatchObject({ state: 'update-available', latest: '0.171.0', knownIssue: { version: '0.170.0' } });
+  });
+
+  it('says nothing when no version involved is known to break', async () => {
+    cli(CODEX_CLI, '.local/bin/codex', 'codex-cli 0.162.1');
+
+    expect(await at('0.163.0')).not.toHaveProperty('knownIssue');
+  });
+
+  it('reads the list from the repository beside the registry, and keeps it with the versions', async () => {
+    newHome();
+    const file = cli(CODEX_CLI, 'tools/codex', '0.162.1');
+    const cacheFile = path.join(home!, 'latest.json');
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      urls.push(String(url));
+      return String(url) === BLOCKED_AGENT_VERSIONS_URL ? Response.json(list) : Response.json({ version: '0.170.0' });
+    }) as typeof fetch;
+
+    const report = await checkAgentCli(CODEX_CLI, { home, pathEnv: path.dirname(file), cacheFile, fetchImpl, refresh: true });
+
+    expect(report).toMatchObject({ state: 'current', knownIssue: { version: '0.170.0', reason } });
+    expect(urls).toContain(BLOCKED_AGENT_VERSIONS_URL);
+    expect(JSON.parse(readFileSync(path.join(home!, 'agent-cli-blocked.json'), 'utf8'))).toMatchObject({ list });
+  });
+
+  it('is not updated to, from any surface, while the last check held it back', async () => {
+    newHome();
+    const ran = path.join(home!, 'ran');
+    const file = cli(CODEX_CLI, 'tools/codex', '0.162.1', `require('fs').writeFileSync(${JSON.stringify(ran)}, 'yes'); console.log('Done');`);
+    const cacheFile = path.join(home!, 'latest.json');
+    const fetchImpl = (async (url: string) =>
+      String(url) === BLOCKED_AGENT_VERSIONS_URL ? Response.json(list) : Response.json({ version: '0.170.0' })) as typeof fetch;
+    const search = { home, pathEnv: path.dirname(file), cacheFile, fetchImpl };
+    await checkAgentCli(CODEX_CLI, { ...search, refresh: true });
+
+    expect(await runAgentCliAction(CODEX_CLI, 'update', search)).toEqual({
+      ok: false,
+      message: `Codex 0.170.0, the newest, has a known problem with Moxxy: ${reason}. Moxxy holds the update back until a fixed version is out.`,
+    });
+    expect(existsSync(ran)).toBe(false);
   });
 });

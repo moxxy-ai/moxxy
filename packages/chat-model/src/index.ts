@@ -12,4 +12,4 @@ export { toSpeakableText, toVoiceConversationText } from './speech-text.js';
 export * from './voice-feedback-scheduler.js';
 export * from './voice-operations.js';
 export { accountLimitText, conversationAccountLimit, conversationAccountUsage } from './account-limit.js';
-export { activeAgentCliNotice, agentCliApp, agentCliFile, agentCliNotice, agentCliNotices, type AgentCliNotice, type AgentConnectionLike } from './agent-cli.js';
+export { activeAgentCliNotice, agentCliApp, agentCliFile, agentCliKnownIssue, agentCliNotice, agentCliNotices, type AgentCliNotice, type AgentConnectionLike } from './agent-cli.js';

@@ -12,10 +12,20 @@ import {
   moxxyPath,
   resolveExecutableTarget,
   spawnExecutableTarget,
+  withFileLock,
   writeFileAtomic,
   type ExecutableTarget,
 } from '@moxxy/sdk/server';
 import { compareVersions, readCliVersion } from './cli-version.js';
+import {
+  BUNDLED_BLOCKED_AGENT_VERSIONS,
+  blockedAgentVersion,
+  blockedAgentVersions,
+  cachedBlockedAgentVersions,
+  defaultBlockedCacheFile,
+  type BlockedAgentVersion,
+  type BlockedAgentVersions,
+} from './agent-versions-blocked.js';
 
 /**
  * The agent CLIs Moxxy connects to, and how each one is found, checked,
@@ -558,11 +568,33 @@ function runForOutput(command: string, args: ReadonlyArray<string>): Promise<str
 }
 
 /** Records that an update ran and `latest`, as last read for `key`, stayed out of reach. */
-async function rememberNotBrought(cacheFile: string, key: string): Promise<void> {
-  const cache = await readLatestCache(cacheFile);
-  const known = cache[key];
-  if (!known) return;
-  await writeFileAtomic(cacheFile, JSON.stringify({ ...cache, [key]: { ...known, notBrought: known.version } })).catch(() => undefined);
+function rememberNotBrought(cacheFile: string, key: string): Promise<void> {
+  return changeLatestCache(cacheFile, (cache) => {
+    const known = cache[key];
+    return known ? { ...cache, [key]: { ...known, notBrought: known.version } } : null;
+  });
+}
+
+const cacheChanges = new Map<string, Promise<void>>();
+
+/**
+ * Reads, changes and writes the shared cache one change at a time, each on the
+ * file as it is then: agents checked at once, in this process or in another
+ * runner, must not write over each other's answer.
+ */
+function changeLatestCache(file: string, change: (cache: LatestCache) => LatestCache | null): Promise<void> {
+  const run = (cacheChanges.get(file) ?? Promise.resolve()).then(() =>
+    withFileLock(file, async () => {
+      const next = change(await readLatestCache(file));
+      if (next) await writeFileAtomic(file, JSON.stringify(next));
+    }).catch(() => undefined), // The cache only saves asking again; a home it cannot write to changes nothing else.
+  );
+  const settled = run.catch(() => undefined);
+  cacheChanges.set(file, settled);
+  void settled.then(() => {
+    if (cacheChanges.get(file) === settled) cacheChanges.delete(file);
+  });
+  return run;
 }
 
 /**
@@ -579,7 +611,7 @@ export async function latestAgentVersion(pkg: string, opts: LatestVersionOptions
   if (known && !opts.refresh && now - known.at < (opts.ttlMs ?? HOUR_MS)) return known.version;
   const fetched = await (opts.fetchLatest ?? ((name: string) => fetchNpmLatest(name)))(pkg);
   if (!fetched) return known ? known.version : null;
-  await writeFileAtomic(cacheFile, JSON.stringify({ ...cache, [pkg]: { ...known, version: fetched, at: now } })).catch(() => undefined);
+  await changeLatestCache(cacheFile, (latest) => ({ ...latest, [pkg]: { ...latest[pkg], version: fetched, at: now } }));
   return fetched;
 }
 
@@ -607,6 +639,8 @@ export interface AgentSignIn {
 
 export interface AgentCliCheckDeps {
   readonly latest?: (pkg: string, opts: { readonly refresh: boolean }) => Promise<string | null>;
+  /** The versions Moxxy knows break; when `latest` stands in for the registry and this is absent, the shipped list. */
+  readonly blocked?: (opts: { readonly refresh: boolean }) => Promise<BlockedAgentVersions>;
   readonly now?: () => number;
   /** Who the installed agent is signed in as, asked of the agent itself. */
   readonly signIn?: () => Promise<AgentSignIn>;
@@ -625,7 +659,15 @@ export async function checkAgentCli(
     ? await deps.latest(desc.npmPackage, { refresh })
     : await latestAgentVersion(source.key, { refresh, fetchLatest: source.fetch, ...cacheOption(opts) });
   const notBrought = (await readLatestCache(opts.cacheFile ?? defaultCacheFile()))[source.key]?.notBrought;
-  const latest = offered && offered === notBrought ? found.version : offered;
+  const blocked = deps.blocked
+    ? await deps.blocked({ refresh })
+    : deps.latest
+      ? BUNDLED_BLOCKED_AGENT_VERSIONS
+      : await blockedAgentVersions({ refresh, cacheFile: blockedCacheFileFor(opts), ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) });
+  const heldBack = offered ? blockedAgentVersion(blocked, desc.command, offered) : undefined;
+  const latest = offered && (offered === notBrought || heldBack) ? found.version : offered;
+  const brokenInstalled = found.version ? blockedAgentVersion(blocked, desc.command, found.version) : undefined;
+  const knownIssue = brokenInstalled ?? heldBack;
   const origin = found.file ? agentCliOrigin(desc, found.file, originOptions(opts)) : null;
   const manualUpdate = found.file && origin ? manualUpdateOf(agentCliUpdatePlan(desc, found.file, origin), found.file, opts) : null;
   const base = {
@@ -639,7 +681,11 @@ export async function checkAgentCli(
   };
   if (!found.present) return { state: 'missing', ...base };
   const signIn = deps.signIn ? await deps.signIn() : undefined;
-  const known = { ...base, ...(signIn ? { signedIn: signIn.signedIn, account: signIn.account ?? null } : {}) };
+  const known = {
+    ...base,
+    ...(signIn ? { signedIn: signIn.signedIn, account: signIn.account ?? null } : {}),
+    ...(knownIssue ? { knownIssue } : {}),
+  };
   if (!found.version) return { state: 'unknown', ...known };
   if (compareVersions(found.version, desc.minimumVersion) < 0) return { state: 'update-required', ...known };
   if (latest && compareVersions(found.version, latest) < 0) return { state: 'update-available', ...known };
@@ -659,6 +705,17 @@ export function defaultCacheFile(): string {
 
 function cacheOption(opts: VersionLookup): { readonly cacheFile?: string } {
   return opts.cacheFile ? { cacheFile: opts.cacheFile } : {};
+}
+
+/** The list of broken versions is kept beside the versions' cache. */
+function blockedCacheFileFor(opts: VersionLookup): string {
+  return opts.cacheFile ? path.join(path.dirname(opts.cacheFile), 'agent-cli-blocked.json') : defaultBlockedCacheFile();
+}
+
+/** The newest version the last check found for this copy, when Moxxy knows it breaks; read from the caches only. */
+async function heldBackUpdate(desc: AgentCliDescriptor, file: string, opts: AgentCliSearch & VersionLookup): Promise<BlockedAgentVersion | undefined> {
+  const latest = (await readLatestCache(opts.cacheFile ?? defaultCacheFile()))[versionSourceOf(desc, file, opts).key]?.version;
+  return latest ? blockedAgentVersion(await cachedBlockedAgentVersions(blockedCacheFileFor(opts)), desc.command, latest) : undefined;
 }
 
 function versionSourceOf(desc: AgentCliDescriptor, file: string | undefined, opts: AgentCliSearch & VersionLookup): AgentVersionSource {
@@ -803,6 +860,14 @@ async function updateAgentCli(
   if (source.origin === 'app') return { ok: false, message: `The ${desc.name} at ${found} is part of ${source.app ?? 'an app'} and updates with it.` };
   const plan = agentCliUpdatePlan(desc, found, source);
   if (plan.kind === 'manual') return { ok: false, message: `Moxxy cannot update the ${desc.name} at ${found}: ${plan.hint}.` };
+  // An update always brings the newest version, so one Moxxy knows breaks is not run at all.
+  const held = opts.cacheFile ? await heldBackUpdate(desc, found, opts) : undefined;
+  if (held) {
+    return {
+      ok: false,
+      message: `${desc.name} ${held.version}, the newest, has a known problem with Moxxy: ${held.reason}. Moxxy holds the update back until a fixed version is out.`,
+    };
+  }
   const before = opts.cacheFile ? (await installedVersion(desc, opts)).version : null;
   const updater = await startUpdater(desc, found, source, plan, opts, platform);
   if ('refused' in updater) return updater.refused;

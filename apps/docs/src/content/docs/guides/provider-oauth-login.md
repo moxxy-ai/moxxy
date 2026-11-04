@@ -215,7 +215,8 @@ Install runs the vendor's own installer (on Windows its PowerShell installer,
 and npm for OpenCode); update runs the agent's own command (`claude update`,
 `codex update`, `opencode upgrade`), which knows how it was installed. Moxxy
 never updates a CLI by itself, and the desktop does not update one while a
-turn runs.
+turn runs. A version Moxxy knows breaks with it is held back: Moxxy does not
+offer it as an update and says why.
 
 ## Conversations outlive the agent's session
 

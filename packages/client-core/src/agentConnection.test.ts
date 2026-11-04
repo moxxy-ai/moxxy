@@ -96,6 +96,24 @@ describe('an agent connection row', () => {
     });
   });
 
+  it('says why an update is held back, offering none, and stays usable', () => {
+    const held = entry(report({ knownIssue: { version: '0.170.0', reason: 'Does not answer in Moxxy' } }));
+    expect(view(held)).toMatchObject({
+      state: 'connected',
+      detail: 'ada@example.com · Codex 0.170.0 is out, but Moxxy holds it back: Does not answer in Moxxy',
+      action: null,
+    });
+    expect(isProviderConnected(held)).toBe(true);
+  });
+
+  it('offers no update of a CLI too old while the newest is held back', () => {
+    const knownIssue = { version: '0.170.0', reason: 'Does not answer in Moxxy' };
+    expect(view(entry(report({ state: 'update-required', installed: '0.150.0', latest: '0.150.0', knownIssue })))).toMatchObject({
+      state: 'update-required',
+      action: null,
+    });
+  });
+
   it('is checking until the first check ends, and while asked to check again', () => {
     expect(view(entry())).toMatchObject({ state: 'checking', action: null });
     expect(view(entry(report()), null, true)).toMatchObject({ state: 'checking' });

@@ -19,7 +19,7 @@ Per-agent detail (what each agent reports, how each one's sign-in, approvals and
 
 Moxxy reads only whether the agent is signed in, and as whom. It never copies, stores or refreshes the agent's tokens.
 
-The Claude Agent SDK is not part of Moxxy. The first time the Claude connection is used, Moxxy installs it with your npm into `~/.moxxy/agents/claude-agent-sdk/`, without the CLI it would bring along: Moxxy always runs your own Claude Code.
+The Claude Agent SDK is not part of Moxxy. The first time the Claude connection is used, Moxxy installs it with your npm into `~/.moxxy/agents/claude-agent-sdk/`, without the CLI it would bring along: Moxxy always runs your own Claude Code. The SDK is pinned to one version, and the oldest Claude Code Moxxy accepts is never older than the one that SDK was built with (SDK `0.3.N` comes with Claude Code `2.1.N`): an older Claude Code ignores some of the SDK's options, permission rules among them. A test fails when the pin moves past the minimum.
 
 ## Setting one up
 
@@ -67,6 +67,8 @@ A CLI older than the version Moxxy was checked against must be updated before th
 | Inside a macOS app (`*.app/Contents/`, e.g. the Codex in ChatGPT.app) | none: the app updates it, so Moxxy offers no **Update** and runs nothing |
 
 Moxxy offers only a version that copy's own way of updating has: Anthropic's release channel (`autoUpdatesChannel`, default `latest`) for Claude's installer, Homebrew's or winget's catalogue for theirs, npm otherwise. After every update Moxxy reads the copy's version again, with a few tries, since an antivirus can hold a new file for a moment: an update that exits cleanly proves nothing. A new version is success. The same version, or a copy that no longer says its version, is a calm note on the card, and that version is not offered again. A copy that no longer runs is a failure, and the card offers an install. How an update ended stays on the card until you close it, also when the offer is gone, and Settings tells the same story. An OpenCode below the minimum takes the plain `opencode upgrade` first, since `--major` needs 1.19. An install or update that asks a yes-or-no question, or prints nothing for ten minutes, is stopped with a message saying so.
+
+A version known to break with Moxxy is held back. The list is `packages/agent-connection-kit/src/agent-versions-blocked.json`, read from the `development` branch at most once an hour (the copy shipped with the build is the fallback; how to add an entry: `AGENTS.md`, "Holding back a broken agent version"). While the newest version is on it, Moxxy offers no **Update**, `moxxy agents update` refuses, and the card, Settings, `moxxy agents` and `moxxy doctor` give the reason. An install that already has such a version is told the problem and to wait for a fixed one; a newer version off the list is offered as usual. The vendors' updaters always bring the newest version, so the list cannot pick an older one.
 
 Moxxy never removes a copy, and the desktop never updates an agent during a turn. The desktop puts the Node it installed for you first on its own `PATH`; the agent's own update runs with that folder last, so an update that asks `npm` how the agent was installed (`opencode upgrade` does) reaches the npm of your terminal, the one that installed it. An agent that lives in the desktop's Node folder keeps it first.
 

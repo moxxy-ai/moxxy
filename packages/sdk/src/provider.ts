@@ -436,6 +436,12 @@ export interface AgentCliReport {
   readonly signedIn?: boolean;
   /** Who it is signed in as, in the agent's words (Claude's e-mail, "ChatGPT" for Codex); null when it does not say. */
   readonly account?: string | null;
+  /**
+   * A version Moxxy knows breaks with it: the one installed, or the newest
+   * one, which is then not offered (`latest` stays at the installed one).
+   * Absent when neither is known to break.
+   */
+  readonly knownIssue?: { readonly version: string; readonly reason: string };
 }
 
 /** How an agent connection's CLI is checked; the host runs it at start and every hour. */

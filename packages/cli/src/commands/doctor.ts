@@ -8,7 +8,7 @@ import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
 import { formatPrincipal, type AgentCliReport } from '@moxxy/sdk';
 import { AGENT_CLIS } from '@moxxy/agent-connection-kit';
-import { agentCliApp, agentCliFile } from '@moxxy/chat-model';
+import { agentCliApp, agentCliFile, agentCliKnownIssue } from '@moxxy/chat-model';
 import { hasProxy, moxxyPath, redactProxyUrl } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
@@ -454,20 +454,24 @@ export function buildAgentCliDoctorChecks(entries: ReadonlyArray<AgentCliDoctorE
     const found = `${agentName} ${report.installed ?? ''}`.trim() + (file ? ` at ${file}` : '');
     const app = agentCliApp(report);
     const fix = app ? `it is part of ${app}, which updates it` : `moxxy agents update ${command}`;
+    const issue = agentCliKnownIssue(report);
+    // Only a held-back newest version stands in the way of updating an old one.
+    const heldBack = report.knownIssue && report.knownIssue.version !== report.installed ? issue : null;
+    const broken = report.knownIssue && !heldBack ? `, which has a known problem with Moxxy: ${report.knownIssue.reason}` : '';
     switch (report.state) {
       case 'current':
-        return { id, status: 'ok', message: `${found}, the latest` };
+        return issue ? { id, status: 'warn', message: `${found}; ${issue}` } : { id, status: 'ok', message: `${found}, the latest` };
       case 'update-available':
         return {
           id,
           status: 'warn',
-          message: `${found}; ${report.latest ?? 'a newer one'} is out — ${fix}`,
+          message: `${found}${broken}; ${report.latest ?? 'a newer one'} is out — ${fix}`,
         };
       case 'update-required':
         return {
           id,
           status: used ? 'fail' : 'warn',
-          message: `${found} is older than ${report.minimum}, the oldest Moxxy works with — ${fix}`,
+          message: `${found} is older than ${report.minimum}, the oldest Moxxy works with — ${heldBack ?? fix}`,
         };
       case 'missing':
         return used
