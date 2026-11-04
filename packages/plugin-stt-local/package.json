@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-stt-local",
-  "version": "0.48.1",
+  "version": "0.48.2",
   "description": "Fully local, on-device speech-to-text Transcriber for moxxy. Runs multilingual Whisper or Parakeet (English + Polish) via sherpa-onnx in a forked sidecar process; the chosen model downloads once on first use, pinned and sha256-verified. No API key, no network at transcription time. Plugs into the session TranscriberRegistry — the TUI and channel voice notes consume it transparently.",
   "keywords": [
     "moxxy",

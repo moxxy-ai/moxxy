@@ -252,7 +252,8 @@ tab and the + for a new tab past an empty gap.
 
 A file link is a `file://` URL or an absolute path, spaces and all: `/Users/…`
 on macOS and Linux, `C:\…` or `C:/…` on Windows, and `file:///C:/…` reads as
-`C:/…`. Markdown drops a backslash before punctuation (`C:\Users\.config`
+`C:/…`. So does `/C:/…`, the way agents often write a link on Windows; left
+as written, Windows looks for it at `\C:\…`, which is never there. Markdown drops a backslash before punctuation (`C:\Users\.config`
 would read `C:\Users.config`), so before parsing, a link to a Windows drive gets
 forward slashes, which Windows reads the same (`windowsLinkSlashes`).
 A network path (`\\server\share`, `//server`) is not one: opening it

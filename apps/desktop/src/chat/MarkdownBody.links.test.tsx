@@ -118,6 +118,15 @@ describe('a link to a file on this machine', () => {
     });
   });
 
+  it('opens a link written with a slash before the Windows drive, as agents write one', async () => {
+    const invoke = installApi();
+    render(<MarkdownBody text="[index.html](</D:/Moxxy Projects/3dsite/index.html>)" />);
+
+    fireEvent.click(screen.getByRole('link', { name: 'index.html' }), SKIP_MENU);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('files.open', { path: 'D:/Moxxy Projects/3dsite/index.html' }));
+  });
+
   it('opens a Windows path with a dot or an underscore after a backslash as written', async () => {
     const invoke = installApi();
     render(<MarkdownBody text={'[cfg](C:\\Users\\Jan\\.config\\notes.md)'} />);

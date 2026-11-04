@@ -1,5 +1,23 @@
 # @moxxy/desktop
 
+## 0.48.2
+
+### Patch Changes
+
+- c721cdc: Dependency updates. The Python the desktop installer carries now has Pillow 13.0.0, which fixes several image-handling security issues (one critical), pypdf 6.21.4 and certifi 2026.10.18. The JavaScript side moves to the latest minor and patch releases, among them openai 7.45, the MCP SDK 1.32, discord.js 14.28, officeparser 8.4, electron-updater 6.8.11, electron-builder 26.18, electron-vite 6 and tsup 9. React stays on 18.
+- 504a509: A link to a file on Windows written as `/D:/folder/file` opens instead of saying "This file is not there". Agents often write Windows links this way, and the earlier fix only covered `D:\…`, `D:/…` and `file:///D:/…`.
+- Updated dependencies [c721cdc]
+  - @moxxy/cli@0.48.2
+  - @moxxy/sdk@0.48.2
+  - @moxxy/plugin-vault@0.48.2
+  - @moxxy/chat-model@0.5.6
+  - @moxxy/client-core@0.16.2
+  - @moxxy/client-platform-web@0.1.81
+  - @moxxy/desktop-host@0.17.2
+  - @moxxy/desktop-ipc-contract@0.17.2
+  - @moxxy/runner@0.2.67
+  - @moxxy/workflows-builder@0.1.64
+
 ## 0.48.1
 
 ### Patch Changes

@@ -2,7 +2,8 @@ import { api } from '@moxxy/client-core';
 
 /**
  * Links the agent writes to files on this machine — `file:///…` URLs or bare
- * absolute paths, from macOS and Linux (`/Users/…`) or Windows (`C:\…`). They must not go through `target="_blank"`: markdown
+ * absolute paths, from macOS and Linux (`/Users/…`) or Windows (`C:\…`, or
+ * `/C:/…` as agents often write one). They must not go through `target="_blank"`: markdown
  * sanitizing empties a `file:` href and a bare path resolves against the app's
  * own URL, so either way the click opened the app itself in the OS browser.
  * They open through `files.open` instead.
@@ -16,18 +17,25 @@ export function localFilePath(href: string | undefined): string | null {
     try {
       const url = new URL(href);
       if (url.host !== '' && url.host !== 'localhost') return null;
-      // `file:///C:/x` has the path `/C:/x`; Windows has no file at `\C:\x`.
-      return decodeURIComponent(url.pathname).replace(SLASH_BEFORE_DRIVE, '');
+      return withoutSlashBeforeDrive(decodeURIComponent(url.pathname));
     } catch {
       return null;
     }
   }
-  return isAbsoluteLocalPath(href) ? decodeEscapes(href) : null;
+  return isAbsoluteLocalPath(href) ? withoutSlashBeforeDrive(decodeEscapes(href)) : null;
 }
 
 /** `C:\…` or `C:/…`: a path on a Windows drive. */
 const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[\\/]/u;
 const SLASH_BEFORE_DRIVE = /^\/(?=[A-Za-z]:[\\/])/u;
+
+/**
+ * `/C:/x` — the path of `file:///C:/x`, and how agents often write a bare
+ * link — is `C:/x`. Windows has no file at `\C:\x`, which is what Node makes of it.
+ */
+function withoutSlashBeforeDrive(path: string): string {
+  return path.replace(SLASH_BEFORE_DRIVE, '');
+}
 
 /**
  * A path from the root of this machine. A network path (`//server/share`,
@@ -57,8 +65,8 @@ export function fileFailureLabel(reason: string): string {
   return reason.includes('file not found') ? 'This file is not there' : 'Couldn’t open this file';
 }
 
-/** A link destination on a Windows drive: `](C:\…` or `](<C:\…`. */
-const WINDOWS_LINK_DESTINATION = /\]\((<?)([A-Za-z]:\\[^)>\n]*)/gu;
+/** A link destination on a Windows drive: `](C:\…`, `](<C:\…` or either with `/` before the drive. */
+const WINDOWS_LINK_DESTINATION = /\]\((<?)(\/?[A-Za-z]:\\[^)>\n]*)/gu;
 const FENCE = /^\s*(?:```|~~~)/u;
 
 /**

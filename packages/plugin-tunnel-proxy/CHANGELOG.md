@@ -1,5 +1,12 @@
 # @moxxy/plugin-tunnel-proxy
 
+## 0.48.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.2
+- @moxxy/e2e@0.48.2
+
 ## 0.48.1
 
 ### Patch Changes

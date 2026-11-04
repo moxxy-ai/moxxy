@@ -35,6 +35,11 @@ describe('localFilePath (links the agent writes to files on this machine)', () =
     expect(localFilePath('d:/Projekty/Moje%20notatki.md')).toBe('d:/Projekty/Moje notatki.md');
   });
 
+  it('reads a bare path with a slash before the Windows drive, as agents write it, without that slash', () => {
+    expect(localFilePath('/D:/Moxxy%20Projects/3dsite/index.html')).toBe('D:/Moxxy Projects/3dsite/index.html');
+    expect(localFilePath('/c:\\Users\\Jan\\raport.docx')).toBe('c:\\Users\\Jan\\raport.docx');
+  });
+
   it('refuses a file URL on another host', () => {
     expect(localFilePath('file://server/share/clip.mp4')).toBeNull();
   });
@@ -49,6 +54,12 @@ describe('windowsLinkSlashes (a Windows path Markdown would change)', () => {
   it('turns the backslashes of a link to a Windows drive into slashes, so Markdown cannot eat one', () => {
     expect(windowsLinkSlashes('[cfg](C:\\Users\\Jan\\.config\\notes.md) i [d](<D:\\Moje _pliki\\a.md>)')).toBe(
       '[cfg](C:/Users/Jan/.config/notes.md) i [d](<D:/Moje _pliki/a.md>)',
+    );
+  });
+
+  it('does the same when the link puts a slash before the drive', () => {
+    expect(windowsLinkSlashes('[cfg](</D:\\Moje projekty\\.config\\notes.md>)')).toBe(
+      '[cfg](</D:/Moje projekty/.config/notes.md>)',
     );
   });
 
