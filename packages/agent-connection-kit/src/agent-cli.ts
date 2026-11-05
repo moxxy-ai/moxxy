@@ -87,10 +87,15 @@ export interface AgentCliDescriptor {
 
 /** A native program behind a Windows npm shim. */
 export interface WindowsNativeProgram {
-  /** Relative to the shim's folder, `/`-separated. */
+  /** Relative to the shim's folder, or with `fromRealPackage` to the package's real folder; `/`-separated. */
   readonly path: string;
-  /** What the script that would start it sets, given the shim's folder. */
-  readonly env?: (shimDir: string) => Readonly<Record<string, string>>;
+  /**
+   * Relative to the folder the package's link really points at: pnpm keeps
+   * the package in its store and links the program beside it there.
+   */
+  readonly fromRealPackage?: boolean;
+  /** What the script that would start it sets, given the shim's folder (or the package's real folder). */
+  readonly env?: (root: string) => Readonly<Record<string, string>>;
 }
 
 export const CLAUDE_CLI: AgentCliDescriptor = {
@@ -126,11 +131,18 @@ function codexWindowsPrograms(arch: string): ReadonlyArray<WindowsNativeProgram>
     CODEX_MANAGED_BY_NPM: '1',
     CODEX_MANAGED_PACKAGE_ROOT: path.win32.join(shimDir, 'node_modules', '@openai', 'codex'),
   });
-  return [
+  const shimRelative: WindowsNativeProgram[] = [
     `node_modules/@openai/codex/node_modules/@openai/${build.pkg}/${program}`,
     `node_modules/@openai/${build.pkg}/${program}`,
     `node_modules/@openai/codex/${program}`,
   ].map((relative) => ({ path: relative, env }));
+  // pnpm: Codex is a link into the store, with its program linked beside it there.
+  const pnpm: WindowsNativeProgram = {
+    path: `../${build.pkg}/${program}`,
+    fromRealPackage: true,
+    env: (packageRoot) => ({ CODEX_MANAGED_BY_PNPM: '1', CODEX_MANAGED_PACKAGE_ROOT: packageRoot }),
+  };
+  return [...shimRelative, pnpm];
 }
 
 export const CODEX_CLI: AgentCliDescriptor = {
@@ -472,6 +484,8 @@ export interface AgentCliTargetOptions {
   readonly arch?: string;
   /** Reads a shim; defaults to the file system's. */
   readonly read?: (file: string) => string;
+  /** The folder a link really points at; defaults to the file system's. */
+  readonly realpath?: (file: string) => string;
 }
 
 const WINDOWS_NATIVE = new Set(['.exe', '.com']);
@@ -515,9 +529,18 @@ export function agentCliTargetAt(desc: AgentCliDescriptor, found: string, opts: 
   const dir = windowsShimRoot(desc, found, opts.read ?? ((file) => readFileSync(file, 'utf8')));
   const at = (relative: string): string => path.win32.join(dir, ...relative.split('/'));
   const exists = opts.exists ?? existsSync;
+  const realPackage = (): string | null => {
+    try {
+      return (opts.realpath ?? realpathSync.native)(at(`node_modules/${desc.npmPackage}`));
+    } catch {
+      return null;
+    }
+  };
   for (const program of desc.windowsShim.native?.(opts.arch ?? process.arch) ?? []) {
-    const command = at(program.path);
-    if (exists(command)) return program.env ? { kind: 'direct', command, env: program.env(dir) } : { kind: 'direct', command };
+    const root = program.fromRealPackage ? realPackage() : dir;
+    if (!root) continue;
+    const command = path.win32.join(root, ...program.path.split('/'));
+    if (exists(command)) return program.env ? { kind: 'direct', command, env: program.env(root) } : { kind: 'direct', command };
   }
   const entry = at(desc.windowsShim.entry);
   if (!exists(entry)) throw new Error(`Cannot find ${entry} behind ${found}; reinstall ${desc.name}.`);

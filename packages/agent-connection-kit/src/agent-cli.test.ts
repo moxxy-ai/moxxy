@@ -178,6 +178,26 @@ describe('running a CLI found on Windows', () => {
     });
   });
 
+  it("starts the codex.exe pnpm links beside Codex in its store, since codex.js would open a console window for it", () => {
+    const pnpm = 'D:\\Testy\\mxwin\\pnpm';
+    const shim = '"%~dp0\\..\\global\\v11\\abc\\node_modules\\@openai\\codex\\bin\\codex.js" %*';
+    const linked = `${pnpm}\\global\\v11\\abc\\node_modules\\@openai\\codex`;
+    const store = `${pnpm}\\global\\v11\\def\\node_modules\\.pnpm\\@openai+codex@0.166.0\\node_modules\\@openai`;
+    const exe = `${store}\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe`;
+    const target = agentCliTargetAt(CODEX_CLI, `${pnpm}\\bin\\codex.cmd`, {
+      ...win,
+      arch: 'x64',
+      read: () => shim,
+      realpath: (file) => (file === linked ? `${store}\\codex` : file),
+      exists: (file) => file === exe,
+    });
+    expect(target).toEqual({
+      kind: 'direct',
+      command: exe,
+      env: { CODEX_MANAGED_BY_PNPM: '1', CODEX_MANAGED_PACKAGE_ROOT: `${store}\\codex` },
+    });
+  });
+
   it('finds the codex.exe npm placed beside Codex, and the one for ARM', () => {
     const exe = `${npm}\\node_modules\\@openai\\codex-win32-arm64\\vendor\\aarch64-pc-windows-msvc\\bin\\codex.exe`;
     expect(agentCliTargetAt(CODEX_CLI, `${npm}\\codex.cmd`, { ...win, arch: 'arm64', exists: (file) => file === exe })).toMatchObject({
