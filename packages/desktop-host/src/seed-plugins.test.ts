@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   repairSeededPluginManifest,
+  restoreSeedNativeHelpers,
   seedPluginsFromResources,
 } from './seed-plugins.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
@@ -167,6 +168,59 @@ describe('seedPluginsFromResources', () => {
     expect(res.skipped).toEqual(['@moxxy/mode-goal']);
     const kept = JSON.parse(await fs.readFile(path.join(existing, 'package.json'), 'utf8'));
     expect(kept.version).toBe('9.9.9');
+  });
+
+  describe('a newer copy from npm that lacks a native helper the seed carries', () => {
+    const name = '@moxxy/plugin-computer-control';
+    const write = async (file: string, text: string, mode?: number) => {
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, text, mode === undefined ? undefined : { mode });
+    };
+    const seedCopy = () => path.join(resources, 'plugins-seed', 'node_modules', name);
+    const installed = () => path.join(home, 'plugins', 'node_modules', name);
+
+    beforeEach(async () => {
+      await makeSeed({ [name]: { version: '0.48.1' } });
+      await write(path.join(seedCopy(), 'bin', 'darwin-universal', 'moxxy-computer'), 'MAC HELPER', 0o755);
+      await write(path.join(seedCopy(), 'bin', 'darwin-universal', 'moxxy-computer.json'), '{"protocolVersion":5}');
+      await write(path.join(seedCopy(), 'bin', 'win32-x64', 'moxxy-computer.exe'), 'OLD WINDOWS HELPER');
+      await write(path.join(installed(), 'package.json'), JSON.stringify({ name, version: '0.48.2' }));
+      await write(path.join(installed(), 'bin', 'win32-x64', 'moxxy-computer.exe'), 'NEW WINDOWS HELPER');
+    });
+
+    it('gets the helper from the seed and keeps everything else of the newer copy', async () => {
+      const res = await seedPluginsFromResources({ resourcesPath: resources, moxxyHome: home });
+
+      expect(res.skipped).toEqual([name]);
+      expect(JSON.parse(await fs.readFile(path.join(installed(), 'package.json'), 'utf8')).version).toBe('0.48.2');
+      const helper = path.join(installed(), 'bin', 'darwin-universal', 'moxxy-computer');
+      expect(await fs.readFile(helper, 'utf8')).toBe('MAC HELPER');
+      expect((await fs.stat(helper)).mode & 0o111).not.toBe(0);
+      expect(await fs.readFile(path.join(installed(), 'bin', 'darwin-universal', 'moxxy-computer.json'), 'utf8')).toBe('{"protocolVersion":5}');
+      expect(await fs.readFile(path.join(installed(), 'bin', 'win32-x64', 'moxxy-computer.exe'), 'utf8')).toBe('NEW WINDOWS HELPER');
+    });
+
+    it('gets the helper back right after an update from npm, without waiting for the next launch', async () => {
+      await restoreSeedNativeHelpers({ resourcesPath: resources, moxxyHome: home });
+
+      expect(await fs.readFile(path.join(installed(), 'bin', 'darwin-universal', 'moxxy-computer'), 'utf8')).toBe('MAC HELPER');
+      expect(await fs.readFile(path.join(installed(), 'bin', 'win32-x64', 'moxxy-computer.exe'), 'utf8')).toBe('NEW WINDOWS HELPER');
+    });
+
+    it('leaves a copy another updater manages to that updater', async () => {
+      await seedPluginsFromResources({ resourcesPath: resources, moxxyHome: home, managedElsewhere: [name] });
+
+      await expect(fs.stat(path.join(installed(), 'bin', 'darwin-universal'))).rejects.toThrow();
+    });
+
+    it('leaves a helper the newer copy already has as it is', async () => {
+      await write(path.join(installed(), 'bin', 'darwin-universal', 'moxxy-computer'), 'NEWER MAC HELPER', 0o755);
+
+      await seedPluginsFromResources({ resourcesPath: resources, moxxyHome: home });
+
+      expect(await fs.readFile(path.join(installed(), 'bin', 'darwin-universal', 'moxxy-computer'), 'utf8')).toBe('NEWER MAC HELPER');
+      await expect(fs.stat(path.join(installed(), 'bin', 'darwin-universal', 'moxxy-computer.json'))).rejects.toThrow();
+    });
   });
 
   it('keeps existing target manifest dependencies over seed entries', async () => {

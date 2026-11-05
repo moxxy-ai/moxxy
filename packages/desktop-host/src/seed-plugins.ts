@@ -119,7 +119,12 @@ export async function seedPluginsFromResources(
       if (fingerprint) applied[entry] = fingerprint;
       continue;
     }
-    if (!fingerprint || managed.has(entry) || applied[entry] === fingerprint || (await isNewerThanSeed(to, from))) {
+    if (!fingerprint || managed.has(entry) || applied[entry] === fingerprint) {
+      skipped.push(entry);
+      continue;
+    }
+    if (await isNewerThanSeed(to, from)) {
+      await addMissingNativeHelpers(from, to, opts.log);
       skipped.push(entry);
       continue;
     }
@@ -202,6 +207,54 @@ async function pruneBackups(root: string, keep: string): Promise<void> {
     const dir = path.join(root, name);
     if (dir === keep || !(await exists(path.join(dir, BACKUP_MARKER)))) continue;
     await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The same as the seeding does for a kept copy, for every installed package
+ * newer than the seed's: run after the desktop updates its components from
+ * npm, so the helpers come back on that launch and not only on the next.
+ */
+export async function restoreSeedNativeHelpers(
+  opts: Pick<SeedPluginsOptions, 'resourcesPath' | 'moxxyHome' | 'managedElsewhere' | 'log'>,
+): Promise<void> {
+  const seedModules = path.join(opts.resourcesPath, 'plugins-seed', 'node_modules');
+  if (!(await isDir(seedModules))) return;
+  const managed = new Set(opts.managedElsewhere ?? []);
+  for (const entry of await listModuleEntries(seedModules)) {
+    if (managed.has(entry)) continue;
+    const from = path.join(seedModules, entry);
+    const to = path.join(opts.moxxyHome, 'plugins', 'node_modules', entry);
+    if ((await exists(to)) && (await isNewerThanSeed(to, from))) await addMissingNativeHelpers(from, to, opts.log);
+  }
+}
+
+/**
+ * Give a kept copy the native helpers (`bin/<platform>`) the seed has and it
+ * lacks. npm carries only the Windows helper of Computer Use; the macOS and
+ * Linux ones come with the installer, so a copy the desktop updated from npm
+ * would otherwise offer `computer_status` alone until the next installer. A
+ * helper the copy has is never touched, and one that speaks another protocol
+ * is refused by the plugin itself.
+ */
+async function addMissingNativeHelpers(seed: string, installed: string, log?: (message: string) => void): Promise<void> {
+  const seedBin = path.join(seed, 'bin');
+  let platforms: string[];
+  try {
+    platforms = await fs.readdir(seedBin);
+  } catch {
+    return;
+  }
+  for (const platform of platforms) {
+    const target = path.join(installed, 'bin', platform);
+    if (await exists(target)) continue;
+    try {
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.cp(path.join(seedBin, platform), target, { recursive: true, force: false, errorOnExist: false });
+      log?.(`plugins-seed: added the ${platform} helper to ${path.basename(installed)} from the installer`);
+    } catch (error) {
+      log?.(`plugins-seed: could not add the ${platform} helper: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 
