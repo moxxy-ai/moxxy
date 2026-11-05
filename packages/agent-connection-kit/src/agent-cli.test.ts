@@ -1014,6 +1014,60 @@ describe('the way a copy is updated', () => {
     expect(agentCliUpdatePlan(CODEX_CLI, file, { origin: 'npm' })).toEqual({ kind: 'manual', hint: 'update it with npm (npm install -g @openai/codex@latest)' });
   });
 
+  describe('a Windows tool copy in a folder of its own, known by its shim', () => {
+    const base = { platform: 'win32' as const, realpath: (f: string) => f, home: 'C:\\Users\\me' };
+    const withShims = (shims: Record<string, string>) => ({
+      ...base,
+      read: (file: string) => {
+        const text = shims[file];
+        if (text === undefined) throw new Error('no such file');
+        return text;
+      },
+    });
+    const both = (file: string, opts: ReturnType<typeof withShims>) => {
+      const source = agentCliOrigin(CODEX_CLI, file, opts);
+      return { source, plan: agentCliUpdatePlan(CODEX_CLI, file, source) };
+    };
+
+    it('updates a yarn copy in the folders its shim names', () => {
+      const shim = 'D:\\Testy\\mxwin\\yarn\\bin\\codex.cmd';
+      const { source, plan } = both(shim, withShims({ [shim]: '@"%~dp0\\..\\global\\node_modules\\.bin\\codex.cmd" %*' }));
+
+      expect(source.origin).toBe('yarn');
+      expect(plan).toEqual({
+        kind: 'run',
+        command: 'yarn',
+        args: ['global', 'add', '@openai/codex@latest', '--global-folder', 'D:\\Testy\\mxwin\\yarn\\global', '--prefix', 'D:\\Testy\\mxwin\\yarn'],
+      });
+    });
+
+    it('updates a Volta copy with the Volta home its shim sits in', () => {
+      const shim = 'D:\\Testy\\mxwin\\volta\\bin\\codex.cmd';
+      const { source, plan } = both(shim, withShims({ [shim]: '@echo off\r\nvolta run %~n0 %*\r\n' }));
+
+      expect(source.origin).toBe('volta');
+      expect(plan).toEqual({ kind: 'run', command: 'volta', args: ['install', '@openai/codex@latest'], env: { VOLTA_HOME: 'D:\\Testy\\mxwin\\volta' } });
+    });
+
+    it.each([
+      ['pnpm 11, bin under PNPM_HOME', 'D:\\Testy\\mxwin\\pnpm\\bin\\codex.cmd', '"%~dp0\\..\\global\\v11\\abc\\node_modules\\@openai\\codex\\bin\\codex.js" %*', 'D:\\Testy\\mxwin\\pnpm'],
+      ['older pnpm, bin in PNPM_HOME', 'D:\\Tools\\pnpm\\codex.cmd', '"%~dp0\\node.exe" "%~dp0\\global\\5\\.pnpm\\@openai+codex@0.160.0\\node_modules\\@openai\\codex\\bin\\codex.js" %*', 'D:\\Tools\\pnpm'],
+    ])('updates a pnpm copy with its PNPM_HOME (%s)', (_, shim, text, pnpmHome) => {
+      const { source, plan } = both(shim, withShims({ [shim]: text }));
+
+      expect(source.origin).toBe('pnpm');
+      expect(plan).toEqual({ kind: 'run', command: 'pnpm', args: ['add', '-g', '@openai/codex@latest'], env: { PNPM_HOME: pnpmHome } });
+    });
+
+    it("gives a Windows shim it cannot place the command to run, never the agent's own update", () => {
+      const shim = 'D:\\Somewhere\\codex.cmd';
+      const { source, plan } = both(shim, withShims({ [shim]: '@"%~dp0\\odd\\launcher.exe" %*' }));
+
+      expect(source.origin).toBe('unknown');
+      expect(plan).toEqual({ kind: 'manual', hint: 'update it with the tool that installed it (@openai/codex@latest)' });
+    });
+  });
+
   it('updates with the package tool on Windows too', () => {
     expect(plan(CLAUDE_CLI, 'C:\\Users\\me\\AppData\\Local\\pnpm\\claude.cmd', 'win32')).toMatchObject({
       kind: 'run',

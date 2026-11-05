@@ -245,6 +245,14 @@ export interface AgentCliSource {
   readonly winget?: { readonly id: string };
   /** For `npm`: the global prefix the package sits under, when its layout proves one. */
   readonly npmPrefix?: string;
+  /** For a package tool whose folders a Windows shim proves: what points the tool's update at them. */
+  readonly toolFolders?: ToolFolders;
+}
+
+/** Arguments and environment that make a package tool work in the folders a copy lives in. */
+export interface ToolFolders {
+  readonly args?: ReadonlyArray<string>;
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface AgentCliOriginOptions {
@@ -254,6 +262,8 @@ export interface AgentCliOriginOptions {
   readonly realpath?: (file: string) => string;
   /** Whether a file is there; defaults to the file system's. */
   readonly exists?: (file: string) => boolean;
+  /** Reads a Windows shim; defaults to the file system's. */
+  readonly read?: (file: string) => string;
 }
 
 /**
@@ -280,6 +290,8 @@ export function agentCliOrigin(desc: AgentCliDescriptor, file: string, opts: Age
   }
   const slashed = real.replaceAll('\\', '/');
   const seen = [file.replaceAll('\\', '/').toLowerCase(), slashed.toLowerCase()];
+  const shimmed = platform === 'win32' ? windowsToolShim(desc, file, opts.read ?? ((f) => readFileSync(f, 'utf8'))) : null;
+  if (shimmed) return shimmed;
   const manager = PACKAGE_TOOLS.find((tool) => seen.some((p) => tool.owns.test(p)));
   if (manager) return { origin: manager.origin };
   const npmPrefix =
@@ -329,6 +341,34 @@ const PACKAGE_TOOLS: ReadonlyArray<{
 const MISE_PATH = /\/mise\/(?:installs|shims)\//;
 
 /**
+ * The package tool behind a Windows shim, read from what the shim runs rather
+ * than from the folder's name, so a copy in folders of its own (`PNPM_HOME`,
+ * `yarn --global-folder`, `VOLTA_HOME`) is updated there and not in the
+ * tool's default ones. Null when the shim is not one of theirs.
+ */
+function windowsToolShim(desc: AgentCliDescriptor, file: string, read: (file: string) => string): AgentCliSource | null {
+  if (!WINDOWS_SHIMS.has(path.win32.extname(file).toLowerCase())) return null;
+  let text: string;
+  try {
+    text = read(file);
+  } catch {
+    return null;
+  }
+  const dir = path.win32.dirname(file);
+  const home = path.win32.dirname(dir);
+  if (/\bvolta run\b/i.test(text)) return { origin: 'volta', toolFolders: { env: { VOLTA_HOME: home } } };
+  const targets = [...text.matchAll(SHIM_TARGET)].map((match) => match[1] ?? '');
+  const yarnGlobal = targets.map((target) => /^(.*\\global)\\node_modules\\\.bin\\[^\\]+\.cmd$/i.exec(target)?.[1]).find(Boolean);
+  if (yarnGlobal) return { origin: 'yarn', toolFolders: { args: ['--global-folder', path.win32.resolve(dir, yarnGlobal), '--prefix', home] } };
+  const pkg = `\\node_modules\\${desc.npmPackage.replaceAll('/', '\\').toLowerCase()}\\`;
+  if (targets.some((target) => target.toLowerCase().includes(pkg) && /(?:^|\\)global\\/i.test(target))) {
+    const pnpmHome = path.win32.basename(dir).toLowerCase() === 'bin' ? home : dir;
+    return { origin: 'pnpm', toolFolders: { env: { PNPM_HOME: pnpmHome } } };
+  }
+  return null;
+}
+
+/**
  * The npm prefix of `real`; null for anything npm's global layout does not
  * prove, such as a mise tool of its own. npm keeps global packages in
  * `<prefix>/lib/node_modules`, and on Windows in `<prefix>\\node_modules`.
@@ -353,7 +393,13 @@ function npmWindowsShimPrefix(file: string, pkg: string, exists: (file: string) 
 /** How a copy gets updated. */
 export type AgentCliUpdatePlan =
   | { readonly kind: 'own' }
-  | { readonly kind: 'run'; readonly command: string; readonly args: ReadonlyArray<string> }
+  | {
+      readonly kind: 'run';
+      readonly command: string;
+      readonly args: ReadonlyArray<string>;
+      /** Set for the tool on top of this process's environment. */
+      readonly env?: Readonly<Record<string, string>>;
+    }
   /** Moxxy must not touch it; `hint` says what the person does. */
   | { readonly kind: 'manual'; readonly hint: string };
 
@@ -370,7 +416,8 @@ export function agentCliUpdatePlan(
 ): AgentCliUpdatePlan {
   const tool = PACKAGE_TOOLS.find((candidate) => candidate.origin === source.origin);
   if (tool) {
-    return { kind: 'run', command: tool.command, args: tool.args(desc.npmPackage) };
+    const args = [...tool.args(desc.npmPackage), ...(source.toolFolders?.args ?? [])];
+    return { kind: 'run', command: tool.command, args, ...(source.toolFolders?.env ? { env: source.toolFolders.env } : {}) };
   }
   if (source.origin === 'mise') return { kind: 'manual', hint: 'update it with mise' };
   if (source.npmPrefix) {
@@ -384,6 +431,10 @@ export function agentCliUpdatePlan(
   }
   // The agent's own update would land in npm's default prefix, which may be another install.
   if (source.origin === 'npm') return { kind: 'manual', hint: `update it with npm (npm install -g ${desc.npmPackage}@latest)` };
+  // A Windows shim nobody is proven to own: the agent's own update would go through npm's default prefix.
+  if (source.origin === 'unknown' && WINDOWS_SHIMS.has(path.win32.extname(file).toLowerCase())) {
+    return { kind: 'manual', hint: `update it with the tool that installed it (${desc.npmPackage}@latest)` };
+  }
   return { kind: 'own' };
 }
 
@@ -911,7 +962,12 @@ async function startUpdater(
     const command = [plan.command, ...plan.args].join(' ');
     const tool = agentCliToolTarget(plan, found, opts);
     if (!tool) return { refused: { ok: false, message: `Moxxy cannot update the ${desc.name} at ${found}: run ${command}.` } };
-    const child = spawnExecutableTarget(tool, plan.args, { stdio: UPDATER_STDIO, detached: platform !== 'win32', windowsHide: true });
+    const child = spawnExecutableTarget(tool, plan.args, {
+      ...(plan.env ? { env: plan.env } : {}),
+      stdio: UPDATER_STDIO,
+      detached: platform !== 'win32',
+      windowsHide: true,
+    });
     return { child, command };
   }
   const brew = source.homebrew && platform !== 'win32' ? path.posix.join(source.homebrew.prefix, 'bin', 'brew') : null;
