@@ -195,7 +195,8 @@ describe('seedPluginsFromResources', () => {
       expect(JSON.parse(await fs.readFile(path.join(installed(), 'package.json'), 'utf8')).version).toBe('0.48.2');
       const helper = path.join(installed(), 'bin', 'darwin-universal', 'moxxy-computer');
       expect(await fs.readFile(helper, 'utf8')).toBe('MAC HELPER');
-      expect((await fs.stat(helper)).mode & 0o111).not.toBe(0);
+      // Windows has no execute bit; on macOS and Linux the helper must stay runnable.
+      if (process.platform !== 'win32') expect((await fs.stat(helper)).mode & 0o111).not.toBe(0);
       expect(await fs.readFile(path.join(installed(), 'bin', 'darwin-universal', 'moxxy-computer.json'), 'utf8')).toBe('{"protocolVersion":5}');
       expect(await fs.readFile(path.join(installed(), 'bin', 'win32-x64', 'moxxy-computer.exe'), 'utf8')).toBe('NEW WINDOWS HELPER');
     });
