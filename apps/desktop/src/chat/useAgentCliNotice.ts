@@ -58,6 +58,9 @@ function wording(notice: AgentCliNotice, agentName: string, report: AgentCliRepo
   return { title, detail: (notice.action && versions(report)) || briefly(notice, agentName, report) };
 }
 
+/** "Codex is ready" ends a wait the person started, so it stays long enough to be seen. */
+const AGENT_READY_VISIBLE_MS = 15_000;
+
 const verbOf = (action: AgentCliAction | null): string => (action === 'install' ? 'Install' : 'Update');
 
 /** What the toast corner says about the agents' CLIs: the fix and, for an optional update, closing it for that version. */
@@ -98,7 +101,12 @@ export function useAgentCliNotices(info: AgentCliNoticeInfo | null | undefined):
       ? () =>
           void run(notice.provider, action).then((result) => {
             if (result.ok && (!result.outcome || result.outcome === 'updated')) {
-              pushToast({ id: `agent-update:${notice.provider}`, tone: 'success', title: `${agentName} is ready` });
+              pushToast({
+                id: `agent-update:${notice.provider}`,
+                tone: 'success',
+                title: `${agentName} is ready`,
+                visibleMs: AGENT_READY_VISIBLE_MS,
+              });
             }
           })
       : undefined;

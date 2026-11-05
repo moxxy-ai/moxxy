@@ -11,3 +11,5 @@ Updates now go through whatever owns the copy, including bun, pnpm, yarn, Volta,
 Codex installed with pnpm, yarn or Volta on Windows is now found and offered its update. After every update Moxxy reads the version again: only a new version counts as done. A copy that stayed the same or stopped saying its version gets a calm note on the card, and one that no longer runs gets a failure with an install button. The desktop waits longer for a slow agent runner to start.
 
 How an update ended stays on its card until you close it, also when the next check no longer offers that version, and Settings shows the same result. On Windows the Update button now works for pnpm, bun, yarn and Volta copies, without a terminal. A prompt Moxxy cannot answer is shown on the card with the command to run.
+
+The "<agent> is ready" note after an update now stays 15 seconds instead of 6, long enough to be seen when you look back.
