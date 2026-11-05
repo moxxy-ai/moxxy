@@ -431,10 +431,6 @@ export function agentCliUpdatePlan(
   }
   // The agent's own update would land in npm's default prefix, which may be another install.
   if (source.origin === 'npm') return { kind: 'manual', hint: `update it with npm (npm install -g ${desc.npmPackage}@latest)` };
-  // A Windows shim nobody is proven to own: the agent's own update would go through npm's default prefix.
-  if (source.origin === 'unknown' && WINDOWS_SHIMS.has(path.win32.extname(file).toLowerCase())) {
-    return { kind: 'manual', hint: `update it with the tool that installed it (${desc.npmPackage}@latest)` };
-  }
   return { kind: 'own' };
 }
 
@@ -962,7 +958,9 @@ async function startUpdater(
     const command = [plan.command, ...plan.args].join(' ');
     const tool = agentCliToolTarget(plan, found, opts);
     if (!tool) return { refused: { ok: false, message: `Moxxy cannot update the ${desc.name} at ${found}: run ${command}.` } };
+    // From the copy's folder: in a project with `packageManager`, Corepack would take over yarn or pnpm.
     const child = spawnExecutableTarget(tool, plan.args, {
+      cwd: path.dirname(found),
       ...(plan.env ? { env: plan.env } : {}),
       stdio: UPDATER_STDIO,
       detached: platform !== 'win32',

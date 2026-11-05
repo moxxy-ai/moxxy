@@ -580,6 +580,19 @@ describe('installing and updating a CLI', () => {
       expect(existsSync(updated)).toBe(false);
     });
 
+    it("runs a package tool from the copy's folder, so a project the app started in cannot pick its version", async () => {
+      newHome();
+      const bin = path.join(home!, '.bun', 'bin');
+      const ranIn = path.join(home!, 'bun-cwd');
+      cli(CODEX_CLI, '.bun/bin/codex', 'codex-cli 0.160.0');
+      writeFakeCli(path.join(bin, 'bun'), `require('fs').writeFileSync(${JSON.stringify(ranIn)}, process.cwd()); console.log('installed');`);
+
+      const result = await runAgentCliAction(CODEX_CLI, 'update', { home, pathEnv: bin });
+
+      expect(result).toMatchObject({ ok: true });
+      expect(realpathSync(readFileSync(ranIn, 'utf8'))).toBe(realpathSync(bin));
+    });
+
     it('checks the version after Homebrew too', async () => {
       brewClaude(true);
 
@@ -1057,14 +1070,6 @@ describe('the way a copy is updated', () => {
 
       expect(source.origin).toBe('pnpm');
       expect(plan).toEqual({ kind: 'run', command: 'pnpm', args: ['add', '-g', '@openai/codex@latest'], env: { PNPM_HOME: pnpmHome } });
-    });
-
-    it("gives a Windows shim it cannot place the command to run, never the agent's own update", () => {
-      const shim = 'D:\\Somewhere\\codex.cmd';
-      const { source, plan } = both(shim, withShims({ [shim]: '@"%~dp0\\odd\\launcher.exe" %*' }));
-
-      expect(source.origin).toBe('unknown');
-      expect(plan).toEqual({ kind: 'manual', hint: 'update it with the tool that installed it (@openai/codex@latest)' });
     });
   });
 
