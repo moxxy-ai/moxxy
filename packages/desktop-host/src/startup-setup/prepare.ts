@@ -20,7 +20,7 @@ import {
 import { isManagedPackage, pruneComputerUpdates } from '../computer-update.js';
 import { offerBundledComputerUpdate } from '../computer-update-runtime.js';
 import { offerBundledProviderUpdate, type ProviderUpdateOffer } from '../provider-update-runtime.js';
-import { seedPluginsFromResources } from '../seed-plugins.js';
+import { restoreSeedNativeHelpers, seedPluginsFromResources } from '../seed-plugins.js';
 import type { StartupSetup } from './setup.js';
 import { installerIdentity, readSetupStamp, setupNeeds, writeSetupStamp } from './stamp.js';
 
@@ -170,6 +170,13 @@ export async function prepareInstalledApp(options: PrepareInstalledAppOptions): 
           userDataDir,
           npm,
           ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+        });
+        // npm carries only the Windows helper of Computer Use; the others come with the installer.
+        await restoreSeedNativeHelpers({
+          resourcesPath,
+          moxxyHome,
+          managedElsewhere: [...options.providers, ...(options.managedComputer ? [COMPUTER_USE] : [])],
+          ...(options.log ? { log: options.log } : {}),
         });
         options.onComponentsInstalled?.();
       });
