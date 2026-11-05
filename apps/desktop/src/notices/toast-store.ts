@@ -12,6 +12,8 @@ export interface Toast {
   readonly body?: string;
   /** Takes the person to what the toast is about. */
   readonly onOpen?: () => void;
+  /** How long it stays, when the default for its tone is too short. */
+  readonly visibleMs?: number;
 }
 
 /** More than this crowds the corner; the oldest goes first. */
@@ -42,7 +44,7 @@ export function pushToast(toast: Toast): void {
   toasts = next.slice(-TOAST_LIMIT);
   timers.set(
     toast.id,
-    setTimeout(() => dismissToast(toast.id), toast.tone === 'error' ? ERROR_VISIBLE_MS : VISIBLE_MS),
+    setTimeout(() => dismissToast(toast.id), toast.visibleMs ?? (toast.tone === 'error' ? ERROR_VISIBLE_MS : VISIBLE_MS)),
   );
   emit();
 }

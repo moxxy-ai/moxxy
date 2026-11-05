@@ -8,6 +8,7 @@
 import {
   AGENT_CLIS,
   checkAgentCli,
+  defaultCacheFile,
   runAgentCliAction,
   type AgentCliDescriptor,
   type AgentCliSearch,
@@ -90,6 +91,7 @@ export async function runAgentCli(
     let fraction: number | undefined;
     const result = await runAgentCliAction(desc, action, {
       ...(deps.search ?? runnerSearch()),
+      cacheFile: defaultCacheFile(),
       hostPathDirs: deps.hostPathDirs ?? [],
       onProgress: (next) => {
         fraction = next;

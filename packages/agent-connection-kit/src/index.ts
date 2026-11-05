@@ -34,6 +34,10 @@ export {
   agentCliTargetAt,
   checkAgentCli,
   agentCliOrigin,
+  agentCliToolTarget,
+  agentCliUpdatePlan,
+  agentVersionSource,
+  defaultCacheFile,
   findAgentCli,
   PATH_FALLBACK_ENV,
   installInvocation,
@@ -42,6 +46,7 @@ export {
   type AgentCliAction,
   type AgentCliActionOptions,
   type AgentCliActionResult,
+  type AgentCliOutcome,
   type AgentCliCheckDeps,
   type AgentSignIn,
   type AgentCliDescriptor,
@@ -52,6 +57,7 @@ export {
   type WindowsNativeProgram,
   type LatestVersionOptions,
 } from './agent-cli.js';
+export { BLOCKED_AGENT_VERSIONS_URL, type BlockedAgentVersion, type BlockedAgentVersions } from './agent-versions-blocked.js';
 export { Inbox, untilStopped } from './inbox.js';
 export { oneOffPrompt, type OneOffPrompt } from './one-off-prompt.js';
 export {

@@ -96,6 +96,30 @@ describe('an agent connection row', () => {
     });
   });
 
+  it('shows a held-back update as nothing to do, and stays usable', () => {
+    const held = entry(report({ installed: '0.162.1', knownIssue: { version: '0.170.0', reason: 'Does not answer in Moxxy' } }));
+    expect(view(held)).toMatchObject({ state: 'connected', detail: 'ada@example.com · Codex 0.162.1', action: null });
+    expect(isProviderConnected(held)).toBe(true);
+  });
+
+  it('says the installed one may not work well, offering nothing, and stays usable', () => {
+    const broken = entry(report({ installed: '0.170.0', latest: '0.170.0', knownIssue: { version: '0.170.0', reason: 'Does not answer in Moxxy' } }));
+    expect(view(broken)).toMatchObject({
+      state: 'connected',
+      detail: 'ada@example.com · Codex 0.170.0 may not work well with Moxxy: Does not answer in Moxxy. A fixed version is on the way',
+      action: null,
+    });
+    expect(isProviderConnected(broken)).toBe(true);
+  });
+
+  it('offers no update of a CLI too old while the newest is held back', () => {
+    const knownIssue = { version: '0.170.0', reason: 'Does not answer in Moxxy' };
+    expect(view(entry(report({ state: 'update-required', installed: '0.150.0', latest: '0.150.0', knownIssue })))).toMatchObject({
+      state: 'update-required',
+      action: null,
+    });
+  });
+
   it('is checking until the first check ends, and while asked to check again', () => {
     expect(view(entry())).toMatchObject({ state: 'checking', action: null });
     expect(view(entry(report()), null, true)).toMatchObject({ state: 'checking' });

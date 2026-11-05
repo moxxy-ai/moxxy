@@ -1,0 +1,6 @@
+{
+  "$comment": "Versions of the agent CLIs that break with Moxxy, by command. Moxxy does not offer them as an update and says what is wrong when one is installed. Read from the development branch at most once an hour; how to add or remove one: AGENTS.md, \"Holding back a broken agent version\".",
+  "claude": [],
+  "codex": [],
+  "opencode": []
+}

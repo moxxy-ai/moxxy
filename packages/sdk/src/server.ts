@@ -46,6 +46,8 @@ export { utf8Locale } from './locale.js';
 // Cross-process "fire exactly once" lock (node:fs). Value lives here; its
 // options type is re-exported from the main barrel like other erased types.
 export { CrossProcessFireLock } from './cross-process-lock.js';
+// Hold `<file>.lock` while a file shared by several processes is read, changed and written.
+export { withFileLock } from './file-lock.js';
 export { readRequestBody, bearerTokenMatches } from './http-utils.js';
 export { fetchNpmLatest, type FetchNpmLatestOptions } from './npm-registry.js';
 // Stop a child and everything it started (process group / taskkill /T).

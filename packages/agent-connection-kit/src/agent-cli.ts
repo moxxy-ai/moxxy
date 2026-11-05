@@ -1,6 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { execFile, spawn, type ChildProcess, type StdioOptions } from 'node:child_process';
+import { existsSync, realpathSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { AgentCliOrigin, AgentCliReport } from '@moxxy/sdk';
@@ -9,11 +10,22 @@ import {
   findExecutable,
   killTree,
   moxxyPath,
+  resolveExecutableTarget,
   spawnExecutableTarget,
+  withFileLock,
   writeFileAtomic,
   type ExecutableTarget,
 } from '@moxxy/sdk/server';
 import { compareVersions, readCliVersion } from './cli-version.js';
+import {
+  BUNDLED_BLOCKED_AGENT_VERSIONS,
+  blockedAgentVersion,
+  blockedAgentVersions,
+  cachedBlockedAgentVersions,
+  defaultBlockedCacheFile,
+  type BlockedAgentVersion,
+  type BlockedAgentVersions,
+} from './agent-versions-blocked.js';
 
 /**
  * The agent CLIs Moxxy connects to, and how each one is found, checked,
@@ -30,6 +42,8 @@ export interface AgentCliDescriptor {
   readonly npmPackage: string;
   /** The oldest version Moxxy was checked against; older ones must be updated first. */
   readonly minimumVersion: string;
+  /** npm packages of older releases, which the agent's own update still handles (OpenCode 1). */
+  readonly legacyNpmPackages?: ReadonlyArray<string>;
   /** Arguments to the CLI itself that update it, however it was installed. */
   readonly updateArgs: ReadonlyArray<string>;
   /**
@@ -37,6 +51,16 @@ export interface AgentCliDescriptor {
    * vendor whose plain update stays within the installed one (OpenCode 1).
    */
   readonly majorUpdateArgs?: ReadonlyArray<string>;
+  /**
+   * Where the vendor's installer reads its newest version, which can lag npm;
+   * `channel` is the person's choice, read from `channelSetting` under the home.
+   */
+  readonly releaseChannel?: {
+    readonly url: (channel: string) => string;
+    readonly settingsFile: string;
+    readonly setting: string;
+    readonly fallback: string;
+  };
   /** The vendor's installer, as a POSIX shell line and as a PowerShell line. */
   readonly install: { readonly posix: string; readonly windows: string };
   /**
@@ -63,10 +87,15 @@ export interface AgentCliDescriptor {
 
 /** A native program behind a Windows npm shim. */
 export interface WindowsNativeProgram {
-  /** Relative to the shim's folder, `/`-separated. */
+  /** Relative to the shim's folder, or with `fromRealPackage` to the package's real folder; `/`-separated. */
   readonly path: string;
-  /** What the script that would start it sets, given the shim's folder. */
-  readonly env?: (shimDir: string) => Readonly<Record<string, string>>;
+  /**
+   * Relative to the folder the package's link really points at: pnpm keeps
+   * the package in its store and links the program beside it there.
+   */
+  readonly fromRealPackage?: boolean;
+  /** What the script that would start it sets, given the shim's folder (or the package's real folder). */
+  readonly env?: (root: string) => Readonly<Record<string, string>>;
 }
 
 export const CLAUDE_CLI: AgentCliDescriptor = {
@@ -76,6 +105,12 @@ export const CLAUDE_CLI: AgentCliDescriptor = {
   npmPackage: '@anthropic-ai/claude-code',
   minimumVersion: '2.1.296',
   updateArgs: ['update'],
+  releaseChannel: {
+    url: (channel) => `https://downloads.claude.ai/claude-code-releases/${encodeURIComponent(channel)}`,
+    settingsFile: '.claude/settings.json',
+    setting: 'autoUpdatesChannel',
+    fallback: 'latest',
+  },
   install: { posix: 'curl -fsSL https://claude.ai/install.sh | bash', windows: 'irm https://claude.ai/install.ps1 | iex' },
   installDirs: ['.local/bin'],
   windowsShim: { entry: 'node_modules/@anthropic-ai/claude-code/cli.js', runs: 'node' },
@@ -96,11 +131,18 @@ function codexWindowsPrograms(arch: string): ReadonlyArray<WindowsNativeProgram>
     CODEX_MANAGED_BY_NPM: '1',
     CODEX_MANAGED_PACKAGE_ROOT: path.win32.join(shimDir, 'node_modules', '@openai', 'codex'),
   });
-  return [
+  const shimRelative: WindowsNativeProgram[] = [
     `node_modules/@openai/codex/node_modules/@openai/${build.pkg}/${program}`,
     `node_modules/@openai/${build.pkg}/${program}`,
     `node_modules/@openai/codex/${program}`,
   ].map((relative) => ({ path: relative, env }));
+  // pnpm: Codex is a link into the store, with its program linked beside it there.
+  const pnpm: WindowsNativeProgram = {
+    path: `../${build.pkg}/${program}`,
+    fromRealPackage: true,
+    env: (packageRoot) => ({ CODEX_MANAGED_BY_PNPM: '1', CODEX_MANAGED_PACKAGE_ROOT: packageRoot }),
+  };
+  return [...shimRelative, pnpm];
 }
 
 export const CODEX_CLI: AgentCliDescriptor = {
@@ -126,6 +168,7 @@ export const OPENCODE_CLI: AgentCliDescriptor = {
   command: 'opencode',
   executableEnv: 'OPENCODE_EXECUTABLE',
   npmPackage: '@opencode/cli',
+  legacyNpmPackages: ['opencode-ai'],
   minimumVersion: '1.19.0',
   updateArgs: ['upgrade'],
   // OpenCode 1's `upgrade` stays on 1; `--major` replaces it with OpenCode 2 the way it was installed.
@@ -210,6 +253,18 @@ export interface AgentCliSource {
   readonly app?: string;
   /** For `homebrew`: the Homebrew folder it belongs to, and the formula or cask. */
   readonly homebrew?: { readonly prefix: string; readonly name: string; readonly cask: boolean };
+  /** For `winget`: the package it belongs to. */
+  readonly winget?: { readonly id: string };
+  /** For `npm`: the global prefix the package sits under, when its layout proves one. */
+  readonly npmPrefix?: string;
+  /** For a package tool whose folders a Windows shim proves: what points the tool's update at them. */
+  readonly toolFolders?: ToolFolders;
+}
+
+/** Arguments and environment that make a package tool work in the folders a copy lives in. */
+export interface ToolFolders {
+  readonly args?: ReadonlyArray<string>;
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 export interface AgentCliOriginOptions {
@@ -217,6 +272,10 @@ export interface AgentCliOriginOptions {
   readonly platform?: NodeJS.Platform;
   /** Follows links to the real file; defaults to the file system's. */
   readonly realpath?: (file: string) => string;
+  /** Whether a file is there; defaults to the file system's. */
+  readonly exists?: (file: string) => boolean;
+  /** Reads a Windows shim; defaults to the file system's. */
+  readonly read?: (file: string) => string;
 }
 
 /**
@@ -242,17 +301,179 @@ export function agentCliOrigin(desc: AgentCliDescriptor, file: string, opts: Age
     }
   }
   const slashed = real.replaceAll('\\', '/');
+  const seen = [file.replaceAll('\\', '/').toLowerCase(), slashed.toLowerCase()];
+  const shimmed = platform === 'win32' ? windowsToolShim(desc, file, opts.read ?? ((f) => readFileSync(f, 'utf8'))) : null;
+  if (shimmed) return shimmed;
+  const manager = PACKAGE_TOOLS.find((tool) => seen.some((p) => tool.owns.test(p)));
+  if (manager) return { origin: manager.origin };
+  const npmPrefix =
+    npmGlobalPrefix(real, desc.npmPackage, platform) ??
+    (platform === 'win32' ? npmWindowsShimPrefix(file, desc.npmPackage, opts.exists ?? existsSync) : null);
+  if (npmPrefix) return { origin: 'npm', npmPrefix };
+  if (seen.some((p) => MISE_PATH.test(p))) return { origin: 'mise' };
   for (const [folder, cask] of [['Caskroom', true], ['Cellar', false]] as const) {
     const marker = `/${folder}/`;
     const at = slashed.lastIndexOf(marker);
     const name = at > 0 ? slashed.slice(at + marker.length).split('/')[0] : undefined;
     if (name) return { origin: 'homebrew', homebrew: { prefix: real.slice(0, at), name, cask } };
   }
+  const winget = /\/Microsoft\/WinGet\/Packages\/([^/_]+)_/i.exec(slashed);
+  if (winget?.[1]) return { origin: 'winget', winget: { id: winget[1] } };
   if (comparable(slashed).includes(comparable(`/node_modules/${desc.npmPackage}/`))) return { origin: 'npm' };
   const home = opts.home ?? homedir();
   const folder = comparable(paths.dirname(file));
   if (desc.installDirs.some((dir) => comparable(paths.join(home, ...dir.split('/'))) === folder)) return { origin: 'installer' };
   return { origin: 'unknown' };
+}
+
+/** Global installs of package tools, by the folders each keeps them in. */
+const PACKAGE_TOOLS: ReadonlyArray<{
+  readonly origin: AgentCliOrigin;
+  readonly owns: RegExp;
+  readonly command: string;
+  readonly args: (pkg: string) => ReadonlyArray<string>;
+}> = [
+  {
+    origin: 'vite-plus',
+    owns: /\/(?:\.vite-plus|\.local\/share\/vite-plus|appdata\/local\/vite-plus)\/bin\//,
+    command: 'vp',
+    args: (pkg) => ['i', '-g', pkg],
+  },
+  { origin: 'bun', owns: /\/\.bun\/bin\//, command: 'bun', args: (pkg) => ['i', '-g', `${pkg}@latest`] },
+  {
+    origin: 'pnpm',
+    owns: /\/(?:\.local\/share\/pnpm|library\/pnpm|local\/share\/pnpm|appdata\/local\/pnpm|pnpm\/global)\//,
+    command: 'pnpm',
+    args: (pkg) => ['add', '-g', `${pkg}@latest`],
+  },
+  { origin: 'yarn', owns: /\/(?:\.yarn|local\/yarn)\/bin\/|\/yarn\/(?:data\/)?global\/node_modules\//, command: 'yarn', args: (pkg) => ['global', 'add', `${pkg}@latest`] },
+  { origin: 'volta', owns: /\/(?:\.volta|local\/volta)\/bin\//, command: 'volta', args: (pkg) => ['install', `${pkg}@latest`] },
+];
+
+const MISE_PATH = /\/mise\/(?:installs|shims)\//;
+
+/**
+ * The package tool behind a Windows shim, read from what the shim runs rather
+ * than from the folder's name, so a copy in folders of its own (`PNPM_HOME`,
+ * `yarn --global-folder`, `VOLTA_HOME`) is updated there and not in the
+ * tool's default ones. Null when the shim is not one of theirs.
+ */
+function windowsToolShim(desc: AgentCliDescriptor, file: string, read: (file: string) => string): AgentCliSource | null {
+  if (!WINDOWS_SHIMS.has(path.win32.extname(file).toLowerCase())) return null;
+  let text: string;
+  try {
+    text = read(file);
+  } catch {
+    return null;
+  }
+  const dir = path.win32.dirname(file);
+  const home = path.win32.dirname(dir);
+  if (/\bvolta run\b/i.test(text)) return { origin: 'volta', toolFolders: { env: { VOLTA_HOME: home } } };
+  const targets = [...text.matchAll(SHIM_TARGET)].map((match) => match[1] ?? '');
+  const yarnGlobal = targets.map((target) => /^(.*\\global)\\node_modules\\\.bin\\[^\\]+\.cmd$/i.exec(target)?.[1]).find(Boolean);
+  if (yarnGlobal) return { origin: 'yarn', toolFolders: { args: ['--global-folder', path.win32.resolve(dir, yarnGlobal), '--prefix', home] } };
+  const pkg = `\\node_modules\\${desc.npmPackage.replaceAll('/', '\\').toLowerCase()}\\`;
+  if (targets.some((target) => target.toLowerCase().includes(pkg) && /(?:^|\\)global\\/i.test(target))) {
+    const pnpmHome = path.win32.basename(dir).toLowerCase() === 'bin' ? home : dir;
+    return { origin: 'pnpm', toolFolders: { env: { PNPM_HOME: pnpmHome } } };
+  }
+  return null;
+}
+
+/**
+ * The npm prefix of `real`; null for anything npm's global layout does not
+ * prove, such as a mise tool of its own. npm keeps global packages in
+ * `<prefix>/lib/node_modules`, and on Windows in `<prefix>\\node_modules`.
+ */
+function npmGlobalPrefix(real: string, pkg: string, platform: NodeJS.Platform): string | null {
+  const lower = real.replaceAll('\\', '/').toLowerCase();
+  const layout = platform === 'win32' ? `/node_modules/${pkg.toLowerCase()}/` : `/lib/node_modules/${pkg.toLowerCase()}/`;
+  const at = lower.lastIndexOf(layout);
+  if (at < 0 || lower.slice(0, at).includes('/node_modules/')) return null;
+  const mise = /\/mise\/installs\/([^/]+)\/[^/]+$/.exec(lower.slice(0, at))?.[1];
+  if (mise && mise !== 'node') return null;
+  return at === 0 ? '/' : real.slice(0, at);
+}
+
+/** The prefix of a Windows npm shim (`<prefix>\\codex.cmd`), proven by the package beside it. */
+function npmWindowsShimPrefix(file: string, pkg: string, exists: (file: string) => boolean): string | null {
+  const dir = path.win32.dirname(file);
+  if (dir.replaceAll('\\', '/').toLowerCase().includes('/node_modules/')) return null;
+  return exists(path.win32.join(dir, 'node_modules', ...pkg.split('/'), 'package.json')) ? dir : null;
+}
+
+/** How a copy gets updated. */
+export type AgentCliUpdatePlan =
+  | { readonly kind: 'own' }
+  | {
+      readonly kind: 'run';
+      readonly command: string;
+      readonly args: ReadonlyArray<string>;
+      /** Set for the tool on top of this process's environment. */
+      readonly env?: Readonly<Record<string, string>>;
+    }
+  /** Moxxy must not touch it; `hint` says what the person does. */
+  | { readonly kind: 'manual'; readonly hint: string };
+
+/**
+ * Who may update the copy at `file`: the tool that owns it when that is
+ * proven, the agent's own command when the copy is the vendor's, and the
+ * person when neither is sure, so an update never lands on another install.
+ * Homebrew, winget and apps are handled where the update runs.
+ */
+export function agentCliUpdatePlan(
+  desc: AgentCliDescriptor,
+  file: string,
+  source: AgentCliSource,
+): AgentCliUpdatePlan {
+  const tool = PACKAGE_TOOLS.find((candidate) => candidate.origin === source.origin);
+  if (tool) {
+    const args = [...tool.args(desc.npmPackage), ...(source.toolFolders?.args ?? [])];
+    return { kind: 'run', command: tool.command, args, ...(source.toolFolders?.env ? { env: source.toolFolders.env } : {}) };
+  }
+  if (source.origin === 'mise') return { kind: 'manual', hint: 'update it with mise' };
+  if (source.npmPrefix) {
+    const args = ['install', '-g', '--prefix', source.npmPrefix, `--allow-scripts=${desc.npmPackage}`, `${desc.npmPackage}@latest`];
+    return { kind: 'run', command: 'npm', args };
+  }
+  const slashed = file.replaceAll('\\', '/').toLowerCase();
+  if (desc.legacyNpmPackages?.some((pkg) => slashed.includes(`/node_modules/${pkg.toLowerCase()}/`))) return { kind: 'own' };
+  if (source.origin === 'unknown' && slashed.includes('/node_modules/')) {
+    return { kind: 'manual', hint: `update the project or tool that installed it (${desc.npmPackage})` };
+  }
+  // The agent's own update would land in npm's default prefix, which may be another install.
+  if (source.origin === 'npm') return { kind: 'manual', hint: `update it with npm (npm install -g ${desc.npmPackage}@latest)` };
+  return { kind: 'own' };
+}
+
+/**
+ * The package tool behind an update, as Moxxy can start it with no shell: a
+ * native program directly, a known Node launcher through its script. Null for
+ * a tool it cannot find or a launcher it does not know; the person runs those.
+ */
+export function agentCliToolTarget(
+  plan: { readonly command: string },
+  file: string,
+  opts: { readonly platform?: NodeJS.Platform; readonly pathEnv?: string; readonly electron?: boolean } = {},
+): ExecutableTarget | null {
+  const dirs = (opts.pathEnv ?? process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  try {
+    return resolveExecutableTarget(plan.command, {
+      platform: opts.platform ?? process.platform,
+      pathEnv: '',
+      extraPaths: [path.dirname(file), ...dirs],
+      ...(opts.electron !== undefined ? { electron: opts.electron } : {}),
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** What the person does about a copy Moxxy will not update itself; null when it can. */
+function manualUpdateOf(plan: AgentCliUpdatePlan, file: string, opts: AgentCliSearch): string | null {
+  if (plan.kind === 'manual') return plan.hint;
+  if (plan.kind === 'run' && !agentCliToolTarget(plan, file, opts)) return `run ${[plan.command, ...plan.args].join(' ')}`;
+  return null;
 }
 
 export interface AgentCliTargetOptions {
@@ -261,10 +482,42 @@ export interface AgentCliTargetOptions {
   readonly electron?: boolean;
   /** The CPU whose native program to look for; defaults to this one's. */
   readonly arch?: string;
+  /** Reads a shim; defaults to the file system's. */
+  readonly read?: (file: string) => string;
+  /** The folder a link really points at; defaults to the file system's. */
+  readonly realpath?: (file: string) => string;
 }
 
 const WINDOWS_NATIVE = new Set(['.exe', '.com']);
 const WINDOWS_SHIMS = new Set(['.cmd', '.bat', '.ps1']);
+const SHIM_TARGET = /"%(?:~dp0|dp0%)\\?([^"]+)"/g;
+
+/**
+ * The folder holding the package behind a shim. An npm shim sits beside it;
+ * pnpm, yarn and mise shims name it, a yarn one through a second shim, and a
+ * Volta shim names only the tool, which Volta keeps in its image.
+ */
+function windowsShimRoot(desc: AgentCliDescriptor, found: string, read: (file: string) => string): string {
+  const pkg = `${desc.npmPackage.replaceAll('/', '\\')}\\`.toLowerCase();
+  let file = found;
+  for (let hop = 0; hop < 2; hop++) {
+    const dir = path.win32.dirname(file);
+    let text: string;
+    try {
+      text = read(file);
+    } catch {
+      break;
+    }
+    if (/\bvolta run\b/i.test(text)) return path.win32.join(dir, '..', 'tools', 'image', 'packages', ...desc.npmPackage.split('/'));
+    const targets = [...text.matchAll(SHIM_TARGET)].map((match) => match[1] ?? '');
+    const script = targets.find((target) => target.toLowerCase().includes(pkg));
+    if (script) return path.win32.dirname(path.win32.join(dir, script.slice(0, script.toLowerCase().indexOf(pkg))));
+    const next = targets.find((target) => target.toLowerCase().endsWith('.cmd'));
+    if (!next) break;
+    file = path.win32.join(dir, next);
+  }
+  return path.win32.dirname(found);
+}
 
 /** How to run the CLI found at `found` without a shell: as it is, or, behind a Windows npm shim, what the shim runs. */
 export function agentCliTargetAt(desc: AgentCliDescriptor, found: string, opts: AgentCliTargetOptions = {}): ExecutableTarget {
@@ -273,12 +526,21 @@ export function agentCliTargetAt(desc: AgentCliDescriptor, found: string, opts: 
   const extension = path.win32.extname(found).toLowerCase();
   if (WINDOWS_NATIVE.has(extension)) return { kind: 'direct', command: found };
   if (!WINDOWS_SHIMS.has(extension)) throw new Error(`Cannot run ${desc.name} from ${found}; install it again or point at ${desc.command}.exe.`);
-  const dir = path.win32.dirname(found);
+  const dir = windowsShimRoot(desc, found, opts.read ?? ((file) => readFileSync(file, 'utf8')));
   const at = (relative: string): string => path.win32.join(dir, ...relative.split('/'));
   const exists = opts.exists ?? existsSync;
+  const realPackage = (): string | null => {
+    try {
+      return (opts.realpath ?? realpathSync.native)(at(`node_modules/${desc.npmPackage}`));
+    } catch {
+      return null;
+    }
+  };
   for (const program of desc.windowsShim.native?.(opts.arch ?? process.arch) ?? []) {
-    const command = at(program.path);
-    if (exists(command)) return program.env ? { kind: 'direct', command, env: program.env(dir) } : { kind: 'direct', command };
+    const root = program.fromRealPackage ? realPackage() : dir;
+    if (!root) continue;
+    const command = path.win32.join(root, ...program.path.split('/'));
+    if (exists(command)) return program.env ? { kind: 'direct', command, env: program.env(root) } : { kind: 'direct', command };
   }
   const entry = at(desc.windowsShim.entry);
   if (!exists(entry)) throw new Error(`Cannot find ${entry} behind ${found}; reinstall ${desc.name}.`);
@@ -296,8 +558,132 @@ export interface LatestVersionOptions {
 }
 
 const HOUR_MS = 60 * 60_000;
+const SOURCE_TIMEOUT_MS = 20_000;
 
-type LatestCache = Record<string, { readonly version: string; readonly at: number }>;
+interface LatestEntry {
+  readonly version: string;
+  readonly at: number;
+  /** The newest version an update ran for and did not bring; not offered again. */
+  readonly notBrought?: string;
+}
+
+type LatestCache = Record<string, LatestEntry>;
+
+/** Where an install gets its updates, so Moxxy offers only what its Update can bring. */
+export interface AgentVersionSource {
+  /** Names it in the shared cache. */
+  readonly key: string;
+  readonly fetch: () => Promise<string | null>;
+}
+
+export interface AgentVersionSourceOptions {
+  readonly home?: string;
+  readonly fetchImpl?: typeof fetch;
+  /** Runs a program and gives its output; defaults to starting it without a shell. */
+  readonly run?: (command: string, args: ReadonlyArray<string>) => Promise<string>;
+}
+
+/** The newest version `source`'s way of updating offers: its channel, Homebrew, winget, else npm. */
+export function agentVersionSource(
+  desc: AgentCliDescriptor,
+  source: AgentCliSource,
+  opts: AgentVersionSourceOptions = {},
+): AgentVersionSource {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  if (source.origin === 'homebrew' && source.homebrew) {
+    const { name, cask } = source.homebrew;
+    const url = `https://formulae.brew.sh/api/${cask ? 'cask' : 'formula'}/${encodeURIComponent(name)}.json`;
+    return {
+      key: `homebrew:${cask ? 'cask' : 'formula'}:${name}`,
+      fetch: async () => {
+        const json = (await readUrl(url, fetchImpl).then((text) => JSON.parse(text ?? 'null') as unknown).catch(() => null)) as
+          | { version?: unknown; versions?: { stable?: unknown } }
+          | null;
+        const version = cask ? json?.version : json?.versions?.stable;
+        return typeof version === 'string' ? version.split(',')[0] ?? null : null;
+      },
+    };
+  }
+  if (source.origin === 'winget' && source.winget) {
+    const { id } = source.winget;
+    const run = opts.run ?? runForOutput;
+    return {
+      key: `winget:${id}`,
+      fetch: async () => {
+        const output = await run('winget', wingetArgs('show', id)).catch(() => '');
+        // The labels follow the system's language; only the version line is a label and a bare version.
+        return /^[^:\r\n]+:\s*v?(\d+(?:\.\d+)+)\s*$/m.exec(output)?.[1] ?? null;
+      },
+    };
+  }
+  const channel = desc.releaseChannel;
+  if (source.origin === 'installer' && channel) {
+    return {
+      key: `channel:${desc.command}`,
+      fetch: async () => {
+        const url = channel.url(await chosenChannel(channel, opts.home ?? homedir()));
+        const text = await readUrl(url, fetchImpl).catch(() => null);
+        return text && /^\d+(\.\d+)+/.test(text.trim()) ? text.trim() : null;
+      },
+    };
+  }
+  return { key: desc.npmPackage, fetch: () => fetchNpmLatest(desc.npmPackage, { fetchImpl }) };
+}
+
+function wingetArgs(command: 'show' | 'upgrade', id: string): ReadonlyArray<string> {
+  return [command, '--id', id, '--exact', '--disable-interactivity', '--accept-source-agreements'];
+}
+
+async function chosenChannel(channel: NonNullable<AgentCliDescriptor['releaseChannel']>, home: string): Promise<string> {
+  try {
+    const settings: unknown = JSON.parse(await readFile(path.join(home, ...channel.settingsFile.split('/')), 'utf8'));
+    const chosen = (settings as Record<string, unknown> | null)?.[channel.setting];
+    return typeof chosen === 'string' && chosen ? chosen : channel.fallback;
+  } catch {
+    return channel.fallback;
+  }
+}
+
+async function readUrl(url: string, fetchImpl: typeof fetch): Promise<string | null> {
+  const res = await fetchImpl(url, { signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS) });
+  return res.ok ? res.text() : null;
+}
+
+function runForOutput(command: string, args: ReadonlyArray<string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(command, [...args], { timeout: SOURCE_TIMEOUT_MS, windowsHide: true }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+  });
+}
+
+/** Records that an update ran and `latest`, as last read for `key`, stayed out of reach. */
+function rememberNotBrought(cacheFile: string, key: string): Promise<void> {
+  return changeLatestCache(cacheFile, (cache) => {
+    const known = cache[key];
+    return known ? { ...cache, [key]: { ...known, notBrought: known.version } } : null;
+  });
+}
+
+const cacheChanges = new Map<string, Promise<void>>();
+
+/**
+ * Reads, changes and writes the shared cache one change at a time, each on the
+ * file as it is then: agents checked at once, in this process or in another
+ * runner, must not write over each other's answer.
+ */
+function changeLatestCache(file: string, change: (cache: LatestCache) => LatestCache | null): Promise<void> {
+  const run = (cacheChanges.get(file) ?? Promise.resolve()).then(() =>
+    withFileLock(file, async () => {
+      const next = change(await readLatestCache(file));
+      if (next) await writeFileAtomic(file, JSON.stringify(next));
+    }).catch(() => undefined), // The cache only saves asking again; a home it cannot write to changes nothing else.
+  );
+  const settled = run.catch(() => undefined);
+  cacheChanges.set(file, settled);
+  void settled.then(() => {
+    if (cacheChanges.get(file) === settled) cacheChanges.delete(file);
+  });
+  return run;
+}
 
 /**
  * The vendor's newest published version. Answers are kept for an hour in one
@@ -306,14 +692,14 @@ type LatestCache = Record<string, { readonly version: string; readonly at: numbe
  * answer stands.
  */
 export async function latestAgentVersion(pkg: string, opts: LatestVersionOptions = {}): Promise<string | null> {
-  const cacheFile = opts.cacheFile ?? moxxyPath('cache', 'agent-cli-latest.json');
+  const cacheFile = opts.cacheFile ?? defaultCacheFile();
   const now = (opts.now ?? Date.now)();
   const cache = await readLatestCache(cacheFile);
   const known = cache[pkg];
   if (known && !opts.refresh && now - known.at < (opts.ttlMs ?? HOUR_MS)) return known.version;
   const fetched = await (opts.fetchLatest ?? ((name: string) => fetchNpmLatest(name)))(pkg);
   if (!fetched) return known ? known.version : null;
-  await writeFileAtomic(cacheFile, JSON.stringify({ ...cache, [pkg]: { version: fetched, at: now } })).catch(() => undefined);
+  await changeLatestCache(cacheFile, (latest) => ({ ...latest, [pkg]: { ...latest[pkg], version: fetched, at: now } }));
   return fetched;
 }
 
@@ -323,8 +709,10 @@ async function readLatestCache(file: string): Promise<LatestCache> {
     if (!parsed || typeof parsed !== 'object') return {};
     const out: LatestCache = {};
     for (const [pkg, entry] of Object.entries(parsed as Record<string, unknown>)) {
-      const { version, at } = (entry ?? {}) as { version?: unknown; at?: unknown };
-      if (typeof version === 'string' && typeof at === 'number') out[pkg] = { version, at };
+      const { version, at, notBrought } = (entry ?? {}) as { version?: unknown; at?: unknown; notBrought?: unknown };
+      if (typeof version === 'string' && typeof at === 'number') {
+        out[pkg] = { version, at, ...(typeof notBrought === 'string' ? { notBrought } : {}) };
+      }
     }
     return out;
   } catch {
@@ -339,6 +727,8 @@ export interface AgentSignIn {
 
 export interface AgentCliCheckDeps {
   readonly latest?: (pkg: string, opts: { readonly refresh: boolean }) => Promise<string | null>;
+  /** The versions Moxxy knows break; when `latest` stands in for the registry and this is absent, the shipped list. */
+  readonly blocked?: (opts: { readonly refresh: boolean }) => Promise<BlockedAgentVersions>;
   readonly now?: () => number;
   /** Who the installed agent is signed in as, asked of the agent itself. */
   readonly signIn?: () => Promise<AgentSignIn>;
@@ -347,29 +737,81 @@ export interface AgentCliCheckDeps {
 /** Where the CLI stands: missing, too old, behind the vendor's latest, current, or unreadable. */
 export async function checkAgentCli(
   desc: AgentCliDescriptor,
-  opts: AgentCliSearch & { readonly refresh?: boolean } = {},
+  opts: AgentCliSearch & VersionLookup & { readonly refresh?: boolean } = {},
   deps: AgentCliCheckDeps = {},
 ): Promise<AgentCliReport> {
   const refresh = opts.refresh === true;
-  const [found, latest] = await Promise.all([
-    installedVersion(desc, opts),
-    (deps.latest ?? ((pkg, o) => latestAgentVersion(pkg, o)))(desc.npmPackage, { refresh }),
-  ]);
+  const found = await installedVersion(desc, opts);
+  const source = versionSourceOf(desc, found.file, opts);
+  const offered = deps.latest
+    ? await deps.latest(desc.npmPackage, { refresh })
+    : await latestAgentVersion(source.key, { refresh, fetchLatest: source.fetch, ...cacheOption(opts) });
+  const notBrought = (await readLatestCache(opts.cacheFile ?? defaultCacheFile()))[source.key]?.notBrought;
+  const blocked = deps.blocked
+    ? await deps.blocked({ refresh })
+    : deps.latest
+      ? BUNDLED_BLOCKED_AGENT_VERSIONS
+      : await blockedAgentVersions({ refresh, cacheFile: blockedCacheFileFor(opts), ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) });
+  const heldBack = offered ? blockedAgentVersion(blocked, desc.command, offered) : undefined;
+  const latest = offered && (offered === notBrought || heldBack) ? found.version : offered;
+  const brokenInstalled = found.version ? blockedAgentVersion(blocked, desc.command, found.version) : undefined;
+  const knownIssue = brokenInstalled ?? heldBack;
+  const origin = found.file ? agentCliOrigin(desc, found.file, originOptions(opts)) : null;
+  const manualUpdate = found.file && origin ? manualUpdateOf(agentCliUpdatePlan(desc, found.file, origin), found.file, opts) : null;
   const base = {
     command: desc.command,
     installed: found.version,
-    ...(found.file ? { path: found.file, origin: agentCliOrigin(desc, found.file, originOptions(opts)).origin } : {}),
+    ...(found.file && origin ? { path: found.file, origin: origin.origin } : {}),
+    ...(manualUpdate ? { manualUpdate } : {}),
     latest,
     minimum: desc.minimumVersion,
     checkedAt: (deps.now ?? Date.now)(),
   };
   if (!found.present) return { state: 'missing', ...base };
   const signIn = deps.signIn ? await deps.signIn() : undefined;
-  const known = { ...base, ...(signIn ? { signedIn: signIn.signedIn, account: signIn.account ?? null } : {}) };
+  const known = {
+    ...base,
+    ...(signIn ? { signedIn: signIn.signedIn, account: signIn.account ?? null } : {}),
+    ...(knownIssue ? { knownIssue } : {}),
+  };
   if (!found.version) return { state: 'unknown', ...known };
   if (compareVersions(found.version, desc.minimumVersion) < 0) return { state: 'update-required', ...known };
   if (latest && compareVersions(found.version, latest) < 0) return { state: 'update-available', ...known };
   return { state: 'current', ...known };
+}
+
+/** Stand-ins for the shared cache and the network. */
+export interface VersionLookup {
+  readonly cacheFile?: string;
+  readonly fetchImpl?: typeof fetch;
+}
+
+/** The file every runner shares its version answers in. */
+export function defaultCacheFile(): string {
+  return moxxyPath('cache', 'agent-cli-latest.json');
+}
+
+function cacheOption(opts: VersionLookup): { readonly cacheFile?: string } {
+  return opts.cacheFile ? { cacheFile: opts.cacheFile } : {};
+}
+
+/** The list of broken versions is kept beside the versions' cache. */
+function blockedCacheFileFor(opts: VersionLookup): string {
+  return opts.cacheFile ? path.join(path.dirname(opts.cacheFile), 'agent-cli-blocked.json') : defaultBlockedCacheFile();
+}
+
+/** The newest version the last check found for this copy, when Moxxy knows it breaks; read from the caches only. */
+async function heldBackUpdate(desc: AgentCliDescriptor, file: string, opts: AgentCliSearch & VersionLookup): Promise<BlockedAgentVersion | undefined> {
+  const latest = (await readLatestCache(opts.cacheFile ?? defaultCacheFile()))[versionSourceOf(desc, file, opts).key]?.version;
+  return latest ? blockedAgentVersion(await cachedBlockedAgentVersions(blockedCacheFileFor(opts)), desc.command, latest) : undefined;
+}
+
+function versionSourceOf(desc: AgentCliDescriptor, file: string | undefined, opts: AgentCliSearch & VersionLookup): AgentVersionSource {
+  const source: AgentCliSource = file ? agentCliOrigin(desc, file, originOptions(opts)) : { origin: 'unknown' };
+  return agentVersionSource(desc, source, {
+    ...(opts.home !== undefined ? { home: opts.home } : {}),
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
 }
 
 function originOptions(opts: AgentCliSearch): AgentCliOriginOptions {
@@ -394,12 +836,16 @@ async function installedVersion(
 
 export type AgentCliAction = 'install' | 'update';
 
-export interface AgentCliActionOptions extends AgentCliSearch {
+export interface AgentCliActionOptions extends AgentCliSearch, VersionLookup {
   /** Each line the installer or updater prints, without colour codes. */
   readonly onLine?: (line: string) => void;
   /** How far it got, from a percentage it printed. */
   readonly onProgress?: (fraction: number) => void;
   readonly signal?: AbortSignal;
+  /** How long it may print nothing before it is stopped as stuck. */
+  readonly silenceLimitMs?: number;
+  /** How long a fresh copy that does not answer gets before it is asked again. */
+  readonly versionRetryMs?: number;
   /**
    * Folders the host put first on its PATH for itself (the desktop's own
    * Node). An update of a CLI outside them runs with them last: the CLI's
@@ -436,10 +882,20 @@ export function updaterEnv(
   return { [key]: [...dirs.filter((dir) => !isOwn(dir)), ...dirs.filter(isOwn)].join(paths.delimiter) };
 }
 
+/**
+ * What an update left, read from the copy: an updater's exit code proves
+ * nothing, and OpenCode's can remove the copy, bring no new one and exit 0.
+ * `unchanged` and `unverified` are no failures: a new version can show only
+ * after a restart, and a scanner can hold a fresh copy's first start.
+ */
+export type AgentCliOutcome = 'updated' | 'unchanged' | 'unverified' | 'gone';
+
 export interface AgentCliActionResult {
   readonly ok: boolean;
   /** The line that says how it went: the last thing printed, or the error. */
   readonly message: string;
+  /** Set on an update that ended with an exit code of 0. */
+  readonly outcome?: AgentCliOutcome;
 }
 
 /** How the vendor's installer is started: a POSIX shell, or Windows PowerShell by its full path. */
@@ -465,43 +921,131 @@ export async function runAgentCliAction(
   opts: AgentCliActionOptions = {},
 ): Promise<AgentCliActionResult> {
   const platform = opts.platform ?? process.platform;
-  let child: ChildProcess;
-  if (action === 'install') {
-    const { command, args } = installInvocation(desc, platform);
-    child = spawn(command, [...args], {
-      env: { ...process.env, ...desc.installEnv },
-      stdio: ['ignore', 'pipe', 'pipe'],
+  if (action === 'update') return updateAgentCli(desc, opts, platform);
+  const { command, args } = installInvocation(desc, platform);
+  const child = spawn(command, [...args], {
+    env: { ...process.env, ...desc.installEnv },
+    stdio: UPDATER_STDIO,
+    detached: platform !== 'win32',
+    windowsHide: true,
+  });
+  return watch(child, opts, 'the installer');
+}
+
+const UPDATER_STDIO: StdioOptions = ['ignore', 'pipe', 'pipe'];
+/** How many times a fresh copy is asked its version, and the wait between, in case a scanner holds its first start. */
+const VERSION_TRIES = 3;
+const VERSION_RETRY_MS = 2_000;
+
+async function updateAgentCli(
+  desc: AgentCliDescriptor,
+  opts: AgentCliActionOptions,
+  platform: NodeJS.Platform,
+): Promise<AgentCliActionResult> {
+  const found = findAgentCli(desc, opts);
+  if (!found) return { ok: false, message: `${desc.name} is not installed.` };
+  const source = agentCliOrigin(desc, found, originOptions(opts));
+  if (source.origin === 'app') return { ok: false, message: `The ${desc.name} at ${found} is part of ${source.app ?? 'an app'} and updates with it.` };
+  const plan = agentCliUpdatePlan(desc, found, source);
+  if (plan.kind === 'manual') return { ok: false, message: `Moxxy cannot update the ${desc.name} at ${found}: ${plan.hint}.` };
+  // An update always brings the newest version, so one Moxxy knows breaks is not run at all.
+  const held = opts.cacheFile ? await heldBackUpdate(desc, found, opts) : undefined;
+  if (held) {
+    return {
+      ok: false,
+      message: `${desc.name} ${held.version}, the newest, has a known problem with Moxxy: ${held.reason}. Moxxy holds the update back until a fixed version is out.`,
+    };
+  }
+  const before = opts.cacheFile ? (await installedVersion(desc, opts)).version : null;
+  const updater = await startUpdater(desc, found, source, plan, opts, platform);
+  if ('refused' in updater) return updater.refused;
+  const result = await watch(updater.child, opts, `"${updater.command}"`);
+  return result.ok && before ? whatTheUpdateLeft(desc, found, before, result, opts) : result;
+}
+
+/** Starts whatever owns the copy. Every way of updating ends in the same check of what it left. */
+async function startUpdater(
+  desc: AgentCliDescriptor,
+  found: string,
+  source: AgentCliSource,
+  plan: Exclude<AgentCliUpdatePlan, { readonly kind: 'manual' }>,
+  opts: AgentCliActionOptions,
+  platform: NodeJS.Platform,
+): Promise<{ readonly child: ChildProcess; readonly command: string } | { readonly refused: AgentCliActionResult }> {
+  if (source.winget && platform === 'win32') {
+    // winget owns this copy, and the agent's own update only prints this command.
+    const args = [...wingetArgs('upgrade', source.winget.id), '--silent', '--accept-package-agreements'];
+    return { child: spawn('winget', args, { stdio: UPDATER_STDIO, windowsHide: true }), command: ['winget', ...args].join(' ') };
+  }
+  if (plan.kind === 'run') {
+    const command = [plan.command, ...plan.args].join(' ');
+    const tool = agentCliToolTarget(plan, found, opts);
+    if (!tool) return { refused: { ok: false, message: `Moxxy cannot update the ${desc.name} at ${found}: run ${command}.` } };
+    // From the copy's folder: in a project with `packageManager`, Corepack would take over yarn or pnpm.
+    const child = spawnExecutableTarget(tool, plan.args, {
+      cwd: path.dirname(found),
+      ...(plan.env ? { env: plan.env } : {}),
+      stdio: UPDATER_STDIO,
       detached: platform !== 'win32',
       windowsHide: true,
     });
-  } else {
-    const found = findAgentCli(desc, opts);
-    if (!found) return { ok: false, message: `${desc.name} is not installed.` };
-    const source = agentCliOrigin(desc, found, originOptions(opts));
-    if (source.origin === 'app') return { ok: false, message: `The ${desc.name} at ${found} is part of ${source.app ?? 'an app'} and updates with it.` };
-    const brew = source.homebrew && platform !== 'win32' ? path.posix.join(source.homebrew.prefix, 'bin', 'brew') : null;
-    if (brew && source.homebrew && existsSync(brew)) {
-      // Homebrew owns this copy; the agent's own update would put a second one elsewhere.
-      child = spawn(brew, ['upgrade', ...(source.homebrew.cask ? ['--cask'] : []), source.homebrew.name], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true,
-      });
-    } else {
-      let target: ExecutableTarget;
-      try {
-        target = agentCliTargetAt(desc, found, { platform });
-      } catch (err) {
-        return { ok: false, message: err instanceof Error ? err.message : String(err) };
-      }
-      child = spawnExecutableTarget(target, await updateArgsFor(desc, target, opts), {
-        env: updaterEnv(found, opts.hostPathDirs ?? [], process.env, platform),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: platform !== 'win32',
-        windowsHide: true,
-      });
-    }
+    return { child, command };
   }
-  return watch(child, opts);
+  const brew = source.homebrew && platform !== 'win32' ? path.posix.join(source.homebrew.prefix, 'bin', 'brew') : null;
+  if (brew && source.homebrew && existsSync(brew)) {
+    // Homebrew owns this copy; the agent's own update would put a second one elsewhere.
+    const args = ['upgrade', ...(source.homebrew.cask ? ['--cask'] : []), source.homebrew.name];
+    return { child: spawn(brew, args, { stdio: UPDATER_STDIO, detached: true }), command: ['brew', ...args].join(' ') };
+  }
+  let target: ExecutableTarget;
+  try {
+    target = agentCliTargetAt(desc, found, { platform });
+  } catch (err) {
+    return { refused: { ok: false, message: err instanceof Error ? err.message : String(err) } };
+  }
+  const args = await updateArgsFor(desc, target, opts);
+  const child = spawnExecutableTarget(target, args, {
+    env: updaterEnv(found, opts.hostPathDirs ?? [], process.env, platform),
+    stdio: UPDATER_STDIO,
+    detached: platform !== 'win32',
+    windowsHide: true,
+  });
+  return { child, command: [desc.command, ...args].join(' ') };
+}
+
+/** The version a finished update left; `gone` when no copy can run, `silent` when one is there and does not say. */
+async function versionAfterUpdate(desc: AgentCliDescriptor, opts: AgentCliActionOptions): Promise<string | 'gone' | 'silent'> {
+  for (let attempt = 1; ; attempt += 1) {
+    const file = findAgentCli(desc, opts);
+    let runs = false;
+    if (file) {
+      try {
+        const target = agentCliTargetAt(desc, file, { platform: opts.platform ?? process.platform });
+        runs = true;
+        const version = await readCliVersion(target);
+        if (version) return version;
+      } catch {
+        runs = false;
+      }
+    }
+    if (attempt === VERSION_TRIES) return runs ? 'silent' : 'gone';
+    await delay(opts.versionRetryMs ?? VERSION_RETRY_MS);
+  }
+}
+
+async function whatTheUpdateLeft(
+  desc: AgentCliDescriptor,
+  found: string,
+  before: string,
+  result: AgentCliActionResult,
+  opts: AgentCliActionOptions,
+): Promise<AgentCliActionResult> {
+  const after = await versionAfterUpdate(desc, opts);
+  if (after === 'gone') return { ok: false, outcome: 'gone', message: `${desc.name} no longer runs after the update; install it again.` };
+  if (after === 'silent') return { ok: true, outcome: 'unverified', message: `The update ended, but ${desc.name} did not say its version. It may need a restart.` };
+  if (after !== before) return { ...result, outcome: 'updated' };
+  if (opts.cacheFile) await rememberNotBrought(opts.cacheFile, versionSourceOf(desc, found, opts).key);
+  return { ok: true, outcome: 'unchanged', message: `${desc.name} is still ${before}. A new version may show after a restart.` };
 }
 
 /** The update that reaches the vendor's latest release: the major one when the installed CLI is a major release behind. */
@@ -511,30 +1055,53 @@ async function updateArgsFor(desc: AgentCliDescriptor, target: ExecutableTarget,
     readCliVersion(target),
     (opts.latest ?? ((pkg: string) => latestAgentVersion(pkg)))(desc.npmPackage).catch(() => null),
   ]);
-  return installed && latest && majorOf(installed) < majorOf(latest) ? desc.majorUpdateArgs : desc.updateArgs;
+  // A version below the minimum may not know the major flag; the plain update brings it up first.
+  const canMove = installed && compareVersions(installed, desc.minimumVersion) >= 0;
+  return canMove && latest && majorOf(installed) < majorOf(latest) ? desc.majorUpdateArgs : desc.updateArgs;
 }
 
 function majorOf(version: string): number {
   return Number.parseInt(version, 10);
 }
 
+/** How long an updater may stay silent before it counts as stuck; a slow download still prints. */
+const SILENCE_LIMIT_MS = 10 * 60_000;
+/** A yes-or-no question from an updater; nobody can answer it, so it would wait forever. */
+const ASKS_TO_CONFIRM = /\b(?:install anyways|continue anyway|proceed)\?|\(y\/n\)|\[y\/n\]/i;
+
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const PERCENT = /(\d{1,3}(?:\.\d+)?)%/;
 
-function watch(child: ChildProcess, opts: AgentCliActionOptions): Promise<AgentCliActionResult> {
+/** The line that asks, without the frame a prompt draws around it; its choices come after it. */
+function askedQuestion(text: string): string {
+  const line = text.split(/\r\n|\r|\n/).find((candidate) => ASKS_TO_CONFIRM.test(candidate)) ?? '';
+  return line.replace(/^[^\p{L}\p{N}(]+/u, '').trim();
+}
+
+function watch(child: ChildProcess, opts: AgentCliActionOptions, runIt: string): Promise<AgentCliActionResult> {
+  const limitMs = opts.silenceLimitMs ?? SILENCE_LIMIT_MS;
   return new Promise((resolve) => {
     let settled = false;
     const last = { stdout: '', stderr: '' };
     const finish = (result: AgentCliActionResult): void => {
       if (settled) return;
       settled = true;
+      clearTimeout(silence);
       opts.signal?.removeEventListener('abort', stop);
       resolve(result);
     };
-    const stop = (): void => {
+    const end = (message: string): void => {
       killTree(child, 'SIGTERM');
-      finish({ ok: false, message: 'Stopped.' });
+      finish({ ok: false, message });
     };
+    const stop = (): void => end('Stopped.');
+    let silence: NodeJS.Timeout | undefined;
+    const heard = (): void => {
+      clearTimeout(silence);
+      silence = setTimeout(() => end(`Stopped: nothing printed for ${Math.round(limitMs / 60_000)} minutes.`), limitMs);
+      silence.unref();
+    };
+    heard();
     if (opts.signal?.aborted) {
       stop();
       return;
@@ -551,6 +1118,12 @@ function watch(child: ChildProcess, opts: AgentCliActionOptions): Promise<AgentC
     for (const stream of ['stdout', 'stderr'] as const) {
       let pending = '';
       child[stream]?.on('data', (chunk: Buffer) => {
+        heard();
+        const text = (pending + chunk.toString('utf8')).replace(ANSI, '');
+        if (ASKS_TO_CONFIRM.test(text)) {
+          end(`It asked to confirm, and Moxxy cannot answer: "${askedQuestion(text)}" Run ${runIt} in a terminal.`);
+          return;
+        }
         const parts = (pending + chunk.toString('utf8')).split(/\r\n|\r|\n/);
         pending = parts.pop() ?? '';
         for (const part of parts) take(stream, part);

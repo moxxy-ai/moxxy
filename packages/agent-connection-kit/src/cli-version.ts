@@ -67,7 +67,7 @@ export async function readCliVersion(target: ExecutableTarget, timeoutMs = 10_00
 
 function printedVersion(target: ExecutableTarget, timeoutMs: number): Promise<string> {
   return new Promise((resolve) => {
-    const child = spawnExecutableTarget(target, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawnExecutableTarget(target, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     let out = '';
     const timer = setTimeout(() => child.kill(), timeoutMs);
     child.stdout?.on('data', (chunk: Buffer) => {

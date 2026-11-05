@@ -93,6 +93,32 @@ describe('buildAgentCliDoctorChecks', () => {
     expect(buildAgentCliDoctorChecks([codex('update-required', '0.150.0')], new Set())[0]?.status).toBe('warn');
   });
 
+  it('warns of a version Moxxy knows breaks, held back or installed', () => {
+    const knownIssue = { version: '0.170.0', reason: 'Loses the reply' };
+    const held = { ...codex('current', '0.162.1'), report: { ...codex('current', '0.162.1').report, latest: '0.162.1', knownIssue } };
+    const broken = { ...codex('current', '0.170.0'), report: { ...codex('current', '0.170.0').report, latest: '0.170.0', knownIssue } };
+    const old = { ...codex('update-required', '0.150.0'), report: { ...codex('update-required', '0.150.0').report, latest: '0.150.0', knownIssue } };
+
+    expect(buildAgentCliDoctorChecks([held, broken], new Set())).toEqual([
+      { id: 'agent:codex-agent', status: 'ok', message: 'Codex 0.162.1, the latest' },
+      { id: 'agent:codex-agent', status: 'warn', message: 'Codex 0.170.0; 0.170.0 may not work well with Moxxy: Loses the reply. A fixed version is on the way' },
+    ]);
+    expect(buildAgentCliDoctorChecks([old], new Set(['codex-agent']))).toEqual([
+      {
+        id: 'agent:codex-agent',
+        status: 'fail',
+        message: 'Codex 0.150.0 is older than 0.155.1, the oldest Moxxy works with — 0.170.0 is out, but Moxxy holds it back: Loses the reply',
+      },
+    ]);
+  });
+
+  it('offers the fixed version over a broken one installed as a plain update', () => {
+    const knownIssue = { version: '0.160.0', reason: 'Loses the reply' };
+    const broken = { ...codex('update-available', '0.160.0'), report: { ...codex('update-available', '0.160.0').report, latest: '0.166.0', knownIssue } };
+
+    expect(buildAgentCliDoctorChecks([broken], new Set())[0]?.message).toBe('Codex 0.160.0; 0.166.0 is out — moxxy agents update codex');
+  });
+
   it('names the file it checked and where it came from', () => {
     const at = (path: string, origin: 'homebrew' | 'app') => ({ ...codex('update-required', '0.150.0'), report: { ...codex('update-required', '0.150.0').report, path, origin } });
     const inside = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex';
