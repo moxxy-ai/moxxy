@@ -8,19 +8,7 @@ const NO_FIX_PUBLISHED = '<0.0.0';
  * that range: a major the listed paths cannot take. A backport changes the
  * range and ends the acceptance.
  */
-export const ACCEPTED_ADVISORIES = [
-  {
-    id: 'GHSA-g3hv-75wg-m249',
-    module: 'minimatch',
-    paths: [
-      'apps__desktop>electron-builder>app-builder-lib>@electron/asar>minimatch',
-      'apps__desktop>electron-builder>app-builder-lib>ejs>jake>filelist>minimatch',
-    ],
-    fixedOnlyIn: '>=11.0.1',
-    reason:
-      'Fixed only in minimatch 11, whose named-export API minimatch 3 and 5 callers cannot load; the latest electron-builder still pins both. Build-time only, matching globs Moxxy writes itself.',
-  },
-];
+export const ACCEPTED_ADVISORIES = [];
 
 function isAccepted(advisory, accepted) {
   const entry = accepted.find((candidate) => candidate.id === advisory.github_advisory_id);
