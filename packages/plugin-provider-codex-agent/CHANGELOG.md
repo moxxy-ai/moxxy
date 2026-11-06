@@ -1,5 +1,15 @@
 # @moxxy/plugin-provider-codex-agent
 
+## 0.48.3
+
+### Patch Changes
+
+- Updated dependencies [757d4d0]
+- Updated dependencies [98ecfa5]
+- Updated dependencies [15beb98]
+  - @moxxy/sdk@0.48.3
+  - @moxxy/agent-connection-kit@0.1.7
+
 ## 0.48.2
 
 ### Patch Changes

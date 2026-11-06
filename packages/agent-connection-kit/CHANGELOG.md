@@ -1,5 +1,14 @@
 # @moxxy/agent-connection-kit
 
+## 0.1.7
+
+### Patch Changes
+
+- 15beb98: On Windows, Codex installed with pnpm no longer opens a console window. Before, every conversation with it kept a black window over the desktop, and short ones flashed at start-up. Moxxy now starts Codex's own `codex.exe` from pnpm's store, as it already did for npm, instead of its `codex.js`, which opened that window.
+- Updated dependencies [757d4d0]
+- Updated dependencies [98ecfa5]
+  - @moxxy/sdk@0.48.3
+
 ## 0.1.6
 
 ### Patch Changes
