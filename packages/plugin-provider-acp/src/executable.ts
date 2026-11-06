@@ -93,14 +93,14 @@ export function opencodeAcpLaunch(opts: {
 
 /**
  * Moxxy's own variables in the environment OpenCode would inherit, each set
- * to `undefined` so it is left out. OpenCode 2's shared background server is
- * started by the first OpenCode client and keeps that client's environment
- * after Moxxy quits; every OpenCode the person opens later, in a terminal too,
- * runs its tools there. Moxxy's tools reach OpenCode over MCP, so it needs
+ * to `undefined` so it is left out. Commands such as `opencode auth list`
+ * start OpenCode 2's shared background server when none runs, and it keeps
+ * their environment after Moxxy quits; every OpenCode the person opens later,
+ * in a terminal too, runs its tools there. Moxxy's tools reach OpenCode over MCP, so it needs
  * none of these. `MOXXY_HOME` stays: a `moxxy` command run in a conversation
  * of an isolated Moxxy must use that Moxxy's home, not the person's real one.
  */
-function moxxyOwnVariables(inherited: Readonly<Record<string, string | undefined>>): Record<string, undefined> {
+export function moxxyOwnVariables(inherited: Readonly<Record<string, string | undefined>>): Record<string, undefined> {
   const out: Record<string, undefined> = {};
   for (const key of Object.keys(inherited)) {
     if ((key.startsWith('MOXXY_') && key !== 'MOXXY_HOME') || key === 'ELECTRON_RUN_AS_NODE') out[key] = undefined;
