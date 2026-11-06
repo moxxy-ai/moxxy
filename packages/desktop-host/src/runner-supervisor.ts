@@ -43,7 +43,7 @@ import { redactSecrets } from './security';
 import { runnerExtraEnv } from './runner-env';
 
 const PROBE_TIMEOUT_MS = 250;
-const SOCKET_WAIT_MS = 20_000;
+const SOCKET_WAIT_MS = 45_000;
 const SOCKET_POLL_MS = 200;
 const SOCKET_POLL_MAX_MS = 500;
 const RECONNECT_BACKOFF_MS = 2_000;

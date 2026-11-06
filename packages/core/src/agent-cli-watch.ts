@@ -114,6 +114,8 @@ function differs(a: AgentCliReport, b: AgentCliReport): boolean {
     a.installed !== b.installed ||
     a.latest !== b.latest ||
     a.signedIn !== b.signedIn ||
-    a.account !== b.account
+    a.account !== b.account ||
+    a.knownIssue?.version !== b.knownIssue?.version ||
+    a.knownIssue?.reason !== b.knownIssue?.reason
   );
 }

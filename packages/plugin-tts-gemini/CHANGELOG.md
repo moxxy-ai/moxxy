@@ -1,5 +1,13 @@
 # @moxxy/plugin-tts-gemini
 
+## 0.48.3
+
+### Patch Changes
+
+- Updated dependencies [757d4d0]
+- Updated dependencies [98ecfa5]
+  - @moxxy/sdk@0.48.3
+
 ## 0.48.2
 
 ### Patch Changes

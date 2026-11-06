@@ -6,17 +6,25 @@
 
 import { useSyncExternalStore } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
+import type { AgentCliNoticeView } from '../chat/useAgentCliNotice';
+import { getAgentUpdateCards, subscribeAgentUpdateCards } from './agent-update-card';
+import { AgentUpdateToast } from './AgentUpdateToast';
 import { dismissToast, getToasts, subscribeToasts, type Toast } from './toast-store';
 
 export function ToastStack({
   toasts,
+  agentUpdates = [],
   onDismiss,
 }: {
   readonly toasts: ReadonlyArray<Toast>;
+  readonly agentUpdates?: ReadonlyArray<AgentCliNoticeView>;
   readonly onDismiss: (id: string) => void;
 }): JSX.Element {
   return (
     <div role="status" aria-live="polite" className="toast-stack">
+      {agentUpdates.map((update) => (
+        <AgentUpdateToast key={update.notice.provider} notice={update} />
+      ))}
       {toasts.map((toast) => {
         const words = (
           <>
@@ -25,7 +33,7 @@ export function ToastStack({
           </>
         );
         return (
-          <div key={toast.id} className="toast anim-fade-up" data-tone={toast.tone}>
+          <div key={toast.id} className="toast" data-tone={toast.tone}>
             <span className="toast__dot" aria-hidden />
             {toast.onOpen ? (
               <button
@@ -58,5 +66,6 @@ export function useToasts(): ReadonlyArray<Toast> {
 
 /** The app's toast stack, wired to the store. */
 export function Toasts(): JSX.Element {
-  return <ToastStack toasts={useToasts()} onDismiss={dismissToast} />;
+  const agentUpdates = useSyncExternalStore(subscribeAgentUpdateCards, getAgentUpdateCards);
+  return <ToastStack toasts={useToasts()} agentUpdates={agentUpdates} onDismiss={dismissToast} />;
 }

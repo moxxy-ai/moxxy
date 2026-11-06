@@ -203,6 +203,16 @@ Claude Code, Codex and OpenCode are other companies' programs, updated on their 
 
 **Before merging into `development`, run `pnpm test:agents:live` on the exact code being merged, and before every release.** Put the report's commit, the CLI versions and every result in the PR or the hand-off. An agent that could not be checked (not installed, not signed in) is reported as **not checked** — never as passing — and a `FAIL` blocks the merge until it is fixed or the owner accepts it in writing.
 
+### Holding back a broken agent version
+
+When a new Claude Code, Codex or OpenCode release breaks with Moxxy (the daily `agent-cli-compat.yml` turns red, or a user reports it), add it to `packages/agent-connection-kit/src/agent-versions-blocked.json` under the agent's command, with a reason of a few words:
+
+```json
+"claude": [{ "version": "2.2.0", "reason": "Does not answer in Moxxy" }]
+```
+
+Merge it into `development` in its own small PR. Every install reads the file from `development` at most once an hour, so it takes effect without a release; the copy shipped with a build is only the fallback when the file cannot be read. While a version is on the list, Moxxy does not offer it as an update (no Update button and no card, and `moxxy agents update` refuses with the reason), and an install that already has it gets one closable card saying it may not work well until a fixed version is out. The vendors' updaters always bring the newest version, so the list can hold an update back but never pick an older one. Remove the entry once a fixed version is out, or once Moxxy is fixed for it.
+
 Every PR into `development` carries the box "I ran `pnpm test:agents:live` on this PR's latest commit" from `.github/pull_request_template.md`. An agent opening a PR with its own `--body` copies that line in, unticked; whoever ran the check ticks it. Until then the `Agent live check confirmed` check (`.github/workflows/agent-live-confirmed.yml`) is red. It is a reminder, not a lock: branch protection does not require it, so Merge stays possible and the release workflow, which pushes without a PR, never meets it. Dependabot PRs skip it.
 
 ## Releasing (changesets)

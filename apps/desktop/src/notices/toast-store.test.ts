@@ -47,6 +47,15 @@ describe('toast store', () => {
     expect(getToasts()).toEqual([]);
   });
 
+  it('stays as long as the pusher asks', () => {
+    pushToast({ id: 'agent', tone: 'success', title: 'Codex is ready', visibleMs: 15_000 });
+
+    vi.advanceTimersByTime(14_000);
+    expect(getToasts().map((toast) => toast.id)).toEqual(['agent']);
+    vi.advanceTimersByTime(1_000);
+    expect(getToasts()).toEqual([]);
+  });
+
   it('a replaced toast gets a fresh time on screen', () => {
     pushToast({ id: 'model', tone: 'info', title: 'One' });
     vi.advanceTimersByTime(5_000);

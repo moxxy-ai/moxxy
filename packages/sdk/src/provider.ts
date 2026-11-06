@@ -399,7 +399,19 @@ export type AgentCliState = 'missing' | 'update-required' | 'update-available' |
  * installer, Homebrew, a global npm install, inside an app (which updates it
  * itself), or none of these.
  */
-export type AgentCliOrigin = 'installer' | 'homebrew' | 'npm' | 'app' | 'unknown';
+export type AgentCliOrigin =
+  | 'installer'
+  | 'homebrew'
+  | 'winget'
+  | 'npm'
+  | 'bun'
+  | 'pnpm'
+  | 'yarn'
+  | 'volta'
+  | 'vite-plus'
+  | 'mise'
+  | 'app'
+  | 'unknown';
 
 /** The last check of an agent connection's CLI, as every surface shows it. */
 export interface AgentCliReport {
@@ -412,6 +424,8 @@ export interface AgentCliReport {
   readonly path?: string;
   /** Where that file came from; absent when missing. */
   readonly origin?: AgentCliOrigin;
+  /** What the person does to update it, for a copy Moxxy must not update itself. */
+  readonly manualUpdate?: string;
   /** The vendor's latest published version; null when the registry could not be asked. */
   readonly latest: string | null;
   /** The oldest version Moxxy works with. */
@@ -422,6 +436,12 @@ export interface AgentCliReport {
   readonly signedIn?: boolean;
   /** Who it is signed in as, in the agent's words (Claude's e-mail, "ChatGPT" for Codex); null when it does not say. */
   readonly account?: string | null;
+  /**
+   * A version Moxxy knows breaks with it: the one installed, or the newest
+   * one, which is then not offered (`latest` stays at the installed one).
+   * Absent when neither is known to break.
+   */
+  readonly knownIssue?: { readonly version: string; readonly reason: string };
 }
 
 /** How an agent connection's CLI is checked; the host runs it at start and every hour. */

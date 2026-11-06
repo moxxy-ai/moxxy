@@ -1,5 +1,45 @@
 # @moxxy/desktop
 
+## 0.48.3
+
+### Patch Changes
+
+- 757d4d0: Agent updates no longer come back after Update, in the CLI and in the desktop. Moxxy now offers only a version the copy's own way of updating has, updates a Claude installed with winget through winget, and takes an old OpenCode through its plain upgrade before moving it to OpenCode 2. An update that asks a question or goes silent for ten minutes now stops with a clear message instead of spinning.
+
+  Updates now go through whatever owns the copy, including bun, pnpm, yarn, Volta, Vite+ and npm with its own prefix. A copy Moxxy must not touch, such as one from mise, says what to do instead. Agent install and update notices are now cards in the toast corner with the agent's mark, the versions and progress in place, one card for each agent with an update.
+
+  Codex installed with pnpm, yarn or Volta on Windows is now found and offered its update. After every update Moxxy reads the version again: only a new version counts as done. A copy that stayed the same or stopped saying its version gets a calm note on the card, and one that no longer runs gets a failure with an install button. The desktop waits longer for a slow agent runner to start.
+
+  How an update ended stays on its card until you close it, also when the next check no longer offers that version, and Settings shows the same result. On Windows the Update button now works for pnpm, bun, yarn and Volta copies, without a terminal. A prompt Moxxy cannot answer is shown on the card with the command to run.
+
+  The "<agent> is ready" note after an update now stays 15 seconds instead of 6, long enough to be seen when you look back.
+
+- 98ecfa5: Moxxy can now hold back a Claude Code, Codex or OpenCode version known to break with it. Such a version is simply not offered as an update, with nothing shown, since the installed version works; `moxxy agents update` refuses and says why. If that version is already installed, one card that can be closed says it may not work well with Moxxy and that a fixed version is on the way; the fixed version is then offered as a plain update. `moxxy agents` and `moxxy doctor` say the same. The list is read from the repository at most once an hour, so a new entry reaches every install without a release.
+
+  Checking several agents at once, as `moxxy agents` does, or from several runners at the same moment, no longer loses one agent's newest version in the shared cache, so the next update and its checks see the right version.
+
+  On Windows, an agent installed with npm into its own folder is updated in that folder (`npm install -g --prefix <folder>`), no longer by the agent's own update, which put the new version into npm's default folder and left the copy in use as it was. An npm copy whose folder Moxxy cannot prove gets the npm command to run instead of an Update button.
+
+  On Windows a Codex or other agent installed with pnpm, yarn or Volta into folders of its own (`PNPM_HOME`, `yarn --global-folder`, `VOLTA_HOME`) is now updated in those folders: Moxxy reads what the shim runs instead of judging by the folder's name. Before, such a copy got the agent's own update, which for yarn and Volta reinstalled npm's global copy and left the one in use as it was.
+
+  Reading an agent's version on Windows no longer flashes a console window, which a native agent such as Codex from pnpm showed after an update. A package tool now updates from the copy's own folder, so an app started inside a project with `packageManager` no longer hands yarn to Corepack.
+
+- 15beb98: On Windows, Codex installed with pnpm no longer opens a console window. Before, every conversation with it kept a black window over the desktop, and short ones flashed at start-up. Moxxy now starts Codex's own `codex.exe` from pnpm's store, as it already did for npm, instead of its `codex.js`, which opened that window.
+- 2890e20: Computer Use works again on macOS and Linux after the desktop updates itself without a new installer. The `@moxxy/plugin-computer-control` package on npm carries only the Windows helper, so a copy the desktop updated from npm offered `computer_status` alone until the next installer. The desktop now adds the helpers its installer carries to such a copy, at every launch and right after an update, without touching a helper the copy already has.
+- Updated dependencies [757d4d0]
+- Updated dependencies [98ecfa5]
+- Updated dependencies [15beb98]
+  - @moxxy/cli@0.48.3
+  - @moxxy/sdk@0.48.3
+  - @moxxy/chat-model@0.5.7
+  - @moxxy/client-core@0.16.3
+  - @moxxy/client-platform-web@0.1.82
+  - @moxxy/desktop-host@0.17.3
+  - @moxxy/desktop-ipc-contract@0.17.3
+  - @moxxy/plugin-vault@0.48.3
+  - @moxxy/runner@0.2.68
+  - @moxxy/workflows-builder@0.1.65
+
 ## 0.48.2
 
 ### Patch Changes
