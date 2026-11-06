@@ -56,6 +56,11 @@ export function opencodeServesApiBesideAcp(version: string | null): boolean {
   return version !== null && compareVersions(version, '2.0.0-0') < 0;
 }
 
+/** Whether this OpenCode has a shared background server (OpenCode 2). An unreadable version is taken as not. */
+export function opencodeHasSharedServer(version: string | null): boolean {
+  return version !== null && compareVersions(version, '2.0.0-0') >= 0;
+}
+
 /**
  * How `opencode acp` is started. Given a `server`, OpenCode serves its HTTP
  * API on that port behind that password, so Moxxy can read the subagents

@@ -1,6 +1,7 @@
 import type { AgentSignIn } from '@moxxy/agent-connection-kit';
 import { MoxxyError } from '@moxxy/sdk';
-import { spawnExecutableTarget } from '@moxxy/sdk/server';
+import { readCliVersion } from '@moxxy/agent-connection-kit';
+import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
 import type { ProviderAuthContext, ProviderOAuthResult, ProviderOAuthStatus } from '@moxxy/sdk';
 import {
   OPENCODE_DEBUG_AGENT_ARGS,
@@ -11,8 +12,10 @@ import {
   OPENCODE_EXECUTABLE_ENV,
   OPENCODE_MODELS_ARGS,
   OPENCODE_PROVIDER_ID,
+  OPENCODE_SERVICE_STATUS_ARGS,
+  OPENCODE_STANDALONE_FLAG,
 } from './constants.js';
-import { moxxyOwnVariables, opencodeTarget } from './executable.js';
+import { moxxyOwnVariables, opencodeHasSharedServer, opencodeTarget } from './executable.js';
 import type { OpenCodeRule, ReadAgentMcpServers, ReadAgentRules } from './rules.js';
 
 export type OpenCodeState = 'signed-in' | 'missing' | 'error';
@@ -207,7 +210,26 @@ async function runCommand(executable: string, args: readonly string[], options: 
     const error = Object.assign(err instanceof Error ? err : new Error(String(err)), { code: 'ENOENT' }) as NodeJS.ErrnoException;
     return { code: 1, stdout: '', stderr: '', error };
   }
-  return await new Promise((resolve) => {
+  return await spawnCommand(target, await withoutStartingSharedServer(target, args), options);
+}
+
+/**
+ * `args`, run so that Moxxy never starts OpenCode 2's shared background
+ * server: that server stays after Moxxy quits. When it already runs, the
+ * command uses it, as it answers at once and is the person's own; when not,
+ * the command runs on a private server that ends with it (`--standalone`,
+ * about a second longer). OpenCode 1 has no shared server, and an OpenCode
+ * that cannot say whether it runs is asked as it was before.
+ */
+async function withoutStartingSharedServer(target: ExecutableTarget, args: readonly string[]): Promise<readonly string[]> {
+  if (!opencodeHasSharedServer(await readCliVersion(target))) return args;
+  const status = await spawnCommand(target, OPENCODE_SERVICE_STATUS_ARGS);
+  if (status.error || status.code !== 0) return args;
+  return status.stdout.trim() === 'stopped' ? [...args, OPENCODE_STANDALONE_FLAG] : args;
+}
+
+function spawnCommand(target: ExecutableTarget, args: readonly string[], options: CommandOptions = {}): Promise<OpenCodeCommandResult> {
+  return new Promise((resolve) => {
     const where = { ...(options.cwd ? { cwd: options.cwd } : {}), env: moxxyOwnVariables(process.env) };
     const child = spawnExecutableTarget(target, [...args], options.inherit ? { ...where, stdio: 'inherit' } : { ...where, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let stdout = '';

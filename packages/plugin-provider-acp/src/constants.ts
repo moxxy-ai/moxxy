@@ -34,3 +34,7 @@ export const OPENCODE_DEBUG_CONFIG_ARGS = ['debug', 'config'] as const;
 export const OPENCODE_AUTH_LIST_ARGS = ['auth', 'list'] as const;
 export const OPENCODE_AUTH_LOGIN_ARGS = ['auth', 'login'] as const;
 export const OPENCODE_AUTH_LOGOUT_ARGS = ['auth', 'logout'] as const;
+/** Prints the URL of OpenCode 2's shared background server when it runs, `stopped` when not; it starts nothing. */
+export const OPENCODE_SERVICE_STATUS_ARGS = ['service', 'status'] as const;
+/** Makes an OpenCode 2 command run on a private server that ends with it, not on the shared one. */
+export const OPENCODE_STANDALONE_FLAG = '--standalone';
