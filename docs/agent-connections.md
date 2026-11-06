@@ -83,7 +83,7 @@ Moxxy never removes a copy, and the desktop never updates an agent during a turn
 | Context within a turn | The agent's. Moxxy's compaction, elision and prompt cache work only on Moxxy's side. |
 | Instructions | The agent's own (`CLAUDE.md`, `AGENTS.md`, its settings). Moxxy adds nothing to its prompt, and its own conduct rules are not sent. |
 
-The local MCP server listens on `127.0.0.1` only, needs a token the agent gets in its environment, and refuses browser requests. Every Moxxy tool the agent calls through it goes through the permission engine like any other call.
+The local MCP server listens on `127.0.0.1` only, needs a token the agent gets with the server's settings (an `Authorization` header, never an environment variable), and refuses browser requests. Every Moxxy tool the agent calls through it goes through the permission engine like any other call.
 
 ## Approvals and auto-approve
 
