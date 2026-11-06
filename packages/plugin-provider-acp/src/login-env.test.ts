@@ -30,8 +30,13 @@ interface FakeOpenCode {
   env(): Record<string, string>;
 }
 
-/** An `opencode` of `version` whose `service status` prints `service` (a URL when its shared server runs), or fails when null. */
-function fakeOpenCode(version: string, service: string | null): FakeOpenCode {
+/**
+ * An `opencode` of `version` whose `service status` prints `service` (a URL
+ * when its shared server runs), or fails when null. With `standaloneTimesOut`
+ * its private server fails as OpenCode's does when its plugins take longer
+ * than the 5 seconds it allows them (a busy computer).
+ */
+function fakeOpenCode(version: string, service: string | null, standaloneTimesOut = false): FakeOpenCode {
   const root = mkdtempSync(path.join(tmpdir(), 'moxxy-opencode-cli-'));
   roots.push(root);
   const log = path.join(root, 'runs.ndjson');
@@ -43,6 +48,7 @@ function fakeOpenCode(version: string, service: string | null): FakeOpenCode {
     fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
     fs.writeFileSync(${JSON.stringify(env)}, JSON.stringify(process.env));
     const said = args.filter((arg) => arg !== '--standalone').join(' ');
+    if (${JSON.stringify(standaloneTimesOut)} && args.includes('--standalone')) { console.error('Location plugins did not finish activating'); process.exit(1); }
     if (said === '--version') console.log(${JSON.stringify(version)});
     else if (said === 'service status') { const out = ${JSON.stringify(service)}; if (out === null) process.exit(1); console.log(out); }
     else if (said === 'models') console.log('opencode/big-pickle');
@@ -101,6 +107,17 @@ describe.skipIf(process.platform === 'win32')('the OpenCode commands Moxxy runs 
     await listOpenCodeModels(fake.file);
 
     expect(work(fake)).toEqual([['auth', 'list'], ['models']]);
+  });
+
+  it('ask again through the shared server when the private one did not start in time, so a busy computer still gets an answer', async () => {
+    const fake = fakeOpenCode('2.2.5', 'stopped', true);
+
+    const status = await checkOpenCode(fake.file);
+    const models = await listOpenCodeModels(fake.file);
+
+    expect(status.state).toBe('signed-in');
+    expect(models).toEqual(['opencode/big-pickle']);
+    expect(work(fake)).toEqual([['auth', 'list', '--standalone'], ['auth', 'list'], ['models', '--standalone'], ['models']]);
   });
 
   it('run as they are on OpenCode 1, which has no shared server and no --standalone', async () => {

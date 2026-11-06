@@ -11,6 +11,7 @@ import {
   OPENCODE_AUTH_LOGOUT_ARGS,
   OPENCODE_EXECUTABLE_ENV,
   OPENCODE_MODELS_ARGS,
+  OPENCODE_PLUGINS_TIMEOUT,
   OPENCODE_PROVIDER_ID,
   OPENCODE_SERVICE_STATUS_ARGS,
   OPENCODE_STANDALONE_FLAG,
@@ -210,7 +211,18 @@ async function runCommand(executable: string, args: readonly string[], options: 
     const error = Object.assign(err instanceof Error ? err : new Error(String(err)), { code: 'ENOENT' }) as NodeJS.ErrnoException;
     return { code: 1, stdout: '', stderr: '', error };
   }
-  return await spawnCommand(target, await withoutStartingSharedServer(target, args), options);
+  const asked = await withoutStartingSharedServer(target, args);
+  const result = await spawnCommand(target, asked, options);
+  if (asked === args || !privateServerTimedOut(result)) return result;
+  // A busy computer: the private server's plugins took longer than OpenCode
+  // allows. Ask as before, on the shared server; started without Moxxy's
+  // variables, it carries nothing of Moxxy's after it quits.
+  return await spawnCommand(target, args, options);
+}
+
+/** OpenCode gives its plugins 5 seconds to start, and a private server starts them anew each time. */
+function privateServerTimedOut(result: OpenCodeCommandResult): boolean {
+  return result.code !== 0 && `${result.stderr}${result.stdout}`.includes(OPENCODE_PLUGINS_TIMEOUT);
 }
 
 /**
