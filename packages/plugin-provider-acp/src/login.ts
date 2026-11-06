@@ -12,7 +12,7 @@ import {
   OPENCODE_MODELS_ARGS,
   OPENCODE_PROVIDER_ID,
 } from './constants.js';
-import { opencodeTarget } from './executable.js';
+import { moxxyOwnVariables, opencodeTarget } from './executable.js';
 import type { OpenCodeRule, ReadAgentMcpServers, ReadAgentRules } from './rules.js';
 
 export type OpenCodeState = 'signed-in' | 'missing' | 'error';
@@ -208,7 +208,7 @@ async function runCommand(executable: string, args: readonly string[], options: 
     return { code: 1, stdout: '', stderr: '', error };
   }
   return await new Promise((resolve) => {
-    const where = options.cwd ? { cwd: options.cwd } : {};
+    const where = { ...(options.cwd ? { cwd: options.cwd } : {}), env: moxxyOwnVariables(process.env) };
     const child = spawnExecutableTarget(target, [...args], options.inherit ? { ...where, stdio: 'inherit' } : { ...where, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let stdout = '';
     let stderr = '';
