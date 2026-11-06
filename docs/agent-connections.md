@@ -161,6 +161,7 @@ The context window a model shows starts from the built-in list (Codex's defaults
 
 - **Limits on running agents.** Every live agent session is a process of a few hundred megabytes, so each agent keeps at most 8 live sessions at a time.
 - **The agent's native tools are not isolated by Moxxy.** Moxxy's isolators do not apply to them; the agent's own sandbox and permission hooks do.
+- **The agent does not inherit Moxxy's own process settings.** Claude, Codex and OpenCode start without `ELECTRON_RUN_AS_NODE` and without the app's own folders on `NODE_PATH` (`app.asar/node_modules`), which Moxxy's desktop sets for itself. An agent passes its environment on to every program it runs, and with the first an Electron app it opened (VS Code, Slack) would start as plain Node; folders you put on `NODE_PATH` stay. Only a Codex that Moxxy has to run with its own Node, behind a Windows npm install without `codex.exe`, keeps `ELECTRON_RUN_AS_NODE`, since that Node needs it.
 - **The agent keeps its own history.** Conversations also land in the agent's own history (`~/.claude/projects`, `~/.codex`), and Claude's plan mode writes plan files to `~/.claude/plans`.
 - **Vendor terms.** Anthropic's Agent SDK terms say third-party products need Anthropic's approval to offer claude.ai sign-in. Using a Claude subscription through Moxxy is the owner's deliberate choice; decide for yourself whether it fits your use.
 
