@@ -6,7 +6,7 @@ import {
   agentCliTargetAt,
   compareVersions,
   findAgentCli,
-  moxxyRuntimeVariables,
+  moxxyOwnVariables,
   readCliVersion,
   stopAgentProcess,
   type AgentCliTargetOptions,
@@ -95,25 +95,6 @@ export function opencodeAcpLaunch(opts: {
       authorization: `Basic ${Buffer.from(`${OPENCODE_API_USERNAME}:${server.password}`).toString('base64')}`,
     },
   };
-}
-
-/**
- * Moxxy's own variables in the environment OpenCode would inherit, each set
- * to what OpenCode gets instead (`undefined` leaves one out). Commands such as
- * `opencode auth list` start OpenCode 2's shared background server when none
- * runs, and it keeps their environment after Moxxy quits; every OpenCode the
- * person opens later, in a terminal too, runs its tools there. Moxxy's tools
- * reach OpenCode over MCP, so it needs none of the `MOXXY_*` ones, nor the
- * settings of Moxxy's own process (`moxxyRuntimeVariables`). `MOXXY_HOME`
- * stays: a `moxxy` command run in a conversation of an isolated Moxxy must use
- * that Moxxy's home, not the person's real one.
- */
-export function moxxyOwnVariables(inherited: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
-  const out: Record<string, string | undefined> = moxxyRuntimeVariables(inherited);
-  for (const key of Object.keys(inherited)) {
-    if (key.startsWith('MOXXY_') && key !== 'MOXXY_HOME') out[key] = undefined;
-  }
-  return out;
 }
 
 /** A port free on the loopback right now, for OpenCode to serve its API on. */

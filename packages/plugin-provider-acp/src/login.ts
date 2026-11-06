@@ -1,6 +1,6 @@
 import type { AgentSignIn } from '@moxxy/agent-connection-kit';
 import { MoxxyError } from '@moxxy/sdk';
-import { readCliVersion } from '@moxxy/agent-connection-kit';
+import { moxxyOwnVariables, readCliVersion } from '@moxxy/agent-connection-kit';
 import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
 import type { ProviderAuthContext, ProviderOAuthResult, ProviderOAuthStatus } from '@moxxy/sdk';
 import {
@@ -15,7 +15,7 @@ import {
   OPENCODE_SERVICE_STATUS_ARGS,
   OPENCODE_STANDALONE_FLAG,
 } from './constants.js';
-import { moxxyOwnVariables, opencodeHasSharedServer, opencodeTarget } from './executable.js';
+import { opencodeHasSharedServer, opencodeTarget } from './executable.js';
 import type { OpenCodeRule, ReadAgentMcpServers, ReadAgentRules } from './rules.js';
 
 export type OpenCodeState = 'signed-in' | 'missing' | 'error';
