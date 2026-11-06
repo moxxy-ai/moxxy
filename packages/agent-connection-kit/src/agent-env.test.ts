@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { moxxyRuntimeVariables } from './agent-env.js';
+import { moxxyOwnVariables, moxxyRuntimeVariables } from './agent-env.js';
 
 const APP = '/Applications/MoxxyAI Workspaces.app/Contents/Resources';
 
@@ -47,5 +47,25 @@ describe("the settings of Moxxy's own process an agent does not inherit", () => 
     expect(seen.ELECTRON_RUN_AS_NODE).toBeUndefined();
     expect(seen.NODE_PATH).toBeUndefined();
     expect(seen.PATH).toBe(process.env.PATH);
+  });
+});
+
+describe("the variables of Moxxy an agent does not inherit", () => {
+  it('leave out every MOXXY_* but MOXXY_HOME: the browser bridge token is a secret, and the runner address makes a `moxxy` the agent runs join the conversation', () => {
+    const inherited = {
+      MOXXY_HOME: '/tmp/moxxy-home',
+      MOXXY_BROWSER_BRIDGE_TOKEN: 'bridge-secret',
+      MOXXY_RUNNER_SOCKET: '/tmp/desk.sock',
+      MOXXY_SESSION_ID: 'desk-1',
+      ELECTRON_RUN_AS_NODE: '1',
+      PATH: '/usr/bin',
+    };
+
+    expect(moxxyOwnVariables(inherited)).toEqual({
+      MOXXY_BROWSER_BRIDGE_TOKEN: undefined,
+      MOXXY_RUNNER_SOCKET: undefined,
+      MOXXY_SESSION_ID: undefined,
+      ELECTRON_RUN_AS_NODE: undefined,
+    });
   });
 });

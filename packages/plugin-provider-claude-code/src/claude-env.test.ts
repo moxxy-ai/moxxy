@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { claudeEnv } from './agent-session.js';
 
-const KEYS = ['ELECTRON_RUN_AS_NODE', 'NODE_PATH', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT'] as const;
+const KEYS = ['ELECTRON_RUN_AS_NODE', 'NODE_PATH', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'MOXXY_BROWSER_BRIDGE_TOKEN', 'MOXXY_RUNNER_SOCKET', 'MOXXY_HOME'] as const;
 const saved = Object.fromEntries(KEYS.map((key) => [key, process.env[key]]));
 afterEach(() => {
   for (const key of KEYS) {
@@ -21,6 +21,17 @@ describe('the environment Moxxy gives Claude Code', () => {
     expect(env.NODE_PATH).toBe(process.platform === 'win32' ? process.env.NODE_PATH : '/Users/me/lib/node');
     expect(env.PATH).toBe(process.env.PATH);
     expect(env.CLAUDE_AGENT_SDK_CLIENT_APP).toBe('moxxy');
+  });
+
+  it("leaves out Moxxy's own variables but MOXXY_HOME, which Claude needs none of", () => {
+    process.env.MOXXY_BROWSER_BRIDGE_TOKEN = 'bridge-secret';
+    process.env.MOXXY_RUNNER_SOCKET = '/tmp/desk.sock';
+    process.env.MOXXY_HOME = '/tmp/moxxy-home';
+
+    const env = claudeEnv();
+
+    expect(Object.keys(env).filter((key) => key.startsWith('MOXXY_'))).toEqual(['MOXXY_HOME']);
+    expect(env.MOXXY_HOME).toBe('/tmp/moxxy-home');
   });
 
   it('leaves out the markers that make Claude refuse to start inside another Claude Code', () => {

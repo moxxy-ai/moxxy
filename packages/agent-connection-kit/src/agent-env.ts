@@ -29,6 +29,30 @@ export function moxxyRuntimeVariables(
   return out;
 }
 
+/**
+ * Moxxy's own variables in the environment an agent would inherit, each set
+ * to what the agent gets instead (`undefined` leaves one out): every
+ * `MOXXY_*` but `MOXXY_HOME`, and the settings of Moxxy's own process
+ * (`moxxyRuntimeVariables`). The agent reaches Moxxy's tools over MCP, whose
+ * token Moxxy hands it in the server's settings, so it needs none of them, and
+ * every program it runs would get them: the browser bridge token is a secret
+ * (Moxxy's own shell tool leaves it out too), and with the runner's address
+ * and session a `moxxy` the agent runs joins the conversation's runner instead
+ * of starting its own. OpenCode 2's shared background server also keeps them
+ * after Moxxy quits. `MOXXY_HOME` stays: a `moxxy` run in a conversation of an
+ * isolated Moxxy must use that Moxxy's home, not the person's real one.
+ */
+export function moxxyOwnVariables(
+  inherited: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform = process.platform,
+): Record<string, string | undefined> {
+  const out = moxxyRuntimeVariables(inherited, platform);
+  for (const key of Object.keys(inherited)) {
+    if (key.startsWith('MOXXY_') && key !== 'MOXXY_HOME') out[key] = undefined;
+  }
+  return out;
+}
+
 /** `env` without the variables set to `undefined`, for an API that copies the environment as it is given. */
 export function definedOnly(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
   return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
