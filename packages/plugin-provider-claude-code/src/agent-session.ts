@@ -17,6 +17,8 @@ import {
   type NewSessionReason,
   untilStopped,
   withoutOwnMcpServers,
+  definedOnly,
+  moxxyRuntimeVariables,
 } from '@moxxy/agent-connection-kit';
 import { isContextWindowSize } from '@moxxy/sdk';
 import { fromClaudeQuestions, toClaudeAnswers } from './questions.js';
@@ -783,10 +785,13 @@ function isInit(message: ClaudeMessage): message is Extract<ClaudeMessage, { sub
 /**
  * The environment for Claude Code: Moxxy's own, without the markers that make
  * Claude refuse to start as a nested session when Moxxy itself was launched
- * from Claude Code. The SDK replaces the environment, so it is spread here.
+ * from Claude Code, and without the settings of Moxxy's own process
+ * (`ELECTRON_RUN_AS_NODE`, the app's folders on `NODE_PATH`), which Claude
+ * would pass to every program it runs. The SDK replaces the environment, so
+ * it is spread here.
  */
 export function claudeEnv(): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'moxxy' };
+  const env: Record<string, string | undefined> = definedOnly({ ...process.env, ...moxxyRuntimeVariables(process.env), CLAUDE_AGENT_SDK_CLIENT_APP: 'moxxy' });
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
   return env;

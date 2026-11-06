@@ -69,3 +69,4 @@ export {
   type Resumed,
 } from './resume.js';
 export { stopAgentProcess, type StopAgentOptions } from './stop-agent.js';
+export { definedOnly, moxxyRuntimeVariables } from './agent-env.js';
