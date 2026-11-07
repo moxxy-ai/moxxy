@@ -1,6 +1,7 @@
 import type { AgentSignIn } from '@moxxy/agent-connection-kit';
 import { MoxxyError } from '@moxxy/sdk';
-import { spawnExecutableTarget } from '@moxxy/sdk/server';
+import { moxxyOwnVariables, readCliVersion } from '@moxxy/agent-connection-kit';
+import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
 import type { ProviderAuthContext, ProviderOAuthResult, ProviderOAuthStatus } from '@moxxy/sdk';
 import {
   OPENCODE_DEBUG_AGENT_ARGS,
@@ -10,9 +11,12 @@ import {
   OPENCODE_AUTH_LOGOUT_ARGS,
   OPENCODE_EXECUTABLE_ENV,
   OPENCODE_MODELS_ARGS,
+  OPENCODE_PLUGINS_TIMEOUT,
   OPENCODE_PROVIDER_ID,
+  OPENCODE_SERVICE_STATUS_ARGS,
+  OPENCODE_STANDALONE_FLAG,
 } from './constants.js';
-import { opencodeTarget } from './executable.js';
+import { opencodeHasSharedServer, opencodeTarget } from './executable.js';
 import type { OpenCodeRule, ReadAgentMcpServers, ReadAgentRules } from './rules.js';
 
 export type OpenCodeState = 'signed-in' | 'missing' | 'error';
@@ -42,7 +46,10 @@ interface CommandOptions {
 type CommandRunner = (executable: string, args: readonly string[], options?: CommandOptions) => Promise<OpenCodeCommandResult>;
 
 const ANSI = /\u001b\[[0-9;]*m/g;
+/** OpenCode 1: `●  OpenAI oauth`. */
 const CREDENTIAL = /^●\s+(.+?)\s+\S+$/;
+/** OpenCode 2: `OpenRouter  OpenRouter  stored`; `environment` rows are the person's variables, not a sign-in. */
+const STORED_CREDENTIAL = /^(.+?)\s{2,}.*\s{2,}stored$/;
 const MODEL_ID = /^[\w.@-]+\/\S+$/;
 const LOGIN_HINT = 'Run `opencode auth login` in a terminal to sign OpenCode in to a model provider.';
 
@@ -72,13 +79,17 @@ export async function checkOpenCode(executable = resolveOpenCodeExecutable()): P
     const detail = result.error?.message ?? (result.stderr.trim() || `exit code ${result.code}`);
     return { state: 'error', executable, message: `Could not run OpenCode: ${detail}` };
   }
-  const providers = result.stdout
-    .replace(ANSI, '')
-    .split('\n')
-    .flatMap((line) => {
-      const match = CREDENTIAL.exec(line.trim());
-      return match?.[1] ? [match[1]] : [];
-    });
+  const providers = [
+    ...new Set(
+      result.stdout
+        .replace(ANSI, '')
+        .split('\n')
+        .flatMap((line) => {
+          const match = CREDENTIAL.exec(line.trim()) ?? STORED_CREDENTIAL.exec(line.trim());
+          return match?.[1] ? [match[1]] : [];
+        }),
+    ),
+  ];
   if (providers.length === 0) {
     return { state: 'signed-in', executable, message: `OpenCode is ready with its free models. ${LOGIN_HINT}` };
   }
@@ -207,8 +218,38 @@ async function runCommand(executable: string, args: readonly string[], options: 
     const error = Object.assign(err instanceof Error ? err : new Error(String(err)), { code: 'ENOENT' }) as NodeJS.ErrnoException;
     return { code: 1, stdout: '', stderr: '', error };
   }
-  return await new Promise((resolve) => {
-    const where = options.cwd ? { cwd: options.cwd } : {};
+  const asked = await withoutStartingSharedServer(target, args);
+  const result = await spawnCommand(target, asked, options);
+  if (asked === args || !privateServerTimedOut(result)) return result;
+  // A busy computer: the private server's plugins took longer than OpenCode
+  // allows. Ask as before, on the shared server; started without Moxxy's
+  // variables, it carries nothing of Moxxy's after it quits.
+  return await spawnCommand(target, args, options);
+}
+
+/** OpenCode gives its plugins 5 seconds to start, and a private server starts them anew each time. */
+function privateServerTimedOut(result: OpenCodeCommandResult): boolean {
+  return result.code !== 0 && `${result.stderr}${result.stdout}`.includes(OPENCODE_PLUGINS_TIMEOUT);
+}
+
+/**
+ * `args`, run so that Moxxy never starts OpenCode 2's shared background
+ * server: that server stays after Moxxy quits. When it already runs, the
+ * command uses it, as it answers at once and is the person's own; when not,
+ * the command runs on a private server that ends with it (`--standalone`,
+ * about a second longer). OpenCode 1 has no shared server, and an OpenCode
+ * that cannot say whether it runs is asked as it was before.
+ */
+async function withoutStartingSharedServer(target: ExecutableTarget, args: readonly string[]): Promise<readonly string[]> {
+  if (!opencodeHasSharedServer(await readCliVersion(target))) return args;
+  const status = await spawnCommand(target, OPENCODE_SERVICE_STATUS_ARGS);
+  if (status.error || status.code !== 0) return args;
+  return status.stdout.trim() === 'stopped' ? [...args, OPENCODE_STANDALONE_FLAG] : args;
+}
+
+function spawnCommand(target: ExecutableTarget, args: readonly string[], options: CommandOptions = {}): Promise<OpenCodeCommandResult> {
+  return new Promise((resolve) => {
+    const where = { ...(options.cwd ? { cwd: options.cwd } : {}), env: moxxyOwnVariables(process.env) };
     const child = spawnExecutableTarget(target, [...args], options.inherit ? { ...where, stdio: 'inherit' } : { ...where, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let stdout = '';
     let stderr = '';

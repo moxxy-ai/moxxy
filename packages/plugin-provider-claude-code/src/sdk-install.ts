@@ -93,7 +93,7 @@ function versionDir(opts: SdkInstallOptions): string {
 
 function runNpm(npm: NonNullable<ReturnType<typeof resolveExecutableTarget>>, cwd: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawnExecutableTarget(npm, args, { cwd, stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawnExecutableTarget(npm, args, { cwd, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
     let stderr = '';
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr = (stderr + chunk.toString('utf8')).slice(-MAX_NPM_OUTPUT);
