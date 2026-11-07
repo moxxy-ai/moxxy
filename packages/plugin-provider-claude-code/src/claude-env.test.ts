@@ -13,12 +13,17 @@ afterEach(() => {
 describe('the environment Moxxy gives Claude Code', () => {
   it("leaves out Moxxy's ELECTRON_RUN_AS_NODE and the app's folders on NODE_PATH, which Claude would pass to every program it runs", () => {
     process.env.ELECTRON_RUN_AS_NODE = '1';
-    process.env.NODE_PATH = '/Users/me/lib/node:/Applications/MoxxyAI Workspaces.app/Contents/Resources/app.asar.unpacked/node_modules';
+    const windows = process.platform === 'win32';
+    const theirs = windows ? 'C:\\Users\\me\\node' : '/Users/me/lib/node';
+    const app = windows
+      ? 'C:\\Program Files\\MoxxyAI Workspaces\\resources\\app.asar.unpacked\\node_modules'
+      : '/Applications/MoxxyAI Workspaces.app/Contents/Resources/app.asar.unpacked/node_modules';
+    process.env.NODE_PATH = `${theirs}${windows ? ';' : ':'}${app}`;
 
     const env = claudeEnv();
 
     expect('ELECTRON_RUN_AS_NODE' in env).toBe(false);
-    expect(env.NODE_PATH).toBe(process.platform === 'win32' ? process.env.NODE_PATH : '/Users/me/lib/node');
+    expect(env.NODE_PATH).toBe(theirs);
     expect(env.PATH).toBe(process.env.PATH);
     expect(env.CLAUDE_AGENT_SDK_CLIENT_APP).toBe('moxxy');
   });
