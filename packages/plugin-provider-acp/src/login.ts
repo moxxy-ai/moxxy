@@ -46,7 +46,10 @@ interface CommandOptions {
 type CommandRunner = (executable: string, args: readonly string[], options?: CommandOptions) => Promise<OpenCodeCommandResult>;
 
 const ANSI = /\u001b\[[0-9;]*m/g;
+/** OpenCode 1: `●  OpenAI oauth`. */
 const CREDENTIAL = /^●\s+(.+?)\s+\S+$/;
+/** OpenCode 2: `OpenRouter  OpenRouter  stored`; `environment` rows are the person's variables, not a sign-in. */
+const STORED_CREDENTIAL = /^(.+?)\s{2,}.*\s{2,}stored$/;
 const MODEL_ID = /^[\w.@-]+\/\S+$/;
 const LOGIN_HINT = 'Run `opencode auth login` in a terminal to sign OpenCode in to a model provider.';
 
@@ -76,13 +79,17 @@ export async function checkOpenCode(executable = resolveOpenCodeExecutable()): P
     const detail = result.error?.message ?? (result.stderr.trim() || `exit code ${result.code}`);
     return { state: 'error', executable, message: `Could not run OpenCode: ${detail}` };
   }
-  const providers = result.stdout
-    .replace(ANSI, '')
-    .split('\n')
-    .flatMap((line) => {
-      const match = CREDENTIAL.exec(line.trim());
-      return match?.[1] ? [match[1]] : [];
-    });
+  const providers = [
+    ...new Set(
+      result.stdout
+        .replace(ANSI, '')
+        .split('\n')
+        .flatMap((line) => {
+          const match = CREDENTIAL.exec(line.trim()) ?? STORED_CREDENTIAL.exec(line.trim());
+          return match?.[1] ? [match[1]] : [];
+        }),
+    ),
+  ];
   if (providers.length === 0) {
     return { state: 'signed-in', executable, message: `OpenCode is ready with its free models. ${LOGIN_HINT}` };
   }
