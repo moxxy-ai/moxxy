@@ -219,16 +219,22 @@ async function runCommand(executable: string, args: readonly string[], options: 
     return { code: 1, stdout: '', stderr: '', error };
   }
   const asked = await withoutStartingSharedServer(target, args);
-  const result = await spawnCommand(target, asked, options);
-  if (asked === args || !privateServerTimedOut(result)) return result;
-  // A busy computer: the private server's plugins took longer than OpenCode
-  // allows. Ask as before, on the shared server; started without Moxxy's
-  // variables, it carries nothing of Moxxy's after it quits.
-  return await spawnCommand(target, args, options);
+  let result = await spawnCommand(target, asked, options);
+  // A busy computer: the plugins took longer than OpenCode allows. Ask on the
+  // shared server (started without Moxxy's variables, it carries nothing of
+  // Moxxy's after it quits). It goes on starting them after an answer times
+  // out, so asking it again gets the answer once they are up.
+  for (let asks = 0; asks < SHARED_SERVER_ASKS && pluginsTimedOut(result); asks++) {
+    result = await spawnCommand(target, args, options);
+  }
+  return result;
 }
 
-/** OpenCode gives its plugins 5 seconds to start, and a private server starts them anew each time. */
-function privateServerTimedOut(result: OpenCodeCommandResult): boolean {
+/** How many times a command is asked of the shared server while its plugins are still starting: each ask waits up to their 5 seconds. */
+const SHARED_SERVER_ASKS = 3;
+
+/** OpenCode gives its plugins 5 seconds to start; a private server starts them anew each time, and the shared one for each folder it has not served. */
+function pluginsTimedOut(result: OpenCodeCommandResult): boolean {
   return result.code !== 0 && `${result.stderr}${result.stdout}`.includes(OPENCODE_PLUGINS_TIMEOUT);
 }
 

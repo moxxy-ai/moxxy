@@ -34,13 +34,16 @@ interface FakeOpenCode {
  * An `opencode` of `version` whose `service status` prints `service` (a URL
  * when its shared server runs), or fails when null. With `standaloneTimesOut`
  * its private server fails as OpenCode's does when its plugins take longer
- * than the 5 seconds it allows them (a busy computer).
+ * than the 5 seconds it allows them (a busy computer). Its shared server's
+ * first `sharedTimeouts` answers time out the same way, as a shared server
+ * still starting those plugins does.
  */
-function fakeOpenCode(version: string, service: string | null, standaloneTimesOut = false): FakeOpenCode {
+function fakeOpenCode(version: string, service: string | null, standaloneTimesOut = false, sharedTimeouts = 0): FakeOpenCode {
   const root = mkdtempSync(path.join(tmpdir(), 'moxxy-opencode-cli-'));
   roots.push(root);
   const log = path.join(root, 'runs.ndjson');
   const env = path.join(root, 'env.json');
+  const shared = path.join(root, 'shared-runs');
   const file = path.join(root, 'opencode');
   const script = `
     const fs = require('node:fs');
@@ -48,7 +51,12 @@ function fakeOpenCode(version: string, service: string | null, standaloneTimesOu
     fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
     fs.writeFileSync(${JSON.stringify(env)}, JSON.stringify(process.env));
     const said = args.filter((arg) => arg !== '--standalone').join(' ');
-    if (${JSON.stringify(standaloneTimesOut)} && args.includes('--standalone')) { console.error('Location plugins did not finish activating'); process.exit(1); }
+    const timedOut = () => { console.error('Location plugins did not finish activating'); process.exit(1); };
+    if (${JSON.stringify(standaloneTimesOut)} && args.includes('--standalone')) timedOut();
+    if (!args.includes('--standalone') && said !== '--version' && said !== 'service status') {
+      fs.appendFileSync(${JSON.stringify(shared)}, 'x');
+      if (fs.readFileSync(${JSON.stringify(shared)}, 'utf8').length <= ${sharedTimeouts}) timedOut();
+    }
     if (said === '--version') console.log(${JSON.stringify(version)});
     else if (said === 'service status') { const out = ${JSON.stringify(service)}; if (out === null) process.exit(1); console.log(out); }
     else if (said === 'models') console.log('opencode/big-pickle');
@@ -118,6 +126,33 @@ describe.skipIf(process.platform === 'win32')('the OpenCode commands Moxxy runs 
     expect(status.state).toBe('signed-in');
     expect(models).toEqual(['opencode/big-pickle']);
     expect(work(fake)).toEqual([['auth', 'list', '--standalone'], ['auth', 'list'], ['models', '--standalone'], ['models']]);
+  });
+
+  it('ask the shared server again while it is still starting its plugins, since it goes on starting them after an answer times out', async () => {
+    const fake = fakeOpenCode('2.2.6', 'stopped', true, 1);
+
+    const status = await checkOpenCode(fake.file);
+
+    expect(status.state).toBe('signed-in');
+    expect(work(fake)).toEqual([['auth', 'list', '--standalone'], ['auth', 'list'], ['auth', 'list']]);
+  });
+
+  it('give up after three answers from the shared server, so plugins that never start do not keep Moxxy waiting', async () => {
+    const fake = fakeOpenCode('2.2.6', 'stopped', true, 99);
+
+    const status = await checkOpenCode(fake.file);
+
+    expect(status).toMatchObject({ state: 'error', message: 'Could not run OpenCode: Location plugins did not finish activating' });
+    expect(work(fake)).toEqual([['auth', 'list', '--standalone'], ['auth', 'list'], ['auth', 'list'], ['auth', 'list']]);
+  });
+
+  it('ask a shared server that was already running again too, as it starts plugins anew for a folder it has not served', async () => {
+    const fake = fakeOpenCode('2.2.6', 'http://127.0.0.1:4096', false, 1);
+
+    const status = await checkOpenCode(fake.file);
+
+    expect(status.state).toBe('signed-in');
+    expect(work(fake)).toEqual([['auth', 'list'], ['auth', 'list']]);
   });
 
   it('run as they are on OpenCode 1, which has no shared server and no --standalone', async () => {
