@@ -1,5 +1,12 @@
 # @moxxy/plugin-plugins-admin
 
+## 0.48.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.4
+- @moxxy/config@0.48.4
+
 ## 0.48.3
 
 ### Patch Changes

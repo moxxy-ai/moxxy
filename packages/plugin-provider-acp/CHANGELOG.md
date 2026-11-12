@@ -1,5 +1,22 @@
 # @moxxy/plugin-provider-acp
 
+## 0.48.4
+
+### Patch Changes
+
+- 677ee41: Claude, Codex and OpenCode no longer inherit two settings meant only for Moxxy's own process. `ELECTRON_RUN_AS_NODE` made an Electron app the agent opened, such as VS Code, start as plain Node. The app's own module folders on `NODE_PATH` were searched by every `node` the agent ran. Folders you put on `NODE_PATH` yourself stay.
+- 88d6e30: Claude and Codex no longer inherit Moxxy's own `MOXXY_*` variables. OpenCode already worked this way. The browser bridge token was readable by every command the agent ran. A `moxxy` command run by the agent joined the conversation's own runner instead of starting its own. `MOXXY_HOME` stays, so an isolated Moxxy keeps its own folder.
+- 5f17e17: OpenCode 2: Moxxy reads which model providers OpenCode is signed in to again, so status names them and logout runs. A key that only comes from an environment variable is not counted as a sign-in.
+- 4cc7a48: On a very busy computer, Moxxy's OpenCode checks work again as they did before this release. When OpenCode's private server cannot start its plugins in time ("Location plugins did not finish activating"), Moxxy asks again through OpenCode's shared server.
+- e919dd7: Moxxy no longer leaves OpenCode's shared background server running after you quit it. OpenCode 2 starts that server for commands such as its sign-in and model checks, and it stays until you stop it. When the server already runs, Moxxy's checks still use it. When it does not, they now run on a private server that ends with each check, which makes a check about a second slower.
+- 6eb60dd: OpenCode 2 on a busy computer: when OpenCode's plugins take longer than the 5 seconds it allows them, Moxxy now asks OpenCode's shared server again, up to three times, until they are up. Before, a shared server it had just started timed out the same way and the check failed with "Location plugins did not finish activating".
+- 3cc0640: OpenCode no longer keeps Moxxy's internal settings after Moxxy quits. OpenCode 2 runs one shared server in the background, which stays after Moxxy quits and is used by every OpenCode you open later, in a terminal too. When Moxxy started it, that server kept Moxxy's variables, such as the browser bridge token and `ELECTRON_RUN_AS_NODE`, and passed them to the commands OpenCode ran. Moxxy now starts every OpenCode command without them, including the sign-in and model checks, which are what start that server.
+- Updated dependencies [677ee41]
+- Updated dependencies [88d6e30]
+- Updated dependencies [0116cb4]
+  - @moxxy/agent-connection-kit@0.1.8
+  - @moxxy/sdk@0.48.4
+
 ## 0.48.3
 
 ### Patch Changes

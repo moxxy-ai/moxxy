@@ -1,5 +1,7 @@
 # @moxxy/sdk
 
+## 0.48.4
+
 ## 0.48.3
 
 ### Patch Changes

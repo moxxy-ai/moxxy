@@ -1,5 +1,22 @@
 # @moxxy/desktop
 
+## 0.48.4
+
+### Patch Changes
+
+- 0116cb4: On Windows, Codex installed with npm whose `codex.exe` sits in a `node_modules` folder above the install no longer opens a console window. Before, every conversation with it kept a black window over the desktop. Moxxy now looks for `codex.exe` in every folder Codex's own `codex.js` looks in, and starts it directly.
+- Updated dependencies [0116cb4]
+  - @moxxy/cli@0.48.4
+  - @moxxy/desktop-host@0.17.4
+  - @moxxy/sdk@0.48.4
+  - @moxxy/plugin-vault@0.48.4
+  - @moxxy/chat-model@0.5.8
+  - @moxxy/client-core@0.16.4
+  - @moxxy/client-platform-web@0.1.83
+  - @moxxy/desktop-ipc-contract@0.17.4
+  - @moxxy/runner@0.2.69
+  - @moxxy/workflows-builder@0.1.66
+
 ## 0.48.3
 
 ### Patch Changes

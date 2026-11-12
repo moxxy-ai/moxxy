@@ -1,5 +1,17 @@
 # @moxxy/plugin-cli
 
+## 0.48.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.4
+- @moxxy/core@0.48.4
+- @moxxy/config@0.48.4
+- @moxxy/channel-kit@0.48.4
+- @moxxy/plugin-mcp@0.48.4
+- @moxxy/plugin-plugins-admin@0.48.4
+- @moxxy/chat-model@0.5.8
+
 ## 0.48.3
 
 ### Patch Changes

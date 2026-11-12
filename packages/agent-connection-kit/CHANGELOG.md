@@ -1,5 +1,14 @@
 # @moxxy/agent-connection-kit
 
+## 0.1.8
+
+### Patch Changes
+
+- 677ee41: Claude, Codex and OpenCode no longer inherit two settings meant only for Moxxy's own process. `ELECTRON_RUN_AS_NODE` made an Electron app the agent opened, such as VS Code, start as plain Node. The app's own module folders on `NODE_PATH` were searched by every `node` the agent ran. Folders you put on `NODE_PATH` yourself stay.
+- 88d6e30: Claude and Codex no longer inherit Moxxy's own `MOXXY_*` variables. OpenCode already worked this way. The browser bridge token was readable by every command the agent ran. A `moxxy` command run by the agent joined the conversation's own runner instead of starting its own. `MOXXY_HOME` stays, so an isolated Moxxy keeps its own folder.
+- 0116cb4: On Windows, Codex installed with npm whose `codex.exe` sits in a `node_modules` folder above the install no longer opens a console window. Before, every conversation with it kept a black window over the desktop. Moxxy now looks for `codex.exe` in every folder Codex's own `codex.js` looks in, and starts it directly.
+  - @moxxy/sdk@0.48.4
+
 ## 0.1.7
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @moxxy/runner
 
+## 0.2.69
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.4
+- @moxxy/core@0.48.4
+- @moxxy/config@0.48.4
+
 ## 0.2.68
 
 ### Patch Changes
