@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { opencodeAcpLaunch, opencodeServesApiBesideAcp, opencodeTarget } from './executable.js';
 
@@ -68,7 +69,33 @@ describe('the OpenCode Moxxy starts for a conversation', () => {
     expect(launch.env).toMatchObject({ OPENCODE_CONFIG_CONTENT: '{}', OPENCODE_SERVER_PASSWORD: 'p' });
   });
 
-  it('starts OpenCode 2 with `acp` alone: it runs a private server and takes no port, so Moxxy has no API to read', () => {
+  it("leaves Moxxy's own variables out, since OpenCode's shared background server keeps them after Moxxy quits", async () => {
+    const added = {
+      MOXXY_HOME: '/tmp/moxxy-home',
+      MOXXY_BROWSER_BRIDGE_TOKEN: 'bridge-secret',
+      MOXXY_RUNNER_SOCKET: '/tmp/serve.sock',
+      ELECTRON_RUN_AS_NODE: '1',
+    };
+    // As in Moxxy: OpenCode inherits this process's whole environment.
+    const inherited = { ...process.env, ...added };
+    const launch = opencodeAcpLaunch({ inherited });
+
+    expect(launch.env).toMatchObject({ MOXXY_BROWSER_BRIDGE_TOKEN: undefined, MOXXY_RUNNER_SOCKET: undefined, ELECTRON_RUN_AS_NODE: undefined });
+    // What a started process really gets: the variables are gone, PATH and MOXXY_HOME stay.
+    const seen = await new Promise<Record<string, string>>((resolve, reject) => {
+      const child = spawn(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.env))'], { env: { ...inherited, ...launch.env } });
+      let out = '';
+      child.stdout.on('data', (chunk: Buffer) => (out += chunk.toString('utf8')));
+      child.once('error', reject);
+      child.once('close', () => resolve(JSON.parse(out) as Record<string, string>));
+    });
+    expect(seen.PATH).toBe(process.env.PATH);
+    expect(seen.MOXXY_HOME).toBe('/tmp/moxxy-home');
+    expect(Object.keys(seen).filter((key) => key.startsWith('MOXXY_') && key !== 'MOXXY_HOME')).toEqual([]);
+    expect(seen.ELECTRON_RUN_AS_NODE).toBeUndefined();
+  });
+
+  it('starts OpenCode 2 with `acp` alone: it takes no port, so Moxxy has no API to read', () => {
     const launch = opencodeAcpLaunch({ inherited: {} });
 
     expect(launch.args).toEqual(['acp']);

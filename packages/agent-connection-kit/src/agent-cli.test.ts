@@ -206,6 +206,16 @@ describe('running a CLI found on Windows', () => {
     });
   });
 
+  it('finds the codex.exe that codex.js would find in a folder above the npm prefix, since codex.js would open a console window for it', () => {
+    const prefix = 'D:\\Tools\\npm';
+    const exe = 'D:\\Tools\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe';
+    expect(agentCliTargetAt(CODEX_CLI, `${prefix}\\codex.cmd`, { ...win, arch: 'x64', exists: (file) => file === exe })).toEqual({
+      kind: 'direct',
+      command: exe,
+      env: { CODEX_MANAGED_BY_NPM: '1', CODEX_MANAGED_PACKAGE_ROOT: `${prefix}\\node_modules\\@openai\\codex` },
+    });
+  });
+
   it('runs the script behind an npm shim with Node when its program is not there, since only a shell runs the shim', () => {
     const scriptsOnly = { ...win, exists: (file: string) => !file.endsWith('.exe') };
     expect(agentCliTargetAt(CODEX_CLI, `${npm}\\codex.cmd`, scriptsOnly)).toEqual({

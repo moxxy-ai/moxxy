@@ -48,6 +48,17 @@ describe('OpenCode readiness', () => {
     });
   });
 
+  it('reads the table OpenCode 2 prints, naming each provider it stores a credential for once', async () => {
+    const table =
+      'OpenAI      OpenAI 2               stored\n' +
+      'OpenAI      OAuth                  stored\n' +
+      'OpenRouter  OpenRouter             stored\n' +
+      'Google      GEMINI_API_KEY         environment\n';
+    answer({ 'auth list': ok(table) });
+
+    expect((await checkOpenCode('opencode')).accountId).toBe('OpenAI, OpenRouter');
+  });
+
   it('is ready without any sign-in, since its free models need none', async () => {
     answer({ 'auth list': ok(AUTH_LIST_NONE) });
 
