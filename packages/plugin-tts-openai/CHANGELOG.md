@@ -1,5 +1,11 @@
 # @moxxy/plugin-tts-openai
 
+## 0.48.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.48.4
+
 ## 0.48.3
 
 ### Patch Changes

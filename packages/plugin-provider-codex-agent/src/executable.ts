@@ -1,5 +1,5 @@
 import { spawnExecutableTarget, type ExecutableTarget } from '@moxxy/sdk/server';
-import { CODEX_CLI, agentCliTargetAt, findAgentCli, stopAgentProcess, type AgentCliTargetOptions } from '@moxxy/agent-connection-kit';
+import { CODEX_CLI, agentCliTargetAt, findAgentCli, moxxyOwnVariables, stopAgentProcess, type AgentCliTargetOptions } from '@moxxy/agent-connection-kit';
 import { CODEX_APP_SERVER_ARGS } from './constants.js';
 import type { CodexConnection, StartCodexAppServer } from './codex-session.js';
 
@@ -19,11 +19,20 @@ export function codexTarget(command: string, opts: CodexTargetOptions = {}): Exe
   return agentCliTargetAt(CODEX_CLI, found, opts);
 }
 
-/** Starts `codex app-server` in the conversation folder, speaking JSON-RPC on stdio. */
+/**
+ * Starts `codex app-server` in the conversation folder, speaking JSON-RPC on
+ * stdio, without Moxxy's own variables, which Codex would pass to every
+ * program it runs.
+ */
 export function spawnCodexAppServer(command: string): StartCodexAppServer {
   return ({ cwd }) =>
     new Promise<CodexConnection>((resolve, reject) => {
-      const child = spawnExecutableTarget(codexTarget(command), CODEX_APP_SERVER_ARGS, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      const child = spawnExecutableTarget(codexTarget(command), CODEX_APP_SERVER_ARGS, {
+        cwd,
+        env: moxxyOwnVariables(process.env),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
       const { stdin, stdout, stderr } = child;
       if (!stdin || !stdout || !stderr) {
         stopAgentProcess(child);

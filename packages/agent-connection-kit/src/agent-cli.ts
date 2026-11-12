@@ -94,7 +94,13 @@ export interface WindowsNativeProgram {
    * the package in its store and links the program beside it there.
    */
   readonly fromRealPackage?: boolean;
-  /** What the script that would start it sets, given the shim's folder (or the package's real folder). */
+  /**
+   * Relative to a `node_modules` folder, looked for in each one Node searches
+   * from the package's folder, nearest first: where the package's own script
+   * finds it with `require.resolve`, wherever npm put it.
+   */
+  readonly fromNodeSearch?: boolean;
+  /** What the script that would start it sets, given the shim's folder (or, for the other two, the package's folder). */
   readonly env?: (root: string) => Readonly<Record<string, string>>;
 }
 
@@ -142,7 +148,13 @@ function codexWindowsPrograms(arch: string): ReadonlyArray<WindowsNativeProgram>
     fromRealPackage: true,
     env: (packageRoot) => ({ CODEX_MANAGED_BY_PNPM: '1', CODEX_MANAGED_PACKAGE_ROOT: packageRoot }),
   };
-  return [...shimRelative, pnpm];
+  // Anywhere else codex.js would find it, such as a node_modules above the prefix.
+  const searched: WindowsNativeProgram = {
+    path: `@openai/${build.pkg}/${program}`,
+    fromNodeSearch: true,
+    env: (packageRoot) => ({ CODEX_MANAGED_BY_NPM: '1', CODEX_MANAGED_PACKAGE_ROOT: packageRoot }),
+  };
+  return [...shimRelative, pnpm, searched];
 }
 
 export const CODEX_CLI: AgentCliDescriptor = {
@@ -519,6 +531,15 @@ function windowsShimRoot(desc: AgentCliDescriptor, found: string, read: (file: s
   return path.win32.dirname(found);
 }
 
+/** The `node_modules` folders Node searches for a package required from `from`, nearest first. */
+function nodeSearchFolders(from: string): string[] {
+  const folders: string[] = [];
+  for (let dir = from; ; dir = path.win32.dirname(dir)) {
+    if (path.win32.basename(dir).toLowerCase() !== 'node_modules') folders.push(path.win32.join(dir, 'node_modules'));
+    if (path.win32.dirname(dir) === dir) return folders;
+  }
+}
+
 /** How to run the CLI found at `found` without a shell: as it is, or, behind a Windows npm shim, what the shim runs. */
 export function agentCliTargetAt(desc: AgentCliDescriptor, found: string, opts: AgentCliTargetOptions = {}): ExecutableTarget {
   const platform = opts.platform ?? process.platform;
@@ -537,6 +558,14 @@ export function agentCliTargetAt(desc: AgentCliDescriptor, found: string, opts: 
     }
   };
   for (const program of desc.windowsShim.native?.(opts.arch ?? process.arch) ?? []) {
+    if (program.fromNodeSearch) {
+      const packageRoot = realPackage() ?? at(`node_modules/${desc.npmPackage}`);
+      for (const modules of nodeSearchFolders(packageRoot)) {
+        const command = path.win32.join(modules, ...program.path.split('/'));
+        if (exists(command)) return program.env ? { kind: 'direct', command, env: program.env(packageRoot) } : { kind: 'direct', command };
+      }
+      continue;
+    }
     const root = program.fromRealPackage ? realPackage() : dir;
     if (!root) continue;
     const command = path.win32.join(root, ...program.path.split('/'));

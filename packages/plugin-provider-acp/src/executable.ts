@@ -6,6 +6,7 @@ import {
   agentCliTargetAt,
   compareVersions,
   findAgentCli,
+  moxxyOwnVariables,
   readCliVersion,
   stopAgentProcess,
   type AgentCliTargetOptions,
@@ -40,7 +41,8 @@ export function opencodeTarget(command: string, opts: OpenCodeTargetOptions = {}
 
 export interface OpenCodeAcpLaunch {
   readonly args: ReadonlyArray<string>;
-  readonly env: Readonly<Record<string, string>>;
+  /** Added to the inherited environment; a variable set to `undefined` is left out. */
+  readonly env: Readonly<Record<string, string | undefined>>;
   /** OpenCode's HTTP API, when this OpenCode serves it beside ACP. */
   readonly api?: OpenCodeApi;
 }
@@ -53,6 +55,11 @@ export interface OpenCodeAcpLaunch {
  */
 export function opencodeServesApiBesideAcp(version: string | null): boolean {
   return version !== null && compareVersions(version, '2.0.0-0') < 0;
+}
+
+/** Whether this OpenCode has a shared background server (OpenCode 2). An unreadable version is taken as not. */
+export function opencodeHasSharedServer(version: string | null): boolean {
+  return version !== null && compareVersions(version, '2.0.0-0') >= 0;
 }
 
 /**
@@ -70,6 +77,7 @@ export function opencodeAcpLaunch(opts: {
   readonly env?: Readonly<Record<string, string>>;
 }): OpenCodeAcpLaunch {
   const env = {
+    ...moxxyOwnVariables(opts.inherited),
     ...opts.env,
     [OPENCODE_BACKGROUND_SUBAGENTS_ENV]: opts.inherited[OPENCODE_BACKGROUND_SUBAGENTS_ENV] ?? 'true',
   };

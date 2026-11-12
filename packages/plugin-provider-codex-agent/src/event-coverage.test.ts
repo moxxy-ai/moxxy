@@ -1,5 +1,5 @@
 /**
- * Everything `codex app-server` 0.163.0 can send (0.155.1, the oldest supported, sends a part of it) — its generated protocol types,
+ * Everything `codex app-server` 0.167.1 can send (0.155.1, the oldest supported, sends a part of it) — its generated protocol types,
  * listed in fixtures/ — checked against what Moxxy does with it. An item shows
  * in the chat or is left out on purpose, a notification is read or left alone
  * on purpose, a request always gets an answer. A newer Codex brings a new
@@ -25,9 +25,9 @@ interface CodexKinds {
   readonly requests: ReadonlyArray<string>;
 }
 
-const kinds = JSON.parse(readFileSync(new URL('./fixtures/codex-app-server-0.163.0.json', import.meta.url), 'utf8')) as CodexKinds;
+const kinds = JSON.parse(readFileSync(new URL('./fixtures/codex-app-server-0.167.1.json', import.meta.url), 'utf8')) as CodexKinds;
 
-/** One item of every kind, shaped as Codex 0.155.1–0.163.0 sends it once it ends. */
+/** One item of every kind, shaped as Codex 0.155.1–0.167.1 sends it once it ends. */
 const ITEMS: Record<string, Record<string, unknown>> = {
   agentMessage: { text: 'Done.' },
   plan: { text: '1. Read the code' },
@@ -72,6 +72,7 @@ const NOTIFICATIONS: Record<string, string> = {
   'thread/goal/cleared': STATE,
 };
 const LEFT_ALONE: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^thread\/section\/changed$/, "Codex's conversation sections; Moxxy groups conversations by its own workspaces"],
   [/^item\/(plan\/delta|reasoning\/(textDelta|summaryPartAdded)|commandExecution\/(outputDelta|terminalInteraction)|fileChange\/(outputDelta|patchUpdated)|mcpToolCall\/progress)$/, 'the item shows whole once it ends'],
   [/^item\/autoApprovalReview\/|^autoApprovalReview\/|^guardianWarning$/, "Codex's own reviewer; the approvals it answers are Codex's"],
   [/^turn\/(diff\/updated|moderationMetadata)$/, 'each file change shows its own diff; moderation stays with Codex'],
@@ -93,7 +94,7 @@ afterEach(async () => {
   await Promise.all(sessions.splice(0).map((session) => session.close()));
 });
 
-describe('every item Codex 0.163.0 can send', () => {
+describe('every item Codex 0.167.1 can send', () => {
   it('has a sample here, so a kind a newer Codex adds needs a decision', () => {
     expect(Object.keys(ITEMS).sort()).toEqual([...kinds.items]);
   });
@@ -107,15 +108,24 @@ describe('every item Codex 0.163.0 can send', () => {
   });
 });
 
-describe('every notification Codex 0.163.0 can send', () => {
+describe('every notification Codex 0.167.1 can send', () => {
   it.each(kinds.notifications)('%s is read, or left alone for a reason', (method) => {
     const reasons = [NOTIFICATIONS[method], ...LEFT_ALONE.filter(([pattern]) => pattern.test(method)).map(([, reason]) => reason)].filter(Boolean);
 
     expect(reasons).toHaveLength(1);
   });
+
+  it.each(['section-work', null])('leaves a move to section %s alone and keeps translating the reply', (sectionId) => {
+    const translator = new TurnTranslator();
+
+    expect(translator.translate('thread/section/changed', { threadId: 't1', sectionId })).toEqual([]);
+    expect(translator.translate('item/agentMessage/delta', { threadId: 't1', delta: 'Still working.' })).toEqual([
+      { type: 'text_delta', delta: 'Still working.' },
+    ]);
+  });
 });
 
-describe('every request Codex 0.163.0 can make', () => {
+describe('every request Codex 0.167.1 can make', () => {
   const allowAll: PermissionResolver = { name: 'allow-all', check: async () => ({ mode: 'allow' }) };
   const PARAMS: Record<string, Record<string, unknown>> = {
     'item/commandExecution/requestApproval': { itemId: 'c1', command: 'ls', cwd: '/work/app' },
