@@ -1,4 +1,4 @@
 ---
 ---
 
-README now presents moxxy as a personal AI assistant: the desktop download comes first, the terminal is a section for keyboard users, and company-governed use sits near the end.
+README and the product contract now present moxxy as a personal AI assistant: everyday users and the desktop download come first, the terminal is the surface for power users, and company-governed use is third.

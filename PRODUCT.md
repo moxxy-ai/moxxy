@@ -1,7 +1,7 @@
 # Moxxy product contract
 
-Moxxy is a local AI agent for developers that is simple to start, safe to use,
-and ready to operate under organizational policy.
+Moxxy is a personal AI assistant that runs on the user's own computer. It is
+simple to start, safe to use, and ready to operate under organizational policy.
 
 This contract decides what the product exposes. The runtime may remain deeply
 modular; the default experience must not require users to understand that
@@ -9,23 +9,32 @@ architecture.
 
 ## Audiences
 
-### Personal developer — primary
+### Everyday user (primary)
 
-A developer wants an agent in a project, using a model account they already
-have. They expect it to understand the workspace, ask before consequential
-actions, keep useful local context, and become extensible only when needed.
+A person wants an assistant that gets things done on their computer: on the
+web, in their files and apps, on a schedule. They download the desktop app and
+use an AI account they already have. They expect it to ask before consequential
+actions, remember what matters, and never require a terminal, a config file or
+knowledge of how it is built.
 
-### Governed developer — secondary
+### Power user and developer (secondary)
 
-An organization wants the same developer experience with centrally supplied
-policy, approved model connections and extensions, and inspectable activity.
-For the developer alpha, this means a governed developer workstation. It does
-not mean a general-purpose enterprise control plane.
+A person who lives on the keyboard wants the same assistant in a terminal and
+in a project: it understands the workspace, can be scripted, and becomes
+extensible only when needed. The CLI is their surface, on the same runtime.
+
+### Governed user (third)
+
+An organization wants the same experience with centrally supplied policy,
+approved model connections and extensions, and inspectable activity. For the
+alpha, this means a governed workstation. It does not mean a general-purpose
+enterprise control plane.
 
 ## Product promise
 
-Install moxxy, connect a model, open a project, and start working. Moxxy chooses
-safe defaults and explains consequential actions before it performs them.
+Install moxxy, connect a model, and ask for an outcome. Moxxy does the steps,
+chooses safe defaults and explains consequential actions before it performs
+them.
 
 The personal and governed products share one runtime:
 
@@ -55,10 +64,10 @@ when it refers to the package and SDK contract. Public product copy says
 
 The first useful run has four steps:
 
-1. Install the CLI or desktop app.
+1. Install the desktop app or the CLI.
 2. Connect one supported model account.
 3. Open or select a workspace.
-4. Ask moxxy to explain or change something.
+4. Ask moxxy to do, explain or change something.
 
 Setup selects the recommended model and runtime defaults automatically. It
 does not ask about channels, background services, memory backends, security
@@ -73,6 +82,9 @@ Success means:
 - the next run resumes without repeating setup.
 
 ## Default surfaces
+
+The desktop is the default surface and the one public copy leads with. The CLI
+is presented as the terminal surface for power users.
 
 The CLI leads with `moxxy`, `moxxy resume`, `moxxy doctor`, and `moxxy
 extensions`. Connecting a model is part of first start; explicit onboarding,
@@ -89,7 +101,7 @@ window: a voice conversation and focus mode.
 
 Documentation has three paths:
 
-- **Use** — install, connect a model, work in a project, approve actions.
+- **Use** — install, connect a model, ask for work, approve actions.
 - **Extend** — add a skill, tool, integration, channel, or model connection.
 - **Govern** — enroll a workstation, apply policy, approve extensions, inspect
   receipts.
