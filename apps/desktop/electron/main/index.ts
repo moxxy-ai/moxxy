@@ -70,6 +70,7 @@ import {
   sendEvent,
   readPrefs,
   autostartConfiguredChannels,
+  closeAllTerminalTabs,
   type LoopbackServer,
   type SelfSignedCert,
   routeGuestPopups,
@@ -1070,6 +1071,8 @@ async function shutdown(): Promise<void> {
     // rejects, so one failing doesn't skip the other.
     Promise.allSettled([
       pool?.stopAll() ?? Promise.resolve(),
+      // The person's terminal tabs, and what was started from them.
+      closeAllTerminalTabs(),
       loopback?.close() ?? Promise.resolve(),
     ]),
     // Belt-and-braces timeout: don't hang the app on a stuck child.

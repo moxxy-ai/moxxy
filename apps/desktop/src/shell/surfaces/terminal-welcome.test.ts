@@ -23,6 +23,8 @@ describe('terminalWelcome', () => {
 
   it('says whose shell this is', () => {
     expect(shown(terminalWelcome())).toMatch(/shared with the agent/);
+    expect(shown(terminalWelcome('own'))).toMatch(/Your terminal in this project/);
+    expect(shown(terminalWelcome('own'))).not.toMatch(/agent/);
   });
 
   it('ends on an empty line, so the shell prompt starts below it', () => {

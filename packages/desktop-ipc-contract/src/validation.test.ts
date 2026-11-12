@@ -3,6 +3,23 @@ import { validateIpcInput, ipcInputSchemas } from './validation.js';
 import type { IpcCommandName } from './index.js';
 
 describe('IPC payload validation', () => {
+  it("bounds the person's terminal tabs: a chat to open one in, a tab id, typed text and a size", () => {
+    const valid: ReadonlyArray<[string, unknown]> = [
+      ['terminal.list', { workspaceId: 'ws' }],
+      ['terminal.open', { workspaceId: 'ws' }],
+      ['terminal.attach', { tabId: 't1' }],
+      ['terminal.input', { tabId: 't1', data: 'ls\r' }],
+      ['terminal.resize', { tabId: 't1', cols: 120, rows: 30 }],
+      ['terminal.close', { tabId: 't1' }],
+    ];
+    for (const [command, args] of valid) expect(() => validateIpcInput(command as IpcCommandName, args)).not.toThrow();
+    expect(() => validateIpcInput('terminal.open' as IpcCommandName, { workspaceId: 'ws', cwd: '/' })).toThrow();
+    expect(() => validateIpcInput('terminal.open' as IpcCommandName, {})).toThrow();
+    expect(() => validateIpcInput('terminal.input' as IpcCommandName, { tabId: 't1', data: 'x'.repeat(200_000) })).toThrow();
+    expect(() => validateIpcInput('terminal.resize' as IpcCommandName, { tabId: 't1', cols: 0, rows: 30 })).toThrow();
+    expect(() => validateIpcInput('terminal.resize' as IpcCommandName, { tabId: 't1', cols: 1.5, rows: 30 })).toThrow();
+    expect(() => validateIpcInput('terminal.close' as IpcCommandName, { tabId: '' })).toThrow();
+  });
   it('has no collaboration commands, since collaborative mode was removed', () => {
     expect(Object.keys(ipcInputSchemas).filter((name) => name.startsWith('collab.'))).toEqual([]);
   });
