@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "openai": "^7.45.1"
+    "openai": "^7.53.0"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
