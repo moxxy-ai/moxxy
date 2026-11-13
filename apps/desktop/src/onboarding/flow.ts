@@ -17,6 +17,8 @@ import type { FlowStep } from '@moxxy/client-core';
 export interface OnboardingCtx {
   readonly full: boolean;
   readonly cliInstalled: boolean;
+  /** The CLI check has answered; until then a first run does not offer to install it. */
+  readonly cliProbed: boolean;
   readonly hasProvider: boolean;
   readonly nodeInstalled: boolean;
   readonly nodeProbed: boolean;
@@ -24,16 +26,13 @@ export interface OnboardingCtx {
 }
 
 /**
- * One declarative onboarding flow, gated per step. First-run walks every
- * step linearly; the recovery gate auto-resolves to whichever prerequisite
- * is missing. Both are the same list with different `applies`/`satisfied`
- * predicates over the same {@link useStepFlow} engine.
+ * One declarative onboarding flow, gated per step. A first run asks one
+ * question (`start`); the runtime and the CLI come first only when they are
+ * really missing, which the installer normally rules out. The recovery gate
+ * auto-resolves to whichever prerequisite is missing. Both are the same list
+ * over the same {@link useStepFlow} engine.
  */
 export const ONBOARDING_STEPS: ReadonlyArray<FlowStep<OnboardingCtx>> = [
-  { id: 'welcome', label: 'Welcome', applies: (c) => c.full },
-  // Sign-in is no longer an onboarding step — it lives in the sidebar
-  // profile pill (Clerk's own modal via clerk.openSignIn()), so first
-  // run no longer blocks on auth.
   {
     id: 'node',
     label: 'Getting ready',
@@ -42,16 +41,14 @@ export const ONBOARDING_STEPS: ReadonlyArray<FlowStep<OnboardingCtx>> = [
   },
   {
     id: 'cli',
-    label: 'Install moxxy',
-    applies: (c) => c.full || c.cliMissing,
+    label: 'Set up Moxxy',
+    applies: (c) => c.cliMissing || (c.full && c.cliProbed && !c.cliInstalled),
     satisfied: (c) => c.cliInstalled,
   },
   {
-    id: 'provider',
-    label: 'Pick a provider',
+    id: 'start',
+    label: 'Get started',
     applies: (c) => c.full || !c.hasProvider,
     satisfied: (c) => c.hasProvider,
   },
-  { id: 'workspace', label: 'First workspace', applies: (c) => c.full },
-  { id: 'done', label: "You're set", applies: (c) => c.full },
 ];

@@ -3,10 +3,11 @@
  * `useOnboarding().install` controller (the same one NodeStep uses), so these
  * exercise that path end-to-end via a faked IPC transport:
  *   1. A present CLI shows the ready state and enables Continue.
- *   2. A missing CLI shows the install panel; clicking Install drives
- *      `onboarding.installMoxxyCli` and reflects the streamed progress.
- *   3. A failed install (non-zero npm exit) surfaces the `npm exit N` error
- *      and a Try again button.
+ *   2. A missing CLI offers to set Moxxy up; pressing it drives
+ *      `onboarding.installMoxxyCli`, with the streamed log behind "Show details".
+ *   3. A failed install says so in plain words, keeps the exit code as a
+ *      detail, and offers Try again.
+ * The step speaks to someone who never programmed: no CLI, npm or PATH.
  */
 
 import { describe, expect, it, afterEach } from 'vitest';
@@ -80,7 +81,7 @@ describe('CliStep', () => {
   it('shows the ready state and enables Continue when the CLI is present', async () => {
     installFakeApi({ cliInstalled: true });
     render(<CliStep onNext={() => {}} onBack={() => {}} />);
-    expect(await screen.findByText(/moxxy is installed and ready/i)).toBeTruthy();
+    expect(await screen.findByText('Moxxy is ready.')).toBeTruthy();
     const cont = screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement;
     expect(cont.disabled).toBe(false);
   });
@@ -90,9 +91,10 @@ describe('CliStep', () => {
     render(<CliStep onNext={() => {}} onBack={() => {}} />);
 
     // Missing → install panel + disabled Continue.
-    const installBtn = await screen.findByRole('button', { name: 'Install moxxy' });
+    const installBtn = await screen.findByRole('button', { name: 'Set up Moxxy' });
     const cont = screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement;
     expect(cont.disabled).toBe(true);
+    expect(document.body.textContent).not.toMatch(/\b(CLI|npm|PATH)\b/);
 
     fireEvent.click(installBtn);
 
@@ -100,26 +102,28 @@ describe('CliStep', () => {
     fake.progress.emit('npm: fetching moxxy…');
     await waitFor(() => {
       expect(fake.invokes).toContain('onboarding.installMoxxyCli');
+      expect(screen.getByText('Setting up Moxxy…')).toBeTruthy();
+      expect(screen.getByText('Show details')).toBeTruthy();
       expect(screen.getByText(/npm: fetching moxxy/i)).toBeTruthy();
     });
 
     // run() refreshes status → CLI now present → ready + Continue enabled.
     await waitFor(() => {
-      expect(screen.getByText(/moxxy is installed and ready/i)).toBeTruthy();
+      expect(screen.getByText('Moxxy is ready.')).toBeTruthy();
       expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(false);
     });
   });
 
-  it('surfaces a non-zero npm exit as a failure with a Try again button', async () => {
+  it('says a failed setup plainly, with the exit code as a detail and a Try again button', async () => {
     installFakeApi({ cliInstalled: false, installExit: 7, installResolvesInstalled: false });
     render(<CliStep onNext={() => {}} onBack={() => {}} />);
 
-    const installBtn = await screen.findByRole('button', { name: 'Install moxxy' });
+    const installBtn = await screen.findByRole('button', { name: 'Set up Moxxy' });
     fireEvent.click(installBtn);
 
     await waitFor(() => {
-      expect(screen.getByText(/install failed/i)).toBeTruthy();
-      expect(screen.getByText('npm exit 7')).toBeTruthy();
+      expect(screen.getByRole('alert')).toHaveTextContent('The setup did not finish. Check your internet connection and try again.');
+      expect(screen.getByText('Exit code 7')).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
     });
   });

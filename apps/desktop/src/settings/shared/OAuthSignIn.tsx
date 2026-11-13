@@ -22,12 +22,18 @@ export function OAuthSignIn({
   provider,
   onSignedIn,
   startLabel,
+  name = provider,
+  autoStart = false,
 }: {
   readonly provider: string;
   /** Called once the login exits 0 — the caller activates the provider. */
   readonly onSignedIn?: () => void | Promise<void>;
   /** Override the initial button text (defaults to `Sign in with <provider>`). */
   readonly startLabel?: string;
+  /** The name a person knows the provider by, in the lines shown; the id by default. */
+  readonly name?: string;
+  /** Opens the sign-in on mount: the press that showed it already asked for it. */
+  readonly autoStart?: boolean;
 }): JSX.Element {
   const [phase, setPhase] = useState<Phase>('idle');
   const [log, setLog] = useState<string[]>([]);
@@ -119,6 +125,13 @@ export function OAuthSignIn({
     }
   };
 
+  // Read once, at mount: the caller's press already asked for a sign-in.
+  const autoStarted = useRef(autoStart);
+  useEffect(() => {
+    if (autoStarted.current) void start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, at mount
+  }, []);
+
   const submit = async (value: string): Promise<void> => {
     const id = loginIdRef.current;
     if (!id) return;
@@ -168,16 +181,16 @@ export function OAuthSignIn({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {phase === 'idle' && (
         <Button variant="primary" onClick={() => void start()}>
-          {startLabel ?? `Sign in with ${provider}`}
+          {startLabel ?? `Sign in with ${name}`}
         </Button>
       )}
 
       {phase === 'done' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-green, #16a34a)' }}>
-            Signed in to {provider}.
+            Signed in to {name}.
           </p>
-          <Button onClick={() => void start()}>Re-link {provider}</Button>
+          <Button onClick={() => void start()}>Re-link {name}</Button>
         </div>
       )}
 
@@ -189,7 +202,7 @@ export function OAuthSignIn({
 
       {phase === 'activating' && (
         <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
-          Activating {provider}…
+          Activating {name}…
         </p>
       )}
 

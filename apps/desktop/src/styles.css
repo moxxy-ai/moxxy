@@ -5111,6 +5111,193 @@ button.toast__open { cursor: pointer; }
   .onboard__step { transition: none; }
 }
 
+/* The first-run question: a short head (the mark, one greeting, one line) over
+ * a list of answers. Each answer is a whole-row button on the card's ground;
+ * only a plan already signed in here is lit, in the accent, as the way forward. */
+.onboard-start {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-20);
+}
+.onboard-start__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-8);
+}
+.onboard-start__title {
+  margin: var(--space-4) 0 0;
+  font-size: var(--type-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.onboard-start__sub,
+.onboard-start__notice {
+  margin: 0;
+  font-size: var(--type-ui);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.onboard-error {
+  margin: 0;
+  font-size: var(--type-row);
+  line-height: 1.5;
+  color: var(--color-red);
+}
+.onboard-start__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+.onboard-start__foot .onboard-link { align-self: center; }
+
+.onboard-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.onboard-choice {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  width: 100%;
+  min-height: 60px;
+  padding: var(--space-12) var(--space-16);
+  text-align: left;
+  color: var(--color-text);
+  background: var(--color-input-soft);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.onboard-choice[data-lit] {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+.onboard-choice:disabled:not([aria-busy]) { opacity: 0.55; }
+.onboard-choice[aria-busy] { cursor: progress; }
+@media (hover: hover) and (pointer: fine) {
+  .onboard-choice:hover:not(:disabled) {
+    filter: none;
+    border-color: var(--color-card-border-strong);
+  }
+  .onboard-choice[data-lit]:hover:not(:disabled) { border-color: var(--color-primary); }
+}
+.onboard-choice__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.onboard-choice__title {
+  font-size: var(--type-ui);
+  font-weight: 600;
+}
+.onboard-choice__detail {
+  font-size: var(--type-row);
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+.onboard-choice__end {
+  display: inline-flex;
+  color: var(--color-text-dim);
+}
+.onboard-choice[data-lit] .onboard-choice__end { color: var(--color-primary); }
+
+/* While a choice works, a hairline along its foot fills as the install
+ * reports a percentage, or slides while it says none. */
+.onboard-choice__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+}
+.onboard-choice__fill {
+  display: block;
+  height: 100%;
+  background: var(--color-primary);
+  transform-origin: left center;
+  transition: transform var(--motion-shift) var(--ease-out);
+}
+.onboard-choice__progress[data-indeterminate] .onboard-choice__fill {
+  width: 30%;
+  animation: agent-progress-slide 1.4s var(--ease-in-out) infinite;
+}
+
+/* The answers arrive one after another, 40 ms apart. Seen once per install,
+ * so it may move; the fill is backwards only, so the press keeps its scale. */
+.onboard-choices > .onboard-choice {
+  animation: onboard-rise var(--motion-overlay) var(--ease-out) backwards;
+}
+.onboard-choices > .onboard-choice:nth-child(2) { animation-delay: 40ms; }
+.onboard-choices > .onboard-choice:nth-child(3) { animation-delay: 80ms; }
+@keyframes onboard-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.onboard-link {
+  align-self: flex-start;
+  font-size: var(--type-row);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--color-card-border-strong);
+}
+@media (hover: hover) and (pointer: fine) {
+  .onboard-link:hover:not(:disabled) {
+    filter: none;
+    color: var(--color-text);
+  }
+}
+
+.onboard-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-12) var(--space-16);
+  background: var(--color-input-soft);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+}
+.onboard-panel__detail {
+  font-size: var(--type-meta);
+  color: var(--color-text-dim);
+}
+
+.onboard-log summary {
+  cursor: pointer;
+  font-size: var(--type-row);
+  color: var(--color-text-muted);
+}
+.onboard-log__body {
+  margin: var(--space-8) 0 0;
+  padding: var(--space-8) var(--space-12);
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: var(--type-meta);
+  color: var(--color-text-muted);
+  background: var(--color-input-soft);
+  border-radius: var(--radius-block);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboard-choices > .onboard-choice { animation: none; }
+  .onboard-choice__fill { transition: none; }
+  .onboard-choice__progress[data-indeterminate] .onboard-choice__fill { animation: none; transform: none; }
+}
+
 /* Settings lists of more than one kind (Providers: coding agents, then the
  * model providers Moxxy calls itself). Each kind gets a quiet heading with its
  * count and one line on what sets it apart; a hairline and air separate the
