@@ -4,6 +4,7 @@ import {
   describeConnectionPhase,
   resolveActiveSessionShell,
   shouldShowProviderRecovery,
+  isProviderRecoveryDismissed,
   shouldShowBlockingConnectionScreen,
   type LastConnectedSession,
 } from './app-readiness';
@@ -194,5 +195,33 @@ describe('describeConnectionPhase', () => {
     expect(
       describeConnectionPhase({ phase: 'reconnecting', reason: 'runner disconnected', attempt: 2 }),
     ).toBe('Reconnecting — runner disconnected');
+  });
+});
+
+describe('isProviderRecoveryDismissed', () => {
+  it('keeps the shell open right after a first run that skipped choosing a model', () => {
+    expect(
+      isProviderRecoveryDismissed({
+        dismissedFor: null,
+        activeWorkspaceId: 'first-workspace',
+        justFinishedOnboarding: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('honours a skip of the recovery screen for that workspace only', () => {
+    const base = { dismissedFor: 'a', justFinishedOnboarding: false };
+    expect(isProviderRecoveryDismissed({ ...base, activeWorkspaceId: 'a' })).toBe(true);
+    expect(isProviderRecoveryDismissed({ ...base, activeWorkspaceId: 'b' })).toBe(false);
+  });
+
+  it('asks again on a later start when nothing was skipped in this run', () => {
+    expect(
+      isProviderRecoveryDismissed({
+        dismissedFor: null,
+        activeWorkspaceId: 'a',
+        justFinishedOnboarding: false,
+      }),
+    ).toBe(false);
   });
 });
