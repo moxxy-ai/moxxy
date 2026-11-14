@@ -39,12 +39,40 @@ describe('useStepFlow — linear cursor stability', () => {
     // now point at 'node', bouncing the user backward.
     rerender({ ctx: { nodeApplies: true } });
     expect(result.current.currentId).toBe('cli');
-    expect(result.current.steps.map((s) => s.id)).toEqual([
-      'welcome',
-      'node',
-      'cli',
-      'provider',
-    ]);
+  });
+
+  it('does not count a step that appears behind the person, so the step line stays put', () => {
+    const { result, rerender } = renderHook(
+      ({ ctx }) => useStepFlow(STEPS, ctx, { mode: 'linear', onComplete: vi.fn() }),
+      { initialProps: { ctx: { nodeApplies: false } as Ctx } },
+    );
+    act(() => result.current.next());
+    expect(result.current.currentId).toBe('cli');
+
+    // A late check says Node is missing while the person already answers a
+    // later step; it is set up in the background, never walked through.
+    rerender({ ctx: { nodeApplies: true } });
+    expect(result.current.steps.map((s) => s.id)).toEqual(['welcome', 'cli', 'provider']);
+    expect(result.current.index).toBe(1);
+
+    // And it goes away again without moving the person.
+    rerender({ ctx: { nodeApplies: false } });
+    expect(result.current.steps.map((s) => s.id)).toEqual(['welcome', 'cli', 'provider']);
+    expect(result.current.currentId).toBe('cli');
+  });
+
+  it('still shows a step that appears ahead of the person', () => {
+    const steps: ReadonlyArray<FlowStep<Ctx>> = [
+      { id: 'welcome', label: 'Welcome' },
+      { id: 'provider', label: 'Pick a provider' },
+      { id: 'node', label: 'Install Node', applies: (c) => c.nodeApplies },
+    ];
+    const { result, rerender } = renderHook(
+      ({ ctx }) => useStepFlow(steps, ctx, { mode: 'linear', onComplete: vi.fn() }),
+      { initialProps: { ctx: { nodeApplies: false } as Ctx } },
+    );
+    rerender({ ctx: { nodeApplies: true } });
+    expect(result.current.steps.map((s) => s.id)).toEqual(['welcome', 'provider', 'node']);
   });
 
   it('still advances and retreats normally when the set is unchanged', () => {
