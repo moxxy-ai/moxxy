@@ -4,6 +4,11 @@ import { __setApiOverride } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Onboarding } from './Onboarding';
 
+const prefsState = vi.hoisted(() => ({
+  onboardingComplete: true,
+  update: vi.fn(async () => undefined),
+}));
+
 // The host answers that this launch has nothing to set up.
 beforeEach(() => {
   __setApiOverride({
@@ -20,9 +25,9 @@ vi.mock('@moxxy/client-core', async (importOriginal) => {
   return {
     ...actual,
     usePrefs: () => ({
-      prefs: { onboardingComplete: true },
+      prefs: { onboardingComplete: prefsState.onboardingComplete },
       loading: false,
-      update: vi.fn(),
+      update: prefsState.update,
     }),
     useOnboarding: () => ({
       status: {
@@ -37,11 +42,16 @@ vi.mock('@moxxy/client-core', async (importOriginal) => {
   };
 });
 
-vi.mock('./steps/ProviderStep', () => ({
-  ProviderStep: ({ onNext }: { readonly onNext: () => void }) => (
-    <button type="button" onClick={onNext}>
-      Skip for now
-    </button>
+vi.mock('./steps/StartStep', () => ({
+  StartStep: ({ onDone, onSkip }: { readonly onDone: () => void; readonly onSkip: () => void }) => (
+    <>
+      <button type="button" onClick={onDone}>
+        Connected
+      </button>
+      <button type="button" onClick={onSkip}>
+        Skip for now
+      </button>
+    </>
   ),
 }));
 
@@ -52,6 +62,44 @@ const PROVIDER_RECOVERY_PHASE: ConnectionPhase = {
   activeProvider: null,
   activeMode: 'default',
 };
+
+describe('Onboarding first run', () => {
+  beforeEach(() => {
+    prefsState.onboardingComplete = false;
+    prefsState.update.mockClear();
+  });
+  afterEach(() => {
+    prefsState.onboardingComplete = true;
+  });
+
+  it('opens on the start question, with no welcome screen before it', () => {
+    render(<Onboarding onComplete={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Connected' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Let’s go/ })).toBeNull();
+  });
+
+  it('goes straight into the app once connected, and remembers setup is done', () => {
+    const onComplete = vi.fn();
+    render(<Onboarding onComplete={onComplete} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connected' }));
+
+    expect(prefsState.update).toHaveBeenCalledWith({ onboardingComplete: true });
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a first run be finished later without asking for a folder', () => {
+    const onComplete = vi.fn();
+    render(<Onboarding onComplete={onComplete} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
+
+    expect(prefsState.update).toHaveBeenCalledWith({ onboardingComplete: true });
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/workspace/i)).toBeNull();
+  });
+});
 
 describe('Onboarding provider recovery', () => {
   it('dismisses the one-step recovery flow when Skip for now is clicked', () => {

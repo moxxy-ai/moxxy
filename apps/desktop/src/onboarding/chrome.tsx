@@ -8,4 +8,5 @@
 
 export { Shell } from './chrome/Shell';
 export { StepCard, Fields, Nav, PrimaryButton, SecondaryButton, SuccessRow, Pulse } from './chrome/primitives';
-export { inputStyle, pickerBtnStyle } from './chrome/styles';
+export { ChoiceRow } from './chrome/ChoiceRow';
+export { inputStyle } from './chrome/styles';

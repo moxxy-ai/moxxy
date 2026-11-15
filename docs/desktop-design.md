@@ -103,24 +103,41 @@ needs a loaded session (Automations, Apps) is shown disabled, with
 the reason, while the session loads.
 
 First run is the one screen with no sidebar, because there is nothing to move
-between yet. It is one form on the sidebar's ground: the mark, a card with
-"Step n of N" over a line of step marks, and one step at a time
-(`onboarding/chrome/Shell.tsx`). A step that can be left for later offers a
-quiet "Skip for now" in place of the lit button, so the accent only marks the
-way forward. The provider step's picker groups the "SDK · OAuth login" agents (Claude Code,
-Codex, OpenCode: they work through their own SDK, on their own sign-in) apart
-from the "API · API key login" models Moxxy calls itself, named as in Settings and the model
-picker (`settings/provider-kinds.ts`); `settings.providerCatalog` tags each
-entry `agent` or `api`. Skipping the workspace step keeps the built-in Moxxy
-workspace, whose folder is `~/Moxxy` (inside `MOXXY_HOME` when that is set):
-the app starts its first runner there (`initialRunnerTarget` in
-`@moxxy/desktop-host`), and the step says so before the person skips.
-The provider step starts on the first coding agent, not on an API key. While
-the first launch still sets up behind the form, one muted line under the card
-names the setup step and says that signing in and starting the agent wait for
-it (`onboarding/setup-notice.ts`); the full setup screen does not cover
-onboarding. Creating a workspace goes on as soon as it exists and does not wait
-for its agent to start; a failure is said in red under the fields.
+between yet. It is one form on the sidebar's ground: the mark and a card
+(`onboarding/chrome/Shell.tsx`). It is written for someone who never
+programmed: no screen says provider, CLI, npm, PATH, vault, OAuth or SDK, and
+`StartStep.test.tsx` holds that.
+
+Most people see one screen, the question "How do you want to start?"
+(`onboarding/steps/StartStep.tsx`). Its answers are whole-row buttons
+(`onboarding/chrome/ChoiceRow.tsx`):
+
+| Answer | What one press does |
+|---|---|
+| Continue with Claude / ChatGPT | Shown first, lit in the accent, only when that agent is already installed and signed in here; it switches to it and opens the chat. |
+| Use my Claude or ChatGPT plan | Opens the two plans. Each row says in plain words what is next ("Moxxy installs it for you", "Sign in with your ChatGPT account", "Signed in as …") and one press runs the whole chain: install, then the browser sign-in, then the chat. |
+| Start free | OpenCode's free model, no account: installed if needed, then the chat. |
+| I have an API key | A quiet link to the key form: the service, the key, a link to where keys are made, Connect. |
+
+The chain lives in `onboarding/useStartStep.ts`; what each agent state means to
+a person is `onboarding/start-options.ts`. "Skip for now" leaves onboarding
+without a connection; the provider gate asks again later. Connecting ends the
+first run at once: there is no welcome screen before the question and no
+"You're all set" after it, and no folder is asked for: the app starts in the
+built-in Moxxy workspace, whose folder is `~/Moxxy` (inside `MOXXY_HOME` when
+that is set; `initialRunnerTarget` in `@moxxy/desktop-host`), and the sidebar
+adds folders later. The answers arrive 40 ms apart and hold still under reduced
+motion; a press scales to 0.97 like every button.
+
+Two screens can come before the question, only when something is really
+missing: "Getting Moxxy ready" when the computer has no Node, and "Set up
+Moxxy" when the CLI is not found (the installer carries both, so a normal
+install shows neither). Their raw output stays folded under "Show details".
+"Step n of N" over a line of step marks shows only when there is more than one
+screen. While the first launch still sets up behind the form, one muted line
+under the card names the setup step and says that signing in and starting the
+agent wait for it (`onboarding/setup-notice.ts`); the full setup screen does
+not cover onboarding.
 
 Menus are one component, `shell/menu/PopoverMenu.tsx`, positioned by
 `shell/menu/usePopover.ts`. A menu opened with the pointer grows from the
@@ -587,9 +604,9 @@ as the same app.
 | Approvals | `workflows/WorkflowApprovals.tsx` | Shown only while a workflow waits on the person. |
 | Schedules | `automations/schedules/` | Cards in the Settings look (`Row`, `CardGroup`), not a table: the person's own under "Yours", then "From workflows and skills", which are read-only (no Delete, no session picker) because their source rewrites them. A card says its repeat in words ("Every 30 minutes", "On weekdays at 08:30", `cron-words.ts`; a cron with no words shows as the cron), and under it the window, next and last run on one line, cut, with everything in its tooltip (`scheduleRowView`). The list reads itself again every 30 s, as often as the scheduler checks. Delete asks first. |
 | New schedule | `automations/schedules/NewScheduleModal.tsx` | Opened from the bar and from the empty list. One question per field, in the order a person thinks: what Moxxy should do, how often (repeats from a list, a cron only under "Custom"), optionally between which two dates, the name (filled from the prompt, kept a valid slug as it is typed), where it runs. A sentence at the foot says what will happen before anything is saved. A field says what is wrong under itself once it was left, and all of them when Create is pressed; the host checks again with the scheduler's own rules (`scheduleDraftProblem`) and its reason shows in the dialog, which stays open. ⌘↵ / Ctrl+↵ in the prompt creates. The rules are `schedule-form.ts`, the state `useScheduleForm.ts`; the form only draws. The dialog pops in (`.moxxy-modal--pop`: from `scale(0.96)` and no opacity, centred, in `--motion-overlay` on `--ease-out`), only fades under reduced motion, and leaves at once. |
-| Provider groups | `CardGroup` in `settings/settings-primitives.tsx` | Providers is two lists, not one, split by how the person signs in: "SDK · OAuth login" (an agent app on this computer, on its own sign-in) above "API · API key login" (a model Moxxy calls with an API key, or one on this computer). The names live in `settings/provider-kinds.ts`, shared with the model picker and the first-run provider step, so a kind is called the same everywhere; ⌘K still finds them by the old words ("coding agents", "model providers"). People using Moxxy need not know how either works, so no line explains a kind: the name is enough. Each has a quiet heading with its count; a hairline and 20 px of air sit between them, so the split reads before any row does. A kind with no rows shows no heading. No motion: it is a list. |
+| Provider groups | `CardGroup` in `settings/settings-primitives.tsx` | Providers is two lists, not one, split by how the person signs in: "SDK · OAuth login" (an agent app on this computer, on its own sign-in) above "API · API key login" (a model Moxxy calls with an API key, or one on this computer). The names live in `settings/provider-kinds.ts`, shared with the model picker, so a kind is called the same everywhere; ⌘K still finds them by the old words ("coding agents", "model providers"). People using Moxxy need not know how either works, so no line explains a kind: the name is enough. Each has a quiet heading with its count; a hairline and 20 px of air sit between them, so the split reads before any row does. A kind with no rows shows no heading. No motion: it is a list. |
 | Model picker providers | `chat/agent-picker/ProviderModelGrid.tsx`, `useConnectedProviders.ts` | The provider column of the model picker (Model & usage, and a channel's model) lists only the providers Settings → Providers shows as connected — an agent installed and signed in, a provider whose key resolved, a local server that answers — read from the same `settings.providers` answer through `isProviderConnected` in `@moxxy/client-core`, so the two never disagree. The running provider always stays. It splits them the way Providers does: "SDK · OAuth login" above "API · API key login". Each heading is the kind's name alone, in the text colour, and a hairline with a little air sits between the kinds, so the split reads before any provider does. A kind with none shows no heading. Until Settings answers only the running provider shows, so a list never grows and then shrinks under the pointer; when Settings cannot answer, every provider shows rather than none. |
-| Agent connection | `settings/agents/AgentConnectionRow.tsx` | Claude, Codex and OpenCode each get a row in the "SDK · OAuth login" group at the head of Providers, and the same row in the first-run provider step: the agent's name with its state as a chip beside it (so the line under the name has the whole width and stays one line), one line under it (the account it is signed in to and the version, or what is wrong), the one action that moves it on (Install, Update, Sign in, Check again) and a menu with "Check for updates". While its CLI installs or updates, a thin bar under the line fills as the installer reports a percentage, or slides while it says none. The state comes from the runner (`ProviderEntry.agentCli`) and from the install this window runs (`agentConnectionView` in `@moxxy/client-core`). |
+| Agent connection | `settings/agents/AgentConnectionRow.tsx` | Claude, Codex and OpenCode each get a row in the "SDK · OAuth login" group at the head of Providers: the agent's name with its state as a chip beside it (so the line under the name has the whole width and stays one line), one line under it (the account it is signed in to and the version, or what is wrong), the one action that moves it on (Install, Update, Sign in, Check again) and a menu with "Check for updates". While its CLI installs or updates, a thin bar under the line fills as the installer reports a percentage, or slides while it says none. The state comes from the runner (`ProviderEntry.agentCli`) and from the install this window runs (`agentConnectionView` in `@moxxy/client-core`). |
 
 ### The focus window
 
@@ -658,6 +675,9 @@ above are reimplemented here in Moxxy's own components.
 9. **Found by name** (done): the palette finds every option by its own name
    and opens the section that holds it; Providers are the first section of
    Settings; first run is one form with no sidebar.
+10. **First run for everyone** (done): one question in plain words (a plan, a
+    free model, an API key) instead of six steps; no welcome, folder or
+    closing screen.
 
 ## Voice settings and connection migration
 

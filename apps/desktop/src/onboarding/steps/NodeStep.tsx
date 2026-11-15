@@ -15,6 +15,7 @@ import {
   SuccessRow,
   Pulse,
 } from '../chrome';
+import { InstallLog } from '../chrome/InstallLog';
 
 export function NodeStep({
   onNext,
@@ -42,41 +43,14 @@ export function NodeStep({
       ) : installing || !error ? (
         <>
           <Pulse label="Downloading and installing…" />
-          {log.length > 0 && (
-            <pre
-              className="mono"
-              style={{
-                margin: 0,
-                padding: 10,
-                background: '#0b0d12',
-                color: '#e2e8f0',
-                borderRadius: 'var(--radius-block)',
-                fontSize: 'var(--type-meta)',
-                maxHeight: 180,
-                overflow: 'auto',
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {log.slice(-40).join('\n')}
-            </pre>
-          )}
+          <InstallLog lines={log} />
         </>
       ) : (
-        <div
-          style={{
-            padding: '16px 18px',
-            background: 'var(--color-card-bg)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 'var(--radius-card)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-          }}
-        >
-          <div role="alert" style={{ fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
+        <div className="onboard-panel">
+          <div role="alert" className="onboard-error">
             The download did not finish. Check your internet connection and try again.
           </div>
-          <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>{error}</div>
+          <div className="onboard-panel__detail">{error}</div>
           <PrimaryButton onClick={() => void ob.installNode.run()}>Try again</PrimaryButton>
           <SecondaryButton
             onClick={() => void ob.openExternal('https://nodejs.org/en/download')}
