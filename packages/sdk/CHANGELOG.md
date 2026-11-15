@@ -1,5 +1,17 @@
 # @moxxy/sdk
 
+## 0.49.0
+
+### Minor Changes
+
+- ee0e285: Settings → Providers: one "Check for updates" button now sits on the "SDK · OAuth login" heading instead of hiding in each agent's menu, and the agents are checked again on their own when a sign-in from Settings ends and when you come back to the window (at most every 30 seconds), so a sign-in done in a terminal shows without a click. A signed-in agent's menu has "Sign out", which asks first and then signs Claude, Codex or OpenCode out the same way the terminal does (`provider.logout` runs `moxxy login logout <provider>`). In the chat list, a run that waits on you for an approval or a question says "Needs you" beside its name, with an amber dot on its avatar, so it no longer looks the same as a finished one.
+
+  Signing out first ends the agent's live sessions on every runner (runner protocol v34, `provider.closeAgentSessions`, backed by the new `agentCli.closeSessions` hook and `AgentSessionPool.endAll`): a running `codex app-server` holds the account and wrote it back after `codex logout`, so the agent stayed signed in. A sign-out waits while a turn runs.
+
+### Patch Changes
+
+- 2a163eb: A met goal shows its list of steps as done. An agent can end its goal before it ticks the last step of its list, which left "Goal complete" next to "2 of 3 done" with a step still in progress. Once the goal is met, every step it left in progress or waiting shows as done, on the desktop, in the terminal and in Discord and Telegram; a step it cancelled stays cancelled, and a paused goal leaves the list as it was.
+
 ## 0.48.4
 
 ## 0.48.3

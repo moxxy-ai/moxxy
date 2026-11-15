@@ -1,5 +1,34 @@
 # @moxxy/desktop-host
 
+## 0.18.0
+
+### Minor Changes
+
+- ee0e285: Settings → Providers: one "Check for updates" button now sits on the "SDK · OAuth login" heading instead of hiding in each agent's menu, and the agents are checked again on their own when a sign-in from Settings ends and when you come back to the window (at most every 30 seconds), so a sign-in done in a terminal shows without a click. A signed-in agent's menu has "Sign out", which asks first and then signs Claude, Codex or OpenCode out the same way the terminal does (`provider.logout` runs `moxxy login logout <provider>`). In the chat list, a run that waits on you for an approval or a question says "Needs you" beside its name, with an amber dot on its avatar, so it no longer looks the same as a finished one.
+
+  Signing out first ends the agent's live sessions on every runner (runner protocol v34, `provider.closeAgentSessions`, backed by the new `agentCli.closeSessions` hook and `AgentSessionPool.endAll`): a running `codex app-server` holds the account and wrote it back after `codex logout`, so the agent stayed signed in. A sign-out waits while a turn runs.
+
+### Patch Changes
+
+- Updated dependencies [ee0e285]
+- Updated dependencies [2a163eb]
+  - @moxxy/desktop-ipc-contract@0.18.0
+  - @moxxy/sdk@0.49.0
+  - @moxxy/core@0.49.0
+  - @moxxy/agent-connection-kit@0.2.0
+  - @moxxy/workspace-registry@0.2.53
+  - @moxxy/config@0.49.0
+  - @moxxy/plugin-browser@0.49.0
+  - @moxxy/plugin-computer-control@0.49.0
+  - @moxxy/plugin-provider-local@0.49.0
+  - @moxxy/plugin-provider-openai@0.49.0
+  - @moxxy/plugin-scheduler@0.49.0
+  - @moxxy/plugin-stt-whisper@0.49.0
+  - @moxxy/plugin-tts-gemini@0.49.0
+  - @moxxy/plugin-vault@0.49.0
+  - @moxxy/plugin-webhooks@0.49.0
+  - @moxxy/runner@0.2.70
+
 ## 0.17.4
 
 ### Patch Changes
