@@ -29,6 +29,22 @@ afterEach(() => {
 });
 
 describe('AgentCliWatch', () => {
+  it('ends the live sessions of one agent before a sign-out, and leaves the rest alone', async () => {
+    const closed: string[] = [];
+    const withSessions = (name: string): ProviderDef => ({
+      ...agent(name, async () => report('current', '0.162.1')),
+      agentCli: { check: async () => report('current', '0.162.1'), closeSessions: async () => void closed.push(name) },
+    });
+    const plain: ProviderDef = { name: 'anthropic', models: [], createClient: () => ({}) as never };
+    const watch = new AgentCliWatch(() => [withSessions('codex-agent'), withSessions('claude-code'), plain], silentLogger);
+
+    await watch.closeSessions('codex-agent');
+    await watch.closeSessions('anthropic');
+    await watch.closeSessions('nobody');
+
+    expect(closed).toEqual(['codex-agent']);
+  });
+
   it('keeps the last report of every connection that has a CLI', async () => {
     const plain: ProviderDef = { name: 'anthropic', models: [], createClient: () => ({}) as never };
     const watch = new AgentCliWatch(() => [agent('codex-agent', async () => report('update-available', '0.155.1')), plain], silentLogger);

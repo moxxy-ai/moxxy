@@ -43,6 +43,7 @@ import {
   handleProviderSetEnabled,
   handleProviderRefreshReady,
   handleProviderCheckAgents,
+  handleProviderCloseAgentSessions,
   handleProviderConfigure,
   handleTranscribe,
   handleSynthesize,
@@ -283,6 +284,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.ProviderSetEnabled, (raw) => handleProviderSetEnabled(ctx, raw));
     peer.handle(RunnerMethod.ProviderRefreshReady, () => handleProviderRefreshReady(ctx));
     peer.handle(RunnerMethod.ProviderCheckAgents, () => handleProviderCheckAgents(ctx));
+    peer.handle(RunnerMethod.ProviderCloseAgentSessions, (raw) => handleProviderCloseAgentSessions(ctx, raw));
     peer.handle(RunnerMethod.ProviderConfigure, (raw) => handleProviderConfigure(ctx, raw));
     peer.handle(RunnerMethod.PermissionAddAllow, (raw) => handlePermissionAddAllow(ctx, raw));
     peer.handle(RunnerMethod.CommandRun, (raw) => handleCommandRun(ctx, raw));

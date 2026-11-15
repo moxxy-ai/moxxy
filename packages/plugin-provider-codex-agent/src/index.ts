@@ -20,6 +20,8 @@ export const codexAgentProviderDef = defineProvider({
     },
     // Asked outside any project, so no folder's config narrows the list.
     models: () => codexOfferedModels(homedir(), spawnCodexAppServer(resolveCodexExecutable())),
+    // A running `codex app-server` holds the sign-in and writes it back; a sign-out ends them first.
+    closeSessions: () => codexSessions().endAll(),
   },
   ownAutoApprove: ({ cwd }) => codexOwnAutoApprove(cwd, spawnCodexAppServer(resolveCodexExecutable())),
   createClient: (config) => createCodexAgentClient(providerConfigFrom(config)),

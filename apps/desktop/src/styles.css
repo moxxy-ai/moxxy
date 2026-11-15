@@ -914,6 +914,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   border-radius: 50%;
   background: var(--color-primary);
 }
+/* A run waiting on the person: amber, the colour of the header's "awaiting you". */
+.run-section__unread[data-state='needs-you'] { background: var(--color-amber); }
 
 .run-row {
   --row-bg: var(--color-sidebar-bg);
@@ -961,6 +963,13 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   text-overflow: ellipsis;
 }
 .run-row[data-unread] .run-row__name { font-weight: 650; }
+/* "Needs you" beside the name: never squeezed out by a long name. */
+.run-row__needs {
+  flex-shrink: 0;
+  align-self: center;
+  font-size: var(--type-micro);
+  line-height: 16px;
+}
 .run-row__time {
   flex-shrink: 0;
   font-size: var(--type-micro);
@@ -1121,6 +1130,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   background: var(--color-primary);
   box-shadow: 0 0 0 2px var(--row-bg, var(--color-sidebar-bg));
 }
+.avatar__badge[data-state='needs-you'] { background: var(--color-amber); }
 .avatar__badge[data-state='working'] {
   animation: moxxy-badge-breathe 1.6s var(--ease-in-out) infinite;
 }
@@ -5319,7 +5329,7 @@ button.toast__open { cursor: pointer; }
 }
 .card-group__head {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto auto 1fr auto;
   align-items: center;
   column-gap: var(--space-8);
   row-gap: var(--space-2);
@@ -5341,6 +5351,18 @@ button.toast__open { cursor: pointer; }
   text-align: center;
   color: var(--color-text-muted);
   background: color-mix(in srgb, var(--color-text-dim) 16%, transparent);
+}
+.card-group__actions {
+  grid-column: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.card-group__alert {
+  margin: 0;
+  padding: 0 var(--space-4);
+  font-size: var(--type-row);
+  color: var(--color-red-text);
 }
 .card-group__description {
   grid-column: 1 / -1;

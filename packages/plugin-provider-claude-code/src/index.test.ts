@@ -1,5 +1,5 @@
 /** The plugin entry: the conversation's live Claude ends when the conversation does. */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { collectTurn } from '@moxxy/core';
 import { assertDefined } from '@moxxy/sdk';
 import { createFakeSession } from '@moxxy/testing';
@@ -45,5 +45,14 @@ describe('the Claude plugin', () => {
     expect(typeof claudeCodeProviderDef.agentCli?.models).toBe('function');
     expect(claudeCodeModels.map((m) => m.id)).toContain('claude-haiku-5-5');
     expect(claudeCodeModels.map((m) => m.id)).not.toContain('claude-haiku-4-5');
+  });
+
+  it('ends its live sessions before a sign-out, and keeps the connection usable', async () => {
+    const mod = await import('./index.js');
+    const pool = mod.claudeSessions();
+    const ended = vi.spyOn(pool, 'endAll').mockResolvedValue(undefined);
+    await mod.claudeCodeProviderDef.agentCli?.closeSessions?.();
+    expect(ended).toHaveBeenCalledTimes(1);
+    ended.mockRestore();
   });
 });

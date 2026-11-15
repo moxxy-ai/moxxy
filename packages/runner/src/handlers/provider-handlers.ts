@@ -1,5 +1,6 @@
 import { setCategoryDefault, setProviderEnabled } from '@moxxy/config';
 import {
+  providerCloseAgentSessionsParamsSchema,
   providerConfigureParamsSchema,
   providerSetActiveParamsSchema,
   providerSetEnabledParamsSchema,
@@ -99,6 +100,15 @@ export async function handleProviderConfigure(
   if (!admin) throw new Error('provider admin not supported on this runner');
   await admin.configure(name, patch as Parameters<typeof admin.configure>[1]);
   broadcastInfo();
+  return {};
+}
+
+export async function handleProviderCloseAgentSessions(
+  ctx: HandlerContext,
+  raw: unknown,
+): Promise<Record<string, never>> {
+  const { name } = providerCloseAgentSessionsParamsSchema.parse(raw);
+  await ctx.session.agentClis.closeSessions(name);
   return {};
 }
 

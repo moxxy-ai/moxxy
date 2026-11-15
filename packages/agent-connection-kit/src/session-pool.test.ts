@@ -192,4 +192,17 @@ describe('the live agent sessions', () => {
     await lease.discard();
     expect(sessions.running("conv-a")).toBeUndefined();
   });
+
+  it('ends every live agent for a sign-out, and starts a fresh one on the next turn', async () => {
+    const { sessions, started } = pool(3);
+    (await sessions.acquire('conv-a')).release();
+    (await sessions.acquire('conv-b')).release();
+
+    await sessions.endAll();
+
+    expect(started.map((a) => a.closed)).toEqual([true, true]);
+    const next = await sessions.acquire('conv-a');
+    expect(next.session).not.toBe(started[0]);
+    expect(started).toHaveLength(3);
+  });
 });

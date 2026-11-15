@@ -1,5 +1,5 @@
 /** The plugin entry: OpenCode is ready once installed, offers its own models, and ends with the conversation. */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { collectTurn } from '@moxxy/core';
 import { assertDefined } from '@moxxy/sdk';
 import { createFakeSession } from '@moxxy/testing';
@@ -65,5 +65,14 @@ describe('the OpenCode plugin', () => {
     expect(opencode.last.closed).toBe(true);
     expect(acpSessions().size).toBe(0);
     await session.close();
+  });
+
+  it('ends its live sessions before a sign-out, and keeps the connection usable', async () => {
+    const mod = await import('./index.js');
+    const pool = mod.acpSessions();
+    const ended = vi.spyOn(pool, 'endAll').mockResolvedValue(undefined);
+    await mod.opencodeProviderDef.agentCli?.closeSessions?.();
+    expect(ended).toHaveBeenCalledTimes(1);
+    ended.mockRestore();
   });
 });

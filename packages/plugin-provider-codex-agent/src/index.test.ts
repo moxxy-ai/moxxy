@@ -1,5 +1,5 @@
 /** The plugin entry: the conversation's Codex ends when the conversation does. */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { collectTurn } from '@moxxy/core';
 import { assertDefined } from '@moxxy/sdk';
 import { createFakeSession } from '@moxxy/testing';
@@ -41,5 +41,14 @@ describe('the Codex plugin', () => {
 
     expect(typeof codexAgentProviderDef.agentCli?.models).toBe('function');
     expect(codexAgentModels.map((m) => m.id)).toContain('gpt-6.1-sol');
+  });
+
+  it('ends its live sessions before a sign-out, and keeps the connection usable', async () => {
+    const mod = await import('./index.js');
+    const pool = mod.codexSessions();
+    const ended = vi.spyOn(pool, 'endAll').mockResolvedValue(undefined);
+    await mod.codexAgentProviderDef.agentCli?.closeSessions?.();
+    expect(ended).toHaveBeenCalledTimes(1);
+    ended.mockRestore();
   });
 });

@@ -19,6 +19,8 @@ export interface UseAgentClis {
   readonly checking: boolean;
   readonly run: (provider: string, action: AgentCliAction) => Promise<AgentCliRunResult>;
   readonly check: () => Promise<void>;
+  /** Signs out of an agent connection's account; never throws, says why it failed instead. */
+  readonly signOut: (provider: string) => Promise<{ readonly ok: boolean; readonly message: string }>;
   /** Forgets how a job ended. */
   readonly close: (provider: string) => void;
 }
@@ -83,6 +85,16 @@ async function run(provider: string, action: AgentCliAction): Promise<AgentCliRu
   return result;
 }
 
+async function signOut(provider: string): Promise<{ readonly ok: boolean; readonly message: string }> {
+  try {
+    return await api().invoke('provider.logout', { provider });
+  } catch (e) {
+    return { ok: false, message: toErrorMessage(e) };
+  } finally {
+    readAgain();
+  }
+}
+
 function close(provider: string): void {
   change(provider, (job) => (job?.running ? job : undefined));
 }
@@ -125,5 +137,5 @@ export function useAgentClis(): UseAgentClis {
     }
   }, []);
 
-  return { jobs: current, checking, run, check, close };
+  return { jobs: current, checking, run, check, signOut, close };
 }

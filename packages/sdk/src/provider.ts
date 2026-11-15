@@ -454,6 +454,12 @@ export interface ProviderAgentCli {
    * the connection's built-in `models` stay the answer until it succeeds.
    */
   models?(): Promise<ReadonlyArray<ModelDescriptor>>;
+  /**
+   * End every live session of this agent in this process, keeping the
+   * connection usable: the next turn starts a fresh one. Called before a
+   * sign-out, so no running agent keeps (and saves back) the old account.
+   */
+  closeSessions?(): Promise<void>;
 }
 
 export interface ProviderDef {

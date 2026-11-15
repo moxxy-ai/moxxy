@@ -35,6 +35,7 @@ vi.mock('./send-event', () => ({
 import {
   answerProviderLogin,
   cancelProviderLogin,
+  runProviderLogout,
   startProviderLogin,
 } from './provider-login';
 
@@ -169,5 +170,32 @@ describe('provider-login relay', () => {
   it('rejects a second login reusing a live id', () => {
     startProviderLogin('dup', 'claude-code', fakeWindow);
     expect(() => startProviderLogin('dup', 'claude-code', fakeWindow)).toThrow(/already running/);
+  });
+});
+
+describe('provider sign-out', () => {
+  it('runs `moxxy login logout <provider>` and says it worked on exit 0', async () => {
+    const done = runProviderLogout('codex-agent');
+    expect(spawnArgs[1]).toEqual(['login', 'logout', 'codex-agent']);
+    current.stdout.emit('data', Buffer.from('logged out  codex-agent sign-out completed\n'));
+    current.emit('exit', 0);
+    await expect(done).resolves.toEqual({ ok: true, message: 'logged out  codex-agent sign-out completed' });
+  });
+
+  it('hands back what the CLI said when the sign-out fails', async () => {
+    const done = runProviderLogout('claude-code');
+    current.stderr.emit('data', Buffer.from('Claude CLI logout failed: boom\n'));
+    current.emit('exit', 1);
+    await expect(done).resolves.toEqual({ ok: false, message: 'Claude CLI logout failed: boom' });
+  });
+
+  it('reports a CLI that could not start instead of hanging', async () => {
+    const done = runProviderLogout('opencode');
+    current.emit('error', new Error('spawn ENOENT'));
+    await expect(done).resolves.toEqual({ ok: false, message: 'Error: spawn ENOENT' });
+  });
+
+  it('refuses a provider name that is not a plain name', async () => {
+    await expect(runProviderLogout('--all')).rejects.toThrow();
   });
 });

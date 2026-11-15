@@ -14,8 +14,10 @@ import type { RunnerPool } from '../runner-pool';
 import {
   answerProviderLogin,
   cancelProviderLogin,
+  runProviderLogout,
   startProviderLogin,
 } from '../provider-login';
+import { agentCliRunners, signOutAgent } from '../agent-cli';
 import { handle } from './shared';
 
 const preparingLogins = new Set<string>();
@@ -52,5 +54,12 @@ export function registerProviderLoginHandlers(
   handle('provider.login.cancel', async ({ loginId }) => {
     if (preparingLogins.has(loginId)) cancelledWhilePreparing.add(loginId);
     cancelProviderLogin(loginId);
+  });
+  handle('provider.logout', async ({ provider }) => {
+    await pool.prepare();
+    const result = await signOutAgent(provider, { runners: () => agentCliRunners(pool), logout: runProviderLogout });
+    // The runner drops what it knew of the account.
+    if (result.ok) pool.active()?.forceRetry();
+    return result;
   });
 }

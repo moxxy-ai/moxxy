@@ -15,6 +15,7 @@ import { WorkspaceTree } from './workspace-sidebar/WorkspaceTree';
 import { filterDesks } from './workspace-sidebar/filter-desks';
 import { sessionPreview } from './workspace-sidebar/session-preview';
 import { useLiveSessions } from './workspace-sidebar/useLiveSessions';
+import { useSessionActivity } from '@/attention/useSessionActivity';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { RenameSidebarItemModal } from './workspace-sidebar/RenameSidebarItemModal';
 import { SidebarChannelsSection } from './SidebarChannels';
@@ -67,6 +68,12 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
   const sessions = useMemo(() => desks.desks.flatMap((d) => d.sessions), [desks.desks]);
   const sessionIds = useMemo(() => sessions.map((s) => s.id), [sessions]);
   const live = useLiveSessions(sessionIds);
+  // The same reading the chat header's "awaiting you" and the attention banner use.
+  const activity = useSessionActivity(useMemo(() => new Set(sessionIds), [sessionIds]));
+  const needsYou = useMemo(
+    () => new Set([...activity].filter(([, doing]) => doing === 'asking').map(([id]) => id)),
+    [activity],
+  );
   const previews = useMemo(() => {
     const lines = new Map<string, string>();
     for (const session of sessions) {
@@ -175,6 +182,7 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
             activeSessionId={activeDesk?.activeSessionId ?? null}
             unread={unread}
             running={live.running}
+            needsYou={needsYou}
             previews={previews}
             now={now}
             collapsed={filtering ? NO_COLLAPSED : foldedDesks}
