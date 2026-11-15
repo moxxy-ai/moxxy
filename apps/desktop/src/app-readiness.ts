@@ -143,3 +143,18 @@ export function shouldShowProviderRecovery(
     !sessionLoading
   );
 }
+
+/**
+ * Whether the "no model connected" screen stays out of the way. A person who
+ * just finished first run without picking a model chose to skip it; showing
+ * the same question again at once made "Skip for now" go nowhere. A skip of
+ * the recovery screen itself holds for that one workspace. A later start
+ * asks again.
+ */
+export function isProviderRecoveryDismissed(input: {
+  readonly dismissedFor: string | null;
+  readonly activeWorkspaceId: string | null;
+  readonly justFinishedOnboarding: boolean;
+}): boolean {
+  return input.justFinishedOnboarding || input.dismissedFor === input.activeWorkspaceId;
+}

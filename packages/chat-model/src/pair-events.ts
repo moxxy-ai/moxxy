@@ -5,11 +5,13 @@ import {
   isQuestionAnswerDisplay,
   isStepListDisplay,
   isToolDisplayResult,
+  stepsAllDone,
   toolImagesOf,
   type QuestionAnswerDisplay,
   type StepListDisplay,
   type ToolImage,
 } from '@moxxy/sdk/tool-display';
+import { isGoalMetEvent } from '@moxxy/sdk/agent-step';
 import type {
   Block,
   LiveToolBlockData,
@@ -272,6 +274,8 @@ export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MA
 export function stepFold(s: FoldState, e: MoxxyEvent): void {
   // The agent's background work shows in the Agents panel, not as rows of the chat.
   if (isAgentWorkEvent(e)) return;
+  // The goal is met: the agent said all of it is done, so its list of this turn shows so too.
+  if (isGoalMetEvent(e) && s.openSteps) s.openSteps.goalMet = true;
   const pushBlock = (block: Block): void => {
     // Any non-subagent block breaks a run of sibling subagents.
     s.subagentGroup.current = null;
@@ -526,12 +530,12 @@ export function stepListOfCall(call: ToolCallBlockData): StepListDisplay | null 
   return isToolDisplayResult(output) && isStepListDisplay(output.display) ? output.display : null;
 }
 
-/** The list as it stands: the last call of the turn that returned one. */
+/** The list as it stands: the last call of the turn that returned one, all done once the goal is met. */
 export function stepListOf(block: StepListBlock): StepListDisplay | null {
   for (let i = block.calls.length - 1; i >= 0; i -= 1) {
     const call = block.calls[i];
     const list = call ? stepListOfCall(call) : null;
-    if (list) return list;
+    if (list) return block.goalMet ? stepsAllDone(list) : list;
   }
   return null;
 }
@@ -541,12 +545,14 @@ export function stepListOf(block: StepListBlock): StepListDisplay | null {
  * as it stands, or null when no agent returned one in it.
  */
 export function turnStepList(events: ReadonlyArray<MoxxyEvent>): StepListDisplay | null {
+  let goalMet = false;
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const e = events[i];
     if (!e) continue;
     if (e.type === 'user_prompt' && e.origin?.kind !== 'checkpoint') return null;
+    if (isGoalMetEvent(e)) goalMet = true;
     if (e.type !== 'tool_result' || !e.ok) continue;
-    if (isToolDisplayResult(e.output) && isStepListDisplay(e.output.display)) return e.output.display;
+    if (isToolDisplayResult(e.output) && isStepListDisplay(e.output.display)) return goalMet ? stepsAllDone(e.output.display) : e.output.display;
   }
   return null;
 }
@@ -562,7 +568,7 @@ function joinStepList(s: FoldState, call: ToolCallBlockData): void {
     open.calls.push(call);
     return;
   }
-  const list: StepListBlock = { kind: 'step-list', id: call.id, calls: [call], closed: false };
+  const list: StepListBlock = { kind: 'step-list', id: call.id, calls: [call], closed: false, goalMet: false };
   if (replaceCallBlock(s.root, call.request.callId, list)) s.openSteps = list;
 }
 
@@ -864,7 +870,7 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
     return true;
   }
   if (a.kind === 'step-list' && b.kind === 'step-list') {
-    if (a.closed !== b.closed || a.calls.length !== b.calls.length) return false;
+    if (a.closed !== b.closed || a.goalMet !== b.goalMet || a.calls.length !== b.calls.length) return false;
     return a.calls.every((call, i) => {
       const other = b.calls[i];
       return other !== undefined && call.request === other.request && call.outcome === other.outcome;

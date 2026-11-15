@@ -9,12 +9,15 @@ const mocks = vi.hoisted(() => ({
   renameSession: vi.fn(),
   removeSession: vi.fn(),
   setActiveSession: vi.fn(),
+  asks: [] as Array<{ requestId: string; workspaceId: string; kind: 'permission' }>,
 }));
 
 vi.mock('@moxxy/client-core', () => ({
   useDesks: () => mocks.desksApi,
   useUnreadWorkspaces: () => [],
   chatStore: { subscribe: () => () => undefined, getChat: () => ({ events: [], sending: false, activeTurnId: null }) },
+  askStore: { subscribe: () => () => undefined, getAll: () => mocks.asks },
+  pendingQuestion: () => null,
   usePrefs: () => ({ prefs: null, loading: false, update: vi.fn() }),
 }));
 
@@ -49,6 +52,7 @@ beforeEach(() => {
   mocks.renameSession.mockReset().mockResolvedValue(undefined);
   mocks.removeSession.mockReset().mockResolvedValue(undefined);
   mocks.setActiveSession.mockReset().mockResolvedValue(undefined);
+  mocks.asks = [];
   mocks.desksApi = {
     desks: [makeDesk()],
     activeId: 'desk-1',
@@ -142,5 +146,12 @@ describe('WorkspaceSidebar session actions', () => {
     fireEvent.click(plus);
 
     expect(mocks.desksApi.pickFolder).toHaveBeenCalled();
+  });
+
+  it('says "Needs you" on the run whose agent waits on an approval', () => {
+    mocks.asks = [{ requestId: 'r1', workspaceId: 'session-1', kind: 'permission' }];
+    renderSidebar();
+    expect(within(screen.getByTestId('session-row-session-1')).getByText('Needs you')).toBeTruthy();
+    expect(within(screen.getByTestId('session-row-session-2')).queryByText('Needs you')).toBeNull();
   });
 });

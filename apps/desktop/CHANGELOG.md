@@ -1,5 +1,35 @@
 # @moxxy/desktop
 
+## 0.49.0
+
+### Minor Changes
+
+- ee0e285: Settings → Providers: one "Check for updates" button now sits on the "SDK · OAuth login" heading instead of hiding in each agent's menu, and the agents are checked again on their own when a sign-in from Settings ends and when you come back to the window (at most every 30 seconds), so a sign-in done in a terminal shows without a click. A signed-in agent's menu has "Sign out", which asks first and then signs Claude, Codex or OpenCode out the same way the terminal does (`provider.logout` runs `moxxy login logout <provider>`). In the chat list, a run that waits on you for an approval or a question says "Needs you" beside its name, with an amber dot on its avatar, so it no longer looks the same as a finished one.
+
+  Signing out first ends the agent's live sessions on every runner (runner protocol v34, `provider.closeAgentSessions`, backed by the new `agentCli.closeSessions` hook and `AgentSessionPool.endAll`): a running `codex app-server` holds the account and wrote it back after `codex logout`, so the agent stayed signed in. A sign-out waits while a turn runs.
+
+- b026f95: First run now asks one question in plain words: use your Claude or ChatGPT plan, start free, or use an API key. One press installs and signs in what is needed and opens the chat. A plan already signed in on this computer is offered first. The welcome, folder and "You're all set" screens are gone, and the install screens show only when something is really missing, with their output folded under "Show details".
+
+### Patch Changes
+
+- 2a163eb: A met goal shows its list of steps as done. An agent can end its goal before it ticks the last step of its list, which left "Goal complete" next to "2 of 3 done" with a step still in progress. Once the goal is met, every step it left in progress or waiting shows as done, on the desktop, in the terminal and in Discord and Telegram; a step it cancelled stays cancelled, and a paused goal leaves the list as it was.
+- 69b8c5f: First run no longer flashes a "Step 2 of 2" line while the runtime is set up in the background. A step that starts to apply behind the one a person is on is not counted, so the form stays still and a click lands where it was aimed.
+- 27a166b: "Skip for now" on first run now opens the app. Before, the same question came straight back because no model was connected yet; it is asked again on the next start.
+- Updated dependencies [ee0e285]
+- Updated dependencies [2a163eb]
+- Updated dependencies [69b8c5f]
+  - @moxxy/desktop-host@0.18.0
+  - @moxxy/client-core@0.17.0
+  - @moxxy/desktop-ipc-contract@0.18.0
+  - @moxxy/desktop-ui@0.3.4
+  - @moxxy/cli@0.49.0
+  - @moxxy/sdk@0.49.0
+  - @moxxy/chat-model@0.5.9
+  - @moxxy/client-platform-web@0.1.84
+  - @moxxy/plugin-vault@0.49.0
+  - @moxxy/runner@0.2.70
+  - @moxxy/workflows-builder@0.1.67
+
 ## 0.48.4
 
 ### Patch Changes

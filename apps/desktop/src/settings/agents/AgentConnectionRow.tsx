@@ -34,20 +34,22 @@ function actionLabel(action: AgentConnectionAction, state: AgentConnectionState)
 
 /**
  * One agent connection (Claude, Codex, OpenCode): its state as a chip beside its name, the one
- * action that moves it on, and a menu that checks for updates. While its CLI
- * installs or updates, a bar under the line says how far it got.
+ * action that moves it on, and a menu with its sign-in and settings and, once
+ * signed in, a sign-out. Checking for updates sits on the group's heading. While
+ * its CLI installs or updates, a bar under the line says how far it got.
  */
 export function AgentConnectionRow({
   row,
   onAction,
-  onCheck,
   onConfigure,
+  onSignOut,
 }: {
   readonly row: AgentConnectionRowModel;
   readonly onAction: (action: AgentConnectionAction) => void;
-  readonly onCheck: () => void;
   /** Opens its sign-in and settings; without it the menu leaves that out. */
   readonly onConfigure?: () => void;
+  /** Asks to sign out; offered only while the agent is signed in. */
+  readonly onSignOut?: () => void;
 }): JSX.Element {
   const { entry, view, jobAction } = row;
   const agent = entry.agentName ?? entry.name;
@@ -113,16 +115,6 @@ export function AgentConnectionRow({
             popover={menu}
             label={`More for ${agent}`}
             entries={[
-              {
-                id: 'check',
-                label: 'Check for updates',
-                icon: 'rotate',
-                disabled: view.state === 'installing',
-                onSelect: () => {
-                  menu.close();
-                  onCheck();
-                },
-              },
               ...(onConfigure
                 ? [
                     {
@@ -132,6 +124,20 @@ export function AgentConnectionRow({
                       onSelect: () => {
                         menu.close();
                         onConfigure();
+                      },
+                    },
+                  ]
+                : []),
+              ...(onSignOut && row.signedIn
+                ? [
+                    {
+                      id: 'sign-out',
+                      label: 'Sign out',
+                      icon: 'log-out' as const,
+                      disabled: view.state === 'installing',
+                      onSelect: () => {
+                        menu.close();
+                        onSignOut();
                       },
                     },
                   ]

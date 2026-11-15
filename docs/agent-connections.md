@@ -149,7 +149,7 @@ The context window a model shows starts from the built-in list (Codex's defaults
 
 ## In the conversation
 
-- Edits are diffs; images a tool returned (screenshots) show under its row; the agent's step list is one list updated in place; the agent's own subagents show as subagent rows.
+- Edits are diffs; images a tool returned (screenshots) show under its row; the agent's step list is one list updated in place, and once its goal is met every step shows as done (an agent may end the goal before ticking its last step); the agent's own subagents show as subagent rows.
 - Thoughts one after another fold into one "Thinking" row with their count.
 - The agent's account limit (for example "Claude has used 56% of its weekly limit · resets Wed at 05:00") is in the desktop's Model & usage window. A turn that stopped on a used-up limit ends with a "Limit" note instead of the agent's raw error. OpenCode says only that a limit is used up (its free tier, its Go plan), not how much of one is used: when it stops to wait for the reset, which can take hours, Moxxy ends the turn with the same note.
 - Images you attach go to the agent as images; other files are passed as files.

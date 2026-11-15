@@ -48,6 +48,7 @@ import {
   resolveActiveSessionShell,
   shouldShowBlockingConnectionScreen,
   shouldShowProviderRecovery,
+  isProviderRecoveryDismissed,
   type LastConnectedSession,
   describeConnectionPhase,
 } from './app-readiness';
@@ -318,7 +319,11 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
   const connectedWithoutProvider = shouldShowProviderRecovery(
     shell.phase,
     shell.sessionLoading,
-    dismissedProviderRecoveryFor === activeWorkspaceId,
+    isProviderRecoveryDismissed({
+      dismissedFor: dismissedProviderRecoveryFor,
+      activeWorkspaceId,
+      justFinishedOnboarding,
+    }),
   );
 
   if (cliMissing || connectedWithoutProvider) {

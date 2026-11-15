@@ -4,6 +4,7 @@ export {
   handleProviderSetEnabled,
   handleProviderRefreshReady,
   handleProviderCheckAgents,
+  handleProviderCloseAgentSessions,
   handleProviderConfigure,
 } from './provider-handlers.js';
 export {

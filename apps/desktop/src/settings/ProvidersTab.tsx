@@ -12,7 +12,7 @@
 
 import { useState } from 'react';
 import type { useSettings } from '@moxxy/client-core';
-import { Button, Icon, IconButton, Modal, Select, TextInput } from '@moxxy/desktop-ui';
+import { Button, ConfirmModal, Icon, IconButton, Modal, Select, TextInput } from '@moxxy/desktop-ui';
 import { Section, CardGroup, Row, Tile, StatusDot, Switch, Badge, EmptyState } from './settings-primitives';
 import { AgentTaskModal } from './shared/AgentTaskModal';
 import { OAuthSignIn } from './shared/OAuthSignIn';
@@ -62,6 +62,18 @@ export function ProvidersTab({
   const [adding, setAdding] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderRow | null>(null);
   const agents = useAgentConnections(providers);
+  /** The agent the person asked to sign out of, while the question is open. */
+  const [signingOut, setSigningOut] = useState<ProviderRow | null>(null);
+  /** Why the last sign-out failed, by the agent's name; cleared by the next try. */
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const agentLabel = (p: ProviderRow): string => p.agentName ?? p.name;
+  const signOut = (p: ProviderRow): void => {
+    setSigningOut(null);
+    setSignOutError(null);
+    void agents.signOut(p.name).then((result) => {
+      if (!result.ok) setSignOutError(`${agentLabel(p)}: ${result.message}`);
+    });
+  };
   const others = providers.filter((p) => !isAgentConnection(p));
   // Per-row in-flight set: a toggle is fire-and-forget against the runner, so
   // disable that row's Switch until it settles. Without this a slow/failing
@@ -101,7 +113,23 @@ export function ProvidersTab({
               id="provider-group-agents"
               title={PROVIDER_KINDS.agents.title}
               count={agents.rows.length}
+              actions={
+                <Button
+                  variant="secondary"
+                  onClick={agents.check}
+                  disabled={agents.checking}
+                  style={{ gap: 6 }}
+                >
+                  <Icon name="rotate" size={14} />
+                  Check for updates
+                </Button>
+              }
             >
+              {signOutError && (
+                <p role="alert" className="card-group__alert">
+                  {signOutError}
+                </p>
+              )}
               {agents.rows.map((row) => (
                 <AgentConnectionRow
                   key={row.entry.name}
@@ -111,8 +139,8 @@ export function ProvidersTab({
                     else if (action === 'sign-in') setConfiguring(row.entry);
                     else agents.check();
                   }}
-                  onCheck={agents.check}
                   onConfigure={() => setConfiguring(row.entry)}
+                  onSignOut={() => setSigningOut(row.entry)}
                 />
               ))}
             </CardGroup>
@@ -188,8 +216,22 @@ export function ProvidersTab({
           provider={configuring}
           onConfigure={onConfigure}
           onSetKey={onSetKey}
-          onActivate={onActivate}
+          onActivate={async (name) => {
+            await onActivate(name);
+            // A finished sign-in shows on the agent's row without a click.
+            if (isAgentConnection(configuring)) agents.check();
+          }}
           onClose={() => setConfiguring(null)}
+        />
+      )}
+      {signingOut && (
+        <ConfirmModal
+          title={`Sign out of ${agentLabel(signingOut)}?`}
+          message={`Moxxy signs ${agentLabel(signingOut)} out on this computer, the same as doing it in a terminal. Sign in again from here whenever you need it.`}
+          confirmLabel="Sign out"
+          destructive
+          onCancel={() => setSigningOut(null)}
+          onConfirm={() => signOut(signingOut)}
         />
       )}
     </Section>

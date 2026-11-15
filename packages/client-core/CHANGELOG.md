@@ -1,5 +1,23 @@
 # @moxxy/client-core
 
+## 0.17.0
+
+### Minor Changes
+
+- ee0e285: Settings → Providers: one "Check for updates" button now sits on the "SDK · OAuth login" heading instead of hiding in each agent's menu, and the agents are checked again on their own when a sign-in from Settings ends and when you come back to the window (at most every 30 seconds), so a sign-in done in a terminal shows without a click. A signed-in agent's menu has "Sign out", which asks first and then signs Claude, Codex or OpenCode out the same way the terminal does (`provider.logout` runs `moxxy login logout <provider>`). In the chat list, a run that waits on you for an approval or a question says "Needs you" beside its name, with an amber dot on its avatar, so it no longer looks the same as a finished one.
+
+  Signing out first ends the agent's live sessions on every runner (runner protocol v34, `provider.closeAgentSessions`, backed by the new `agentCli.closeSessions` hook and `AgentSessionPool.endAll`): a running `codex app-server` holds the account and wrote it back after `codex logout`, so the agent stayed signed in. A sign-out waits while a turn runs.
+
+### Patch Changes
+
+- 69b8c5f: First run no longer flashes a "Step 2 of 2" line while the runtime is set up in the background. A step that starts to apply behind the one a person is on is not counted, so the form stays still and a click lands where it was aimed.
+- Updated dependencies [ee0e285]
+- Updated dependencies [2a163eb]
+  - @moxxy/desktop-ipc-contract@0.18.0
+  - @moxxy/sdk@0.49.0
+  - @moxxy/chat-model@0.5.9
+  - @moxxy/workflows-builder@0.1.67
+
 ## 0.16.4
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @moxxy/chat-model
 
+## 0.5.9
+
+### Patch Changes
+
+- 2a163eb: A met goal shows its list of steps as done. An agent can end its goal before it ticks the last step of its list, which left "Goal complete" next to "2 of 3 done" with a step still in progress. Once the goal is met, every step it left in progress or waiting shows as done, on the desktop, in the terminal and in Discord and Telegram; a step it cancelled stays cancelled, and a paused goal leaves the list as it was.
+- Updated dependencies [ee0e285]
+- Updated dependencies [2a163eb]
+  - @moxxy/sdk@0.49.0
+
 ## 0.5.8
 
 ### Patch Changes

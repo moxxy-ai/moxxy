@@ -9,6 +9,8 @@ export interface ProviderAdminClientView extends ProviderAdminView {
   refreshReady(): Promise<void>;
   /** Check every agent connection's CLI again now; the result arrives as `info.changed`. */
   checkAgents(): Promise<void>;
+  /** End the live sessions of one agent connection (before a sign-out); protocol v34. */
+  closeAgentSessions(name: string): Promise<void>;
   /** Set the session's reasoning/thinking effort (`off` clears it). Honored
    *  only by models that advertise `supportsReasoning` (gated server-side). */
   setReasoning(effort: ReasoningEffortLevel): Promise<void>;
@@ -35,6 +37,10 @@ export function makeProviderAdminView(ctx: ViewContext): ProviderAdminClientView
     checkAgents: async () => {
       requireServerProtocol(28, 'Checking agent CLIs for updates');
       await peer.request(RunnerMethod.ProviderCheckAgents, {});
+    },
+    closeAgentSessions: async (name) => {
+      requireServerProtocol(34, 'Signing out of an agent');
+      await peer.request(RunnerMethod.ProviderCloseAgentSessions, { name });
     },
     configure: async (name, patch) => {
       requireServerProtocol(7, 'Configuring a provider');

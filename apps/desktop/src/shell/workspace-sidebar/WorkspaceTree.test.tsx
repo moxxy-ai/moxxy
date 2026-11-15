@@ -7,6 +7,8 @@
  *   5. A run row reads like a conversation: avatar, name, time, preview, and a
  *      badge on the avatar for unread or working. Unread rolls up onto the
  *      header only while the section is collapsed.
+ *   5b. A run that waits on the person says so beside its name ("Needs you"),
+ *      over working and unread, and rolls that up onto a folded header.
  *   6. ⋯ menus only request rename/remove flows; parent containers own
  *      modals and persistence.
  */
@@ -77,6 +79,7 @@ function renderTree(over: Partial<Handlers> = {}): {
       activeSessionId="a2"
       unread={new Set()}
       running={new Set()}
+      needsYou={new Set()}
       previews={new Map()}
       now={NOW}
       collapsed={new Set()}
@@ -250,6 +253,23 @@ describe('WorkspaceTree', () => {
     const row = screen.getByTestId('session-row-a');
     expect(within(row).getByLabelText('working')).toBeTruthy();
     expect(within(screen.getByTestId('session-row-a2')).queryByLabelText('working')).toBeNull();
+  });
+
+  it('says "Needs you" beside the name of a run that waits on the person', () => {
+    renderTree({ needsYou: new Set(['a2']), running: new Set(['a2']), unread: new Set(['a2']) });
+    const row = screen.getByTestId('session-row-a2');
+    expect(within(row).getByText('Needs you')).toBeTruthy();
+    // The avatar tells it too, and waiting outranks working and unread.
+    expect(within(row).getByLabelText('needs you')).toBeTruthy();
+    expect(within(row).queryByLabelText('working')).toBeNull();
+    expect(within(row).queryByLabelText('unread activity')).toBeNull();
+    expect(within(screen.getByTestId('session-row-a')).queryByText('Needs you')).toBeNull();
+  });
+
+  it('rolls "needs you" up onto a folded workspace, and only while folded', () => {
+    renderTree({ needsYou: new Set(['b', 'a2']), collapsed: new Set(['b']) });
+    expect(screen.getByLabelText('needs you in Beta')).toBeTruthy();
+    expect(screen.queryByLabelText('needs you in Alpha')).toBeNull();
   });
 
   it('tells a workspace from a run: a colour chip on the header, an avatar on the row', () => {

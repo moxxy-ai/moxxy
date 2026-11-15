@@ -3,8 +3,10 @@ import {
   accountLimitOfEvent,
   agentComputerUseOf,
   isStepListDisplay,
+  isGoalMetEvent,
   isToolDisplayResult,
   stepListProgress,
+  stepsAllDone,
   toolImagesOf,
   type AgentComputerUse,
   type FileDiffDisplay,
@@ -29,6 +31,11 @@ export class TurnAgentWork {
   private computer: AgentComputerUse | null = null;
 
   accept(event: MoxxyEvent): void {
+    // The goal is met: the agent said all of it is done, so its list shows so too.
+    if (isGoalMetEvent(event)) {
+      if (this.steps) this.steps = stepsAllDone(this.steps);
+      return;
+    }
     if (event.type === 'tool_call_requested') {
       // Moxxy's own computer tools have their own controls; only an agent's count.
       if (event.executedBy !== 'provider') return;

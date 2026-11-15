@@ -1,5 +1,14 @@
 # @moxxy/mode-deep-research
 
+## 0.49.0
+
+### Patch Changes
+
+- Updated dependencies [ee0e285]
+- Updated dependencies [2a163eb]
+  - @moxxy/sdk@0.49.0
+  - @moxxy/plugin-subagents@0.49.0
+
 ## 0.48.4
 
 ### Patch Changes

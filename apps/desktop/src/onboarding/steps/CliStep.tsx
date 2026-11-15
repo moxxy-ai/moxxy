@@ -1,8 +1,8 @@
 /**
- * The moxxy CLI install step — probes the PATH for the CLI on mount,
- * installs it via npm on demand while streaming install progress to a log
- * box, and only enables Continue once the CLI is present. Applies on
- * first run and whenever the recovery gate detects the CLI went missing.
+ * The moxxy CLI install step — shown only when the CLI is really missing
+ * (the installer normally carries it). It installs it on demand, keeps the
+ * streamed log behind "Show details", and only enables Continue once the CLI
+ * is present. It speaks to someone who never programmed: no CLI, npm or PATH.
  *
  * State + install lifecycle come from the shared `useOnboarding().install`
  * controller (the same one NodeStep uses for Node) — running/progress/error
@@ -12,6 +12,7 @@
 
 import { useOnboarding } from '@moxxy/client-core';
 import { StepCard, Nav, PrimaryButton, SuccessRow, Pulse } from '../chrome';
+import { InstallLog } from '../chrome/InstallLog';
 
 export function CliStep({
   onNext,
@@ -24,65 +25,39 @@ export function CliStep({
   const present = ob.status?.cliInstalled ?? false;
   const installing = ob.install.running;
   // The controller carries a thrown-exception message in `error` and a
-  // non-zero npm exit in `lastExitCode`. Surface either as the red failure
-  // line (mirroring the prior inline `npm exit N` / thrown-message handling).
+  // non-zero exit in `lastExitCode`; either is kept as a small detail under
+  // the plain failure line, for whoever helps the person later.
   const exitCode = ob.install.lastExitCode;
   const error =
-    ob.install.error ?? (exitCode !== null && exitCode !== 0 ? `npm exit ${exitCode}` : null);
+    ob.install.error ?? (exitCode !== null && exitCode !== 0 ? `Exit code ${exitCode}` : null);
   const failed = !installing && !present && error !== null;
   const probing = ob.loading && !present && !installing;
   const log = ob.install.progress;
 
   return (
     <StepCard
-      title="Install moxxy"
-      sub="The moxxy CLI runs your agent locally. We use npm to install it."
+      title="Set up Moxxy"
+      sub="Moxxy needs one more part on this computer. It takes about a minute and happens once."
     >
-      {probing && <Pulse label="Looking for moxxy on your PATH…" />}
-      {present && <SuccessRow text="moxxy is installed and ready." />}
+      {probing && <Pulse label="Checking this computer…" />}
+      {present && <SuccessRow text="Moxxy is ready." />}
       {!present && !installing && !probing && (
-        <div
-          style={{
-            padding: '14px 16px',
-            background: 'var(--color-primary-soft)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 'var(--radius-card)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-            fontSize: 'var(--type-ui)',
-          }}
-        >
-          <div style={{ fontWeight: 600 }}>
-            {failed ? 'Install failed.' : 'moxxy isn\'t installed yet.'}
-          </div>
-          {error && <div style={{ color: 'var(--color-red)' }}>{error}</div>}
+        <div className="onboard-panel">
+          {failed && (
+            <div role="alert" className="onboard-error">
+              The setup did not finish. Check your internet connection and try again.
+            </div>
+          )}
+          {error && <div className="onboard-panel__detail">{error}</div>}
           <PrimaryButton onClick={() => void ob.install.run()}>
-            {failed ? 'Try again' : 'Install moxxy'}
+            {failed ? 'Try again' : 'Set up Moxxy'}
           </PrimaryButton>
         </div>
       )}
       {installing && (
         <>
-          <Pulse label="Installing moxxy via npm…" />
-          {log.length > 0 && (
-            <pre
-              className="mono"
-              style={{
-                margin: 0,
-                padding: 10,
-                background: '#0b0d12',
-                color: '#e2e8f0',
-                borderRadius: 'var(--radius-block)',
-                fontSize: 'var(--type-meta)',
-                maxHeight: 180,
-                overflow: 'auto',
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {log.slice(-40).join('\n')}
-            </pre>
-          )}
+          <Pulse label="Setting up Moxxy…" />
+          <InstallLog lines={log} />
         </>
       )}
       <Nav onBack={onBack} onNext={onNext} nextDisabled={!present} />
