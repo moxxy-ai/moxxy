@@ -57,7 +57,7 @@
     "@moxxy/chat-model": "workspace:*",
     "@moxxy/model-fetch": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "sherpa-onnx-node": "^1.13.8"
+    "sherpa-onnx-node": "^2.0.1"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
