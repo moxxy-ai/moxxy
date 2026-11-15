@@ -29,7 +29,7 @@
     "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "catalog:",
-    "turbo": "^2.11.10",
+    "turbo": "^2.11.11",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
