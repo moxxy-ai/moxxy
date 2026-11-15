@@ -93,6 +93,8 @@ export interface StepListBlock {
   readonly calls: ToolCallBlockData[];
   /** Set once the turn ends: no later change can join the list. */
   closed: boolean;
+  /** Set when the goal of the turn is met: every step shows as done (see `stepsAllDone`). */
+  goalMet: boolean;
 }
 
 export interface SkillScopeBlock {

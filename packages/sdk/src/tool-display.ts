@@ -157,6 +157,15 @@ export function stepListOutput(forModel: string, steps: ReadonlyArray<ListedStep
   return { forModel, display: { kind: 'step-list', steps, ...(explanation ? { explanation } : {}) } };
 }
 
+/**
+ * The list once the goal it served is met: the agent has said all of it is
+ * done, so a step it left in progress or to do counts as done. A step it
+ * cancelled stays cancelled.
+ */
+export function stepsAllDone(d: StepListDisplay): StepListDisplay {
+  return { ...d, steps: d.steps.map((step) => (step.status === 'cancelled' ? step : { ...step, status: 'completed' })) };
+}
+
 /** How far a list is: steps done (completed or cancelled), all steps, and the one being worked on or next. */
 export function stepListProgress(d: StepListDisplay): { readonly done: number; readonly total: number; readonly current?: ListedStep } {
   const done = d.steps.filter((step) => step.status === 'completed' || step.status === 'cancelled').length;

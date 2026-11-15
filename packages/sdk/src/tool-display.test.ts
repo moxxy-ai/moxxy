@@ -12,6 +12,7 @@ import {
   stepListOutput,
   stepListProgress,
   stepStatusOf,
+  stepsAllDone,
   stepsFromTodos,
   toDiffRows,
   toolImagesOf,
@@ -210,5 +211,31 @@ describe("an agent's list of steps", () => {
 
   it('has no current step once every step is done', () => {
     expect(stepListProgress({ kind: 'step-list', steps: [{ text: 'a', status: 'completed' }, { text: 'b', status: 'cancelled' }] })).toEqual({ done: 2, total: 2 });
+  });
+});
+
+describe('stepsAllDone', () => {
+  it('counts a step left in progress or waiting as done and keeps a cancelled one', () => {
+    const list: StepListDisplay = {
+      kind: 'step-list',
+      steps: [
+        { text: 'a', status: 'completed' },
+        { text: 'b', status: 'in_progress' },
+        { text: 'c', status: 'pending' },
+        { text: 'd', status: 'cancelled' },
+      ],
+      explanation: 'why',
+    };
+    expect(stepsAllDone(list)).toEqual({
+      kind: 'step-list',
+      steps: [
+        { text: 'a', status: 'completed' },
+        { text: 'b', status: 'completed' },
+        { text: 'c', status: 'completed' },
+        { text: 'd', status: 'cancelled' },
+      ],
+      explanation: 'why',
+    });
+    expect(stepListProgress(stepsAllDone(list))).toEqual({ done: 4, total: 4 });
   });
 });

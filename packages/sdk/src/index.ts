@@ -311,7 +311,7 @@ export {
   type AgentActivityRecord,
   type SubagentNames,
 } from './agent-work.js';
-export { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents } from './agent-step.js';
+export { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, GOAL_MODE_PLUGIN_ID, SUBAGENTS_PLUGIN_ID, agentSessionFromEvents, isGoalMetEvent } from './agent-step.js';
 export {
   conversationTurns,
   EARLIER_CONVERSATION_CHARS,
@@ -354,6 +354,7 @@ export {
   stepsFromTodos,
   stepListOutput,
   stepListProgress,
+  stepsAllDone,
   questionAnswerLines,
   fileDiffSummary,
   fileDiffVerb,
