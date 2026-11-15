@@ -45,6 +45,8 @@ vi.mock('@moxxy/client-core', () => ({
   }),
   useUnreadWorkspaces: () => [],
   chatStore: { subscribe: () => () => undefined, getChat: () => ({ events: [], sending: false, activeTurnId: null }) },
+  askStore: { subscribe: () => () => undefined, getAll: () => [] },
+  pendingQuestion: () => null,
   usePrefs: () => ({ prefs: null, loading: false, update: vi.fn() }),
 }));
 

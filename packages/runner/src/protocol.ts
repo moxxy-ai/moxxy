@@ -204,7 +204,12 @@ import type {
  * whose model and native plugin ship only with the full app, so this bump sends
  * every older desktop through the installer instead of a JS hot-update.
  */
-export const RUNNER_PROTOCOL_VERSION = 33;
+/**
+ * v34: `provider.closeAgentSessions` ends the live sessions of one agent
+ * connection before the desktop signs it out, so a running agent cannot keep
+ * the old account and save it back (additive).
+ */
+export const RUNNER_PROTOCOL_VERSION = 34;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -285,6 +290,7 @@ export const RunnerMethod = {
   ProviderRefreshReady: 'provider.refreshReady',
   /** client->server: check every agent connection's CLI again, asking the vendors' registry anew (v28). */
   ProviderCheckAgents: 'provider.checkAgents',
+  ProviderCloseAgentSessions: 'provider.closeAgentSessions',
   /** client->server: patch a stored (runtime-registered) provider's config (v7). */
   ProviderConfigure: 'provider.configure',
   /** client->server: persist an allow-always permission rule. */
@@ -788,6 +794,11 @@ export const sessionStopBackgroundWorkParamsSchema = z.object({ workId: z.string
 export const providerSetActiveParamsSchema = z.object({
   name: z.string(),
   config: z.record(z.unknown()).optional(),
+});
+
+/** `provider.closeAgentSessions` (v34): the agent connection whose live sessions end. */
+export const providerCloseAgentSessionsParamsSchema = z.object({
+  name: z.string().min(1),
 });
 
 export const providerSetEnabledParamsSchema = z.object({

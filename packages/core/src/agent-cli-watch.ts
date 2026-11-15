@@ -33,6 +33,12 @@ export class AgentCliWatch {
     return this.offered.get(name);
   }
 
+  /** End the live sessions of one agent connection (before a sign-out); a name with no agent is a no-op. */
+  async closeSessions(name: string): Promise<void> {
+    const def = this.providers().find((p) => p.name === name);
+    await def?.agentCli?.closeSessions?.();
+  }
+
   /** Called when a CLI's state or version changed; returns the unsubscribe. */
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);

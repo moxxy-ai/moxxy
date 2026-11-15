@@ -238,6 +238,11 @@ export interface IpcCommands {
   /** Abort a running login (the sign-in modal was closed). No-op if it already
    *  finished. */
   'provider.login.cancel': (args: { loginId: string }) => Promise<void>;
+  /** Sign out of an OAuth provider (an agent connection's account) by running
+   *  `moxxy login logout <provider>`; afterwards every runner checks its agent
+   *  CLIs again, so the new state reaches every client. A failed sign-out
+   *  resolves with `ok: false` and the CLI's message. */
+  'provider.logout': (args: { provider: string }) => Promise<{ readonly ok: boolean; readonly message: string }>;
 
   'desks.list': () => Promise<DesksOverview>;
   'desks.create': (args: { name: string; cwd: string }) => Promise<Desk>;

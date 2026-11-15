@@ -11,6 +11,7 @@ import { formatSessionTime } from './session-time';
  *
  *   ▾ ■ moxxy                              3  + ⋯   ← section: fold / count / new / menu
  *     (D) Desktop redesign               4m         ← run: avatar, name, time
+ *     (F) Fix login  [Needs you]          1m         ← a run waiting on the person
  *         Got it. Tokens are in and the…            ← and the latest message
  *   ▸ ■ marketing-site                 ●   2        ← folded: unread rolls up
  *
@@ -37,6 +38,7 @@ export function WorkspaceTree({
   activeSessionId,
   unread,
   running,
+  needsYou,
   previews,
   now,
   collapsed,
@@ -57,6 +59,8 @@ export function WorkspaceTree({
   readonly unread: ReadonlySet<string>;
   /** Session ids with a turn in flight. */
   readonly running: ReadonlySet<string>;
+  /** Session ids whose run waits on the person: an approval or a question. */
+  readonly needsYou: ReadonlySet<string>;
   /** The second line of each run row, by session id. */
   readonly previews: ReadonlyMap<string, string>;
   /** The time the "4m" readings are measured from. */
@@ -78,6 +82,7 @@ export function WorkspaceTree({
       {desks.map((desk) => {
         const isCollapsed = collapsed.has(desk.id);
         const hasUnread = desk.sessions.some((s) => unread.has(s.id)) || unread.has(desk.id);
+        const waits = desk.sessions.some((s) => needsYou.has(s.id));
         return (
           <li
             key={desk.id}
@@ -92,6 +97,7 @@ export function WorkspaceTree({
               desk={desk}
               collapsed={isCollapsed}
               unread={isCollapsed && hasUnread}
+              needsYou={isCollapsed && waits}
               busy={busyDeskId === desk.id}
               onToggle={() => onToggleCollapse(desk.id)}
               onCreateSession={() => onCreateSession(desk.id)}
@@ -107,6 +113,7 @@ export function WorkspaceTree({
                     active={s.id === activeSessionId && desk.id === activeDeskId}
                     unread={unread.has(s.id)}
                     running={running.has(s.id)}
+                    needsYou={needsYou.has(s.id)}
                     preview={previews.get(s.id) ?? null}
                     time={formatSessionTime(s.lastActivity, now)}
                     onSelect={() => onSelectSession(s.id)}
@@ -140,6 +147,7 @@ function SectionHeader({
   desk,
   collapsed,
   unread,
+  needsYou,
   busy,
   onToggle,
   onCreateSession,
@@ -150,6 +158,8 @@ function SectionHeader({
   readonly collapsed: boolean;
   /** Rolled-up unread mark; only while folded, since rows carry their own. */
   readonly unread: boolean;
+  /** Rolled-up "a run here waits on you"; only while folded, like unread. */
+  readonly needsYou: boolean;
   readonly busy: boolean;
   readonly onToggle: () => void;
   readonly onCreateSession: () => void;
@@ -193,7 +203,14 @@ function SectionHeader({
       <span className="run-section__name" title={`${desk.name} — ${desk.cwd}`}>
         {desk.name}
       </span>
-      {unread && (
+      {needsYou ? (
+        <span
+          className="run-section__unread"
+          data-state="needs-you"
+          role="img"
+          aria-label={`needs you in ${desk.name}`}
+        />
+      ) : unread && (
         <span
           className="run-section__unread"
           role="img"
@@ -237,6 +254,7 @@ function SessionRow({
   active,
   unread,
   running,
+  needsYou,
   preview,
   time,
   onSelect,
@@ -247,6 +265,8 @@ function SessionRow({
   readonly active: boolean;
   readonly unread: boolean;
   readonly running: boolean;
+  /** The run waits on the person; outranks working and unread. */
+  readonly needsYou: boolean;
   readonly preview: string | null;
   readonly time: string | null;
   readonly onSelect: () => void;
@@ -272,11 +292,16 @@ function SessionRow({
         <SessionAvatar
           id={s.id}
           name={s.name}
-          badge={running ? 'working' : unread ? 'unread' : null}
+          badge={needsYou ? 'needs-you' : running ? 'working' : unread ? 'unread' : null}
         />
         <span className="run-row__text">
           <span className="run-row__line">
             <span className="run-row__name">{s.name}</span>
+            {needsYou && (
+              <span className="tag run-row__needs" data-tone="warn" data-testid="session-needs-you">
+                Needs you
+              </span>
+            )}
             {time && (
               <span className="run-row__time" data-testid="session-time">
                 {time}

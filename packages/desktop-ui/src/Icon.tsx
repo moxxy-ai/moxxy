@@ -60,7 +60,8 @@ export type IconName =
   | 'maximize'
   | 'minimize'
   | 'clock'
-  | 'alert';
+  | 'alert'
+  | 'log-out';
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   readonly name: IconName;
@@ -89,6 +90,13 @@ export function Icon({ name, size = 18, ...rest }: IconProps): JSX.Element {
 }
 
 const paths: Record<IconName, JSX.Element> = {
+  'log-out': (
+    <>
+      <path d="M9.5 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3.5" />
+      <path d="M15 16.5 19.5 12 15 7.5" />
+      <path d="M19.5 12H9.5" />
+    </>
+  ),
   clock: (
     <>
       <circle cx="12" cy="12" r="8.5" />

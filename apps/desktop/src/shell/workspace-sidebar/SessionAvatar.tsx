@@ -2,9 +2,10 @@ import type { CSSProperties } from 'react';
 import { sessionAvatar } from './session-avatar';
 
 /** What a run is doing, drawn on the corner of its avatar. */
-export type AvatarBadge = 'working' | 'unread';
+export type AvatarBadge = 'needs-you' | 'working' | 'unread';
 
 const BADGE_LABEL: Record<AvatarBadge, string> = {
+  'needs-you': 'needs you',
   working: 'working',
   unread: 'unread activity',
 };

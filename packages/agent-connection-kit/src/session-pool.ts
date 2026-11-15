@@ -116,6 +116,18 @@ export class AgentSessionPool<T extends LiveSession> {
     await entry.session?.close();
   }
 
+  /**
+   * End every live agent and keep the pool open: the next turn starts a fresh
+   * one. Used before a sign-out, so no running agent keeps (and saves back)
+   * the account the person is signing out of.
+   */
+  async endAll(): Promise<void> {
+    const sessions = [...this.entries.values()].map((entry) => entry.session);
+    this.entries.clear();
+    this.changed();
+    await Promise.all(sessions.map((session) => session?.close()));
+  }
+
   async closeAll(): Promise<void> {
     this.closed = true;
     const sessions = [...this.entries.values()].map((entry) => entry.session);

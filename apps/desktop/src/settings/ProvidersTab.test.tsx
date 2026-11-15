@@ -23,6 +23,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __setApiOverride(null);
+  vi.restoreAllMocks();
 });
 
 const anthropic: ProviderEntry = {
@@ -268,6 +269,7 @@ describe('ProvidersTab — agent connections', () => {
       invoke: async (cmd: string, args: unknown) => {
         calls.push([cmd, args]);
         if (cmd === 'agents.run') return new Promise((resolve) => (finish = resolve));
+        if (cmd === 'provider.logout') return { ok: true, message: 'logged out' };
         return undefined;
       },
       subscribe: (event: string, fn: (p: unknown) => void) => {
@@ -296,15 +298,109 @@ describe('ProvidersTab — agent connections', () => {
     expect(screen.getByRole('button', { name: 'Install OpenCode' })).toHaveTextContent('Try again');
   });
 
-  it('checks for updates from the row menu', async () => {
+  const signedIn = { ...missing, state: 'current', installed: '1.19.2', signedIn: true, account: 'OpenCode Zen' } as const;
+
+  it('checks every agent for updates from one button beside the heading, always in sight', async () => {
     const h = host();
-    renderTab({ providers: [opencode({ ...missing, state: 'current', installed: '1.19.2', signedIn: true, account: 'OpenCode Zen' })] });
+    renderTab({ providers: [opencode(signedIn)] });
 
     expect(screen.getByTestId('agent-row-opencode')).toHaveTextContent('OpenCode Zen · OpenCode 1.19.2');
-    fireEvent.click(screen.getByRole('button', { name: 'More for OpenCode' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /check for updates/i }));
-
+    const group = screen.getByRole('region', { name: 'SDK · OAuth login' });
+    fireEvent.click(within(group).getByRole('button', { name: 'Check for updates' }));
     await waitFor(() => expect(h.calls).toContainEqual(['agents.check', undefined]));
+
+    // The row menu no longer carries it.
+    fireEvent.click(screen.getByRole('button', { name: 'More for OpenCode' }));
+    expect(screen.queryByRole('menuitem', { name: /check for updates/i })).toBeNull();
+  });
+
+  it('signs out of a signed-in agent from its menu, after asking', async () => {
+    const h = host();
+    renderTab({ providers: [opencode(signedIn)] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'More for OpenCode' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sign out' }));
+    const dialog = screen.getByRole('dialog', { name: 'Sign out of OpenCode?' });
+    expect(h.calls.some(([cmd]) => cmd === 'provider.logout')).toBe(false);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out' }));
+
+    await waitFor(() => expect(h.calls).toContainEqual(['provider.logout', { provider: 'opencode' }]));
+    expect(screen.queryByRole('dialog', { name: 'Sign out of OpenCode?' })).toBeNull();
+  });
+
+  it('says why a sign-out failed', async () => {
+    __setApiOverride({
+      invoke: async (cmd: string) => (cmd === 'provider.logout' ? { ok: false, message: 'Codex logout failed: boom' } : undefined),
+      subscribe: () => () => undefined,
+    } as never);
+    renderTab({ providers: [opencode(signedIn)] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'More for OpenCode' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sign out' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Sign out' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Codex logout failed: boom');
+  });
+
+  it('offers no sign-out for an agent that is not signed in', () => {
+    host();
+    renderTab({ providers: [opencode({ ...signedIn, signedIn: false })] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'More for OpenCode' }));
+    expect(screen.queryByRole('menuitem', { name: 'Sign out' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /sign-in and settings/i })).toBeInTheDocument();
+  });
+
+  it('reads the agents again once a sign-in from Settings ends, without a click', async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const calls: Array<[string, unknown]> = [];
+    __setApiOverride({
+      invoke: async (cmd: string, args: unknown) => {
+        calls.push([cmd, args]);
+        return undefined;
+      },
+      subscribe: (event: string, handler: (payload: unknown) => void) => {
+        handlers.set(event, handler);
+        return () => handlers.delete(event);
+      },
+    } as never);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('agent-login' as `${string}-${string}-${string}-${string}-${string}`);
+    renderTab({ providers: [opencode({ ...signedIn, signedIn: false })] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in to OpenCode' }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in with opencode/i }));
+    await waitFor(() => expect(calls.some(([cmd]) => cmd === 'provider.login.start')).toBe(true));
+    const before = calls.filter(([cmd]) => cmd === 'agents.check').length;
+
+    act(() => handlers.get('provider.login.done')?.({ loginId: 'agent-login', code: 0 }));
+
+    await waitFor(() => expect(calls.filter(([cmd]) => cmd === 'agents.check').length).toBeGreaterThan(before));
+  });
+
+  it('reads the agents again when the person comes back to the window, at most every 30 seconds', async () => {
+    const h = host();
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    renderTab({ providers: [opencode(signedIn)] });
+    const checks = (): number => h.calls.filter(([cmd]) => cmd === 'agents.check').length;
+    const opened = checks();
+
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    await waitFor(() => expect(checks()).toBe(opened + 1));
+
+    now += 5_000;
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(checks()).toBe(opened + 1);
+
+    now += 30_000;
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    await waitFor(() => expect(checks()).toBe(opened + 2));
   });
 
   it("says the agent's state beside its name, leaving the line under it to what it is doing", () => {

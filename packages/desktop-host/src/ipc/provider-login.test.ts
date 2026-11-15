@@ -6,6 +6,7 @@ import type { RunnerPool } from '../runner-pool';
 const h = vi.hoisted(() => ({
   startProviderLogin: vi.fn(),
   cancelProviderLogin: vi.fn(),
+  runProviderLogout: vi.fn(),
   window: { once: vi.fn() },
 }));
 
@@ -20,6 +21,7 @@ vi.mock('../provider-login', () => ({
   answerProviderLogin: vi.fn(),
   cancelProviderLogin: h.cancelProviderLogin,
   startProviderLogin: h.startProviderLogin,
+  runProviderLogout: h.runProviderLogout,
 }));
 
 import { registerProviderLoginHandlers } from './provider-login';
@@ -119,5 +121,42 @@ describe('provider login IPC preparation', () => {
 
     expect(h.cancelProviderLogin).toHaveBeenCalledWith('login-cancelled');
     expect(h.startProviderLogin).not.toHaveBeenCalled();
+  });
+});
+
+describe('provider sign-out IPC', () => {
+  function poolWith(): { pool: RunnerPool; forceRetry: ReturnType<typeof vi.fn>; checkAgents: ReturnType<typeof vi.fn> } {
+    const forceRetry = vi.fn();
+    const checkAgents = vi.fn(async () => undefined);
+    const runner = { getInfo: () => ({}), providerAdmin: { checkAgents } };
+    const pool = {
+      prepare: vi.fn(async () => undefined),
+      active: () => ({ forceRetry }),
+      list: () => [{ supervisor: { remote: () => runner } }],
+    } as unknown as RunnerPool;
+    return { pool, forceRetry, checkAgents };
+  }
+
+  it('signs out, drops the runner\'s account, and has every runner check its agents again', async () => {
+    h.runProviderLogout.mockResolvedValue({ ok: true, message: 'logged out' });
+    const { pool, forceRetry, checkAgents } = poolWith();
+    const logout = register(pool).get('provider.logout');
+    if (!logout) throw new Error('provider.logout handler was not registered');
+
+    await expect(logout({ provider: 'codex-agent' } as never)).resolves.toEqual({ ok: true, message: 'logged out' });
+    expect(h.runProviderLogout).toHaveBeenCalledWith('codex-agent');
+    expect(forceRetry).toHaveBeenCalledTimes(1);
+    expect(checkAgents).toHaveBeenCalledTimes(1);
+  });
+
+  it('still checks the agents after a failed sign-out, and says why it failed', async () => {
+    h.runProviderLogout.mockResolvedValue({ ok: false, message: 'Codex logout failed' });
+    const { pool, forceRetry, checkAgents } = poolWith();
+    const logout = register(pool).get('provider.logout');
+    if (!logout) throw new Error('provider.logout handler was not registered');
+
+    await expect(logout({ provider: 'codex-agent' } as never)).resolves.toEqual({ ok: false, message: 'Codex logout failed' });
+    expect(forceRetry).not.toHaveBeenCalled();
+    expect(checkAgents).toHaveBeenCalledTimes(1);
   });
 });

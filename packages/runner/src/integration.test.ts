@@ -1349,6 +1349,35 @@ describe('provider management (protocol v7)', () => {
     await waitFor(() => cliOf()?.state === 'current');
   });
 
+  it("provider.closeAgentSessions ends the live sessions of one agent connection, and only its", async () => {
+    const socketPath = tmpSocket();
+    const provider = new FakeProvider({ script: [textReply('hi')] });
+    const session = buildSession(provider);
+    const closed: string[] = [];
+    const agent = (name: string) => ({
+      name,
+      models: [],
+      createClient: () => provider,
+      agentCli: {
+        check: async () => ({ state: 'current' as const, command: name, installed: '1.0.0', latest: '1.0.0', minimum: '1.0.0', checkedAt: 1 }),
+        closeSessions: async () => {
+          closed.push(name);
+        },
+      },
+    });
+    session.providers.register(agent('codex-agent'));
+    session.providers.register(agent('claude-code'));
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    await remote.providerAdmin.closeAgentSessions('codex-agent');
+    expect(closed).toEqual(['codex-agent']);
+    // A name with no agent behind it is a no-op, not an error.
+    await remote.providerAdmin.closeAgentSessions('anthropic');
+    expect(closed).toEqual(['codex-agent']);
+  });
+
   it('provider.configure forwards to the session providerAdmin view and pushes info', async () => {
     const socketPath = tmpSocket();
     const provider = new FakeProvider({ script: [textReply('hi')] });

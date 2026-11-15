@@ -13,7 +13,7 @@ import { fakeInstaller, writeFakeCli } from '@moxxy/vitest-preset/fake-cli';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import { CODEX_CLI, OPENCODE_CLI, checkAgentCli, type AgentCliDescriptor } from '@moxxy/agent-connection-kit';
 import type { AgentCliProgress } from '@moxxy/desktop-ipc-contract';
-import { agentConnectionsWithoutRunner, checkAgentClis, runAgentCli, type AgentCliRunner } from './agent-cli';
+import { agentConnectionsWithoutRunner, checkAgentClis, runAgentCli, signOutAgent, type AgentCliRunner } from './agent-cli';
 
 let home: string | undefined;
 afterEach(() => {
@@ -289,6 +289,67 @@ describe('checking every agent CLI', () => {
     await checkAgentClis([broken, ok]);
 
     expect(ok.checks).toBe(1);
+  });
+});
+
+describe('signing out of an agent from the desktop', () => {
+  function sessionRunner(runningTurns: string[] = []): AgentCliRunner & { checks: number; order: string[] } {
+    const order: string[] = [];
+    const view = {
+      checks: 0,
+      order,
+      getInfo: () => ({ runningTurns }),
+      providerAdmin: {
+        checkAgents: async () => {
+          view.checks += 1;
+          order.push('check');
+        },
+        closeAgentSessions: async (name: string) => {
+          order.push(`close ${name}`);
+        },
+      },
+    };
+    return view;
+  }
+
+  it('ends the agent\'s live sessions on every runner first, then signs out, then checks again', async () => {
+    const runners = [sessionRunner(), sessionRunner()];
+    const log: string[] = [];
+    const result = await signOutAgent('codex-agent', {
+      runners: () => runners,
+      logout: async (provider) => {
+        log.push(`logout ${provider} after ${runners.map((r) => r.order.join('+')).join(' / ')}`);
+        return { ok: true, message: 'logged out' };
+      },
+    });
+
+    expect(result).toEqual({ ok: true, message: 'logged out' });
+    expect(log).toEqual(['logout codex-agent after close codex-agent / close codex-agent']);
+    expect(runners.map((r) => r.order)).toEqual([['close codex-agent', 'check'], ['close codex-agent', 'check']]);
+  });
+
+  it('waits for running turns: signing out ends the agent they run on', async () => {
+    let loggedOut = false;
+    const result = await signOutAgent('codex-agent', {
+      runners: () => [sessionRunner(['t1'])],
+      logout: async () => {
+        loggedOut = true;
+        return { ok: true, message: '' };
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/running turns/);
+    expect(loggedOut).toBe(false);
+  });
+
+  it('still signs out when a runner is too old to end its sessions', async () => {
+    const old: AgentCliRunner = { getInfo: () => ({}), providerAdmin: { checkAgents: async () => undefined } };
+    const result = await signOutAgent('opencode', {
+      runners: () => [old],
+      logout: async () => ({ ok: true, message: 'done' }),
+    });
+    expect(result.ok).toBe(true);
   });
 });
 

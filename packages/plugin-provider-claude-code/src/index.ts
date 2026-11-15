@@ -39,6 +39,8 @@ export const claudeCodeProviderDef = defineProvider({
       const executable = claudeForSdk(resolveClaudeExecutable());
       return claudeOfferedModels({ sdk, cwd: homedir(), ...(executable ? { executable } : {}) });
     },
+    // A running Claude session keeps the old account; a sign-out ends them first.
+    closeSessions: () => claudeSessions().endAll(),
   },
   ownAutoApprove: ({ cwd }) => claudeOwnAutoApprove(cwd),
   createClient: (config) => createClaudeCodeClient(providerConfigFrom(config)),

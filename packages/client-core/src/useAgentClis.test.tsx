@@ -30,6 +30,7 @@ function host() {
     invoke: async (cmd: string, args: unknown) => {
       calls.push([cmd, args]);
       if (cmd === 'agents.run') return new Promise<AgentCliRunResult>((resolve) => (finish = resolve));
+      if (cmd === 'provider.logout') return { ok: true, message: 'logged out' };
       return undefined;
     },
     subscribe: (event: string, fn: (p: AgentCliProgress) => void) => {
@@ -215,5 +216,36 @@ describe('useAgentClis', () => {
     });
 
     expect(sent).toEqual([SESSION_INFO_REFRESH_EVENT]);
+  });
+
+  it('signs out of an agent and has every view read its state again', async () => {
+    const h = host();
+    const sent = recordBus();
+    const { result } = renderHook(() => useAgentClis());
+
+    let outcome: { ok: boolean; message: string } | undefined;
+    await act(async () => {
+      outcome = await result.current.signOut('codex-agent');
+    });
+
+    expect(outcome).toEqual({ ok: true, message: 'logged out' });
+    expect(h.calls).toContainEqual(['provider.logout', { provider: 'codex-agent' }]);
+    expect(sent).toContain(SESSION_INFO_REFRESH_EVENT);
+  });
+
+  it('says why a sign-out could not run instead of throwing', async () => {
+    __setApiOverride({
+      invoke: async () => {
+        throw new Error('host gone');
+      },
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+    const { result } = renderHook(() => useAgentClis());
+    let outcome: { ok: boolean; message: string } | undefined;
+    await act(async () => {
+      outcome = await result.current.signOut('claude-code');
+    });
+    expect(outcome?.ok).toBe(false);
+    expect(outcome?.message).toContain('host gone');
   });
 });

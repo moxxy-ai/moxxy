@@ -127,3 +127,56 @@ export function cancelProviderLogin(loginId: string): void {
   runs.delete(loginId);
   run.child.kill();
 }
+
+/** What a sign-out ended with: whether it worked, and the CLI's last word on it. */
+export interface ProviderLogoutResult {
+  readonly ok: boolean;
+  readonly message: string;
+}
+
+const ANSI = /\x1b\[[0-9;]*m/g;
+
+function lastLine(text: string): string {
+  return (
+    text
+      .replace(ANSI, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1) ?? ''
+  );
+}
+
+/**
+ * Sign out of `provider` by running `moxxy login logout <provider>`: the same
+ * path the terminal takes, so each agent's own logout (`codex logout`,
+ * `claude auth logout`, `opencode auth logout`) runs exactly as it does there.
+ * Never throws for a failed sign-out; it says what went wrong instead.
+ */
+export async function runProviderLogout(provider: string): Promise<ProviderLogoutResult> {
+  assertSafeProviderName(provider);
+  const cli = resolveMoxxyCli({ extraPaths: augmentedPaths() });
+  if (!cli) throw new Error('moxxy CLI not found — run the install step first');
+  const child = spawnCli(cli, ['login', 'logout', provider], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  let err = '';
+  child.stdout?.on('data', (b: Buffer) => {
+    out += b.toString();
+  });
+  child.stderr?.on('data', (b: Buffer) => {
+    err += b.toString();
+  });
+  return await new Promise((resolve) => {
+    let settled = false;
+    const settle = (result: ProviderLogoutResult): void => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    child.on('error', (e) => settle({ ok: false, message: String(e) }));
+    child.on('exit', (code) => {
+      if (code === 0) settle({ ok: true, message: lastLine(out) || 'Signed out.' });
+      else settle({ ok: false, message: lastLine(err) || lastLine(out) || `Sign-out failed (exit ${code ?? 'unknown'}).` });
+    });
+  });
+}

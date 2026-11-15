@@ -16,6 +16,8 @@ export const opencodeProviderDef = defineProvider({
       return checkAgentCli(OPENCODE_CLI, { command, refresh: opts?.refresh === true }, { signIn: () => openCodeSignIn(command) });
     },
     models: async () => (await listOpenCodeModels(resolveOpenCodeExecutable())).map(acpModel),
+    // A running OpenCode session keeps the old account; a sign-out ends them first.
+    closeSessions: () => acpSessions().endAll(),
   },
   ownAutoApprove: ({ cwd }) => openCodeOwnAutoApprove(cwd, readOpenCodeRules(resolveOpenCodeExecutable())),
   createClient: (config) => createAcpAgentClient(providerConfigFrom(config)),
