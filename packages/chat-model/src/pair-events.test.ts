@@ -939,3 +939,70 @@ describe("an agent's list of steps", () => {
     expect(turnStepList([...before, userPrompt('two')])).toBeNull();
   });
 });
+
+describe('a list of steps when the goal is met', () => {
+  const listed = (...steps: Array<[string, StepStatus]>) => ({
+    forModel: '',
+    display: { kind: 'step-list', steps: steps.map(([text, status]) => ({ text, status })) },
+  });
+  const goalEvent = (subtype: string): PluginEvent => ({
+    ...base(),
+    type: 'plugin_event',
+    source: 'plugin',
+    pluginId: asPluginId('@moxxy/mode-goal'),
+    subtype,
+    payload: {},
+  });
+  // What Codex sent in the clean-Mac run: it ended the goal while its last step was still in progress.
+  const codexRun = (...after: MoxxyEvent[]): MoxxyEvent[] => [
+    userPrompt('create the file, read it back, then mark the goal complete'),
+    toolRequest('plan-1', 'update_plan'),
+    toolResult('plan-1', listed(['Create the file', 'completed'], ['Read it back', 'completed'], ['Mark the goal complete', 'in_progress'])),
+    ...after,
+  ];
+  const steps = (...statuses: StepStatus[]) => statuses;
+  const listIn = (events: MoxxyEvent[]): StepListBlock => {
+    const list = pairToolEvents(events).find((b): b is StepListBlock => b.kind === 'step-list');
+    assertDefined(list, 'a step list');
+    return list;
+  };
+
+  it('shows every step done once the goal is complete, whatever the agent last ticked', () => {
+    const list = listIn(codexRun(goalEvent('goal_completed'), assistantMessage('✓ Goal complete — the agent reports its goal is met.')));
+
+    expect(stepListOf(list)?.steps.map((s) => s.status)).toEqual(steps('completed', 'completed', 'completed'));
+  });
+
+  it('says the running turn list is all done once the goal is complete', () => {
+    expect(turnStepList(codexRun(goalEvent('goal_completed')))?.steps.map((s) => s.status)).toEqual(steps('completed', 'completed', 'completed'));
+  });
+
+  it('keeps a step the agent cancelled as cancelled', () => {
+    const events = [
+      userPrompt('go'),
+      toolRequest('c1', 'TodoWrite'),
+      toolResult('c1', listed(['a', 'completed'], ['b', 'cancelled'], ['c', 'pending'])),
+      goalEvent('goal_completed'),
+    ];
+    expect(stepListOf(listIn(events))?.steps.map((s) => s.status)).toEqual(steps('completed', 'cancelled', 'completed'));
+    expect(turnStepList(events)?.steps.map((s) => s.status)).toEqual(steps('completed', 'cancelled', 'completed'));
+  });
+
+  it('leaves the list as the agent left it when the goal is paused or ended without being met', () => {
+    for (const subtype of ['goal_abandoned', 'goal_stalled']) {
+      const events = codexRun(goalEvent(subtype));
+      expect(stepListOf(listIn(events))?.steps.map((s) => s.status)).toEqual(steps('completed', 'completed', 'in_progress'));
+      expect(turnStepList(events)?.steps.map((s) => s.status)).toEqual(steps('completed', 'completed', 'in_progress'));
+    }
+  });
+
+  it('does not touch the list of an earlier turn', () => {
+    expect(stepListOf(listIn([...codexRun(), userPrompt('now a goal'), goalEvent('goal_completed')]))?.steps.map((s) => s.status)).toEqual(steps('completed', 'completed', 'in_progress'));
+  });
+
+  it('is not the same block to a renderer once the goal is met', () => {
+    const met = listIn(codexRun(goalEvent('goal_completed')));
+
+    expect(blocksEquivalent({ ...met, goalMet: false }, met)).toBe(false);
+  });
+});

@@ -25,6 +25,22 @@ describe('TurnAgentWork', () => {
     expect(work.isStepListCall('c1')).toBe(false);
   });
 
+  it('shows every step done once the goal is complete, and keeps a cancelled one', () => {
+    const work = new TurnAgentWork();
+    const list = { kind: 'step-list', steps: [{ text: 'a', status: 'completed' }, { text: 'b', status: 'cancelled' }, { text: 'c', status: 'in_progress' }] };
+    work.accept(ev({ type: 'tool_result', callId: 'p1', ok: true, output: { forModel: '', display: list } }));
+    work.accept(ev({ type: 'plugin_event', pluginId: '@moxxy/mode-goal', subtype: 'goal_completed', payload: {} }));
+    expect(work.stepList?.steps.map((s) => s.status)).toEqual(['completed', 'cancelled', 'completed']);
+  });
+
+  it('leaves the list as it was when the goal is paused', () => {
+    const work = new TurnAgentWork();
+    const list = { kind: 'step-list', steps: [{ text: 'a', status: 'in_progress' }] };
+    work.accept(ev({ type: 'tool_result', callId: 'p1', ok: true, output: { forModel: '', display: list } }));
+    work.accept(ev({ type: 'plugin_event', pluginId: '@moxxy/mode-goal', subtype: 'goal_abandoned', payload: {} }));
+    expect(work.stepList?.steps.map((s) => s.status)).toEqual(['in_progress']);
+  });
+
   it('forgets everything on reset', () => {
     const work = new TurnAgentWork();
     work.accept(agentCall('mcp__computer-use__click', { app: 'Arc' }));

@@ -69,6 +69,10 @@
       "types": "./dist/starting-model.d.ts",
       "import": "./dist/starting-model.js"
     },
+    "./agent-step": {
+      "types": "./dist/agent-step.d.ts",
+      "import": "./dist/agent-step.js"
+    },
     "./agent-work": {
       "types": "./dist/agent-work.d.ts",
       "import": "./dist/agent-work.js"

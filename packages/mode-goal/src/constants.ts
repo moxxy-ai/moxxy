@@ -1,7 +1,7 @@
-import { asPluginId } from '@moxxy/sdk';
+import { GOAL_MODE_PLUGIN_ID } from '@moxxy/sdk';
 
 export const GOAL_MODE_NAME = 'goal';
-export const GOAL_PLUGIN_ID = asPluginId('@moxxy/mode-goal');
+export const GOAL_PLUGIN_ID = GOAL_MODE_PLUGIN_ID;
 
 /** Tool the model MUST call to declare the goal achieved (the terminator). */
 export const GOAL_COMPLETE_TOOL = 'goal_complete';
