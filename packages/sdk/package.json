@@ -119,13 +119,13 @@
   },
   "peerDependencies": {
     "zod": "catalog:",
-    "undici": "^8.12.2"
+    "undici": "^8.12.4"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "typescript": "catalog:",
-    "undici": "^8.12.2",
+    "undici": "^8.12.4",
     "vitest": "catalog:",
     "zod": "catalog:"
   },
