@@ -591,12 +591,16 @@ describe('WorkflowsPanel — infinite canvas pan/zoom', () => {
     await screen.findByTestId('workflow-canvas');
   }
 
-  /** Parse the content layer's `translate(xpx, ypx) scale(z)` transform. */
+  /**
+   * Parse the content layer's `translate(xpx, ypx) scale(z)` transform. CSS
+   * serializes `translate(x, 0)` as `translate(x)` and keeps six significant
+   * digits, so a missing y reads as 0 and positions compare to 3 places.
+   */
   function getView(): { x: number; y: number; zoom: number } {
     const t = (screen.getByTestId('canvas-content') as HTMLElement).style.transform;
-    const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\((-?[\d.]+)\)/.exec(t);
+    const m = /translate\((-?[\d.e-]+)px(?:, (-?[\d.e-]+)px)?\) scale\((-?[\d.e-]+)\)/.exec(t);
     if (!m) throw new Error(`unexpected canvas transform: ${t}`);
-    return { x: Number(m[1]), y: Number(m[2]), zoom: Number(m[3]) };
+    return { x: Number(m[1]), y: Number(m[2] ?? 0), zoom: Number(m[3]) };
   }
 
   it('plain wheel pans BOTH axes (no horizontal-strip scrolling)', async () => {
@@ -623,16 +627,16 @@ describe('WorkflowsPanel — infinite canvas pan/zoom', () => {
     const zoomed = getView();
     expect(zoomed.zoom).toBeGreaterThan(1);
     // anchor = world·zoom + pan ⇒ the same world point must sit under (100,100).
-    expect((100 - zoomed.x) / zoomed.zoom).toBeCloseTo(100, 6);
-    expect((100 - zoomed.y) / zoomed.zoom).toBeCloseTo(100, 6);
+    expect((100 - zoomed.x) / zoomed.zoom).toBeCloseTo(100, 3);
+    expect((100 - zoomed.y) / zoomed.zoom).toBeCloseTo(100, 3);
     // Zoom again at a DIFFERENT cursor point — that point must now hold still.
     const worldX = (300 - zoomed.x) / zoomed.zoom;
     const worldY = (40 - zoomed.y) / zoomed.zoom;
     fireEvent.wheel(canvas, { ctrlKey: true, deltaY: -150, clientX: 300, clientY: 40 });
     const again = getView();
     expect(again.zoom).toBeGreaterThan(zoomed.zoom);
-    expect((300 - again.x) / again.zoom).toBeCloseTo(worldX, 6);
-    expect((40 - again.y) / again.zoom).toBeCloseTo(worldY, 6);
+    expect((300 - again.x) / again.zoom).toBeCloseTo(worldX, 3);
+    expect((40 - again.y) / again.zoom).toBeCloseTo(worldY, 3);
     // Double-click on empty canvas resets to 100%.
     fireEvent.doubleClick(canvas, { clientX: 50, clientY: 50 });
     expect(getView().zoom).toBe(1);

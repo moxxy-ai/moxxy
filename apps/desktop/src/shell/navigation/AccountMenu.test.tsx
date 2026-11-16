@@ -153,7 +153,7 @@ describe('AccountMenu', () => {
     const menu = screen.getByRole('menu');
     expect(menu).not.toHaveAttribute('data-instant');
     // Above the row, so it grows from its own bottom-left corner.
-    expect(menu.style.transformOrigin).toBe('bottom left');
+    expect(menu.style.transformOrigin).toBe('left bottom');
     fireEvent.keyDown(document, { key: 'Escape' });
 
     fireEvent.click(trigger());

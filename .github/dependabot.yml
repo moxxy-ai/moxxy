@@ -66,6 +66,20 @@ updates:
       # ink >=6 needs React 19; waits for the React 19 migration.
       - dependency-name: 'ink'
         update-types: ['version-update:semver-major']
+      # @anthropic-ai/sdk 1.x moves every request to Anthropic API version
+      # 2026-10-21 (temperature/top_p/top_k removed, documents in assistant
+      # turns rejected) and sends the API key as a Bearer token instead of
+      # x-api-key. The z.ai Coding Plan provider reuses this client against
+      # z.ai's Anthropic-compatible endpoint, so the move needs its own change
+      # checked against both endpoints.
+      - dependency-name: '@anthropic-ai/sdk'
+        update-types: ['version-update:semver-major']
+      # Electron 44+ needs macOS 13, and the desktop app still supports macOS 12
+      # (mac.minimumSystemVersion "12.0" in apps/desktop/package.json). Moving
+      # past 43 drops Monterey, so it waits for that decision. Electron 43 is
+      # supported until January 2027.
+      - dependency-name: 'electron'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /

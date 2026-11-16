@@ -50,7 +50,7 @@ describe('usePopover', () => {
     expect(menu.style.bottom).toBe('66px'); // 800 − 740 + a 6px gap
     expect(menu.style.left).toBe('12px');
     expect(menu.style.width).toBe('240px');
-    expect(menu.style.transformOrigin).toBe('bottom left');
+    expect(menu.style.transformOrigin).toBe('left bottom');
   });
 
   it('opens below its anchor, pinned to the right edge and kept on screen', () => {
@@ -66,7 +66,7 @@ describe('usePopover', () => {
     expect(menu.style.top).toBe('40px');
     // 84 − 160 would run off the left edge; it stops at the margin instead.
     expect(menu.style.left).toBe('8px');
-    expect(menu.style.transformOrigin).toBe('top right');
+    expect(menu.style.transformOrigin).toBe('right top');
   });
 
   it('reports open and close, so a row can keep its actions up', () => {

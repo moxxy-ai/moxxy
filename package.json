@@ -23,6 +23,8 @@
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3",
     "@moxxy/config": "workspace:*",
     "@types/node": "catalog:",
     "dependency-cruiser": "^18.7.0",

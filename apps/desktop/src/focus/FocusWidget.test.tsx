@@ -1894,8 +1894,8 @@ describe('FocusWidget bidirectional sync', () => {
     });
     expect(previewButton.textContent).toContain('Finalny fragment do przewijania');
     expect(previewButton.textContent?.endsWith('...')).toBe(false);
-    expect(previewButton.getAttribute('style')).toContain('max-height: 84px');
-    expect(previewButton.getAttribute('style')).toContain('overflow-y: auto');
+    expect(previewButton.style.maxHeight).toBe('84px');
+    expect(previewButton.style.overflowY).toBe('auto');
   });
 
   it('reserves enough window height for a three-line inactive preview', async () => {
@@ -2282,7 +2282,7 @@ describe('FocusWidget bidirectional sync', () => {
     spy.emit('ask.request', permissionAsk('ask-focus-transparent-gutter'));
 
     const card = await screen.findByRole('group', { name: /approval required/i });
-    expect(card.parentElement?.getAttribute('style')).toContain('background: transparent');
+    expect(card.parentElement?.style.backgroundColor).toBe('transparent');
     expect(focusStyle.inactiveRootWithPreview).toMatchObject({
       background: 'transparent',
     });

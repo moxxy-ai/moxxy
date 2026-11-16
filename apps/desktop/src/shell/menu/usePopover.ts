@@ -51,7 +51,9 @@ function place(anchor: HTMLElement, { side, align, width }: PopoverPlacement): C
     width,
     ...vertical,
     // The corner nearest the anchor, so the popover grows out of its trigger.
-    transformOrigin: `${side === 'top' ? 'bottom' : 'top'} ${align === 'start' ? 'left' : 'right'}`,
+    // Horizontal keyword first: the order CSS serializes it in, so the value
+    // reads back the same from the browser as it was written.
+    transformOrigin: `${align === 'start' ? 'left' : 'right'} ${side === 'top' ? 'bottom' : 'top'}`,
   };
 }
 
