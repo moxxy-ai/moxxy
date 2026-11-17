@@ -16,6 +16,7 @@
  * best-effort (lose at most the last in-flight event on a crash).
  */
 
+import { createHash } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
@@ -29,6 +30,7 @@ import {
 } from '@moxxy/sdk/server';
 import { createLogger, type Logger } from '../logger.js';
 import { isMoxxyEventShape } from './event-shape.js';
+import { readLines } from './jsonl-lines.js';
 
 // `SessionSource`, `SessionMeta` and `EventPage` are the EventStore contract's
 // data shapes — defined in @moxxy/sdk so `EventStoreDef` can reference them.
@@ -474,6 +476,22 @@ export async function readIndex(dir = defaultSessionsDir()): Promise<SessionMeta
   return hydrated.sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
 }
 
+/**
+ * The {@link readIndex} row of ONE session, or null when the index has none.
+ * Reads every small metadata file (so duplicates resolve exactly as in the
+ * index) but only this session's event log, never the other sessions' logs:
+ * opening one conversation must not cost the whole history on disk.
+ */
+export async function readSessionMeta(
+  sessionId: string,
+  dir = defaultSessionsDir(),
+): Promise<SessionMeta | null> {
+  const { metas, logs } = await readSessionsDir(dir);
+  const meta = metas.find((entry) => entry.id === sessionId);
+  if (!meta || !logs.has(meta.id)) return null;
+  return hydrateMetaFirstPrompt(meta, dir);
+}
+
 async function hydrateMetaFirstPrompt(meta: SessionMeta, dir: string): Promise<SessionMeta> {
   const stats = await matchingSessionStatsFromLog(meta.id, path.join(dir, `${meta.id}.jsonl`));
   if (!stats) return meta;
@@ -495,28 +513,38 @@ interface SessionLogStats {
   model: string | null;
 }
 
-function statsFromEvents(sessionId: string, events: Iterable<MoxxyEvent>): SessionLogStats {
+/** Folds events into {@link SessionLogStats} one at a time, so a whole log
+ *  never has to sit in memory as an array to be counted. */
+function sessionStatsFold(sessionId: string): { add(event: MoxxyEvent): void; result(): SessionLogStats } {
   let eventCount = 0;
   let parsedEvents = 0;
   let firstPrompt: string | null = null;
   let provider: string | null = null;
   let model: string | null = null;
-  for (const event of events) {
-    parsedEvents += 1;
-    if (!eventBelongsToSession(event, sessionId)) continue;
-    eventCount += 1;
-    if (firstPrompt === null && event.type === 'user_prompt') {
-      // Mirror the write-time label (SessionPersistence.enqueueAppend):
-      // code-point-aware slice + non-string coercion, so a hydrated index row
-      // matches the meta the live append wrote (no surrogate split, never null
-      // for a present prompt).
-      firstPrompt = firstPromptLabel(event.text);
-    }
-    const header = providerHeaderFromEvent(event);
-    if (header.provider !== undefined) provider = header.provider;
-    if (header.model !== undefined) model = header.model;
-  }
-  return { eventCount, firstPrompt, parsedEvents, provider, model };
+  return {
+    add(event) {
+      parsedEvents += 1;
+      if (!eventBelongsToSession(event, sessionId)) return;
+      eventCount += 1;
+      if (firstPrompt === null && event.type === 'user_prompt') {
+        // Mirror the write-time label (SessionPersistence.enqueueAppend):
+        // code-point-aware slice + non-string coercion, so a hydrated index row
+        // matches the meta the live append wrote (no surrogate split, never null
+        // for a present prompt).
+        firstPrompt = firstPromptLabel(event.text);
+      }
+      const header = providerHeaderFromEvent(event);
+      if (header.provider !== undefined) provider = header.provider;
+      if (header.model !== undefined) model = header.model;
+    },
+    result: () => ({ eventCount, firstPrompt, parsedEvents, provider, model }),
+  };
+}
+
+function statsFromEvents(sessionId: string, events: Iterable<MoxxyEvent>): SessionLogStats {
+  const fold = sessionStatsFold(sessionId);
+  for (const event of events) fold.add(event);
+  return fold.result();
 }
 
 function statsFromEventLogLike(sessionId: string, log: EventLogLike): SessionLogStats | null {
@@ -529,25 +557,50 @@ async function matchingSessionStatsFromLog(
   sessionId: string,
   logPath: string,
 ): Promise<SessionLogStats | null> {
-  let raw: string;
+  const fold = sessionStatsFold(sessionId);
   try {
-    raw = await fs.readFile(logPath, 'utf8');
+    for await (const line of readLines(logPath)) {
+      // Wrong-shape lines are skipped exactly like corrupt ones: neither a
+      // corrupt nor a junk line should hide a later valid prompt.
+      const parsed = parseEventLine(line);
+      if (isMoxxyEventShape(parsed)) fold.add(parsed);
+    }
   } catch {
     return null;
   }
-  const events: MoxxyEvent[] = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      // Wrong-shape lines are skipped exactly like corrupt ones: neither a
-      // corrupt nor a junk line should hide a later valid prompt.
-      if (isMoxxyEventShape(parsed)) events.push(parsed);
-    } catch {
-      // A corrupt line should not hide a later valid prompt.
-    }
+  return fold.result();
+}
+
+/** One JSONL line as JSON, or undefined for a blank or corrupt line (which
+ *  JSON.parse never returns, so a `null` line stays a wrong-shape line). */
+function parseEventLine(line: string): unknown {
+  if (!line.trim()) return undefined;
+  try {
+    return JSON.parse(line) as unknown;
+  } catch {
+    return undefined;
   }
-  return statsFromEvents(sessionId, events);
+}
+
+/** Hash decoded text, preserving the previous UTF-8 string comparison without
+ *  holding either whole-file string in memory. */
+function textDigest(): { add(line: string): void; digest(): string } {
+  const hash = createHash('sha256');
+  let first = true;
+  return {
+    add(line) {
+      if (!first) hash.update('\n');
+      hash.update(line);
+      first = false;
+    },
+    digest: () => hash.digest('hex'),
+  };
+}
+
+async function logDigest(logPath: string): Promise<string> {
+  const digest = textDigest();
+  for await (const line of readLines(logPath)) digest.add(line);
+  return digest.digest();
 }
 
 function providerHeaderFromEvent(event: MoxxyEvent): { provider?: string | null; model?: string | null } {
@@ -590,21 +643,25 @@ export async function restoreEvents(
 ): Promise<MoxxyEvent[]> {
   assertSafeSessionId(sessionId);
   const logPath = path.join(dir, `${sessionId}.jsonl`);
-  let raw: string;
-  try {
-    raw = await fs.readFile(logPath, 'utf8');
-  } catch {
-    throw new Error(`Session not found: ${sessionId}`);
-  }
   const events: MoxxyEvent[] = [];
   let corruptLines = 0;
   let invalidShapeLines = 0;
   let foreignEvents = 0;
   let normalizedSessionIds = 0;
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed: unknown = JSON.parse(line);
+  // What was read, kept as a fingerprint rather than the text itself, for the
+  // "did the file change under us" check before a repair rewrite.
+  const readDigest = textDigest();
+  try {
+    for await (const line of readLines(logPath)) {
+      readDigest.add(line);
+      if (!line.trim()) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        corruptLines += 1;
+        continue;
+      }
       // Valid JSON but not a replayable event shape (see isMoxxyEventShape):
       // skipped with the exact same semantics as a corrupt line — counted,
       // re-sequenced around, and repaired away by the rewrite below. Casting
@@ -621,10 +678,11 @@ export async function restoreEvents(
       } else {
         foreignEvents += 1;
       }
-    } catch {
-      corruptLines += 1;
     }
+  } catch {
+    throw new Error(`Session not found: ${sessionId}`);
   }
+  const originalDigest = readDigest.digest();
 
   // Re-sequence to contiguous 0..n-1 (order + ids preserved). A clean log is
   // already contiguous, so this is a no-op in the common case.
@@ -681,17 +739,19 @@ export async function restoreEvents(
       // hold across processes, so re-read and compare before the destructive
       // rewrite. Restore still succeeds either way — the in-memory log is
       // already repaired; only the next clean resume would re-run the repair.
-      const current = await fs.readFile(logPath, 'utf8').catch(() => null);
+      const current = await logDigest(logPath).catch(() => null);
       if (!canRewrite) {
         /* foreign-session backup failed — skip the destructive rewrite */
-      } else if (current !== raw) {
+      } else if (current !== originalDigest) {
         logger.warn('skipped repaired-log rewrite — file changed under us (another process attached?)', {
           sessionId,
           path: logPath,
         });
       } else {
-        const repaired = events.map((e) => JSON.stringify(e) + '\n').join('');
-        await writeFileAtomic(logPath, repaired, { mode: PRIVATE_FILE_MODE });
+        function* repairedLines(): Generator<string> {
+          for (const event of events) yield JSON.stringify(event) + '\n';
+        }
+        await writeFileAtomic(logPath, repairedLines(), { mode: PRIVATE_FILE_MODE });
       }
     } catch (err) {
       // Restore still succeeds — the in-memory log is repaired; only the
@@ -747,27 +807,18 @@ export async function readEventPage(
 ): Promise<EventPage> {
   assertSafeSessionId(sessionId);
   const logPath = path.join(dir, `${sessionId}.jsonl`);
-  let raw: string;
+  // Parse the JSONL, skipping corrupt AND wrong-shape lines (one bad append
+  // must not make the rest unreadable), same as restoreEvents. Read-only: we
+  // never rewrite the file here.
+  const all: MoxxyEvent[] = [];
   try {
-    raw = await fs.readFile(logPath, 'utf8');
+    for await (const line of readLines(logPath)) {
+      const parsed = parseEventLine(line);
+      if (isMoxxyEventShape(parsed)) all.push(parsed);
+    }
   } catch {
     // No log on disk yet → empty history, not an error.
     return { events: [], prevCursor: null };
-  }
-
-  // Parse the JSONL, skipping corrupt AND wrong-shape lines (one bad append
-  // must not make the rest unreadable). Read-only: we never rewrite the file
-  // here.
-  const all: MoxxyEvent[] = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      // skip a valid-JSON-but-not-an-event line, same as restoreEvents
-      if (isMoxxyEventShape(parsed)) all.push(parsed);
-    } catch {
-      // skip a malformed/half-written line, same as restoreEvents
-    }
   }
   // Delegate ALL paging (including the limit/cursor clamping) to pageEvents so
   // the disk and in-memory paths are identical by construction — no separate

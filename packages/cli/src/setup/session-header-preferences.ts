@@ -1,4 +1,4 @@
-import { readSessionIndex, type Session } from '@moxxy/core';
+import { readSessionMeta, type Session, type SessionMeta } from '@moxxy/core';
 import type { CredentialResolver } from './activate-provider.js';
 import { RETIRED_PROVIDER, RETIRED_PROVIDER_REPLACEMENT, RETIRED_PROVIDER_NOTICE, RETIRED_PROVIDER_NO_CODEX } from './retired-provider.js';
 
@@ -14,9 +14,9 @@ export async function applySessionHeaderPreferences(
 ): Promise<void> {
   if (!sessionId) return;
 
-  let meta = null as Awaited<ReturnType<typeof readSessionIndex>>[number] | null;
+  let meta: SessionMeta | null = null;
   try {
-    meta = (await readSessionIndex()).find((entry) => entry.id === sessionId) ?? null;
+    meta = await readSessionMeta(sessionId);
   } catch (err) {
     logger.warn('failed to load sticky session metadata', {
       sessionId,

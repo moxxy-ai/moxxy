@@ -1,4 +1,4 @@
-import { readSessionIndex } from '@moxxy/core';
+import { readSessionMeta } from '@moxxy/core';
 import type { ParsedArgv } from '../argv.js';
 import { pickSessionToResume } from './sessions.js';
 import { runTuiWithBootstrap } from './run-tui.js';
@@ -42,8 +42,7 @@ export async function runResumeCommand(argv: ParsedArgv): Promise<number> {
   // TUI on exit), this is the only visible breadcrumb that the resume
   // succeeded — without it the picker output and the empty post-Ink
   // shell prompt make it look like "nothing happened".
-  const index = await readSessionIndex();
-  const meta = index.find((m) => m.id === id);
+  const meta = await readSessionMeta(id);
   const label = meta?.firstPrompt ?? colors.dim('(empty)');
   process.stdout.write(colors.dim('continuing run — ') + label + '\n');
   return runTuiWithBootstrap(argv, {
@@ -53,6 +52,6 @@ export async function runResumeCommand(argv: ParsedArgv): Promise<number> {
 }
 
 export async function cwdForResumeSession(id: string, fallback: string): Promise<string> {
-  const meta = (await readSessionIndex()).find((m) => m.id === id);
+  const meta = await readSessionMeta(id);
   return meta?.cwd ?? fallback;
 }

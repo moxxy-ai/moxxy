@@ -328,9 +328,12 @@ async function runSelfHostedTui(
   // A welcome is useful once, when it teaches the product contract. Repeating
   // it on every fresh run turns the same screen into friction. Empty records
   // do not count as prior use (older builds could leave them behind on probes).
-  const firstRun = await readSessionIndex()
-    .then((runs) => shouldShowFirstRunWelcome(runs, Boolean(tuiOpts.resumeSessionId)))
-    .catch(() => false);
+  // A resumed run never shows it, so it does not need the whole index.
+  const firstRun = tuiOpts.resumeSessionId
+    ? false
+    : await readSessionIndex()
+        .then((runs) => shouldShowFirstRunWelcome(runs, false))
+        .catch(() => false);
 
   if (process.stdin.isTTY) {
     const { sources } = await loadConfig({
