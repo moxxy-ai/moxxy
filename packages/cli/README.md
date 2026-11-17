@@ -166,6 +166,8 @@ The CLI groups commands the same way `moxxy --help` does.
 | `moxxy channels` | List registered channels and their subcommands. |
 | `moxxy serve` | Start every channel together with the scheduler and webhooks in one process. |
 
+When a runner is already serving the session, `moxxy tui` receives the selected conversation over its socket. The terminal opens after it has received the history in order. Other connected clients can continue working during this transfer.
+
 ### Manage
 
 | Command | What it does |

@@ -18,6 +18,7 @@ import type {
   TurnId,
   UserPromptAttachment,
 } from '@moxxy/sdk';
+import { ClientHistory } from './history-replay.js';
 import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport, TransportServer } from './transport.js';
 import { createUnixSocketServer } from './unix-socket.js';
@@ -90,6 +91,7 @@ const CLIENT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 /** One attached client and what it has opted into answering. */
 interface ConnectedClient {
   readonly peer: JsonRpcPeer;
+  readonly history: ClientHistory;
   role: string;
   attached: boolean;
   handlesPermission: boolean;
@@ -184,7 +186,10 @@ export class RunnerServer {
     this.trackLocalTurns();
     this.transport.onConnection((t) => this.onConnection(t));
     this.logUnsub = session.log.subscribe((event) => {
-      this.broadcastEvent(event);
+      const projected = eventForClient(event);
+      for (const client of this.clients) {
+        if (client.attached) client.history.live(event, projected);
+      }
       // Auto-approve is read from the info snapshot; refresh it on every
       // switch, whichever client (or in-process channel) made it.
       if (autoApproveSwitch(event) !== null) this.broadcastInfo();
@@ -195,7 +200,9 @@ export class RunnerServer {
     // channel clearing the local log directly — so mirrors can never desync
     // against a wiped log whose next event restarts at seq 0.
     this.logClearUnsub = session.log.onClear(() => {
-      this.broadcast(RunnerNotification.SessionReset, {});
+      for (const client of this.clients) {
+        if (client.attached) client.history.reset();
+      }
       // A fresh conversation starts with auto-approve off.
       this.broadcastInfo();
     });
@@ -252,6 +259,7 @@ export class RunnerServer {
     const peer = new JsonRpcPeer(transport);
     const client: ConnectedClient = {
       peer,
+      history: new ClientHistory(this.session.log, peer, transport),
       role: 'unknown',
       attached: false,
       handlesPermission: false,
@@ -263,7 +271,10 @@ export class RunnerServer {
     const ctx = this.handlerCtx;
     // Turn / attach / resolver routing stay on the class (they touch per-client
     // and per-turn state). Every domain handler delegates to its module.
-    peer.handle(RunnerMethod.Attach, (raw) => this.handleAttach(client, raw));
+    const attaches = createMutex();
+    peer.handleWithReply(RunnerMethod.Attach, (raw, reply) =>
+      attaches.run(() => this.handleAttach(client, raw, reply)),
+    );
     peer.handle(RunnerMethod.GetInfo, () => this.info());
     peer.handle(RunnerMethod.ComputerSnapshot, (raw) => handleComputerSnapshot(ctx, raw));
     peer.handle(RunnerMethod.ComputerControl, (raw) => handleComputerControl(ctx, raw));
@@ -330,7 +341,7 @@ export class RunnerServer {
 
   // --- request handlers ----------------------------------------------------
 
-  private handleAttach(client: ConnectedClient, raw: unknown): AttachResult {
+  private handleAttach(client: ConnectedClient, raw: unknown, reply: (result: AttachResult) => void): Promise<void> {
     const params = attachParamsSchema.parse(raw);
     // Tolerant negotiation: accept any client whose version is compatible with
     // our core session protocol (>= MIN_COMPATIBLE). All skew through v4 is
@@ -345,6 +356,7 @@ export class RunnerServer {
         `runner protocol mismatch: server v${RUNNER_PROTOCOL_VERSION}, client v${params.protocolVersion}`,
       );
     }
+    if (client.peer.isClosed) throw new Error('connection closed');
     client.role = params.role;
     client.attached = true;
     // v11: attribute this connection's work. The session is shared, so the LAST
@@ -357,38 +369,12 @@ export class RunnerServer {
       client.principal = params.principal;
       this.session.setPrincipal(params.principal);
     }
-    // Replay per the client's `replay` policy (v6; default 'full'). The start
-    // seq is announced via `replay.start` BEFORE the loop so the client can
-    // rebase its (empty) mirror — its `ingest` accepts only the next-expected
-    // seq, so a partial replay without the rebase would drop every event and
-    // permanently desync the mirror. `sinceSeq` predates `replay` and stays on
-    // the wire for compatibility but is intentionally ignored (pre-v6 clients
-    // can't rebase, so they always need the full replay). This loop is fully
-    // synchronous, so no live event can interleave before it finishes - every
-    // later event arrives exactly once via broadcast.
-    const replay = params.replay ?? 'full';
-    // Compute the replay start as a SEQ, not an array index. EventLog.slice is
-    // seq-addressed (it subtracts `baseSeq`), and the client rebases its mirror
-    // to this exact `fromSeq`. Index === seq only holds while the authoritative
-    // log's base is 0; deriving from `baseSeq` keeps it correct if the runner
-    // ever serves a tail-seeded log (base > 0).
-    const baseSeq = this.session.log.baseSeq;
-    const endSeq = baseSeq + this.session.log.length;
-    const start =
-      replay === 'full'
-        ? baseSeq
-        : replay === 'none'
-          ? endSeq
-          : Math.max(baseSeq, endSeq - replay.tail);
-    client.peer.notify(RunnerNotification.ReplayStart, { fromSeq: start });
-    for (const event of this.session.log.slice(start)) {
-      client.peer.notify(RunnerNotification.Event, { event: eventForClient(event) });
-    }
-    return {
+    // sinceSeq predates replay and remains ignored for older clients.
+    return client.history.attach(params.replay ?? 'full', () => reply({
       sessionId: this.session.id,
       protocolVersion: RUNNER_PROTOCOL_VERSION,
       info: this.info(),
-    };
+    }));
   }
 
   private handleRunTurn(client: ConnectedClient, raw: unknown): RunTurnResult {
@@ -455,10 +441,10 @@ export class RunnerServer {
           // Before turn.complete, so a queued turn the client starts next
           // cannot begin ahead of the voice conversation spoken during this one.
           await this.handlerCtx.spokenExchanges.flush();
-          this.broadcast(RunnerNotification.TurnComplete, {
-            turnId,
-            ...(error ? { error } : {}),
-          });
+          const completed = { turnId, ...(error ? { error } : {}) };
+          for (const observer of this.clients) {
+            if (observer.attached) observer.history.turnComplete(completed);
+          }
           // A turn may have run registry-mutating tools (provider_add, mcp_add,
           // workflow_create, skill writes, …). Push the fresh snapshot so
           // attached clients (the desktop Settings panel) re-render without an
@@ -600,7 +586,11 @@ export class RunnerServer {
 
   private broadcastInfo(): void {
     this.watchComputerControl();
-    this.broadcast(RunnerNotification.InfoChanged, { info: this.info() });
+    const params = { info: this.info() };
+    for (const client of this.clients) {
+      // An attaching client receives the latest snapshot in its final reply.
+      if (client.attached && !client.history.catchingUp) client.peer.notify(RunnerNotification.InfoChanged, params);
+    }
   }
 
   /**
@@ -726,12 +716,6 @@ export class RunnerServer {
   }
 
   // --- fan-out -------------------------------------------------------------
-
-  private broadcastEvent(event: MoxxyEvent): void {
-    // Clients only draw the conversation: large attachment bytes stay here and
-    // are read back on demand (`session.readAttachment`).
-    this.broadcast(RunnerNotification.Event, { event: eventForClient(event) });
-  }
 
   private broadcast(method: string, params: unknown): void {
     for (const client of this.clients) {
