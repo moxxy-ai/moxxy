@@ -66,8 +66,7 @@ export const PROVIDER_PLUGIN_CATALOG = [
       }
     ],
     "provider": {
-      "auth": "oauth",
-      "defaultModel": "gpt-6-astra"
+      "auth": "oauth"
     }
   },
   {

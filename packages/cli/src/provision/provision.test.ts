@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { pinFirstPartySpec } from './pin.js';
 import { resolveProvider } from './provider-catalog.js';
-import { provision, type ProvisionEffects } from './provision.js';
+import { provision, type ProvisionConfigWrite, type ProvisionEffects } from './provision.js';
 
 describe('pinFirstPartySpec', () => {
   it('pins a bare first-party package to the cli version', () => {
@@ -35,6 +35,25 @@ function makeEffects(overrides: Partial<ProvisionEffects> = {}): ProvisionEffect
 }
 
 describe('provision', () => {
+  it.each([
+    { model: undefined, expected: {} },
+    { model: 'gpt-5.6-luna', expected: { model: 'gpt-5.6-luna' } },
+  ])('only writes an explicit Codex model ($model)', async ({ model, expected }) => {
+    const writes: ProvisionConfigWrite[] = [];
+    await provision({ provider: 'codex-agent', model }, {
+      loadedProviderNames: new Set(['codex-agent']),
+      install: async () => { throw new Error('Codex is already registered'); },
+      writeConfig: async (write) => { writes.push(write); },
+    });
+    expect(writes).toEqual([{
+      providerSlug: 'codex-agent',
+      providerPackage: '@moxxy/plugin-provider-codex-agent',
+      providerBundled: true,
+      basicsPackages: [],
+      ...expected,
+    }]);
+  });
+
   it('skips installing a bundled provider but configures it + stores the key', async () => {
     const eff = makeEffects({ loadedProviderNames: new Set(['anthropic']) });
     const res = await provision(
