@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { ACCEPTED_ADVISORIES, evaluateAudit } from './security-audit-policy.mjs';
+import { ACCEPTED_ADVISORIES, evaluateAudit, reportedAdvisories } from './security-audit-policy.mjs';
 
 const accepted = [
   {
@@ -25,6 +25,17 @@ function advisory(overrides = {}) {
 
 test('a clean audit passes with no accepted advisories', () => {
   assert.deepEqual(evaluateAudit([], []), { unmitigated: [], stale: [] });
+});
+
+test('a registry error or an unsuccessful empty report cannot pass as a clean audit', () => {
+  assert.throws(() => reportedAdvisories({ error: { code: 'ECONNREFUSED' } }, 1), /audit report/);
+  assert.throws(() => reportedAdvisories({ advisories: {} }, 1), /audit report/);
+});
+
+test('accepts a completed clean report and passes reported findings to the policy', () => {
+  assert.deepEqual(reportedAdvisories({ advisories: {} }, 0), []);
+  const finding = advisory();
+  assert.deepEqual(reportedAdvisories({ advisories: { '1': finding } }, 1), [finding]);
 });
 
 test('an advisory nobody accepted is unmitigated', () => {
