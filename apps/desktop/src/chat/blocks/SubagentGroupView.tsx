@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { formatTokensK, subagentGroupHeader, subagentState, subagentToolsLabel, type SubagentBlock, type SubagentGroupBlock } from '@moxxy/chat-model';
+import { formatTokensK, subagentGroupHeader, subagentState, subagentToolsLabel, type SubagentBlock, type SubagentGroupBlock, type SubagentState } from '@moxxy/chat-model';
 import { DisclosureRow } from './DisclosureRow';
 import { SubagentDetail, subagentNote } from './SubagentView';
 import { TraceEntry } from '../trace/TraceEntry';
@@ -17,16 +17,14 @@ export function SubagentGroupView({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
 
-  const running = block.agents.filter((a) => subagentState(a) === 'running').length;
-  const background = block.agents.filter((a) => subagentState(a) === 'background').length;
-  const failed = block.agents.filter((a) => a.error !== null).length;
+  const states = block.agents.map(subagentState);
 
   return (
     <TraceEntry kind="subagent" testId="block-subagent-group">
       <DisclosureRow
-        state={ledState(running, background, failed)}
+        state={ledState(states)}
         label={subagentGroupHeader(block)}
-        live={running > 0}
+        live={states.includes('running')}
         open={open}
         onToggle={() => setOpen((v) => !v)}
       />
@@ -62,18 +60,18 @@ function AgentRow({ agent }: { readonly agent: SubagentBlock }): JSX.Element {
           {STATE_WORD[state]}
         </span>
       </button>
-      {agent.error && <p className="agent-row__error">{agent.error}</p>}
+      {state === 'failed' && agent.error && <p className="agent-row__error">{agent.error}</p>}
       {open && <SubagentDetail block={agent} />}
     </div>
   );
 }
 
-const STATE_WORD = { running: 'Running', background: 'In the background', done: 'Done', failed: 'Failed' } as const;
+const STATE_WORD = { running: 'Running', background: 'In the background', done: 'Done', stopped: 'Stopped', failed: 'Failed' } as const;
 
-/** The batch's one state: any failure outranks any still running, which outranks
- *  any going on in the background, which outranks the whole fan-out having landed. */
-function ledState(running: number, background: number, failed: number): 'failed' | 'running' | 'background' | 'done' {
-  if (failed > 0) return 'failed';
-  if (running > 0) return 'running';
-  return background > 0 ? 'background' : 'done';
+/** Failure outranks live work. A group with only stopped helpers has a neutral light. */
+function ledState(states: readonly SubagentState[]): SubagentState {
+  if (states.includes('failed')) return 'failed';
+  if (states.includes('running')) return 'running';
+  if (states.includes('background')) return 'background';
+  return states.length > 0 && states.every((state) => state === 'stopped') ? 'stopped' : 'done';
 }

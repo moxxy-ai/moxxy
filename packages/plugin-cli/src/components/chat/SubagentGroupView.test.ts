@@ -37,4 +37,11 @@ describe("an agent's helpers in the terminal", () => {
     expect(subagentGroupHeader(group([agent()]))).toBe('1 general-purpose agent finished');
     expect(subagentStatusText(agent())).toBe('Done');
   });
+
+  it('shows a helper stopped by the person as stopped in both views', () => {
+    const stopped = agent({ stopReason: 'stopped', error: 'The subagent was stopped.' });
+
+    expect(subagentGroupHeader(group([stopped]))).toBe('1 general-purpose agent stopped');
+    expect(subagentStatusText(stopped)).toBe('Stopped');
+  });
 });

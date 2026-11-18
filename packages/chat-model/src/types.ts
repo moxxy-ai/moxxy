@@ -41,11 +41,11 @@ export interface SubagentBlock {
   /** The agent's tool calls in order (name + input), accumulated live from
    *  `subagent_tool_call` events — lets a surface show what it's doing. */
   readonly toolCalls: Array<{ readonly name: string; readonly input: unknown }>;
-  /** stop reason for completed agents; populated on subagent_completed. */
+  /** Stop reason reported when the helper completes or is stopped. */
   stopReason: string | null;
   /** First line of the agent's final assistant message — used as a one-line preview. */
   finalPreview: string | null;
-  /** Error message if the agent failed (subagent_error/abort or non-OK stopReason). */
+  /** Diagnostic message for a failure or interruption. */
   error: string | null;
   /** Still running when its turn ended: the agent went on without waiting for it. */
   backgrounded?: boolean;
