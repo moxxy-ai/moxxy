@@ -216,8 +216,9 @@ import type {
  * levels each model takes. A turn on a model that lacks the set level lowers it
  * for good and pushes `info.changed`. A client never sends `max`/`ultra` to an
  * older runner, whose schema rejects them (additive).
+ * v36: session info reports whether a client already chose the effort on this runner, so reopening the desktop preserves a TUI choice.
  */
-export const RUNNER_PROTOCOL_VERSION = 35;
+export const RUNNER_PROTOCOL_VERSION = 36;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is

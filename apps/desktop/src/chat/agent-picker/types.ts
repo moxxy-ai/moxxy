@@ -50,6 +50,7 @@ export interface SessionInfo {
   readonly activeModeBadge: ModeBadge | null;
   /** How deeply the model thinks in this conversation (`default`: on at the provider's default; null: off). Absent from older runners. */
   readonly reasoningEffort?: ReasoningEffort | 'default' | null;
+  readonly reasoningEffortSet?: boolean;
   /** Whether turns ask for the provider's faster tier. Absent from older runners. */
   readonly fast?: boolean;
   /** The model a turn runs on when none is picked here. Absent from older runners. */

@@ -68,6 +68,7 @@ import {
   type InfoChangedNotification,
   type PermissionCheckParams,
   type ReplayStartNotification,
+  type ReasoningEffortLevel,
   type RunTurnResult,
   type SessionLoadHistoryParams,
   type SessionLoadHistoryResult,
@@ -537,6 +538,10 @@ export class RemoteSession implements ClientSession {
       RunnerMethod.SessionRecordExchange,
       exchange,
     );
+  }
+
+  setReasoningEffort(effort: ReasoningEffortLevel): Promise<void> {
+    return this.providerAdmin.setReasoning(effort);
   }
 
   /**

@@ -30,6 +30,13 @@ export function reasoningEffortsOf(
   return named && named.length > 0 ? reasoningEffortsFrom(named) : CLASSIC_REASONING_EFFORTS;
 }
 
+/** The levels any of these models takes, lowest first; none when none of them reasons. */
+export function reasoningLevelsOf(
+  models: ReadonlyArray<{ readonly supportsReasoning?: boolean; readonly reasoningEfforts?: ReadonlyArray<ReasoningEffort> }>,
+): ReadonlyArray<ReasoningEffort> {
+  return reasoningEffortsFrom(models.flatMap((m) => (m.supportsReasoning === true ? reasoningEffortsOf(m) : [])));
+}
+
 /**
  * The level a model runs a wanted one at: the wanted level when the model takes
  * it, else the highest it takes below it (ultra on a model that stops at max

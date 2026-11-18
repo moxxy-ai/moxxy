@@ -259,7 +259,7 @@ async function runAttachedTui(argv: ParsedArgv, tuiOpts: RunTuiOpts): Promise<nu
   // Register as the resolver for the turns this client starts.
   remote.setPermissionResolver(resolver);
 
-  const effectiveModel = stringFlag(argv, 'model') ?? (await loadActiveModel());
+  const effectiveModel = stringFlag(argv, 'model') ?? (remote.getInfo().defaultModel === undefined ? await loadActiveModel() : undefined);
   const version = cliVersion();
   const updateNotice = resolveUpdateNotice(version);
 
@@ -377,7 +377,7 @@ async function runSelfHostedTui(
     },
   });
 
-  const effectiveModel = stringFlag(argv, 'model') ?? (await loadActiveModel());
+  const effectiveModel = stringFlag(argv, 'model');
   const version = cliVersion();
   const updateNotice = resolveUpdateNotice(version);
 

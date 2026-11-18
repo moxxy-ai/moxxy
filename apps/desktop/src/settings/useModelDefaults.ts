@@ -2,13 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '@moxxy/client-core';
 import type { ModelDefaultsChange, StoredModelDefaults } from '@moxxy/desktop-ipc-contract';
 import { startingModel } from '@moxxy/sdk/starting-model';
-import type { ReasoningEffort as ModelEffort } from '@moxxy/sdk/reasoning-effort';
+import { reasoningLevelsOf, type ReasoningEffort as ModelEffort } from '@moxxy/sdk/reasoning-effort';
 import {
   effortLevelsFor,
   forgetSharedTuningChoice,
   isSettableEffort,
   loweredEffort,
-  reasoningLevelsOf,
   type EffortLevel,
 } from '../chat/agent-picker/useModelTuning';
 

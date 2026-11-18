@@ -2,6 +2,7 @@ import type { AgentDef } from './agent.js';
 import type { CommandDef } from './command.js';
 import type { ModeDef } from './mode.js';
 import type { LLMProvider, ProviderDef } from './provider.js';
+import type { ReasoningEffort } from './reasoning-effort.js';
 import type { RequirementCheck, MoxxyRequirement } from './requirements.js';
 import type { StandingAllowRule } from './permission.js';
 import type { SessionInfo, SessionLike, SessionLogReader } from './session-like.js';
@@ -97,6 +98,8 @@ export interface ClientSession extends SessionLike {
   readonly synthesizers: SynthesizersClientView;
   readonly requirements: RequirementsClientView;
   readonly permissions: PermissionsClientView;
+  /** Set the effort of this conversation. Changes are reported through getInfo and onInfoChanged. */
+  setReasoningEffort?(effort: ReasoningEffort | 'off'): void | Promise<void>;
   /** Switch the conversation's auto-approve (read it from `getInfo().autoApprove`).
    *  Optional: a client of a runner without the shared switch has none. */
   setAutoApprove?(enabled: boolean): Promise<void>;

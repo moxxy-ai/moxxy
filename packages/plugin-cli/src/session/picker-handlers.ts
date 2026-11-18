@@ -1,5 +1,6 @@
 import {
   isFirstPartyPackage,
+  isReasoningEffort,
   type ClientSession as Session,
   type PluginsAdminView,
 } from '@moxxy/sdk';
@@ -91,6 +92,20 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
     if (kind === 'install-consent') {
       return handleInstallConsent(picker, id, deps);
     }
+    if (kind === 'reasoning') {
+      if ((id === 'off' || isReasoningEffort(id)) && picker.options.some(option => option.id === id)) {
+        void (async () => {
+          try {
+            if (!deps.session.setReasoningEffort) throw new Error('This session cannot change reasoning effort');
+            await deps.session.setReasoningEffort(id);
+          } catch (err) {
+            deps.setSystemNotice(err instanceof Error ? err.message : String(err));
+          }
+          openSettingsPicker(deps);
+        })();
+      }
+      return;
+    }
     if (kind === 'settings') {
       return handleSettingSelected(id, deps);
     }
@@ -112,6 +127,10 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
  * re-opens with fresh badges after every write.
  */
 function handleSettingSelected(id: string, deps: PickerHandlerDeps): void {
+  if (id === 'session-reasoning') {
+    deps.setPicker({ kind: 'reasoning', title: 'Model reasoning', options: [] });
+    return;
+  }
   const knob = findKnob(id);
   if (!knob) return;
   if (knob.kind === 'link') {

@@ -284,6 +284,7 @@ export {
   REASONING_EFFORTS,
   CLASSIC_REASONING_EFFORTS,
   isReasoningEffort,
+  reasoningLevelsOf,
   reasoningEffortsFrom,
   reasoningEffortsOf,
   fitReasoningEffort,

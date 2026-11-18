@@ -9,6 +9,7 @@
 '@moxxy/plugin-provider-codex-agent': minor
 '@moxxy/plugin-provider-claude-code': minor
 '@moxxy/plugin-provider-anthropic': patch
+'@moxxy/plugin-cli': patch
 '@moxxy/plugin-provider-openai': patch
 ---
 
@@ -17,3 +18,5 @@ Reasoning effort goes up to Max and Ultra. Each model now names the efforts it t
 Picking a model that lacks the effort drops it to the deepest level the model has, at once and for good (Ultra, then Luna: Max, and Max stays when you go back to Sol), and a turn does the same on the runner, so every surface shows the effort turns run at. Claude has no Ultra and thinks at Max; the Anthropic Messages API still gets at most High, and the OpenAI API gets Max for Ultra. OpenCode stays at Low to Extra high for now, because it names a model's levels only inside a running session.
 
 Runner protocol v35: `session.setReasoning` takes `max` and `ultra`, and a newer client never sends them to an older runner.
+
+The terminal’s Model reasoning picker reads and changes the active conversation on the runner. Runner protocol v36 lets the desktop keep a choice another client made on the running conversation. Explicitly resuming a conversation restores its saved model unless a model override is supplied.

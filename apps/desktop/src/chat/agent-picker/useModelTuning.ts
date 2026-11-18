@@ -16,8 +16,7 @@ import {
   CLASSIC_REASONING_EFFORTS,
   REASONING_EFFORTS,
   fitReasoningEffort,
-  reasoningEffortsFrom,
-  reasoningEffortsOf,
+  reasoningLevelsOf,
   type ReasoningEffort as ModelEffort,
 } from '@moxxy/sdk/reasoning-effort';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
@@ -37,13 +36,6 @@ export function effortLevelsFor(
   const levels = opts.levels ?? CLASSIC_REASONING_EFFORTS;
   if (opts.agent === true) return levels;
   return effort === 'default' ? ['off', 'default', ...levels] : ['off', ...levels];
-}
-
-/** The levels any of these models takes, lowest first; none when none of them reasons. */
-export function reasoningLevelsOf(
-  models: ReadonlyArray<{ readonly supportsReasoning?: boolean; readonly reasoningEfforts?: ReadonlyArray<ModelEffort> }>,
-): ReadonlyArray<ModelEffort> {
-  return reasoningEffortsFrom(models.flatMap((m) => (m.supportsReasoning === true ? reasoningEffortsOf(m) : [])));
 }
 
 /** The level an effort the model in use lacks drops to (ultra on luna: max); null while it takes it, or it is off or default. */
@@ -189,19 +181,22 @@ export function useModelTuning(workspaceId: string, info: SessionInfo, model: st
     return done;
   };
 
-  // A new runner starts with the defaults: give it the choice made in this workspace, once.
+  // Restore once on a fresh runner. A choice already made in the TUI has precedence.
   useEffect(() => {
-    if (info.sessionId === undefined || restored.current === info.sessionId) return;
-    restored.current = info.sessionId;
+    if (info.sessionId === undefined) return;
     const choice = readChoice(workspaceId);
+    if (info.reasoningEffortSet && isSettableEffort(reported.effort) && choice?.effort !== reported.effort) {
+      saveChoice(workspaceId, { effort: reported.effort, fast: choice?.fast ?? reported.fast });
+    }
+    if (restored.current === info.sessionId) return;
+    restored.current = info.sessionId;
     if (!choice) return;
     const change: Partial<Choice> = {
-      ...(choice.effort !== undefined && choice.effort !== reported.effort ? { effort: choice.effort } : {}),
+      ...(!info.reasoningEffortSet && choice.effort !== undefined && choice.effort !== reported.effort ? { effort: choice.effort } : {}),
       ...(choice.fast !== reported.fast ? { fast: choice.fast } : {}),
     };
     if (Object.keys(change).length > 0) void apply(change);
-    // Only a new runner restores; the values themselves are read when it does.
-  }, [info.sessionId]);
+  }, [workspaceId, info.sessionId, info.reasoningEffortSet, reported.effort, reported.fast]);
 
   const offered = offers(info, model);
   const effort = pending.effort ?? reported.effort;

@@ -552,6 +552,24 @@ describe('runner end-to-end', () => {
     await waitFor(() => other.getInfo().reasoningEffort === 'max');
   });
 
+  it('shares reasoning changes made by a standalone or attached TUI with every other client', async () => {
+    const session = new Session({ cwd: process.cwd(), logger: silentLogger });
+    const socketPath = tmpSocket();
+    servers.push(await startRunnerServer(session, { socketPath }));
+    const tui = await attach(socketPath, 'tui');
+    const desktop = await attach(socketPath, 'desktop');
+
+    expect(tui.getInfo().reasoningEffortSet).toBeFalsy();
+    await session.setReasoningEffort('ultra');
+    await waitFor(() => tui.getInfo().reasoningEffort === 'ultra');
+    expect(tui.getInfo().reasoningEffortSet).toBe(true);
+    await tui.setReasoningEffort('max');
+    await waitFor(() => desktop.getInfo().reasoningEffort === 'max');
+    expect(session.getInfo().reasoningEffort).toBe('max');
+    await tui.setReasoningEffort('off');
+    await waitFor(() => desktop.getInfo().reasoningEffort === null);
+  });
+
   it('reports the reasoning effort to every client', async () => {
     const { socketPath } = await serve(new FakeProvider({ script: [] }));
     const remote = await attach(socketPath);

@@ -226,6 +226,7 @@ export class Session implements ClientSession, SessionRuntime {
    * when the active model advertises `supportsReasoning`. Undefined → off.
    */
   reasoning: { readonly effort?: ReasoningEffort } | boolean | undefined = undefined;
+  private reasoningEffortSet = false;
   /** Ask for the provider's faster tier (OpenAI fast mode), from `config.context.fast`. */
   fast = false;
   /**
@@ -795,6 +796,12 @@ export class Session implements ClientSession, SessionRuntime {
     };
   }
 
+  setReasoningEffort(effort: ReasoningEffort | 'off'): void {
+    this.reasoningEffortSet = true;
+    this.reasoning = effort === 'off' ? undefined : { effort };
+    for (const listener of [...this.workListeners]) listener();
+  }
+
   /**
    * Lower the effort to one the model a turn runs on takes (ultra on a model
    * that stops at max becomes max) and keep it: switching back to a model with
@@ -926,6 +933,7 @@ export class Session implements ClientSession, SessionRuntime {
       activeSynthesizer: this.synthesizers.getActiveName(),
       autoApprove: this.autoApprove,
       reasoningEffort: reasoningEffortOf(this.turnReasoning()),
+      reasoningEffortSet: this.reasoningEffortSet,
       fast: this.fast,
       ...(defaultModel !== undefined ? { defaultModel } : {}),
       backgroundWork: this.runningWork,

@@ -55,6 +55,20 @@ describe('useModelTuning', () => {
     expect(result.current).toMatchObject({ effort: 'low', fast: true });
   });
 
+  it('keeps an active runner’s TUI effort when the desktop reopens with an older workspace choice', async () => {
+    localStorage.setItem('moxxy.model.tuning.v2', JSON.stringify({ ws: { effort: 'ultra', fast: false } }));
+    const invoke = installApi();
+    const current = infoWith({
+      reasoningEffort: 'max', reasoningEffortSet: true,
+      providers: [{ name: 'codex-agent', models: [{ ...luna, reasoningEfforts: ['low', 'max', 'ultra'] }] }],
+    });
+    const { result } = renderHook(() => useModelTuning('ws', current, luna.id));
+    await act(async () => {});
+    expect(result.current.effort).toBe('max');
+    expect(invoke).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('moxxy.model.tuning.v2') ?? '{}').ws.effort).toBe('max');
+  });
+
   it('offers fast mode only for a model that has it', () => {
     installApi();
     const { result } = renderHook(() => useModelTuning('ws', infoWith(), 'plain'));
