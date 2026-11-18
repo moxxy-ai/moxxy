@@ -59,8 +59,7 @@
         }
       ],
       "provider": {
-        "auth": "oauth",
-        "defaultModel": "gpt-6-astra"
+        "auth": "oauth"
       }
     }
   },

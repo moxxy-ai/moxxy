@@ -12,6 +12,8 @@
 export interface Transport {
   /** Send one frame. Fire-and-forget; ordering is preserved by the transport. */
   send(frame: unknown): void;
+  /** If output is backed up, settle when another frame can be sent or the link closes. */
+  waitForDrain?(): Promise<void> | undefined;
   /** Register the (single) handler invoked for each inbound frame. */
   onFrame(handler: (frame: unknown) => void): void;
   /** Register the (single) handler invoked once when the link closes. */
