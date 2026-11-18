@@ -2,16 +2,20 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '@moxxy/client-core';
 import type { ModelDefaultsChange, StoredModelDefaults } from '@moxxy/desktop-ipc-contract';
 import { startingModel } from '@moxxy/sdk/starting-model';
+import type { ReasoningEffort as ModelEffort } from '@moxxy/sdk/reasoning-effort';
 import {
   effortLevelsFor,
   forgetSharedTuningChoice,
   isSettableEffort,
+  loweredEffort,
+  reasoningLevelsOf,
   type EffortLevel,
 } from '../chat/agent-picker/useModelTuning';
 
 interface ModelOffer {
   readonly id: string;
   readonly supportsReasoning?: boolean;
+  readonly reasoningEfforts?: ReadonlyArray<ModelEffort>;
   readonly supportsFast?: boolean;
 }
 
@@ -109,9 +113,8 @@ export function useModelDefaults(): ModelDefaultsState {
   const provider = stored.provider ?? offer.active;
   const offered = offer.providers.find((p) => p.name === provider);
   const model = stored.model ?? (offered ? startingModel(offered) : undefined) ?? null;
-  const descriptor = offered?.models.find((m) => m.id === model);
-  // A model the provider does not list (a custom one) may have whatever its provider's models have.
-  const like = descriptor ? [descriptor] : (offered?.models ?? []);
+  const like = modelsLike(offer, provider, model);
+  const levels = reasoningLevelsOf(like);
 
   return {
     loading,
@@ -125,13 +128,17 @@ export function useModelDefaults(): ModelDefaultsState {
     provider: model === null ? null : provider,
     model,
     effort: stored.effort,
-    effortLevels: effortLevelsFor(stored.effort),
+    effortLevels: effortLevelsFor(stored.effort, levels.length > 0 ? { levels } : {}),
     fast: stored.fast,
     canSetEffort: like.some((m) => m.supportsReasoning === true),
     canSetFast: like.some((m) => m.supportsFast === true),
     busy,
     error,
-    setModel: (nextProvider, nextModel) => save({ model: { provider: nextProvider, model: nextModel } }),
+    // A model that lacks the effort (ultra, then luna) is saved with the level it drops to.
+    setModel: (nextProvider, nextModel) => {
+      const lowered = loweredEffort(stored.effort, reasoningLevelsOf(modelsLike(offer, nextProvider, nextModel)));
+      return save({ model: { provider: nextProvider, model: nextModel }, ...(lowered ? { effort: lowered } : {}) });
+    },
     // `default` cannot be asked for: the menu shows it only as the effort the config holds.
     setEffort: (effort) => (isSettableEffort(effort) ? save({ effort }) : Promise.resolve()),
     setFast: (enabled) => save({ fast: enabled }),
@@ -140,4 +147,11 @@ export function useModelDefaults(): ModelDefaultsState {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The model as offered, or, for one the provider does not list (a custom one), whatever its provider's models have. */
+function modelsLike(offer: Offer, provider: string | null, model: string | null): ReadonlyArray<ModelOffer> {
+  const offered = offer.providers.find((p) => p.name === provider);
+  const descriptor = offered?.models.find((m) => m.id === model);
+  return descriptor ? [descriptor] : (offered?.models ?? []);
 }

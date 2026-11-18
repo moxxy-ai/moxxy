@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { createMutex } from '@moxxy/sdk';
+import { createMutex, isReasoningEffort, type ReasoningEffort } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { type Document, isMap, parse as parseYaml, parseDocument } from 'yaml';
 import { PLUGIN_CATEGORY_KEYS, type PluginCategoryKey } from './plugins-tree-schema.js';
@@ -347,7 +347,7 @@ export async function loadActiveProvider(opts: UserConfigOptions = {}): Promise<
 // --- what a new conversation starts with ----------------------------------
 
 /** A reasoning effort a person can set; `off` is reasoning switched off. */
-export type ModelDefaultEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+export type ModelDefaultEffort = 'off' | ReasoningEffort;
 
 /** A change to what a new conversation starts with; only what is named is written. */
 export interface ModelDefaultsChange {
@@ -365,13 +365,11 @@ export interface StoredModelDefaults {
   readonly fast: boolean;
 }
 
-const MODEL_DEFAULT_EFFORTS: ReadonlyArray<string> = ['low', 'medium', 'high', 'xhigh'];
-
 function storedEffort(reasoning: unknown): StoredModelDefaults['effort'] {
   if (reasoning === true) return 'default';
   if (!reasoning || typeof reasoning !== 'object') return 'off';
   const effort = (reasoning as { effort?: unknown }).effort;
-  return typeof effort === 'string' && MODEL_DEFAULT_EFFORTS.includes(effort) ? (effort as ModelDefaultEffort) : 'default';
+  return isReasoningEffort(effort) ? effort : 'default';
 }
 
 /** Read `plugins.provider.default`, its `model`, `context.reasoning` and `context.fast`. */

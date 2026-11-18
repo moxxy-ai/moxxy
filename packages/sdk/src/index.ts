@@ -281,6 +281,15 @@ export type {
 } from './provider.js';
 export { startingModel } from './starting-model.js';
 export {
+  REASONING_EFFORTS,
+  CLASSIC_REASONING_EFFORTS,
+  isReasoningEffort,
+  reasoningEffortsFrom,
+  reasoningEffortsOf,
+  fitReasoningEffort,
+  fitReasoningRequest,
+} from './reasoning-effort.js';
+export {
   ACCOUNT_LIMIT_NEAR_PERCENT,
   AGENT_ACCOUNT_LIMIT_SUBTYPE,
   accountLimitInForce,

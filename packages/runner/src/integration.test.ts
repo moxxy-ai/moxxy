@@ -525,6 +525,33 @@ describe('runner end-to-end', () => {
     expect(provider.received.at(-1)?.fast).toBeUndefined();
   });
 
+  it('takes max and ultra, and runs ultra on a model that stops at max at max for every client (v35)', async () => {
+    const descriptor = { contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true, supportsReasoning: true };
+    const provider = new FakeProvider({
+      models: [
+        { id: 'sol', ...descriptor, reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
+        { id: 'luna', ...descriptor, reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      ],
+      script: [textReply('deep'), textReply('deep enough')],
+    });
+    const { session, socketPath } = await serve(provider);
+    const remote = await attach(socketPath);
+    const other = await attach(socketPath);
+    expect(remote.getInfo().providers[0]?.models[1]?.reasoningEfforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+
+    await remote.providerAdmin.setReasoning('max');
+    await waitFor(() => other.getInfo().reasoningEffort === 'max');
+    await remote.providerAdmin.setReasoning('ultra');
+    await waitFor(() => other.getInfo().reasoningEffort === 'ultra');
+    for await (const _event of remote.runTurn('go', { model: 'sol' })) void _event;
+    expect(provider.received.at(-1)?.reasoning).toEqual({ effort: 'ultra' });
+
+    for await (const _event of remote.runTurn('go', { model: 'luna' })) void _event;
+    expect(provider.received.at(-1)?.reasoning).toEqual({ effort: 'max' });
+    expect(session.reasoning).toEqual({ effort: 'max' });
+    await waitFor(() => other.getInfo().reasoningEffort === 'max');
+  });
+
   it('reports the reasoning effort to every client', async () => {
     const { socketPath } = await serve(new FakeProvider({ script: [] }));
     const remote = await attach(socketPath);
@@ -1767,6 +1794,25 @@ describe('session.loadHistory version gate (protocol v10)', () => {
     await expect(client.loadHistory(null, 50)).rejects.toThrow(/update the moxxy CLI/i);
     await expect(client.loadHistory(null, 50)).rejects.toThrow(/v9, needs v10/);
     expect(loadHistoryCalled).toBe(false);
+    clientT.close();
+  });
+
+  it('does not send max or ultra to a runner reporting protocol < 35, which would reject them', async () => {
+    const [clientT, serverT] = makePair();
+    const server = new JsonRpcPeer(serverT);
+    const sent: unknown[] = [];
+    server.handle(RunnerMethod.Attach, () => ({ sessionId: 'fake', protocolVersion: 34, info: fakeInfo }));
+    server.handle(RunnerMethod.SessionSetReasoning, (raw) => {
+      sent.push(raw);
+      return {};
+    });
+    const client = new RemoteSession(clientT);
+    await client.attach('desktop', 0);
+
+    await expect(client.providerAdmin.setReasoning('max')).rejects.toThrow(/v34, needs v35/);
+    await expect(client.providerAdmin.setReasoning('ultra')).rejects.toThrow(/update the moxxy CLI/i);
+    await client.providerAdmin.setReasoning('xhigh');
+    expect(sent).toEqual([{ effort: 'xhigh' }]);
     clientT.close();
   });
 

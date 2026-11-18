@@ -128,6 +128,40 @@ describe('useModelDefaults', () => {
     expect(localStorage.getItem('moxxy.model.tuning')).toBeNull();
   });
 
+  describe('the deepest levels, max and ultra', () => {
+    const upToMax = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+    const deep = {
+      ...info,
+      providers: [
+        {
+          name: 'codex-agent',
+          models: [
+            { id: 'gpt-6-sol', supportsReasoning: true, reasoningEfforts: [...upToMax, 'ultra'] },
+            { id: 'gpt-6-luna', supportsReasoning: true, reasoningEfforts: upToMax },
+          ],
+          enabled: true,
+        },
+      ],
+      readyProviders: ['codex-agent'],
+    };
+
+    it('offers the levels the default model has', async () => {
+      const { result } = await loaded({ provider: 'codex-agent', model: 'gpt-6-sol', effort: 'high' }, { info: deep });
+
+      expect(result.current.effortLevels).toEqual(['off', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    });
+
+    it('lowers ultra to max with a default model that stops at max, saved together', async () => {
+      const { result, invoke, stored } = await loaded({ provider: 'codex-agent', model: 'gpt-6-sol', effort: 'ultra' }, { info: deep });
+
+      await act(() => result.current.setModel('codex-agent', 'gpt-6-luna'));
+
+      expect(invoke).toHaveBeenCalledWith('settings.setModelDefaults', { model: { provider: 'codex-agent', model: 'gpt-6-luna' }, effort: 'max' });
+      expect(stored().effort).toBe('max');
+      expect(result.current).toMatchObject({ model: 'gpt-6-luna', effort: 'max' });
+    });
+  });
+
   it('says why a save did not happen and keeps the old value', async () => {
     const { result } = await loaded({ provider: 'codex-agent', model: 'gpt-6-luna' }, { fail: true });
 

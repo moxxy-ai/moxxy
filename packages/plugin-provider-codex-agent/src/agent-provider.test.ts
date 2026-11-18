@@ -177,6 +177,18 @@ describe('a turn on the Codex agent connection', () => {
     expect(said(events)).toEqual([other]);
   });
 
+  it('thinks at ultra on a model that has it, and at max once the person picks luna, which stops there', async () => {
+    const { codex, session } = connect(async (turn) => turn.say(turn.thread.effort ?? 'none'), { effort: 'medium' });
+    session.reasoning = { effort: 'ultra' };
+
+    const deep = await collectTurn(session, 'plan the migration', { model: 'gpt-6-sol' });
+    const light = await collectTurn(session, 'and now', { model: 'gpt-6-luna' });
+
+    expect(codex.last.sent('thread/settings/update').map((update) => update.effort).filter(Boolean)).toEqual(['ultra', 'max']);
+    expect([...said(deep), ...said(light)]).toEqual(['ultra', 'max']);
+    expect(session.getInfo().reasoningEffort).toBe('max');
+  });
+
   it('runs Codex on its fast tier while fast mode is on, and on its own tier again when it is off', async () => {
     // Codex names its standard tier `default`.
     const { codex, session } = connect(async (turn) => turn.say(turn.thread.serviceTier ?? 'default'), { serviceTier: 'default' });

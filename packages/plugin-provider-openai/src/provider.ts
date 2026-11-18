@@ -8,6 +8,7 @@ import type {
 } from '@moxxy/sdk';
 import { assertDefined, estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
 import { toOpenAIMessages, toOpenAITools } from './translate.js';
+import { openaiEffort } from './effort.js';
 import { isResponsesRouteMissing, openResponses, readResponses, responsesError } from './responses.js';
 
 export interface OpenAIProviderConfig {
@@ -202,7 +203,7 @@ export class OpenAIProvider implements LLMProvider {
     const toolsNeedNoReasoning = tools !== undefined && /^gpt-6-(?:sol|luna)\b/.test(model);
     const reasoningEffort = toolsNeedNoReasoning
       ? 'none'
-      : typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
+      : typeof req.reasoning === 'object' ? openaiEffort(req.reasoning.effort) : undefined;
 
     // Type the request body as the SDK's streaming-create params so field
     // names/value types are checked. The local `OpenAIChatMessage` /

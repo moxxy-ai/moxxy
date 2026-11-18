@@ -1,4 +1,5 @@
 import { z } from 'zod/v3';
+import { REASONING_EFFORTS } from '@moxxy/sdk';
 import { pluginSettingsSchema } from './plugin-settings-schema.js';
 import { pluginsTreeSchema } from './plugins-tree-schema.js';
 
@@ -249,7 +250,7 @@ export const contextConfigSchema = z.object({
    * reasoning (Anthropic adaptive thinking, OpenAI/Codex reasoning). Default off.
    */
   reasoning: z
-    .union([z.boolean(), z.object({ effort: z.enum(['low', 'medium', 'high', 'xhigh']).optional() })])
+    .union([z.boolean(), z.object({ effort: z.enum(REASONING_EFFORTS).optional() })])
     .optional(),
   /** Ask the provider for its faster, pricier tier (OpenAI fast mode) on models that offer it. Default off. */
   fast: z.boolean().optional(),

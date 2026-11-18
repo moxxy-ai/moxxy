@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import type { ProviderEvent, ProviderRequest, TokenUsage } from '@moxxy/sdk';
 import { toResponsesInput, toResponsesTools } from './responses-input.js';
 import { toFriendlyError } from '@moxxy/sdk';
+import { openaiEffort } from './effort.js';
 
 type ResponsesStream = AsyncIterable<OpenAI.Responses.ResponseStreamEvent>;
 
@@ -26,7 +27,7 @@ export async function openResponses(
     ...(req.maxTokens ? { max_output_tokens: req.maxTokens } : {}),
     ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
     ...(req.fast ? { service_tier: 'priority' } : {}),
-    ...(req.reasoning ? { reasoning: { effort: reasoning?.effort, summary: 'auto' } } : {}),
+    ...(req.reasoning ? { reasoning: { effort: openaiEffort(reasoning?.effort), summary: 'auto' } } : {}),
   }, req.signal ? { signal: req.signal } : undefined);
 }
 

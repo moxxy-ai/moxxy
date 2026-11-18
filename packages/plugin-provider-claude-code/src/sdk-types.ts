@@ -238,6 +238,8 @@ export interface ClaudeModelInfo {
   readonly displayName: string;
   readonly description: string;
   readonly supportsEffort?: boolean;
+  /** The efforts this model takes, lowest first (`max` the deepest); absent on a model without effort. */
+  readonly supportedEffortLevels?: ReadonlyArray<string>;
   readonly supportsFastMode?: boolean;
 }
 

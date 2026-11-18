@@ -4,6 +4,7 @@ import type { StopReason } from '../provider-utils.js';
 import { applyLazyTools, shouldGateTools } from '../tool-gating.js';
 import type { ProviderCallTiming, ReasoningReplayItem } from '../events.js';
 import { providerTiming } from './provider-timing.js';
+import { fitReasoningRequest } from '../reasoning-effort.js';
 
 /**
  * Shared bits used by every loop strategy: a typed tool-use struct and a
@@ -144,7 +145,8 @@ export async function collectProviderStream(
   // Forward the per-provider reasoning preference, but only when THIS model
   // advertises `supportsReasoning` — providers ignore the knob otherwise, but
   // gating here keeps requests clean and avoids unsupported-param errors.
-  const reqReasoning = descriptor?.supportsReasoning ? ctx.reasoning : undefined;
+  // Its level is the one this model takes (a subagent may run on another model than the turn).
+  const reqReasoning = descriptor?.supportsReasoning ? fitReasoningRequest(ctx.reasoning, descriptor) : undefined;
   const req = {
     model: ctx.model,
     messages: effectiveMessages,

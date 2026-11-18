@@ -120,6 +120,8 @@ export async function* runTurn(
     // (path-based policy hooks gate on these) instead of empty placeholders.
     const appCtx = session.appContext();
     const questions = session.questions;
+    // A level the model lacks (ultra on a model that stops at max) is lowered for good, before the turn reads it.
+    session.fitReasoningTo(provider, model);
     const reasoning = session.turnReasoning();
     const ctx: ModeContext = {
       sessionId: session.id,

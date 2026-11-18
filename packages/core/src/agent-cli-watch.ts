@@ -109,8 +109,13 @@ export class AgentCliWatch {
     if (models.length === 0) return false;
     const before = this.offered.get(def.name);
     this.offered.set(def.name, models);
-    return !before || before.map((m) => m.id).join('\n') !== models.map((m) => m.id).join('\n');
+    return !before || listed(before) !== listed(models);
   }
+}
+
+/** What a person sees of a model list: the models and the reasoning levels each takes. */
+function listed(models: ReadonlyArray<ModelDescriptor>): string {
+  return models.map((m) => `${m.id}:${m.reasoningEfforts?.join(',') ?? ''}`).join('\n');
 }
 
 /** What a person would see change; `checkedAt` alone is not a change. */

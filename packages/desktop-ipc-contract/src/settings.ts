@@ -1,12 +1,12 @@
 // ---------- Settings -------------------------------------------------------
 
-import type { AgentCliReport } from '@moxxy/sdk';
+import type { AgentCliReport, ReasoningEffort as ModelReasoningEffort } from '@moxxy/sdk';
 
 /** Reasoning/thinking effort the desktop can request for the active session.
  *  `off` clears the preference; the others map to `config.context.reasoning`
  *  on the runner (`settings.setReasoning`). Mirrors the runner protocol's
  *  `ReasoningEffortLevel`. */
-export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+export type ReasoningEffort = 'off' | ModelReasoningEffort;
 
 /** A change to what a new conversation starts with — in the app, the terminal and the channels. Only what is named is saved. */
 export interface ModelDefaultsChange {

@@ -10,7 +10,7 @@
  */
 
 import { z } from 'zod/v3';
-import { assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
+import { REASONING_EFFORTS, assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
 import { ATTACHMENT_LIMITS } from './attachment-limits.js';
@@ -493,14 +493,14 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // can't push an arbitrary string through to the runner / provider request.
   'settings.setReasoning': z.object({
     workspaceId: optionalWorkspace,
-    effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']),
+    effort: z.enum(['off', ...REASONING_EFFORTS]),
   }),
   'settings.setFast': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
   // Written into the config file: a provider name that cannot leave its key, and a model id of sane length.
   'settings.setModelDefaults': z
     .object({
       model: z.object({ provider: providerName, model: z.string().min(1).max(256) }).strict().optional(),
-      effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']).optional(),
+      effort: z.enum(['off', ...REASONING_EFFORTS]).optional(),
       fast: z.boolean().optional(),
     })
     .strict()

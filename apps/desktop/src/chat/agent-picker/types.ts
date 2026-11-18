@@ -1,5 +1,5 @@
 import type { ReasoningEffort } from '@moxxy/desktop-ipc-contract';
-import type { AgentCliReport, SkillInfo } from '@moxxy/sdk';
+import type { AgentCliReport, ReasoningEffort as ModelReasoningEffort, SkillInfo } from '@moxxy/sdk';
 import type { CommandInfo } from '../command-palette/types';
 
 /**
@@ -17,6 +17,8 @@ export interface ProviderInfo {
   readonly models: ReadonlyArray<{
     readonly id: string;
     readonly supportsReasoning?: boolean;
+    /** The reasoning efforts the model takes, lowest first; absent on older runners and on models that name none. */
+    readonly reasoningEfforts?: ReadonlyArray<ModelReasoningEffort>;
     readonly supportsFast?: boolean;
   }>;
   readonly supportsLiveModelDiscovery?: boolean;

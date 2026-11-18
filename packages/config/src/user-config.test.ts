@@ -237,6 +237,13 @@ describe('model defaults', () => {
     });
   });
 
+  it('keep the deepest efforts, max and ultra', async () => {
+    await setModelDefaults({ effort: 'ultra' }, { configPath });
+    await expect(loadModelDefaults({ configPath })).resolves.toMatchObject({ effort: 'ultra' });
+    await setModelDefaults({ effort: 'max' }, { configPath });
+    await expect(loadModelDefaults({ configPath })).resolves.toMatchObject({ effort: 'max' });
+  });
+
   it('write effort "off" as reasoning switched off', async () => {
     await setModelDefaults({ effort: 'off', fast: false }, { configPath });
 
