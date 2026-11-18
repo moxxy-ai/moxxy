@@ -693,3 +693,5 @@ by colour. Each option is indexed for
 ⌘K. Existing read-aloud choices remain available. API billing is explained inline;
 there is no paid-use modal. Recovery from the retired ChatGPT sign-in shows an
 inline explanation in the provider form; a successful move uses the normal toast.
+
+In the Agents pane, a helper stays marked “Stopping…” while its stop is being confirmed. If the request fails, an inline error in its detail view lets the person retry with the same Stop button.
