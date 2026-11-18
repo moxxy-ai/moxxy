@@ -1,5 +1,16 @@
 # @moxxy/plugin-telegram
 
+## 0.49.1
+
+### Patch Changes
+
+- Updated dependencies [15bc6b1]
+  - @moxxy/core@0.49.1
+  - @moxxy/sdk@0.49.1
+  - @moxxy/channel-kit@0.49.1
+  - @moxxy/config@0.49.1
+  - @moxxy/plugin-vault@0.49.1
+
 ## 0.49.0
 
 ### Patch Changes

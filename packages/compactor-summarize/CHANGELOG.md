@@ -1,5 +1,12 @@
 # @moxxy/compactor-summarize
 
+## 0.0.80
+
+### Patch Changes
+
+- Updated dependencies [15bc6b1]
+  - @moxxy/sdk@0.49.1
+
 ## 0.0.79
 
 ### Patch Changes
