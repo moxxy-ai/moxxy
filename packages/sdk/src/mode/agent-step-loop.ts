@@ -34,6 +34,7 @@ import { addUsage, type CollectedToolUse } from './collect-stream.js';
 import { emitAbort, emitError, runCheckpointGate } from './checkpoint-gate.js';
 import { projectUserPrompt } from './project-messages.js';
 import type { ReactLoopOptions } from './react-loop-options.js';
+import { fitReasoningRequest } from '../reasoning-effort.js';
 
 const DEFAULT_MAX_ITERATIONS = 500;
 const DEFAULT_MAX_INJECTIONS = 3;
@@ -315,7 +316,7 @@ async function runRound(
       autoApprove,
       autoApproveRecorded: autoApproveRecorded(ctx.log.ofType('plugin_event')),
       autoApproveFromAgent: autoApproveFromAgent(ctx.log.ofType('plugin_event')),
-      ...(ctx.reasoning ? { reasoning: ctx.reasoning } : {}),
+      ...(ctx.reasoning ? { reasoning: fitReasoningRequest(ctx.reasoning, ctx.provider.models.find((model) => model.id === ctx.model)) } : {}),
       ...(ctx.fast ? { fast: true } : {}),
       signal,
       host,

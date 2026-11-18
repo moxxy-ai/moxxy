@@ -1,5 +1,5 @@
 import type { ProviderAdminView } from '@moxxy/sdk';
-import { RunnerMethod, type ReasoningEffortLevel } from '../protocol.js';
+import { DEEPEST_REASONING_PROTOCOL, RunnerMethod, type ReasoningEffortLevel } from '../protocol.js';
 import type { ViewContext } from './context.js';
 
 export interface ProviderAdminClientView extends ProviderAdminView {
@@ -48,6 +48,8 @@ export function makeProviderAdminView(ctx: ViewContext): ProviderAdminClientView
     },
     setReasoning: async (effort) => {
       requireServerProtocol(9, 'Setting reasoning effort');
+      // An older runner's schema rejects the two deepest levels.
+      if (effort === 'max' || effort === 'ultra') requireServerProtocol(DEEPEST_REASONING_PROTOCOL, `Reasoning effort ${effort}`);
       await peer.request(RunnerMethod.SessionSetReasoning, { effort });
     },
     setFast: async (enabled) => {

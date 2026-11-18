@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FakeClaude } from './fake-claude.testkit.js';
 import { claudeOfferedModels } from './offered-models.js';
+import { claudeCodeModels } from './agent-provider.js';
 import type { ClaudeModelInfo } from './sdk-types.js';
 
 const recorded = JSON.parse(
@@ -32,6 +33,26 @@ describe("the models the person's Claude offers", () => {
     expect(models.map((m) => m.id)).not.toContain('default');
     expect(sdk.last.options.cwd).toBe('/work/app');
     expect(sdk.last.closed).toBe(true);
+  });
+
+  it('gives each model the reasoning levels Claude lists for it, max among them', async () => {
+    const models = await claudeOfferedModels({ sdk: claude(), cwd: '/work/app' });
+
+    const levels = Object.fromEntries(models.map((model) => [model.id, model.reasoningEfforts]));
+    expect(levels['claude-opus-5-5']).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(levels['claude-opus-4-6']).toEqual(['low', 'medium', 'high', 'max']);
+    expect(levels['claude-haiku-4-5-20251001']).toBeUndefined();
+  });
+
+  it('has the built-in models, used until Claude answers, name the same levels Claude lists', async () => {
+    const models = await claudeOfferedModels({ sdk: claude(), cwd: '/work/app' });
+
+    for (const builtIn of claudeCodeModels) {
+      expect({ id: builtIn.id, levels: builtIn.reasoningEfforts }).toEqual({
+        id: builtIn.id,
+        levels: models.find((model) => model.id === builtIn.id)?.reasoningEfforts,
+      });
+    }
   });
 
   it('starts Claude from the CLI the connection uses', async () => {

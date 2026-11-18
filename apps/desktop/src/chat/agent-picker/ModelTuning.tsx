@@ -14,6 +14,9 @@ export const EFFORT_LABELS: Record<EffortLevel, string> = {
   medium: 'Medium',
   high: 'High',
   xhigh: 'Extra high',
+  max: 'Max',
+  // Costs more of the plan or credits: the subagents think too.
+  ultra: 'Ultra (delegates to subagents)',
 };
 
 export function ModelTuning({ tuning }: { readonly tuning: Tuning }): JSX.Element | null {

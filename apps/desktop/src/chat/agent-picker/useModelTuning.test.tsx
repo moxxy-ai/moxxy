@@ -55,6 +55,20 @@ describe('useModelTuning', () => {
     expect(result.current).toMatchObject({ effort: 'low', fast: true });
   });
 
+  it('keeps an active runner’s TUI effort when the desktop reopens with an older workspace choice', async () => {
+    localStorage.setItem('moxxy.model.tuning.v2', JSON.stringify({ ws: { effort: 'ultra', fast: false } }));
+    const invoke = installApi();
+    const current = infoWith({
+      reasoningEffort: 'max', reasoningEffortSet: true,
+      providers: [{ name: 'codex-agent', models: [{ ...luna, reasoningEfforts: ['low', 'max', 'ultra'] }] }],
+    });
+    const { result } = renderHook(() => useModelTuning('ws', current, luna.id));
+    await act(async () => {});
+    expect(result.current.effort).toBe('max');
+    expect(invoke).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('moxxy.model.tuning.v2') ?? '{}').ws.effort).toBe('max');
+  });
+
   it('offers fast mode only for a model that has it', () => {
     installApi();
     const { result } = renderHook(() => useModelTuning('ws', infoWith(), 'plain'));
@@ -171,6 +185,54 @@ describe('useModelTuning', () => {
     });
     const { result } = renderHook(() => useModelTuning('ws', agent, 'gpt-6-luna'));
     expect(result.current.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh']);
+  });
+
+  describe('the deepest levels, max and ultra', () => {
+    const upToMax = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+    const sol = { id: 'gpt-6-sol', supportsReasoning: true, reasoningEfforts: [...upToMax, 'ultra'] as const };
+    const lunaMax = { id: 'gpt-6-luna', supportsReasoning: true, reasoningEfforts: upToMax };
+    const codex = (reasoningEffort: SessionInfo['reasoningEffort']) =>
+      infoWith({ providers: [{ name: 'codex-agent', agentName: 'Codex', models: [sol, lunaMax, plain] }], reasoningEffort });
+
+    it('offers the levels the model in use has: ultra on sol, up to max on luna', () => {
+      installApi();
+      const onSol = renderHook(() => useModelTuning('ws', codex('high'), 'gpt-6-sol'));
+      const onLuna = renderHook(() => useModelTuning('ws', codex('high'), 'gpt-6-luna'));
+      expect(onSol.result.current.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+      expect(onLuna.result.current.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    });
+
+    it('offers a model that names no levels up to extra high', () => {
+      installApi();
+      const { result } = renderHook(() => useModelTuning('ws', codex('high'), 'plain'));
+      expect(result.current.effortLevels).toEqual(['low', 'medium', 'high', 'xhigh']);
+    });
+
+    it('lowers ultra to max on the runner as soon as the person picks luna, and keeps max back on sol', async () => {
+      const invoke = installApi();
+      const { result, rerender } = renderHook(({ model }) => useModelTuning('ws', codex('ultra'), model), {
+        initialProps: { model: 'gpt-6-sol' },
+      });
+      expect(result.current.effort).toBe('ultra');
+      expect(invoke).not.toHaveBeenCalled();
+
+      rerender({ model: 'gpt-6-luna' });
+
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.setReasoning', { workspaceId: 'ws', effort: 'max' }));
+      expect(result.current.effort).toBe('max');
+      invoke.mockClear();
+      rerender({ model: 'gpt-6-sol' });
+      expect(result.current.effort).toBe('max');
+      expect(invoke).not.toHaveBeenCalled();
+    });
+
+    it('sets ultra on a model that has it', async () => {
+      const invoke = installApi();
+      const { result } = renderHook(() => useModelTuning('ws', codex('high'), 'gpt-6-sol'));
+      await act(() => result.current.setEffort('ultra'));
+      expect(invoke).toHaveBeenCalledWith('settings.setReasoning', { workspaceId: 'ws', effort: 'ultra' });
+      expect(result.current.effort).toBe('ultra');
+    });
   });
 
   it('says why a switch did not happen and keeps the old value', async () => {

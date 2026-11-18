@@ -26,6 +26,7 @@ export type Picker =
       searchable?: boolean;
       searchPlaceholder?: string;
     }
+  | { kind: 'reasoning'; title: string; options: ReadonlyArray<ListPickerOption> }
   | { kind: 'mode'; title: string; options: ReadonlyArray<ListPickerOption> }
   | {
       kind: 'sessions';

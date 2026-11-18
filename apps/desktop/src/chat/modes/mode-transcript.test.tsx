@@ -180,6 +180,14 @@ describe('SubagentGroupView', () => {
     expect(screen.getByRole('button', { name: /1 Explore agent running/ })).toBeInTheDocument();
   });
 
+  it('shows a stopped helper as stopped in the conversation summary and its row', () => {
+    render(<SubagentGroupView block={group([agent(1, { stopReason: 'stopped', error: 'The subagent was stopped.' })])} />);
+
+    const header = screen.getByRole('button', { name: '1 agent stopped' });
+    fireEvent.click(header);
+    expect(screen.getByText('Stopped')).toBeInTheDocument();
+  });
+
   it('says when a helper went on in the background, with a still light, and marks its report back from there', () => {
     const { container, rerender } = render(<SubagentGroupView block={group([agent(1, { completedAtMs: null, backgrounded: true })])} />);
     const head = screen.getByRole('button', { name: /1 agent in the background/ });

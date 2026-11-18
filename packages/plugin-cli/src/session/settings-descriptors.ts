@@ -59,8 +59,8 @@ export const SETTINGS_KNOBS: ReadonlyArray<SettingsKnob> = [
   },
   {
     id: 'reasoning',
-    label: 'Model reasoning',
-    description: 'stream provider reasoning; cycles off → on → on (high)',
+    label: 'Default reasoning',
+    description: 'User configuration for reasoning: off, on, or high',
     kind: 'enum',
     dotPath: 'context.reasoning',
     current: reasoningLabel,

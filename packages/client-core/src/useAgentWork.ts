@@ -61,6 +61,7 @@ export interface UseAgentWork {
   /** Work a Stop was asked for that has not ended yet. */
   readonly stopping: ReadonlySet<string>;
   /** Stop one work; false when the agent runs no such work. */
+  readonly stopUnconfirmed: boolean;
   readonly stop: (workId: string) => Promise<boolean>;
 }
 
@@ -79,6 +80,8 @@ export function useAgentWork(workspaceId: string | null): UseAgentWork {
     readonly wakeups: ReadonlyArray<AgentScheduledWakeup>;
   }>({ workspaceId: null, work: undefined, wakeups: [] });
   const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
+
+  const [stopErrors, setStopErrors] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     if (!workspaceId) return undefined;
@@ -124,10 +127,19 @@ export function useAgentWork(workspaceId: string | null): UseAgentWork {
   const stop = useCallback(
     async (workId: string): Promise<boolean> => {
       if (!workspaceId) return false;
+      const key = JSON.stringify([workspaceId, workId]);
+      setStopErrors((all) => {
+        const next = new Set(all);
+        next.delete(key);
+        return next;
+      });
       setAsked((all) => new Set(all).add(workId));
       const stopped = await api()
         .invoke('session.stopBackgroundWork', { workspaceId, workId })
-        .catch(() => false);
+        .catch(() => {
+          setStopErrors((all) => new Set(all).add(key));
+          return false;
+        });
       if (!stopped) {
         setAsked((all) => {
           const rest = new Set(all);
@@ -147,6 +159,7 @@ export function useAgentWork(workspaceId: string | null): UseAgentWork {
     selected: items.find((item) => item.id === pickedId) ?? null,
     select,
     stopping,
+    stopUnconfirmed: stopErrors.has(JSON.stringify([workspaceId, pickedId])),
     stop,
   };
 }

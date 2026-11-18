@@ -44,6 +44,20 @@ describe('ModelTuning', () => {
     expect(select.value).toBe('default');
   });
 
+  it('names the deepest levels, and says that ultra hands work to subagents', () => {
+    render(<ModelTuning tuning={tuning({ effort: 'ultra', effortLevels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] })} />);
+    const select = screen.getByLabelText('Reasoning effort') as HTMLSelectElement;
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      'Low',
+      'Medium',
+      'High',
+      'Extra high',
+      'Max',
+      'Ultra (delegates to subagents)',
+    ]);
+    expect(select.value).toBe('ultra');
+  });
+
   it('shows why a switch failed', () => {
     render(<ModelTuning tuning={tuning({ error: 'Update the CLI' })} />);
     expect(screen.getByRole('alert')).toHaveTextContent('Update the CLI');

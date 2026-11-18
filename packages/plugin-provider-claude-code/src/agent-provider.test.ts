@@ -87,6 +87,29 @@ describe('a turn on the Claude agent connection', () => {
     expect(events).toContainEqual(expect.objectContaining({ type: 'provider_response', inputTokens: 3, outputTokens: 7 }));
   });
 
+  it('thinks at max when the person asks for ultra, which Claude does not have', async () => {
+    const { claude, session } = connect(async function* () {
+      yield assistantText('ok');
+    });
+    session.reasoning = { effort: 'ultra' };
+
+    await collectTurn(session, 'think hard', { model: 'claude-opus-5-5' });
+
+    expect(claude.last.options.effort).toBe('max');
+    expect(session.getInfo().reasoningEffort).toBe('max');
+  });
+
+  it('asks a model Moxxy has no description of for max, not ultra', async () => {
+    const { claude, session } = connect(async function* () {
+      yield assistantText('ok');
+    });
+    session.reasoning = { effort: 'ultra' };
+
+    await collectTurn(session, 'think hard', { model: 'claude-opus-7' });
+
+    expect(claude.last.options.effort).toBe('max');
+  });
+
   it('records a sentence Claude says before a call as part of the work, and only its last words as the end of the turn', async () => {
     const { session } = connect(async function* () {
       yield assistantText('Building it.');

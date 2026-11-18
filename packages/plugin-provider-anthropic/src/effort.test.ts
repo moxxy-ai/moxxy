@@ -10,4 +10,9 @@ describe('anthropicEffort', () => {
   it('sends xhigh as high', () => {
     expect(anthropicEffort('xhigh')).toBe('high');
   });
+
+  it('sends max and ultra as high too, never a level some models reject', () => {
+    expect(anthropicEffort('max')).toBe('high');
+    expect(anthropicEffort('ultra')).toBe('high');
+  });
 });

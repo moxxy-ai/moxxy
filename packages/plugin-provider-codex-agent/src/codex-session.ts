@@ -65,7 +65,7 @@ import {
   type CodexToolCall,
 } from './translate.js';
 import { accountLimitFrom, failedOnUsageLimit } from './account-limit.js';
-import { CodexSubagents, labelOf } from './subagents.js';
+import { CodexSubagents, labelOf, type SubagentStop } from './subagents.js';
 import { readImageFile } from './view-image.js';
 
 /** A running `codex app-server`: its stdout, stdin and stderr. */
@@ -263,6 +263,7 @@ export class CodexAgentSession implements LiveSession {
   private readonly inbox = new Inbox<Item>();
   private readonly client: JsonRpcLineClient;
   private alive = true;
+  private readonly disconnected = new AbortController();
   private closed = false;
   private inTurn = false;
   /**
@@ -472,17 +473,60 @@ export class CodexAgentSession implements LiveSession {
       if (!stopped) this.stopping.delete(workId);
       return stopped;
     }
-    const turn = this.subagents.turnOf(workId);
-    if (turn === undefined) return false;
-    this.stopping.add(workId);
-    await this.client.request('turn/interrupt', { threadId: workId, turnId: turn }).catch(() => undefined);
-    return true;
+    const stop = this.subagents.beginStop(workId);
+    if (!stop) return false;
+    stop.attempt ??= this.stopSubagent(workId, stop).finally(() => { delete stop.attempt; });
+    return stop.attempt;
+  }
+
+  private async stopSubagent(threadId: string, stop: SubagentStop): Promise<boolean> {
+    const signal = AbortSignal.any([this.disconnected.signal, AbortSignal.timeout(15_000)]);
+    if (stop.stopped === undefined) {
+      try {
+        await this.client.request('turn/interrupt', { threadId, turnId: stop.turn }, signal);
+      } catch (error) {
+        // A turn can finish naturally while the interrupt is in flight.
+        if (stop.stopped === undefined) {
+          if (error instanceof JsonRpcError) this.subagents.cancelUnacceptedStop(threadId);
+          throw error;
+        }
+      }
+      await stop.until(() => stop.stopped !== undefined, signal);
+    }
+    // Codex may report a command item after its process is already listed.
+    const terminals = await this.threadTerminals(threadId, signal);
+    await stop.until(() => terminals.every((item) => stop.commands.has(item.itemId)), signal);
+    const ours = terminals.filter((item) => stop.commands.get(item.itemId)?.turn === stop.turn);
+    for (const { processId } of ours) {
+      await this.client.request('thread/backgroundTerminals/terminate', { threadId, processId }, signal);
+    }
+    // Removing a terminal from the list can precede the command's actual end.
+    await stop.until(() => [...stop.commands.values()].every((cmd) => cmd.turn !== stop.turn || cmd.finished), signal);
+    if (ours.length > 0 && (await this.threadTerminals(threadId, signal)).some((item) => stop.commands.get(item.itemId)?.turn === stop.turn)) {
+      throw new Error('Codex still reports a running command for this helper.');
+    }
+    const ended = this.subagents.confirmStop(threadId);
+    this.report(ended);
+    this.reportWork();
+    return ended.length > 0;
+  }
+
+  private async threadTerminals(threadId: string, signal: AbortSignal) {
+    const found: Array<CodexBackgroundTerminals['data'][number]> = [];
+    let cursor: string | null = null;
+    do {
+      const page: CodexBackgroundTerminals = await this.client.request('thread/backgroundTerminals/list', { threadId, cursor }, signal);
+      found.push(...page.data);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return found;
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.alive = false;
+    this.disconnected.abort();
     // Codex's background work ends with its app-server.
     this.leftRunning.clear();
     this.reportWork([]);
@@ -1120,6 +1164,7 @@ export class CodexAgentSession implements LiveSession {
   private ended(): void {
     if (!this.alive) return;
     this.alive = false;
+    this.disconnected.abort();
     this.inbox.push({ kind: 'ended' });
   }
 

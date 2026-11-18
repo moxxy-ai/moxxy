@@ -35,11 +35,14 @@ const agentCapabilities = {
 } as const;
 
 /** Models Claude Code offers on a Claude subscription, used until Claude's own `supportedModels()` answered; Claude Code decides what the account may use. */
+// Claude's own list: every current model thinks up to max. Claude has no ultra.
+const UP_TO_MAX = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
 export const claudeCodeModels: ReadonlyArray<ModelDescriptor> = [
-  { id: 'claude-fable-5-1', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities },
-  { id: 'claude-opus-5-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities },
-  { id: CLAUDE_CODE_DEFAULT_MODEL, contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities },
-  { id: 'claude-haiku-5-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities },
+  { id: 'claude-fable-5-1', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_MAX },
+  { id: 'claude-opus-5-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_MAX },
+  { id: CLAUDE_CODE_DEFAULT_MODEL, contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_MAX },
+  { id: 'claude-haiku-5-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_MAX },
 ];
 
 export interface ClaudeAgentProviderConfig {
@@ -214,8 +217,10 @@ export function createClaudeCodeClient(config: ClaudeAgentProviderConfig = {}): 
   return new ClaudeAgentProvider(config);
 }
 
+/** Claude's effort for the turn's: Claude has no ultra, so it thinks at max, its deepest. */
 function effortOf(reasoning: AgentStepRequest['reasoning']): ClaudeEffort | undefined {
-  return typeof reasoning === 'object' && reasoning.effort ? reasoning.effort : undefined;
+  const effort = typeof reasoning === 'object' ? reasoning.effort : undefined;
+  return effort === 'ultra' ? 'max' : effort;
 }
 
 function messageOf(err: unknown): string {

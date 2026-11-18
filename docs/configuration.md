@@ -52,7 +52,7 @@ Local models (`local` provider, `LOCAL_MODEL_BASE_URL` or `items.local.config.ba
 
 ```yaml
 context:
-  reasoning: { effort: high }   # low | medium | high | xhigh; `true` for the provider's default; leave out for off
+  reasoning: { effort: high }   # low | medium | high | xhigh | max | ultra; `true` for the provider's default; leave out for off
   fast: true                    # the provider's faster, pricier tier
 ```
 

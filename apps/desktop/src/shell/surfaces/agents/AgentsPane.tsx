@@ -24,6 +24,7 @@ export function AgentsPane({ workspaceId }: { readonly workspaceId: string | nul
       <WorkDetail
         item={work.selected}
         now={now}
+        stopUnconfirmed={work.stopUnconfirmed}
         stopping={work.stopping.has(work.selected.id)}
         onBack={() => work.select(null)}
         onStop={(id) => void work.stop(id)}
@@ -120,6 +121,7 @@ function WorkDetail({
   item,
   now,
   stopping,
+  stopUnconfirmed,
   onBack,
   onStop,
   onShowInChat,
@@ -127,6 +129,7 @@ function WorkDetail({
   readonly item: AgentWorkItem;
   readonly now: number;
   readonly stopping: boolean;
+  readonly stopUnconfirmed: boolean;
   readonly onBack: () => void;
   readonly onStop: (id: string) => void;
   readonly onShowInChat: ((eventId: string) => void) | null;
@@ -153,6 +156,7 @@ function WorkDetail({
         )}
       </header>
       <div className="agents-pane__body agent-chat">
+        {stopUnconfirmed && item.status === 'running' && <p role="alert" className="agent-chat__error">Could not confirm that this work stopped. Try again.</p>}
         {item.kind === 'agent' ? <HelperChat item={item} /> : <CommandOutput item={item} />}
         {item.continuedBy && onShowInChat && (
           <button type="button" className="agents-pane__link" onClick={() => onShowInChat(item.continuedBy ?? '')}>

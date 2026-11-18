@@ -173,6 +173,8 @@ export interface SessionInfo {
    * provider's own default effort, null when it is off. Absent from older runners.
    */
   readonly reasoningEffort?: ReasoningEffort | 'default' | null;
+  /** A client has explicitly selected the effort on this runner, including off. */
+  readonly reasoningEffortSet?: boolean;
   /** Whether turns ask for the provider's faster tier. Absent from older runners. */
   readonly fast?: boolean;
   /**

@@ -43,9 +43,9 @@ We deliberately do not claim "sandboxed by default." If your threat model includ
 
 CI rejects any dependency with a published advisory (`pnpm audit:security`). An advisory that has **no fixed release yet** cannot be cleared by upgrading, so it is accepted here, in the open, until upstream ships a fix. So is one fixed **only in a major version** the reviewed path cannot load. The list is enforced from `scripts/security-audit-policy.mjs`, and a test fails when this table and that list differ.
 
-| Advisory | Package | Reached through | Why it is accepted |
-|---|---|---|---|
-| [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf) | `picomatch` 2.3.2 and 4.0.7 | `dependency-cruiser`; docs `astro` → `unstorage` → `anymatch` | There is no fixed release. The reviewed paths use repository or Astro filesystem configuration globs during dependency analysis and static documentation builds. |
+None at the moment.
+
+GitHub withdrew the previously accepted `picomatch` advisory on November 18, 2026. [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)
 
 (`minimatch`, GHSA-g3hv-75wg-m249, was accepted here for the minimatch 3 and 5 that `electron-builder` pins, until GitHub narrowed the advisory to minimatch 7 and later on 2026-11-04.)
 

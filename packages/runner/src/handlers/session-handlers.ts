@@ -39,8 +39,7 @@ export function handleSessionSetReasoning(
   raw: unknown,
 ): Record<string, never> {
   const { effort } = sessionSetReasoningParamsSchema.parse(raw);
-  ctx.session.reasoning = effort === 'off' ? undefined : { effort };
-  ctx.broadcastInfo();
+  ctx.session.setReasoningEffort(effort);
   return {};
 }
 

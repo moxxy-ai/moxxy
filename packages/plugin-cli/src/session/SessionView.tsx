@@ -11,7 +11,7 @@ import { StatusLine } from '../components/StatusLine.js';
 import { AgentComputerLine } from '../components/AgentComputerLine.js';
 import { AccountLimitLine } from '../components/AccountLimitLine.js';
 import { AgentCliLine } from '../components/AgentCliLine.js';
-import { conversationAccountLimit, turnComputerUse } from '@moxxy/chat-model';
+import { activeAgentCliNotice, conversationAccountLimit, turnComputerUse } from '@moxxy/chat-model';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
@@ -25,7 +25,7 @@ import {
   resolveContextWindow,
 } from './helpers.js';
 import { useMcpStatus } from './use-mcp-status.js';
-import { useAgentCliNotice } from './use-agent-cli-notice.js';
+import { useSessionPicker } from './use-session-picker.js';
 import { useEventStream } from './use-event-stream.js';
 import { useImageAttachments } from './use-image-attachments.js';
 import { useTurnRunner } from './use-turn-runner.js';
@@ -210,6 +210,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const providerName = session.providers.getActiveName() ?? '(none)';
   const sessionInfo = session.getInfo();
+  const visiblePicker = useSessionPicker(session, picker, activeModelOverride ?? model);
   const activeModel = resolveActiveModel(sessionInfo, activeModelOverride, model);
   const contextWindow = resolveContextWindow(session, activeModel);
   // Re-estimated every render (~30Hz while streaming), but the estimator is
@@ -222,7 +223,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const agentComputer = turn.busy ? turnComputerUse(stream.events) : null;
   const nowMs = Date.now();
   const accountLimit = conversationAccountLimit(stream.events, sessionInfo.activeProvider, nowMs);
-  const agentCliNotice = useAgentCliNotice(session);
+  const agentCliNotice = activeAgentCliNotice(sessionInfo.providers, sessionInfo.activeProvider);
   const slashSuggestions = React.useMemo(
     () =>
       buildSlashSuggestions(session, {
@@ -478,7 +479,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         pendingPermissionDepth={Math.max(0, permissions.pendingPermissions.length - 1)}
         pendingApproval={pendingApproval}
         question={question}
-        picker={picker}
+        picker={visiblePicker}
         pluginSetup={pluginSetup}
         onPluginSetupFinish={(values) => {
           const target = pluginSetup;

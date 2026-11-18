@@ -69,6 +69,10 @@
       "types": "./dist/starting-model.d.ts",
       "import": "./dist/starting-model.js"
     },
+    "./reasoning-effort": {
+      "types": "./dist/reasoning-effort.d.ts",
+      "import": "./dist/reasoning-effort.js"
+    },
     "./agent-step": {
       "types": "./dist/agent-step.d.ts",
       "import": "./dist/agent-step.js"

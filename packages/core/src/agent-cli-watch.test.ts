@@ -239,6 +239,25 @@ describe('AgentCliWatch — the models an agent offers', () => {
   });
 });
 
+describe('AgentCliWatch — the reasoning levels an agent offers', () => {
+  it('says when a model it lists gains a level, though the ids stay the same', async () => {
+    let levels: ReadonlyArray<'low' | 'max' | 'ultra'> = ['low', 'max'];
+    const watch = new AgentCliWatch(
+      () => [withModels('codex-agent', async () => signedIn(), async () => [{ ...model('gpt-6-sol'), reasoningEfforts: levels }])],
+      silentLogger,
+    );
+    const changes = vi.fn();
+    watch.onChange(changes);
+
+    await watch.check();
+    levels = ['low', 'max', 'ultra'];
+    await watch.check();
+
+    expect(changes).toHaveBeenCalledTimes(2);
+    expect(watch.models('codex-agent')?.[0]?.reasoningEfforts).toEqual(['low', 'max', 'ultra']);
+  });
+});
+
 describe("the session's info", () => {
   it("offers the models the agent listed in place of the connection's built-in ones", async () => {
     const session = new Session({ cwd: '/tmp', silent: true });
@@ -248,6 +267,20 @@ describe("the session's info", () => {
     await session.agentClis.check();
 
     expect(session.getInfo().providers.find((p) => p.name === 'codex-agent')?.models.map((m) => m.id)).toEqual(['gpt-6.1-sol']);
+    await session.close();
+  });
+
+  it('fits the effort to the levels the agent lists, not to its built-in model', async () => {
+    const luna = { ...model('gpt-6-luna'), supportsReasoning: true };
+    const session = new Session({ cwd: '/tmp', silent: true });
+    const def = withModels('codex-agent', async () => signedIn(), async () => [{ ...luna, reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] }]);
+    session.providers.register({ ...def, models: [luna] });
+    await session.agentClis.check();
+    session.reasoning = { effort: 'ultra' };
+
+    session.fitReasoningTo({ name: 'codex-agent', models: [luna] }, 'gpt-6-luna');
+
+    expect(session.getInfo().reasoningEffort).toBe('max');
     await session.close();
   });
 

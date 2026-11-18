@@ -4,10 +4,12 @@ import type {
   ModelDescriptor,
   ProviderEvent,
   ProviderRequest,
+  ReasoningEffort,
   StopReason,
 } from '@moxxy/sdk';
 import { assertDefined, estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
 import { toOpenAIMessages, toOpenAITools } from './translate.js';
+import { openaiEffort } from './effort.js';
 import { isResponsesRouteMissing, openResponses, readResponses, responsesError } from './responses.js';
 
 export interface OpenAIProviderConfig {
@@ -56,10 +58,11 @@ export interface OpenAIProviderConfig {
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
- * Model catalog: the OpenAI models still served (GPT-6 and GPT-5.6). A config
+ * Model catalog: the models the API's `/v1/models` and Codex's `model/list`
+ * both offer (GPT-6.2, GPT-6.1, GPT-6 and GPT-5.6), newest first. A config
  * pinned to an older id still sends it; it is just no longer offered.
  *
- * Output/context numbers are the public documented limits as of September
+ * Output/context numbers are the public documented limits as of November
  * 2026; verify against https://developers.openai.com/api/docs/models.
  */
 // The gpt-5.x family are reasoning models (`supportsReasoning`): they accept
@@ -67,17 +70,40 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 // deltas. Official OpenAI Chat Completions doesn't stream a reasoning summary
 // (Responses-API only), so the flag mainly gates the config UI + effort there;
 // OpenAI-compatible reasoning backends (DeepSeek/z.ai/local) do stream it.
+// Every listed model takes efforts up to `max` (checked on the API 2026-11-18);
+// the API has no `ultra`, which `openaiEffort` sends as `max`.
+const UP_TO_MAX: ReadonlyArray<ReasoningEffort> = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** Every listed model shares one shape: a 1,050,000-token window, 128k max
+ *  output, image input and the priority (fast) tier (checked 2026-11-18). */
+const currentModel = (id: string): ModelDescriptor => ({
+  id,
+  contextWindow: 1_050_000,
+  maxOutputTokens: 128_000,
+  supportsTools: true,
+  supportsStreaming: true,
+  supportsImages: true,
+  supportsDocuments: true,
+  supportsReasoning: true,
+  reasoningEfforts: UP_TO_MAX,
+  supportsFast: true,
+});
+
 export const openAIModels: ReadonlyArray<ModelDescriptor> = [
-  // GPT-6: Astra, Sol (flagship, knowledge cutoff Apr 20, 2026) and Luna
-  // (fast, cutoff May 18, 2026); 1,050,000-token window, 128k max output.
-  { id: 'gpt-6-astra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
-  { id: 'gpt-6-sol', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
-  { id: 'gpt-6-luna', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
-  // GPT-5.6 family (GA July 9, 2026): Sol = flagship, Terra = balanced,
-  // Luna = fast/cheap. Same 1,050,000-token window and 128k max output.
-  { id: 'gpt-5.6-sol', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
-  { id: 'gpt-5.6-terra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
-  { id: 'gpt-5.6-luna', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
+  // GPT-6.2 (Nov 2026): Sol (cutoff Jun 1, 2026) and Astra (cutoff May 18, 2026).
+  currentModel('gpt-6.2-sol'),
+  currentModel('gpt-6.2-astra'),
+  // GPT-6.1: Terra (cutoff Jun 1, 2026) and Sol (cutoff Apr 30, 2026).
+  currentModel('gpt-6.1-terra'),
+  currentModel('gpt-6.1-sol'),
+  // GPT-6: Astra, Sol (flagship, cutoff Apr 20, 2026) and Luna (fast, cutoff May 18, 2026).
+  currentModel('gpt-6-astra'),
+  currentModel('gpt-6-sol'),
+  currentModel('gpt-6-luna'),
+  // GPT-5.6 (GA July 9, 2026): Sol = flagship, Terra = balanced, Luna = fast/cheap.
+  currentModel('gpt-5.6-sol'),
+  currentModel('gpt-5.6-terra'),
+  currentModel('gpt-5.6-luna'),
 ];
 
 interface PendingToolCall {
@@ -202,7 +228,7 @@ export class OpenAIProvider implements LLMProvider {
     const toolsNeedNoReasoning = tools !== undefined && /^gpt-6-(?:sol|luna)\b/.test(model);
     const reasoningEffort = toolsNeedNoReasoning
       ? 'none'
-      : typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
+      : typeof req.reasoning === 'object' ? openaiEffort(req.reasoning.effort) : undefined;
 
     // Type the request body as the SDK's streaming-create params so field
     // names/value types are checked. The local `OpenAIChatMessage` /

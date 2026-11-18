@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FakeCodex } from './fake-codex.testkit.js';
 import { codexOfferedModels } from './offered-models.js';
+import { codexAgentModels } from './agent-provider.js';
 
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/codex-model-list-0.163.0.json', import.meta.url), 'utf8')) as {
   pages: ReadonlyArray<{ data: ReadonlyArray<Record<string, unknown>>; nextCursor?: string | null }>;
@@ -40,6 +41,47 @@ describe("the models the person's Codex offers", () => {
 
     expect(sol).toMatchObject({ id: 'gpt-6.1-sol', supportsTools: true, supportsImages: true, supportsReasoning: true, supportsFast: true });
     expect(sol?.contextWindow).toBe(500_000);
+  });
+
+  it('gives each model the reasoning levels Codex lists for it: ultra on sol, up to max on luna', async () => {
+    const codex = new FakeCodex(nothing, { modelPages: recorded.pages });
+
+    const offered = await codexOfferedModels('/work/app', codex.start);
+
+    const levels = Object.fromEntries(offered.map((model) => [model.id, model.reasoningEfforts]));
+    expect(levels['gpt-6-sol']).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    expect(levels['gpt-6-luna']).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(levels['gpt-5.6-luna']).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+  });
+
+  it('has the built-in models, used until Codex answers, name the same levels Codex lists', async () => {
+    const codex = new FakeCodex(nothing, { modelPages: recorded.pages });
+    const offered = await codexOfferedModels('/work/app', codex.start);
+
+    for (const builtIn of codexAgentModels) {
+      expect({ id: builtIn.id, levels: builtIn.reasoningEfforts }).toEqual({
+        id: builtIn.id,
+        levels: offered.find((model) => model.id === builtIn.id)?.reasoningEfforts,
+      });
+    }
+  });
+
+  it('keeps only the levels Moxxy knows, and none for a model that does not reason', async () => {
+    const [first] = recorded.pages;
+    if (!first) throw new Error('recording has no pages');
+    const odd = {
+      ...first.data[0],
+      id: 'gpt-odd',
+      supportedReasoningEfforts: [{ reasoningEffort: 'none' }, { reasoningEffort: 'low' }, { reasoningEffort: 'hyper' }, 'bad'],
+    };
+    const flat = { ...first.data[0], id: 'gpt-flat', supportedReasoningEfforts: [] };
+    const codex = new FakeCodex(nothing, { modelPages: [{ data: [odd, flat], nextCursor: null }] });
+
+    const [oddModel, flatModel] = await codexOfferedModels('/work/app', codex.start);
+
+    expect(oddModel?.reasoningEfforts).toEqual(['low']);
+    expect(flatModel).toMatchObject({ supportsReasoning: false });
+    expect(flatModel?.reasoningEfforts).toBeUndefined();
   });
 
   it('starts the GPT-6 models at the 272k window Codex runs them with by default', async () => {
