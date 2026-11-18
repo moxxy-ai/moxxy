@@ -31,6 +31,7 @@ interface RpcNotificationFrame {
 
 /** Handler for an incoming request. Return value (or throw) becomes the reply. */
 export type RequestHandler = (params: unknown, peer: JsonRpcPeer) => Promise<unknown> | unknown;
+type ReplyHandler = (params: unknown, reply: (result: unknown) => void) => void | Promise<void>;
 /** Handler for an incoming notification. No reply. */
 export type NotificationHandler = (params: unknown, peer: JsonRpcPeer) => void;
 
@@ -65,7 +66,7 @@ export class JsonRpcPeer {
     number,
     { resolve: (value: unknown) => void; reject: (err: Error) => void }
   >();
-  private readonly requestHandlers = new Map<string, RequestHandler>();
+  private readonly requestHandlers = new Map<string, ReplyHandler>();
   private readonly notificationHandlers = new Map<string, NotificationHandler>();
   private readonly closeHandlers: Array<(err?: Error) => void> = [];
   private closed = false;
@@ -77,6 +78,11 @@ export class JsonRpcPeer {
 
   /** Register a request handler. Last registration for a method wins. */
   handle(method: string, handler: RequestHandler): void {
+    this.handleWithReply(method, async (params, reply) => reply(await handler(params, this)));
+  }
+
+  /** Lets a streaming handler send its reply in the same turn as its final notification. */
+  handleWithReply(method: string, handler: ReplyHandler): void {
     this.requestHandlers.set(method, handler);
   }
 
@@ -161,7 +167,8 @@ export class JsonRpcPeer {
     this.transport.send(frame);
   }
 
-  close(): void {
+  close(reason?: Error): void {
+    this.handleClose(reason);
     this.transport.close();
   }
 
@@ -203,10 +210,15 @@ export class JsonRpcPeer {
       this.transport.send({ id, error: { message: `unknown method: ${method}` } });
       return;
     }
+    let replied = false;
     try {
-      const result = await handler(params, this);
-      this.transport.send({ id, result: result === undefined ? null : result });
+      await handler(params, result => {
+        if (replied || this.closed) return;
+        this.transport.send({ id, result: result === undefined ? null : result });
+        replied = true;
+      });
     } catch (err) {
+      if (replied || this.closed) return;
       const message = err instanceof Error ? err.message : String(err);
       // Carry structured error data (e.g. a coded MoxxyIpcError envelope) when an
       // RpcError supplies it, so the requester reconstructs the classified error

@@ -1,5 +1,15 @@
 # @moxxy/cli
 
+## 0.49.1
+
+### Patch Changes
+
+- 56e6a1e: Start new Codex conversations on the connection's starter model after setup and respect any model the user has already chosen.
+- 15bc6b1: Opening a conversation reads only its own history instead of every saved conversation, avoiding memory exhaustion and repeated reconnects for large session libraries. Session readers process JSONL incrementally so files over Node's whole-string limit (about 512 MiB) remain readable. Repairs retain atomic replacement and write event-sized chunks through the atomic writer, which now accepts iterables. Conversation content, metadata selection and history paging remain unchanged.
+- fa62183: Pace history replay when a terminal attaches to a running session, so large conversations reach the client in order and other clients can keep working.
+- Updated dependencies [15bc6b1]
+  - @moxxy/sdk@0.49.1
+
 ## 0.49.0
 
 ### Minor Changes

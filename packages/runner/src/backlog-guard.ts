@@ -1,3 +1,6 @@
+/** Upper memory bound for unsent output to one local client (256 MiB). */
+export const MAX_OUTBOUND_HARD_BYTES = 256 * 1024 * 1024;
+
 /**
  * Decides when a peer that is not reading its outbound frames must be dropped,
  * so one stalled client cannot make the writer buffer every event in memory.

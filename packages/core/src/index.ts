@@ -83,6 +83,7 @@ export {
   SessionPersistence,
   defaultSessionsDir,
   readIndex as readSessionIndex,
+  readSessionMeta,
   restoreEvents as restoreSessionEvents,
   readEventPage as readSessionEventPage,
   pageEvents,

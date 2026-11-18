@@ -8,7 +8,18 @@ const NO_FIX_PUBLISHED = '<0.0.0';
  * that range: a major the listed paths cannot take. A backport changes the
  * range and ends the acceptance.
  */
-export const ACCEPTED_ADVISORIES = [];
+export const ACCEPTED_ADVISORIES = [
+  {
+    id: 'GHSA-fc5q-39xc-vjpf',
+    module: 'picomatch',
+    paths: [
+      '.>dependency-cruiser>picomatch',
+      'apps__docs>astro>unstorage>anymatch>picomatch',
+    ],
+    reason:
+      'No fixed release is available. The reviewed paths match globs from the repository and Astro filesystem configuration during dependency analysis and static documentation builds.',
+  },
+];
 
 function isAccepted(advisory, accepted) {
   const entry = accepted.find((candidate) => candidate.id === advisory.github_advisory_id);

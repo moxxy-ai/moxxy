@@ -1,7 +1,7 @@
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
-import { OutboundBacklogGuard } from './backlog-guard.js';
+import { MAX_OUTBOUND_HARD_BYTES, OutboundBacklogGuard } from './backlog-guard.js';
 import type { Transport, TransportServer } from './transport.js';
 import { isRunnerUp } from './socket-path.js';
 
@@ -39,11 +39,6 @@ const DEFAULT_MAX_OUTBOUND_BUFFER_BYTES = 4 * 1024 * 1024;
 /** How long a reader over the limit may go without taking a single byte
  *  before we drop it. */
 const DEFAULT_OUTBOUND_STALL_GRACE_MS = 10_000;
-/** Backlog above which a client is dropped at once, draining or not — the
- *  memory bound. Well above the largest frame a client legitimately receives,
- *  so a big frame to a healthy reader never trips it. */
-const DEFAULT_MAX_OUTBOUND_HARD_BYTES = 4 * DEFAULT_MAX_INBOUND_FRAME_BYTES;
-
 /**
  * NDJSON framing over a single `net.Socket`: one JSON value per line. Safe
  * because `JSON.stringify` never emits a raw newline, so `\n` is an
@@ -60,18 +55,20 @@ class NdjsonTransport implements Transport {
   private frameHandler: ((frame: unknown) => void) | undefined;
   private closeHandler: ((err?: Error) => void) | undefined;
   private closedEmitted = false;
+  private waitingForDrain = false;
   private readonly outbound: OutboundBacklogGuard;
 
   constructor(
     private readonly socket: net.Socket,
     private readonly maxInboundFrameBytes = DEFAULT_MAX_INBOUND_FRAME_BYTES,
     maxOutboundBufferBytes = DEFAULT_MAX_OUTBOUND_BUFFER_BYTES,
-    outboundStallGraceMs = DEFAULT_OUTBOUND_STALL_GRACE_MS,
+    private readonly outboundStallGraceMs = DEFAULT_OUTBOUND_STALL_GRACE_MS,
+    maxOutboundHardBytes = Math.max(MAX_OUTBOUND_HARD_BYTES, maxOutboundBufferBytes * 4),
   ) {
     this.outbound = new OutboundBacklogGuard(
       maxOutboundBufferBytes,
       outboundStallGraceMs,
-      Math.max(DEFAULT_MAX_OUTBOUND_HARD_BYTES, maxOutboundBufferBytes * 4),
+      maxOutboundHardBytes,
     );
     socket.setEncoding('utf8');
     socket.on('data', (chunk: string) => this.onData(chunk));
@@ -137,6 +134,28 @@ class NdjsonTransport implements Transport {
     this.outbound.recordSent(Buffer.byteLength(line));
   }
 
+  waitForDrain(): Promise<void> | undefined {
+    const socket = this.socket;
+    if (socket.destroyed || !socket.writableNeedDrain) return;
+    // The socket's idle timeout accounts for progress inside a single large write.
+    // writableLength alone can stay constant until that entire write completes.
+    this.waitingForDrain = true;
+    return new Promise<void>((resolve) => {
+      const onTimeout = () => this.dropSlowReader(socket.writableLength);
+      const finish = () => {
+        this.waitingForDrain = false;
+        socket.off('drain', finish);
+        socket.off('close', finish);
+        socket.off('timeout', onTimeout);
+        socket.setTimeout(0);
+        resolve();
+      };
+      socket.once('drain', finish);
+      socket.once('close', finish);
+      socket.setTimeout(Math.max(1, this.outboundStallGraceMs), onTimeout);
+    });
+  }
+
   private dropSlowReader(buffered: number): void {
     const err = new Error(`slow reader: ${buffered} bytes unsent, none taken within the grace window`);
     this.socket.destroy(err);
@@ -152,7 +171,8 @@ class NdjsonTransport implements Transport {
   }
 
   close(): void {
-    this.socket.end();
+    if (this.waitingForDrain) this.socket.destroy();
+    else this.socket.end();
   }
 }
 
@@ -175,6 +195,8 @@ export interface TransportLimits {
   readonly maxInboundFrameBytes?: number;
   /** Outbound send-buffer soft limit for a slow reader. */
   readonly maxOutboundBufferBytes?: number;
+  /** Hard ceiling on bytes queued for one reader, regardless of progress. */
+  readonly maxOutboundHardBytes?: number;
   /** How long the outbound buffer may stay over the soft limit before eviction. */
   readonly outboundStallGraceMs?: number;
 }
@@ -219,6 +241,7 @@ export async function createUnixSocketServer(
       limits.maxInboundFrameBytes,
       limits.maxOutboundBufferBytes,
       limits.outboundStallGraceMs,
+      limits.maxOutboundHardBytes,
     );
     connectionHandler?.(transport);
   });

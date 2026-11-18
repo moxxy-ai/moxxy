@@ -62,6 +62,32 @@ Moxxy's side of it stays on the machine: the agent reaches Moxxy's tools over an
 
 None of these are transmitted anywhere by moxxy. An audit **sink** other than the local floor is the deliberate exception: configuring one is how you send records off the machine on purpose.
 
+### Reading large conversation histories
+
+Opening or resuming a named conversation restores its model and provider by
+reading that conversation's log. It scans the small metadata files to preserve
+legacy filename and duplicate-resolution behavior, without reading other logs.
+The desktop sidebar continues to use the metadata-only listing.
+
+JSONL readers decode one line at a time, including UTF-8 characters split across
+read buffers. Statistics are folded as events arrive; restoring a conversation
+and paging its history still retain the parsed events in memory. This removes
+the whole-file JavaScript string limit (about 512 MiB), but a single event must
+still fit in a string and a restored conversation must fit in process memory.
+
+Existing recovery rules for malformed, foreign-session and unstamped events
+remain in place. Before rewriting a repaired log, a hash of the decoded text is
+compared with a second read to detect intervening changes. Repaired events are
+written in chunks to a temporary file and atomically renamed over the original,
+using the same backup and permission rules. This retains the existing
+best-effort conflict check; it does not introduce a cross-process writer lock.
+No file format migration or persistent cache is introduced.
+
+The regression corpus compares old and incremental readers' events, metadata,
+pages, warnings and repaired bytes. The opt-in scale check is:
+`MOXXY_SCALE_TESTS=1 pnpm --filter @moxxy/core exec vitest run src/sessions/persistence.streaming.test.ts`.
+It exercises reading and repairing a log larger than 512 MiB.
+
 ## Controlling egress
 
 Everything above is subject to the network settings:

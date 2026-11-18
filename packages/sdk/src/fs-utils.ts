@@ -55,7 +55,7 @@ const MAX_SIGNED_NETWORK_CACHE_BYTES = 8 * 1024 * 1024;
  */
 export async function writeFileAtomic(
   target: string,
-  data: string | Uint8Array,
+  data: string | Uint8Array | Iterable<string | Uint8Array> | AsyncIterable<string | Uint8Array>,
   opts: WriteFileAtomicOptions = {},
 ): Promise<void> {
   await commitAtomic(target, opts, async (tmp) => {
