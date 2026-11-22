@@ -302,7 +302,8 @@ export class CodexAgentSession implements LiveSession {
   /** The Codex turn each command still running started in, by item id: what Stop ends. */
   private readonly commandTurns = new Map<string, string>();
   /** Subagents Codex started; they work in threads of their own and may outlive a turn. */
-  private readonly subagents = new CodexSubagents();
+  // A late answer to Stop is checked as a retried Stop would be: only the turn Stop interrupted.
+  private readonly subagents = new CodexSubagents((id) => queueMicrotask(() => { this.stopWork(id).catch(() => {}); }));
   /** Calls Codex left running when its turn ended, by item id; their end is shown when it comes. */
   private readonly leftRunning = new Map<string, CodexToolCall>();
   /** What that work did after its turn, for the turn opened to show it (or the person's next turn). */

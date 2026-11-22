@@ -22,3 +22,5 @@ Runner protocol v35: `session.setReasoning` takes `max` and `ultra`, and a newer
 The terminal’s Model reasoning picker reads and changes the active conversation on the runner. Picking a model in the terminal immediately lowers an unsupported effort, even before the next message. Runner protocol v36 lets the desktop keep a choice another client made on the running conversation. Explicitly resuming a conversation restores its saved model unless a model override is supplied.
 
 New conversations using an OpenAI API key start on GPT-6 Luna when no model has been set. Adding or reordering catalog entries preserves this starting model.
+
+When Codex confirms a stopped helper only after Moxxy has stopped waiting, the Agents panel now shows it as stopped (or done, if it finished by itself) without another click. Only the turn Stop interrupted is checked, so a new turn the helper started in the meantime keeps running.

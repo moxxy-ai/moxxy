@@ -42,6 +42,12 @@ export class SubagentStop {
 export class CodexSubagents {
   private readonly agents = new Map<string, Running>();
 
+  /**
+   * @param answeredLate called with a helper's id when Codex ends the turn Stop interrupted after
+   *   Moxxy stopped waiting for it: that stop is still to be checked and shown.
+   */
+  constructor(private readonly answeredLate: (id: string) => void = () => {}) {}
+
   /** A `subAgentActivity` item on the conversation's thread. */
   activity(item: unknown): AgentStepEvent[] {
     const a = (item ?? {}) as { kind?: unknown; agentThreadId?: unknown; agentPath?: unknown };
@@ -125,6 +131,7 @@ export class CodexSubagents {
     if (agent.stop.stopped === undefined) {
       agent.stop.stopped = stopped;
       agent.stop.changes.emit('change');
+      if (!agent.stop.attempt) this.answeredLate(id);
     }
     return [];
   }
