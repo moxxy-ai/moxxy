@@ -41,7 +41,10 @@ const UP_TO_ULTRA = [...UP_TO_MAX, 'ultra'] as const;
 /** Models Codex offers on a ChatGPT sign-in, used until Codex's own `model/list` answered; Codex decides what the account may use. */
 export const codexAgentModels: ReadonlyArray<ModelDescriptor> = [
   { id: CODEX_AGENT_DEFAULT_MODEL, contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_ULTRA },
-  // Codex 0.163's own catalog: 500k for 6.1 Sol, 272k for the rest (the API models have 1.05M).
+  // Codex 0.171's own catalog: 500k for 6.2 Sol, 6.1 Terra and 6.1 Sol, 272k for the rest (the API models have 1.05M).
+  { id: 'gpt-6.2-sol', contextWindow: 500_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_ULTRA },
+  { id: 'gpt-6.2-astra', contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_ULTRA },
+  { id: 'gpt-6.1-terra', contextWindow: 500_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_ULTRA },
   { id: 'gpt-6.1-sol', contextWindow: 500_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_ULTRA },
   { id: 'gpt-6-sol', contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_ULTRA },
   { id: 'gpt-6-luna', contextWindow: 272_000, maxOutputTokens: 128_000, ...agentCapabilities, reasoningEfforts: UP_TO_MAX },

@@ -24,3 +24,5 @@ The terminal’s Model reasoning picker reads and changes the active conversatio
 New conversations using an OpenAI API key start on GPT-6 Luna when no model has been set. Adding or reordering catalog entries preserves this starting model.
 
 When Codex confirms a stopped helper only after Moxxy has stopped waiting, the Agents panel now shows it as stopped (or done, if it finished by itself) without another click. Only the turn Stop interrupted is checked, so a new turn the helper started in the meantime keeps running.
+
+The built-in Codex model list, used until Codex answers, gains GPT-6.2 Sol and GPT-6.1 Terra (500k) and GPT-6.2 Astra (272k), as Codex 0.171 lists them, so they no longer start at the 400k of an unknown model.
