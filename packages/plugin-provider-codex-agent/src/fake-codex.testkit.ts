@@ -9,10 +9,9 @@
  * is a scene the test writes.
  */
 import { PassThrough } from 'node:stream';
-import { createInterface } from 'node:readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { Inbox } from '@moxxy/agent-connection-kit';
+import { Inbox, readLines } from '@moxxy/agent-connection-kit';
 import type { CodexConnection } from './codex-session.js';
 import type { CodexApprovalPolicy, CodexApprovalsReviewer, CodexGoal, CodexGoalStatus, CodexSandboxPolicy, CodexUserInput } from './protocol.js';
 
@@ -70,6 +69,8 @@ export interface FakeThread {
    * running; only `thread/backgroundTerminals/terminate` (or closing) ends them.
    */
   readonly terminals: Map<string, { readonly processId: string; readonly command: string }>;
+  /** What the model said in the thread's turns; `thread/resume` sends it all back, as Codex 0.171 does. */
+  readonly history: string[];
 }
 
 export interface FakeCodexDefaults {
@@ -145,7 +146,7 @@ export class FakeCodexServer {
     private readonly codex: FakeCodex,
     readonly cwd: string,
   ) {
-    createInterface({ input: this.fromMoxxy }).on('line', (line) => void this.receive(line));
+    readLines(this.fromMoxxy, (line) => void this.receive(line));
     this.connection = {
       readable: this.toMoxxy,
       writable: this.fromMoxxy,
@@ -274,7 +275,7 @@ export class FakeCodexServer {
         const thread: FakeThread = { ...saved, sandbox: this.codex.defaults.sandbox ?? { type: 'dangerFullAccess' }, mcp: mcpOf(params.config), moxxyTools: [] };
         thread.moxxyTools = await this.readMoxxyTools(thread);
         this.threads.set(thread.id, thread);
-        return { result: threadResponse(thread) };
+        return { result: threadResponse(thread, { withHistory: true }) };
       }
       case 'thread/settings/update': {
         const thread = this.threadOf(params);
@@ -388,6 +389,7 @@ export class FakeCodexServer {
       mcp: mcpOf(params.config),
       moxxyTools: [],
       terminals: new Map(),
+      history: [],
     };
     this.threads.set(id, thread);
     if (!thread.ephemeral) this.codex.saved.set(id, thread);
@@ -456,6 +458,7 @@ export class FakeCodexServer {
       say: (said, extra = {}) => {
         const itemId = `msg-${Math.random().toString(36).slice(2)}`;
         const item = { type: 'agentMessage', id: itemId, text: said, phase: 'final_answer', delivery: null, questions: null, ...extra };
+        thread.history.push(said);
         this.notify('item/started', { ...base, item: { ...item, text: '' } });
         for (const delta of said.match(/.{1,8}/gs) ?? []) this.notify('item/agentMessage/delta', { ...base, itemId, delta });
         this.notify('item/completed', { ...base, item });
@@ -523,9 +526,10 @@ export class FakeCodexServer {
   }
 }
 
-function threadResponse(thread: FakeThread): Record<string, unknown> {
+function threadResponse(thread: FakeThread, opts: { readonly withHistory?: boolean } = {}): Record<string, unknown> {
+  const turns = thread.history.map((text, n) => ({ id: `turn-history-${n}`, status: 'completed', items: [{ type: 'agentMessage', id: `msg-history-${n}`, text }] }));
   return {
-    thread: { id: thread.id },
+    thread: { id: thread.id, ...(opts.withHistory ? { turns } : {}) },
     model: thread.model,
     modelProvider: 'openai',
     cwd: thread.cwd,

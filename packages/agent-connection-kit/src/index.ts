@@ -17,6 +17,7 @@ export {
   type NotificationHandler,
   type RequestHandler,
 } from './json-rpc.js';
+export { readLines } from './lines.js';
 export {
   AgentSessionPool,
   type AcquireOptions,

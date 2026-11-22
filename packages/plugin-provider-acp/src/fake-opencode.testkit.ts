@@ -11,10 +11,10 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { PassThrough } from 'node:stream';
-import { createInterface } from 'node:readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import { readLines } from '@moxxy/agent-connection-kit';
 import type { AcpConnection } from './acp-session.js';
 import type { AcpContentBlock, AcpPermissionOutcome, AcpToolKind, AcpUsage } from './protocol.js';
 import type { OpenCodeRule } from './rules.js';
@@ -237,7 +237,7 @@ export class FakeOpenCodeServer {
     readonly cwd: string,
     readonly env: Readonly<Record<string, string>>,
   ) {
-    createInterface({ input: this.fromMoxxy }).on('line', (line) => void this.receive(line));
+    readLines(this.fromMoxxy, (line) => void this.receive(line));
     this.connection = {
       readable: this.toMoxxy,
       writable: this.fromMoxxy,
