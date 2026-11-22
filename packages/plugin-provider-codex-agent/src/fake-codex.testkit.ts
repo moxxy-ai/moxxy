@@ -131,6 +131,8 @@ export class FakeCodex {
 export class FakeCodexServer {
   readonly requests: Array<{ readonly method: string; readonly params: Record<string, unknown> }> = [];
   readonly notifications: string[] = [];
+  readonly helpers = new Map<string, { turn: string; terminals: FakeThread['terminals'] }>();
+  rejectNextRequest: string | undefined;
   readonly threads = new Map<string, FakeThread>();
   readonly connection: CodexConnection;
   closed = false;
@@ -189,6 +191,11 @@ export class FakeCodexServer {
   }
 
   notify(method: string, params: Record<string, unknown>): void {
+    const { threadId, turn } = params;
+    if (method === 'turn/started' && typeof threadId === 'string' && !this.threads.has(threadId)) {
+      const id = (turn as { id?: string }).id;
+      if (id) this.helpers.set(threadId, { turn: id, terminals: this.helpers.get(threadId)?.terminals ?? new Map() });
+    }
     this.notifications.push(method);
     this.write({ method, params });
   }
@@ -219,6 +226,10 @@ export class FakeCodexServer {
     this.requests.push({ method: message.method, params });
     if (message.id === undefined || this.codex.silent) return;
     try {
+      if (this.rejectNextRequest === message.method) {
+        this.rejectNextRequest = undefined;
+        throw new Error('Request refused by Codex');
+      }
       const { result, after } = await this.handle(message.method, params);
       this.write({ id: message.id, result });
       after?.();
@@ -306,6 +317,8 @@ export class FakeCodexServer {
         return { result: { turnId: active.id } };
       }
       case 'turn/interrupt': {
+        const helper = this.helpers.get(String(params.threadId));
+        if (helper && helper.turn === params.turnId) return { result: {} };
         if (!this.active || this.active.id !== params.turnId) throw new Error('no active turn to interrupt');
         this.active.stop.abort();
         return { result: {} };
@@ -346,7 +359,7 @@ export class FakeCodexServer {
       case 'thread/goal/get':
         return { result: { goal: this.threadOf(params).goal ?? null } };
       case 'thread/backgroundTerminals/list': {
-        const terminals = [...this.threadOf(params).terminals].map(([itemId, { processId, command }]) => ({
+        const terminals = [...this.terminalsOf(params)].map(([itemId, { processId, command }]) => ({
           itemId,
           processId,
           command,
@@ -358,7 +371,7 @@ export class FakeCodexServer {
         return { result: { data: terminals, nextCursor: null } };
       }
       case 'thread/backgroundTerminals/terminate': {
-        const { terminals } = this.threadOf(params);
+        const terminals = this.terminalsOf(params);
         const running = [...terminals].find(([, terminal]) => terminal.processId === params.processId);
         if (running) terminals.delete(running[0]);
         return { result: { terminated: running !== undefined } };
@@ -392,6 +405,10 @@ export class FakeCodexServer {
     this.threads.set(id, thread);
     if (!thread.ephemeral) this.codex.saved.set(id, thread);
     return { result: threadResponse(thread), after: () => this.notify('thread/started', { thread: { id } }) };
+  }
+
+  private terminalsOf(params: Record<string, unknown>): FakeThread['terminals'] {
+    return this.helpers.get(String(params.threadId))?.terminals ?? this.threadOf(params).terminals;
   }
 
   private threadOf(params: Record<string, unknown>): FakeThread {

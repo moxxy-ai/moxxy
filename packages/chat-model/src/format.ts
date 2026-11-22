@@ -263,10 +263,17 @@ export function toolImagesLabel(images: ReadonlyArray<ToolImage>): string {
   return `${images.length === 1 ? 'image' : `${images.length} images`} (${[...kinds, size].join(', ')})`;
 }
 
-export type SubagentState = 'running' | 'background' | 'done' | 'failed';
+export type SubagentState = 'running' | 'background' | 'done' | 'stopped' | 'failed';
 
-/** How a subagent stands: a failure outranks the rest, and one left running when its turn ended goes on in the background. */
-export function subagentState(agent: { readonly completedAtMs: number | null; readonly error: string | null; readonly backgrounded?: boolean }): SubagentState {
+interface SubagentOutcome {
+  readonly completedAtMs: number | null;
+  readonly error: string | null;
+  readonly stopReason?: string | null;
+  readonly backgrounded?: boolean;
+}
+
+export function subagentState(agent: SubagentOutcome): SubagentState {
+  if (agent.stopReason === 'stopped') return 'stopped';
   if (agent.error !== null) return 'failed';
   if (agent.completedAtMs !== null) return 'done';
   return agent.backgrounded === true ? 'background' : 'running';
@@ -279,18 +286,20 @@ export function subagentState(agent: { readonly completedAtMs: number | null; re
  */
 export function subagentGroupHeader(group: {
   readonly agentType: string;
-  readonly agents: ReadonlyArray<{ readonly completedAtMs: number | null; readonly error: string | null; readonly backgrounded?: boolean; readonly continued?: boolean }>;
+  readonly agents: ReadonlyArray<SubagentOutcome & { readonly continued?: boolean }>;
 }): string {
   const { agents } = group;
-  const running = agents.filter((a) => subagentState(a) === 'running').length;
-  const background = agents.filter((a) => subagentState(a) === 'background').length;
-  const failed = agents.filter((a) => a.error !== null).length;
+  const counts = { running: 0, background: 0, done: 0, stopped: 0, failed: 0 };
+  for (const agent of agents) counts[subagentState(agent)] += 1;
+  const { running, background, stopped, failed } = counts;
+  const allStopped = stopped > 0 && stopped === agents.length;
   const typeWord = group.agentType === 'mixed' || group.agentType === 'default' ? '' : `${group.agentType} `;
   const noun = agents.length === 1 ? 'agent' : 'agents';
-  const verb = running > 0 ? 'running' : background > 0 ? 'in the background' : 'finished';
+  const verb = running > 0 ? 'running' : background > 0 ? 'in the background' : allStopped ? 'stopped' : 'finished';
   const where = running === 0 && background === 0 && agents.every((a) => a.continued === true) ? ' in the background' : '';
+  const stopTail = stopped > 0 && !allStopped ? `, ${stopped} stopped` : '';
   const failTail = failed > 0 ? `, ${failed} failed` : '';
-  return `${agents.length} ${typeWord}${noun} ${verb}${where}${failTail}`;
+  return `${agents.length} ${typeWord}${noun} ${verb}${where}${stopTail}${failTail}`;
 }
 
 /** "3 tool calls" for a subagent; null when its agent does not report its tool calls and none arrived. */

@@ -11,12 +11,13 @@ export function SubagentView({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const state = subagentState(block);
+  const detail = state === 'background' ? 'in the background' : state === 'stopped' ? 'Stopped' : subagentNote(block);
   return (
     <TraceEntry kind="subagent" testId="block-subagent">
       <DisclosureRow
         state={state}
         label={block.label}
-        {...(state === 'background' ? { detail: 'in the background' } : subagentNote(block) ? { detail: subagentNote(block) } : {})}
+        detail={detail ?? undefined}
         meta={subagentToolsLabel(block, 'call') ?? ''}
         live={state === 'running'}
         open={open}
@@ -58,7 +59,7 @@ export function SubagentDetail({ block }: { readonly block: SubagentBlock }): JS
         </ul>
       )}
       {block.error ? (
-        <pre style={{ ...preStyle, color: 'var(--color-red-text)' }}>{block.error}</pre>
+        <pre style={state === 'failed' ? { ...preStyle, color: 'var(--color-red-text)' } : preStyle}>{block.error}</pre>
       ) : block.finalPreview ? (
         <pre style={preStyle}>{block.finalPreview}</pre>
       ) : (

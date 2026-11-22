@@ -30,7 +30,7 @@ import {
   turnStepList,
   type CompactToolMap,
 } from './pair-events.js';
-import { subagentState } from './format.js';
+import { subagentGroupHeader, subagentState } from './format.js';
 import type {
   LiveToolBlockData,
   SkillScopeBlock,
@@ -843,6 +843,28 @@ describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
     const agent = asSubagent(blocks[0]);
     expect(subagentState(agent)).toBe('background');
     expect(isSettled(agent)).toBe(true);
+  });
+
+  it('counts a stopped helper separately from a failed helper when reopening a conversation', () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'a', label: 'One' }),
+      subagentEvent('subagent_started', { childSessionId: 'b', label: 'Two' }),
+      subagentEvent('subagent_completed', { childSessionId: 'a', stopReason: 'stopped', error: 'The subagent was stopped.' }),
+      subagentEvent('subagent_completed', { childSessionId: 'b', stopReason: 'error', error: 'It crashed.' }),
+    ]);
+    const group = asSubagentGroup(blocks[0]);
+
+    expect(subagentGroupHeader(group)).toBe('2 agents finished, 1 stopped, 1 failed');
+    expect(group.agents.map(subagentState)).toEqual(['stopped', 'failed']);
+  });
+
+  it('shows a cancelled helper as stopped when replaying an abort event', () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'a', label: 'One' }),
+      subagentEvent('subagent_abort', { childSessionId: 'a', reason: 'interrupted' }),
+    ]);
+
+    expect(subagentGroupHeader(asSubagentGroup(blocks[0]))).toBe('1 agent stopped');
   });
 
   it('shows what a background subagent did later in a row of its own where it happened, and leaves the earlier row as it was', () => {

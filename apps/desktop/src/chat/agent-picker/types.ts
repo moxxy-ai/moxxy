@@ -1,5 +1,5 @@
 import type { ReasoningEffort } from '@moxxy/desktop-ipc-contract';
-import type { AgentCliReport, SkillInfo } from '@moxxy/sdk';
+import type { AgentCliReport, ReasoningEffort as ModelReasoningEffort, SkillInfo } from '@moxxy/sdk';
 import type { CommandInfo } from '../command-palette/types';
 
 /**
@@ -17,6 +17,8 @@ export interface ProviderInfo {
   readonly models: ReadonlyArray<{
     readonly id: string;
     readonly supportsReasoning?: boolean;
+    /** The reasoning efforts the model takes, lowest first; absent on older runners and on models that name none. */
+    readonly reasoningEfforts?: ReadonlyArray<ModelReasoningEffort>;
     readonly supportsFast?: boolean;
   }>;
   readonly supportsLiveModelDiscovery?: boolean;
@@ -48,6 +50,7 @@ export interface SessionInfo {
   readonly activeModeBadge: ModeBadge | null;
   /** How deeply the model thinks in this conversation (`default`: on at the provider's default; null: off). Absent from older runners. */
   readonly reasoningEffort?: ReasoningEffort | 'default' | null;
+  readonly reasoningEffortSet?: boolean;
   /** Whether turns ask for the provider's faster tier. Absent from older runners. */
   readonly fast?: boolean;
   /** The model a turn runs on when none is picked here. Absent from older runners. */

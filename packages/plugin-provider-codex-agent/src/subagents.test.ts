@@ -39,6 +39,19 @@ describe("Codex's subagents", () => {
     expect(subagents.activity({ ...activity('completed'), kind: 'interrupted' })).toEqual([]);
   });
 
+  it('keeps a newer turn on the helper running when the stopped turn reports its end late', () => {
+    const agents = new CodexSubagents();
+    agents.activity(activity('started'));
+    agents.fromThread('turn/started', { threadId: CHILD, turn: { id: 'first' } });
+    const stop = agents.beginStop(CHILD);
+    agents.fromThread('turn/started', { threadId: CHILD, turn: { id: 'next' } });
+    agents.fromThread('turn/completed', { threadId: CHILD, turn: { id: 'first', status: 'interrupted' } });
+    expect(stop?.stopped).toBe(true);
+    expect(agents.confirmStop(CHILD)).toEqual([]);
+    expect(agents.running().map(a => a.id)).toEqual([CHILD]);
+    expect(agents.beginStop(CHILD)?.turn).toBe('next');
+  });
+
   it('leave out threads that are not a subagent Codex announced', () => {
     const subagents = new CodexSubagents();
 

@@ -177,6 +177,18 @@ describe('a turn on the Codex agent connection', () => {
     expect(said(events)).toEqual([other]);
   });
 
+  it('thinks at ultra on a model that has it, and at max once the person picks luna, which stops there', async () => {
+    const { codex, session } = connect(async (turn) => turn.say(turn.thread.effort ?? 'none'), { effort: 'medium' });
+    session.reasoning = { effort: 'ultra' };
+
+    const deep = await collectTurn(session, 'plan the migration', { model: 'gpt-6-sol' });
+    const light = await collectTurn(session, 'and now', { model: 'gpt-6-luna' });
+
+    expect(codex.last.sent('thread/settings/update').map((update) => update.effort).filter(Boolean)).toEqual(['ultra', 'max']);
+    expect([...said(deep), ...said(light)]).toEqual(['ultra', 'max']);
+    expect(session.getInfo().reasoningEffort).toBe('max');
+  });
+
   it('runs Codex on its fast tier while fast mode is on, and on its own tier again when it is off', async () => {
     // Codex names its standard tier `default`.
     const { codex, session } = connect(async (turn) => turn.say(turn.thread.serviceTier ?? 'default'), { serviceTier: 'default' });
@@ -1507,10 +1519,11 @@ describe('work Codex leaves running when its turn ends', () => {
     later('turn/started', { threadId: 'thread-child', turn: { id: 'turn-child', status: 'inProgress' } });
     await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
 
-    expect(await session.stopBackgroundWork('thread-child')).toBe(true);
-    expect(codex.last.sent('turn/interrupt')).toContainEqual({ threadId: 'thread-child', turnId: 'turn-child' });
+    const stopping = session.stopBackgroundWork('thread-child');
+    await vi.waitFor(() => expect(codex.last.sent('turn/interrupt')).toContainEqual({ threadId: 'thread-child', turnId: 'turn-child' }));
     later('item/completed', { ...ids, item: activity('interrupted') });
 
+    expect(await stopping).toBe(true);
     await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
     const ended = session.log.ofType('plugin_event').find((e) => e.subtype === 'subagent_completed');
     expect(ended?.payload).toMatchObject({ childSessionId: 'thread-child', stopReason: 'stopped' });
@@ -1526,11 +1539,12 @@ describe('work Codex leaves running when its turn ends', () => {
     });
     await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
 
-    expect(await session.stopBackgroundWork('thread-child')).toBe(true);
-    expect(codex.last.sent('turn/interrupt')).toContainEqual({ threadId: 'thread-child', turnId: 'turn-child' });
+    const stopping = session.stopBackgroundWork('thread-child');
+    await vi.waitFor(() => expect(codex.last.sent('turn/interrupt')).toContainEqual({ threadId: 'thread-child', turnId: 'turn-child' }));
     // Codex 0.163 ends only the subagent's own turn; the conversation's thread hears nothing.
     later('turn/completed', { threadId: 'thread-child', turn: { id: 'turn-child', status: 'interrupted' } });
 
+    expect(await stopping).toBe(true);
     await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
     const ended = session.log.ofType('plugin_event').find((e) => e.subtype === 'subagent_completed');
     expect(ended?.payload).toMatchObject({ childSessionId: 'thread-child', stopReason: 'stopped' });
@@ -1538,6 +1552,173 @@ describe('work Codex leaves running when its turn ends', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(session.log.ofType('user_prompt')).toHaveLength(1);
     expect(session.log.ofType('plugin_event').filter((e) => e.subtype === 'subagent_completed')).toHaveLength(1);
+  });
+
+  it('matches a terminal whose command event arrives after the interrupt and preserves a natural finish', async () => {
+    const threadId = 'child-late';
+    const turnId = 'turn-late';
+    const activity = (kind: string) => ({ type: 'subAgentActivity', kind, agentThreadId: threadId });
+    const { codex, session, later, ids } = await leaveRunning((turn) => {
+      turn.server.notify('item/started', { threadId: turn.threadId, turnId: turn.id, item: activity('started') });
+      turn.server.notify('turn/started', { threadId, turn: { id: turnId } });
+    });
+    const helper = codex.last.helpers.get(threadId);
+    if (!helper) throw new Error('Child did not start');
+    helper.terminals.set('cmd', { command: 'task', processId: '42' });
+    const stopped = session.stopBackgroundWork(threadId);
+    await vi.waitFor(() => expect(codex.last.sent('turn/interrupt')).toHaveLength(1));
+    later('item/completed', { ...ids, item: activity('completed') });
+    await vi.waitFor(() => expect(codex.last.sent('thread/backgroundTerminals/list')).toHaveLength(1));
+    expect(codex.last.sent('thread/backgroundTerminals/terminate')).toEqual([]);
+    const item = { type: 'commandExecution', id: 'cmd', command: 'task', cwd: '/work/app' };
+    later('item/started', { threadId, turnId, item: { ...item, status: 'inProgress' } });
+    await vi.waitFor(() => expect(helper.terminals.size).toBe(0));
+    later('item/completed', { threadId, turnId, item: { ...item, status: 'completed' } });
+    expect(await stopped).toBe(true);
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+    const end = session.log.ofType('plugin_event').find(e => e.subtype === 'subagent_completed');
+    expect(end).toBeDefined();
+    expect(end?.payload).not.toMatchObject({ stopReason: 'stopped' });
+  });
+
+  it('still shows a natural completion when Codex refuses to interrupt the helper', async () => {
+    const ids = { threadId: 'worker', turnId: 'turn-worker' };
+    const activity = (kind: string) => ({ type: 'subAgentActivity', kind, agentThreadId: ids.threadId });
+    const { codex, session, later, ids: parent } = await leaveRunning(({ server, threadId, id }) => {
+      server.notify('item/started', { threadId, turnId: id, item: activity('started') });
+      server.notify('turn/started', { ...ids, turn: { id: ids.turnId } });
+    });
+    codex.last.rejectNextRequest = 'turn/interrupt';
+    await expect(session.stopBackgroundWork(ids.threadId)).rejects.toThrow('refused');
+    later('item/completed', { ...parent, item: activity('completed') });
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+    expect(session.log.ofType('plugin_event').filter(e => e.subtype === 'subagent_completed')).toHaveLength(1);
+  });
+
+  it('keeps an interrupted helper visible on a failed termination and retries only its current commands', async () => {
+    const child = 'child-working';
+    const { codex, session, later } = await leaveRunning(({ server, threadId, id }) => {
+      server.notify('item/started', { threadId, turnId: id, item: { type: 'subAgentActivity', kind: 'started', agentThreadId: child } });
+    });
+    const command = { type: 'commandExecution', id: 'current', command: 'task', status: 'inProgress', cwd: '/work/app' };
+    for (const id of ['older', 'current']) {
+      later('turn/started', { threadId: child, turn: { id } });
+      later('item/started', { threadId: child, turnId: id, item: { ...command, id } });
+    }
+    const helper = codex.last.helpers.get(child);
+    if (!helper) throw new Error('Child did not start');
+    helper.terminals.set('older', { command: 'server', processId: '1' });
+    helper.terminals.set('current', { command: 'task', processId: '2' });
+    codex.last.rejectNextRequest = 'thread/backgroundTerminals/terminate';
+    const stop = session.stopBackgroundWork(child);
+    const again = session.stopBackgroundWork(child);
+    await vi.waitFor(() => expect(codex.last.sent('turn/interrupt')).toHaveLength(1));
+    later('turn/completed', { threadId: child, turn: { id: 'current', status: 'interrupted' } });
+    const results = await Promise.allSettled([stop, again]);
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    expect(session.getInfo().backgroundWork?.map(w => w.id)).toContain(child);
+    expect(codex.last.sent('thread/backgroundTerminals/terminate')).toEqual([{ threadId: child, processId: '2' }]);
+    const retried = session.stopBackgroundWork(child);
+    await vi.waitFor(() => expect([...helper.terminals.keys()]).toEqual(['older']));
+    expect(session.getInfo().backgroundWork?.map(w => w.id)).toContain(child);
+    later('item/completed', { threadId: child, turnId: 'current', item: { ...command, status: 'failed' } });
+    expect(await retried).toBe(true);
+    await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+    expect(codex.last.sent('turn/interrupt')).toHaveLength(1);
+    expect(opened(session)).toHaveLength(0);
+  });
+
+  describe('when Codex answers a Stop only after Moxxy stopped waiting', () => {
+    const helperIn = (child: string, turnId: string) => (turn: Parameters<CodexScene>[0]) => {
+      turn.server.notify('item/started', { threadId: turn.threadId, turnId: turn.id, item: { type: 'subAgentActivity', kind: 'started', agentThreadId: child, agentPath: `/root/${child}` } });
+      turn.server.notify('turn/started', { threadId: child, turn: { id: turnId } });
+    };
+    /** Stands in for the 15 seconds Moxxy waits on Codex: they pass when `waited` is called. */
+    const patience = () => {
+      const clocks: AbortController[] = [];
+      const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
+        const clock = new AbortController();
+        clocks.push(clock);
+        return clock.signal;
+      });
+      const waited = () => { for (const clock of clocks.splice(0)) clock.abort(new DOMException('Timed out', 'TimeoutError')); };
+      return { waited, restore: () => spy.mockRestore() };
+    };
+    const ends = (session: Session) => session.log.ofType('plugin_event').filter((e) => e.subtype === 'subagent_completed');
+
+    it('ends the helper as stopped once Codex confirms late, leaves another helper running and opens no turn', async () => {
+      const { waited, restore } = patience();
+      try {
+        const { codex, session, later } = await leaveRunning((turn) => {
+          helperIn('slow', 'turn-slow')(turn);
+          helperIn('other', 'turn-other')(turn);
+        });
+        await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(2));
+        const stop = session.stopBackgroundWork('slow');
+        await vi.waitFor(() => expect(codex.last.sent('turn/interrupt')).toHaveLength(1));
+        waited();
+        await expect(stop).rejects.toThrow('did not confirm');
+
+        later('turn/completed', { threadId: 'slow', turn: { id: 'turn-slow', status: 'interrupted' } });
+        await vi.waitFor(() => expect(session.getInfo().backgroundWork?.map((w) => w.id)).toEqual(['other']));
+        expect(ends(session).map((e) => e.payload)).toEqual([expect.objectContaining({ childSessionId: 'slow', stopReason: 'stopped' })]);
+        expect(codex.last.sent('turn/interrupt')).toHaveLength(1);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(opened(session)).toHaveLength(0);
+      } finally {
+        restore();
+      }
+    });
+
+    it('shows a helper that finished by itself as finished, not stopped, even when the person clicks Try again at that moment', async () => {
+      const { waited, restore } = patience();
+      try {
+        const { codex, session, ids, later } = await leaveRunning(helperIn('slow', 'turn-slow'));
+        await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
+        const stop = session.stopBackgroundWork('slow');
+        await vi.waitFor(() => expect(codex.last.sent('turn/interrupt')).toHaveLength(1));
+        waited();
+        await expect(stop).rejects.toThrow('did not confirm');
+
+        later('item/completed', { ...ids, item: { type: 'subAgentActivity', kind: 'completed', agentThreadId: 'slow' } });
+        const again = session.stopBackgroundWork('slow');
+        await vi.waitFor(() => expect(session.getInfo().backgroundWork).toEqual([]));
+        await again;
+        expect(ends(session)).toHaveLength(1);
+        expect(ends(session)[0]?.payload).not.toMatchObject({ stopReason: 'stopped' });
+        expect(codex.last.sent('turn/interrupt')).toHaveLength(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it('leaves running a new turn the helper started meanwhile, and its commands', async () => {
+      const { waited, restore } = patience();
+      try {
+        const { codex, session, later } = await leaveRunning(helperIn('slow', 'turn-slow'));
+        await vi.waitFor(() => expect(session.getInfo().backgroundWork).toHaveLength(1));
+        const helper = codex.last.helpers.get('slow');
+        if (!helper) throw new Error('Child did not start');
+        const stop = session.stopBackgroundWork('slow');
+        await vi.waitFor(() => expect(codex.last.sent('turn/interrupt')).toHaveLength(1));
+        waited();
+        await expect(stop).rejects.toThrow('did not confirm');
+
+        later('turn/started', { threadId: 'slow', turn: { id: 'turn-next' } });
+        later('item/started', { threadId: 'slow', turnId: 'turn-next', item: { type: 'commandExecution', id: 'next-cmd', command: 'task', cwd: '/work/app', status: 'inProgress' } });
+        helper.terminals.set('next-cmd', { command: 'task', processId: '7' });
+        later('turn/completed', { threadId: 'slow', turn: { id: 'turn-slow', status: 'interrupted' } });
+
+        await vi.waitFor(() => expect(codex.last.sent('thread/backgroundTerminals/list')).toHaveLength(1));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(session.getInfo().backgroundWork?.map((w) => w.id)).toEqual(['slow']);
+        expect(ends(session)).toEqual([]);
+        expect(codex.last.sent('thread/backgroundTerminals/terminate')).toEqual([]);
+        expect(codex.last.sent('turn/interrupt')).toHaveLength(1);
+      } finally {
+        restore();
+      }
+    });
   });
 
   it('shows what finished while the person was already writing in their next turn instead', async () => {

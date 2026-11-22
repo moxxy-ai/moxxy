@@ -75,6 +75,8 @@ export interface SessionRuntime {
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean | undefined;
   /** The reasoning a turn runs with: `reasoning`, or low on an agent connection without an effort set. */
   turnReasoning(): { readonly effort?: ReasoningEffort } | boolean | undefined;
+  /** Lower the effort for good to one the model a turn runs on takes. */
+  fitReasoningTo(provider: Pick<LLMProvider, 'name' | 'models'>, model: string): void;
   readonly fast?: boolean;
   /** Stuck-loop guard tuning, forwarded to each turn's ModeContext. */
   readonly loopGuard?: LoopGuardSettings;

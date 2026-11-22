@@ -234,7 +234,7 @@ describe('IPC payload validation', () => {
   });
 
   it('pins settings.setReasoning effort to the known enum', () => {
-    for (const effort of ['off', 'low', 'medium', 'high', 'xhigh'] as const) {
+    for (const effort of ['off', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const) {
       expect(() => validateIpcInput('settings.setReasoning', { effort })).not.toThrow();
     }
     expect(() =>
@@ -253,6 +253,7 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('settings.setModelDefaults', { model, effort: 'medium', fast: true })).not.toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { model })).not.toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { effort: 'off' })).not.toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { effort: 'ultra' })).not.toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { fast: false })).not.toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { effort: 'default' })).toThrow();
     expect(() => validateIpcInput('settings.setModelDefaults', { model: { ...model, model: '' } })).toThrow();

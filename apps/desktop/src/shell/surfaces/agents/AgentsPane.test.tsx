@@ -23,13 +23,13 @@ const helper = (subtype: string, payload: Record<string, unknown>) =>
 const work = (subtype: string, payload: Record<string, unknown>) =>
   event({ type: 'plugin_event', pluginId: '@moxxy/agent-connection', subtype, payload: { provider: 'claude-code', ...payload } });
 
-function host(running: ReadonlyArray<AgentBackgroundWork>) {
+function host(running: ReadonlyArray<AgentBackgroundWork>, stop: () => boolean = () => true) {
   const calls: Array<[string, unknown]> = [];
   __setApiOverride({
     invoke: async (cmd: string, args: unknown) => {
       calls.push([cmd, args]);
       if (cmd === 'session.info') return { backgroundWork: running };
-      if (cmd === 'session.stopBackgroundWork') return true;
+      if (cmd === 'session.stopBackgroundWork') return stop();
       return undefined;
     },
     subscribe: () => () => undefined,
@@ -44,6 +44,22 @@ function seed(id: string, events: MoxxyEvent[]): void {
 const server: AgentBackgroundWork = { id: 'b1', kind: 'command', label: 'npm run dev' };
 
 describe('AgentsPane', () => {
+  it('shows an unconfirmed Stop and lets the person retry the same work', async () => {
+    const id = ws();
+    let attempts = 0;
+    host([server], () => {
+      if (++attempts === 1) throw new Error('Codex disconnected');
+      return true;
+    });
+    render(<AgentsPane workspaceId={id} />);
+    fireEvent.click(await screen.findByRole('button', { name: /npm run dev/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not confirm');
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(attempts).toBe(2);
+  });
+
   it('lists when the agent set itself to come back, above what runs, with the time and how soon', async () => {
     const id = ws();
     const inFiveMinutes = Date.now() + 5 * 60_000 + 30_000;

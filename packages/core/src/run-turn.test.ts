@@ -889,3 +889,98 @@ describe('runTurn — a question left waiting when the person writes again', () 
     expect(openQuestions(session)).toBe(1);
   });
 });
+
+describe('runTurn with a reasoning effort the model lacks', () => {
+  const upToMax = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+  const upToUltra = [...upToMax, 'ultra'] as const;
+  const models = [
+    { id: 'luna', supportsReasoning: true, reasoningEfforts: upToMax },
+    { id: 'sol', supportsReasoning: true, reasoningEfforts: upToUltra },
+    { id: 'classic', supportsReasoning: true },
+    { id: 'plain' },
+  ];
+
+  const efforts: Array<string | undefined> = [];
+  const reasoningSession = (): Session => {
+    efforts.length = 0;
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'reasoning-fit-test',
+        version: '0.0.0',
+        providers: [
+          defineProvider({
+            name: 'thinker',
+            models,
+            createClient: () => ({ name: 'thinker', models, stream: async function* () {}, countTokens: async () => 0 }),
+          }),
+        ],
+        modes: [
+          defineMode({
+            name: 'effort-echo',
+            run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+              efforts.push(typeof ctx.reasoning === 'object' ? ctx.reasoning.effort : undefined);
+              await ctx.emit({ type: 'assistant_message', sessionId: ctx.sessionId, turnId: ctx.turnId, source: 'assistant', text: 'ok' });
+            },
+          }),
+        ],
+      }),
+    );
+    session.providers.setActive('thinker');
+    session.modes.setActive('effort-echo');
+    return session;
+  };
+
+  it('runs ultra on a model that stops at max at max, and the conversation keeps max', async () => {
+    const session = reasoningSession();
+    session.reasoning = { effort: 'ultra' };
+    const told: Array<string | null | undefined> = [];
+    session.onInfoChanged((info) => told.push(info.reasoningEffort));
+
+    await collectTurn(session, 'think', { model: 'luna' });
+
+    expect(efforts).toEqual(['max']);
+    expect(session.getInfo().reasoningEffort).toBe('max');
+    expect(told).toContain('max');
+  });
+
+  it('does not raise it back when the next turn runs on a model with ultra', async () => {
+    const session = reasoningSession();
+    session.reasoning = { effort: 'ultra' };
+
+    await collectTurn(session, 'think', { model: 'luna' });
+    await collectTurn(session, 'think again', { model: 'sol' });
+
+    expect(efforts).toEqual(['max', 'max']);
+    expect(session.getInfo().reasoningEffort).toBe('max');
+  });
+
+  it('keeps ultra on a model that has it', async () => {
+    const session = reasoningSession();
+    session.reasoning = { effort: 'ultra' };
+
+    await collectTurn(session, 'think', { model: 'sol' });
+
+    expect(efforts).toEqual(['ultra']);
+    expect(session.getInfo().reasoningEffort).toBe('ultra');
+  });
+
+  it('runs max at extra high on a model that names no levels', async () => {
+    const session = reasoningSession();
+    session.reasoning = { effort: 'max' };
+
+    await collectTurn(session, 'think', { model: 'classic' });
+
+    expect(efforts).toEqual(['xhigh']);
+    expect(session.getInfo().reasoningEffort).toBe('xhigh');
+  });
+
+  it('leaves the effort alone on a model that does not reason', async () => {
+    const session = reasoningSession();
+    session.reasoning = { effort: 'ultra' };
+
+    await collectTurn(session, 'answer', { model: 'plain' });
+
+    expect(session.getInfo().reasoningEffort).toBe('ultra');
+  });
+});

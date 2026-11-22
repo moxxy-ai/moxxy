@@ -4,6 +4,7 @@ import type { StopReason } from './provider-utils.js';
 import type { QuestionAskOptions, QuestionItem, QuestionOutcome } from './question.js';
 import type { AgentAccountLimit } from './agent-account-limit.js';
 import type { Skill } from './skill.js';
+import type { ReasoningEffort } from './reasoning-effort.js';
 
 export interface ProviderMessage {
   readonly role: 'system' | 'user' | 'assistant' | 'tool_result';
@@ -59,8 +60,8 @@ export interface CacheHint {
   readonly target: 'tools' | 'system' | { readonly messageIndex: number };
 }
 
-/** How deeply a reasoning model should think; `xhigh` is the deepest. */
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+/** How deeply a reasoning model should think; see `reasoning-effort.ts` for the scale. */
+export type { ReasoningEffort } from './reasoning-effort.js';
 
 export interface ProviderRequest {
   readonly model: string;
@@ -163,6 +164,13 @@ export interface ModelDescriptor {
    * for this model. When false, `ProviderRequest.reasoning` is ignored.
    */
   readonly supportsReasoning?: boolean;
+  /**
+   * The reasoning efforts this model takes, lowest first (Codex reports `max`
+   * and `ultra` on some models only). Absent: the classic `low`…`xhigh`. A turn
+   * asking for a level the model lacks runs at the highest one below it (see
+   * `fitReasoningEffort`), and every client offers only these.
+   */
+  readonly reasoningEfforts?: ReadonlyArray<ReasoningEffort>;
   /** Whether the provider can serve this model on a faster tier (see `ProviderRequest.fast`). */
   readonly supportsFast?: boolean;
   /**

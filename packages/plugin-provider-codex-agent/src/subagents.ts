@@ -1,4 +1,5 @@
-import type { AgentBackgroundWork, AgentStepEvent } from '@moxxy/sdk';
+import { EventEmitter } from 'node:events';
+import { waitFor, type AgentBackgroundWork, type AgentStepEvent } from '@moxxy/sdk';
 import { toolCallOf } from './translate.js';
 import type { CodexItem } from './protocol.js';
 
@@ -9,6 +10,28 @@ interface Running {
   done: boolean;
   /** The turn running in its thread now, which Stop interrupts. */
   turn?: string;
+  readonly commands: Map<string, { turn: string; finished: boolean }>;
+  stop?: SubagentStop;
+}
+
+export class SubagentStop {
+  readonly changes = new EventEmitter();
+  /** Codex’s final event: true for an interruption, false for natural completion. */
+  stopped?: boolean;
+  attempt?: Promise<boolean>;
+
+  constructor(readonly turn: string, readonly commands: Running['commands']) {}
+
+  async until(check: () => boolean, signal: AbortSignal): Promise<void> {
+    const outcome = await waitFor(() => check() || undefined, {
+      signal,
+      wakeOn: [(wake) => {
+        this.changes.on('change', wake);
+        return () => { this.changes.off('change', wake); };
+      }],
+    });
+    if (outcome.status !== 'ready') throw new Error('Codex did not confirm that this helper stopped.');
+  }
 }
 
 /**
@@ -19,6 +42,12 @@ interface Running {
 export class CodexSubagents {
   private readonly agents = new Map<string, Running>();
 
+  /**
+   * @param answeredLate called with a helper's id when Codex ends the turn Stop interrupted after
+   *   Moxxy stopped waiting for it: that stop is still to be checked and shown.
+   */
+  constructor(private readonly answeredLate: (id: string) => void = () => {}) {}
+
   /** A `subAgentActivity` item on the conversation's thread. */
   activity(item: unknown): AgentStepEvent[] {
     const a = (item ?? {}) as { kind?: unknown; agentThreadId?: unknown; agentPath?: unknown };
@@ -28,11 +57,11 @@ export class CodexSubagents {
     if (a.kind === 'started') {
       if (known) return [];
       const label = labelOf(a.agentPath);
-      this.agents.set(id, { label, text: '', tokens: undefined, done: false });
+      this.agents.set(id, { label, text: '', tokens: undefined, done: false, commands: new Map() });
       return [{ type: 'subagent_started', id, label, agentType: 'default' }];
     }
     if ((a.kind !== 'completed' && a.kind !== 'interrupted') || !known || known.done) return [];
-    return [end(id, known, a.kind === 'interrupted')];
+    return this.ended(id, known, a.kind === 'interrupted');
   }
 
   /** A notification from a thread other than the conversation's: a subagent's work, if it is one. */
@@ -46,17 +75,26 @@ export class CodexSubagents {
         if (typeof turn?.id === 'string') agent.turn = turn.id;
         return [];
       }
+      if (typeof turn?.id === 'string' && agent.turn && agent.turn !== turn.id) {
+        if (agent.stop?.turn === turn.id) this.ended(id, agent, turn.status === 'interrupted');
+        return [];
+      }
       delete agent.turn;
       // Between the conversation's turns Codex reports a stopped subagent only here.
-      return turn?.status === 'interrupted' ? [end(id, agent, true)] : [];
+      return turn?.status === 'interrupted' ? this.ended(id, agent, true) : [];
     }
     if (method === 'thread/tokenUsage/updated') {
       const total = (params.tokenUsage as { total?: { totalTokens?: unknown } } | undefined)?.total;
       if (total && typeof total.totalTokens === 'number') agent.tokens = total.totalTokens;
       return [];
     }
-    if (method !== 'item/completed') return [];
+    if (method !== 'item/started' && method !== 'item/completed') return [];
     const item = params.item as CodexItem | undefined;
+    if (item?.type === 'commandExecution' && typeof params.turnId === 'string') {
+      agent.commands.set(item.id, { turn: params.turnId, finished: method === 'item/completed' });
+      agent.stop?.changes.emit('change');
+    }
+    if (method === 'item/started') return [];
     if (!item) return [];
     if (item.type === 'agentMessage') {
       if (!item.text) return [];
@@ -73,15 +111,44 @@ export class CodexSubagents {
     return [...this.agents].flatMap(([id, agent]) => (agent.done ? [] : [{ id, kind: 'agent' as const, label: agent.label }]));
   }
 
-  /** The turn running in a working subagent's thread, if any. */
-  turnOf(id: string): string | undefined {
+  beginStop(id: string): SubagentStop | undefined {
     const agent = this.agents.get(id);
-    return agent && !agent.done ? agent.turn : undefined;
+    if (!agent || agent.done) return undefined;
+    if (agent.stop) return agent.stop;
+    if (!agent.turn) return undefined;
+    agent.stop = new SubagentStop(agent.turn, agent.commands);
+    return agent.stop;
+  }
+
+  cancelUnacceptedStop(id: string): void {
+    const agent = this.agents.get(id);
+    if (agent && agent.stop?.stopped === undefined) delete agent.stop;
+  }
+
+  /** Hold Codex's end notification until its surviving commands have been checked. */
+  private ended(id: string, agent: Running, stopped: boolean): AgentStepEvent[] {
+    if (!agent.stop) return [end(id, agent, stopped)];
+    if (agent.stop.stopped === undefined) {
+      agent.stop.stopped = stopped;
+      agent.stop.changes.emit('change');
+      if (!agent.stop.attempt) this.answeredLate(id);
+    }
+    return [];
+  }
+
+  confirmStop(id: string): AgentStepEvent[] {
+    const agent = this.agents.get(id);
+    if (!agent || !agent.stop || agent.stop.stopped === undefined) return [];
+    const { turn, stopped } = agent.stop;
+    delete agent.stop;
+    if (agent.turn && agent.turn !== turn) return [];
+    return [end(id, agent, stopped)];
   }
 }
 
 function end(id: string, agent: Running, stopped: boolean): AgentStepEvent {
   agent.done = true;
+  agent.commands.clear();
   return {
     type: 'subagent_completed',
     id,

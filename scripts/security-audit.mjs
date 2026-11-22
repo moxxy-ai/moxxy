@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { evaluateAudit } from './security-audit-policy.mjs';
+import { evaluateAudit, reportedAdvisories } from './security-audit-policy.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
@@ -19,7 +19,7 @@ try {
   throw new Error(`pnpm audit did not return JSON: ${audit.stderr || audit.stdout}`);
 }
 
-const advisories = Object.values(report.advisories ?? {});
+const advisories = reportedAdvisories(report, audit.status);
 const { unmitigated, stale } = evaluateAudit(advisories);
 
 if (unmitigated.length > 0) {

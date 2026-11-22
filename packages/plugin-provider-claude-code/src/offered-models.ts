@@ -3,9 +3,9 @@
  * them. An Agent SDK `query()` that is sent no message answers
  * `supportedModels()` and is closed, so no turn runs and no usage is spent.
  */
-import type { ModelDescriptor } from '@moxxy/sdk';
+import { reasoningEffortsFrom, type ModelDescriptor } from '@moxxy/sdk';
 import { claudeCodeModels } from './agent-provider.js';
-import type { ClaudeAgentSdk, ClaudeUserMessage } from './sdk-types.js';
+import type { ClaudeAgentSdk, ClaudeModelInfo, ClaudeUserMessage } from './sdk-types.js';
 
 /** `supportedModels` says nothing of the window; a model Moxxy does not know gets this one. */
 const UNKNOWN_MODEL: Omit<ModelDescriptor, 'id'> = {
@@ -38,7 +38,7 @@ export async function claudeOfferedModels(opts: {
     for (const info of await query.supportedModels()) {
       const id = info.resolvedModel ?? info.value;
       if (info.value === 'default' || models.some((model) => model.id === id)) continue;
-      models.push(describe(id));
+      models.push(describe(id, info));
     }
     return models;
   } finally {
@@ -49,9 +49,10 @@ export async function claudeOfferedModels(opts: {
 // No `supportsFast`, even where Claude reports `supportsFastMode`: Moxxy does
 // not drive Claude's fast mode (it bills usage credits on its own), so the
 // picker offers no Fast switch for Claude Code.
-function describe(id: string): ModelDescriptor {
-  const known = claudeCodeModels.find((model) => model.id === id);
-  return { ...(known ?? UNKNOWN_MODEL), id };
+function describe(id: string, info: ClaudeModelInfo): ModelDescriptor {
+  const { reasoningEfforts: _builtIn, ...known } = claudeCodeModels.find((model) => model.id === id) ?? UNKNOWN_MODEL;
+  const levels = reasoningEffortsFrom(info.supportedEffortLevels ?? []);
+  return { ...known, id, ...(levels.length > 0 ? { reasoningEfforts: levels } : {}) };
 }
 
 /** A prompt that never sends: the query stays open only to answer the model list. */

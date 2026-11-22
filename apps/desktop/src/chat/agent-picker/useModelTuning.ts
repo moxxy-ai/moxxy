@@ -12,17 +12,36 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@moxxy/client-core';
 import type { ReasoningEffort } from '@moxxy/desktop-ipc-contract';
+import {
+  CLASSIC_REASONING_EFFORTS,
+  REASONING_EFFORTS,
+  fitReasoningEffort,
+  reasoningLevelsOf,
+  type ReasoningEffort as ModelEffort,
+} from '@moxxy/sdk/reasoning-effort';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 
-export const EFFORT_LEVELS: ReadonlyArray<ReasoningEffort> = ['off', 'low', 'medium', 'high', 'xhigh'];
+export const EFFORT_LEVELS: ReadonlyArray<ReasoningEffort> = ['off', ...REASONING_EFFORTS];
 
 /**
- * The levels an effort menu offers: `default` only while it is the effort, since it cannot be asked for.
- * An agent connection always thinks, so it has no Off and starts from Low (the runner runs it at Low until one is set).
+ * The levels an effort menu offers: the ones the model takes (up to extra high
+ * when it names none), and `default` only while it is the effort, since it
+ * cannot be asked for. An agent connection always thinks, so it has no Off and
+ * starts from Low (the runner runs it at Low until one is set).
  */
-export function effortLevelsFor(effort: EffortLevel, opts: { readonly agent?: boolean } = {}): ReadonlyArray<EffortLevel> {
-  if (opts.agent === true) return EFFORT_LEVELS.slice(1);
-  return effort === 'default' ? ['off', 'default', ...EFFORT_LEVELS.slice(1)] : EFFORT_LEVELS;
+export function effortLevelsFor(
+  effort: EffortLevel,
+  opts: { readonly agent?: boolean; readonly levels?: ReadonlyArray<ModelEffort> } = {},
+): ReadonlyArray<EffortLevel> {
+  const levels = opts.levels ?? CLASSIC_REASONING_EFFORTS;
+  if (opts.agent === true) return levels;
+  return effort === 'default' ? ['off', 'default', ...levels] : ['off', ...levels];
+}
+
+/** The level an effort the model in use lacks drops to (ultra on luna: max); null while it takes it, or it is off or default. */
+export function loweredEffort(effort: EffortLevel, levels: ReadonlyArray<ModelEffort>): ModelEffort | null {
+  if (effort === 'off' || effort === 'default' || levels.length === 0 || levels.includes(effort)) return null;
+  return fitReasoningEffort(effort, levels);
 }
 
 /** A level the effort can show: one a person can set, or `default`, reasoning on at the provider's own effort. */
@@ -109,7 +128,7 @@ export interface ModelTuning {
  * turn on. An unknown model id (a custom or live one) offers what any of its
  * provider's models do.
  */
-function offers(info: SessionInfo, model: string | null): { reasoning: boolean; fast: boolean } {
+function offers(info: SessionInfo, model: string | null): { reasoning: boolean; levels: ReadonlyArray<ModelEffort>; fast: boolean } {
   const provider = info.providers.find((p) => p.name === info.activeProvider);
   const models = provider?.models ?? [];
   const inUse = model ?? info.defaultModel ?? null;
@@ -117,6 +136,7 @@ function offers(info: SessionInfo, model: string | null): { reasoning: boolean; 
   const candidates = descriptor ? [descriptor] : models;
   return {
     reasoning: candidates.some((m) => m.supportsReasoning === true),
+    levels: reasoningLevelsOf(candidates),
     fast: candidates.some((m) => m.supportsFast === true),
   };
 }
@@ -161,27 +181,38 @@ export function useModelTuning(workspaceId: string, info: SessionInfo, model: st
     return done;
   };
 
-  // A new runner starts with the defaults: give it the choice made in this workspace, once.
+  // Restore once on a fresh runner. A choice already made in the TUI has precedence.
   useEffect(() => {
-    if (info.sessionId === undefined || restored.current === info.sessionId) return;
-    restored.current = info.sessionId;
+    if (info.sessionId === undefined) return;
     const choice = readChoice(workspaceId);
+    if (info.reasoningEffortSet && isSettableEffort(reported.effort) && choice?.effort !== reported.effort) {
+      saveChoice(workspaceId, { effort: reported.effort, fast: choice?.fast ?? reported.fast });
+    }
+    if (restored.current === info.sessionId) return;
+    restored.current = info.sessionId;
     if (!choice) return;
     const change: Partial<Choice> = {
-      ...(choice.effort !== undefined && choice.effort !== reported.effort ? { effort: choice.effort } : {}),
+      ...(!info.reasoningEffortSet && choice.effort !== undefined && choice.effort !== reported.effort ? { effort: choice.effort } : {}),
       ...(choice.fast !== reported.fast ? { fast: choice.fast } : {}),
     };
     if (Object.keys(change).length > 0) void apply(change);
-    // Only a new runner restores; the values themselves are read when it does.
-  }, [info.sessionId]);
+  }, [workspaceId, info.sessionId, info.reasoningEffortSet, reported.effort, reported.fast]);
 
   const offered = offers(info, model);
   const effort = pending.effort ?? reported.effort;
   const fast = pending.fast ?? reported.fast;
   const agent = info.providers.some((p) => p.name === info.activeProvider && p.agentName !== undefined);
+
+  // A model picked that lacks the effort (ultra, then luna) drops it at once, for good, on the runner every client reads.
+  const lowered = loweredEffort(effort, offered.levels);
+  useEffect(() => {
+    if (lowered !== null) void apply({ effort: lowered });
+    // Only a change of the effort or of the levels on offer can call for it.
+  }, [lowered]);
+
   return {
     effort,
-    effortLevels: effortLevelsFor(effort, { agent }),
+    effortLevels: effortLevelsFor(effort, { agent, levels: offered.levels.length > 0 ? offered.levels : undefined }),
     fast,
     canSetEffort: offered.reasoning,
     canSetFast: offered.fast,

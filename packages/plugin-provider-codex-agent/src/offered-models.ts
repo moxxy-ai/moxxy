@@ -4,7 +4,7 @@
  * and is closed. Codex caches the list for a few minutes; the hourly check
  * picks up a change after that.
  */
-import type { ModelDescriptor } from '@moxxy/sdk';
+import { reasoningEffortsFrom, type ModelDescriptor } from '@moxxy/sdk';
 import { JsonRpcLineClient } from '@moxxy/agent-connection-kit';
 import { codexAgentModels } from './agent-provider.js';
 import type { StartCodexAppServer } from './codex-session.js';
@@ -54,12 +54,19 @@ export async function codexOfferedModels(
 }
 
 function describe(model: CodexModelList['data'][number]): ModelDescriptor {
-  const known = codexAgentModels.find((descriptor) => descriptor.id === model.id) ?? UNKNOWN_MODEL;
+  const { reasoningEfforts: _builtIn, ...known } = codexAgentModels.find((descriptor) => descriptor.id === model.id) ?? UNKNOWN_MODEL;
+  const levels = reasoningEffortsFrom((model.supportedReasoningEfforts ?? []).map(levelOf));
   return {
     ...known,
     id: model.id,
     supportsImages: model.inputModalities?.includes('image') ?? known.supportsImages ?? false,
     supportsReasoning: (model.supportedReasoningEfforts?.length ?? 0) > 0,
+    ...(levels.length > 0 ? { reasoningEfforts: levels } : {}),
     supportsFast: model.additionalSpeedTiers?.includes('fast') ?? false,
   };
+}
+
+/** One entry of `supportedReasoningEfforts`: `{ reasoningEffort, description }` (a bare string from older Codex). */
+function levelOf(entry: unknown): unknown {
+  return typeof entry === 'object' && entry !== null ? (entry as { reasoningEffort?: unknown }).reasoningEffort : entry;
 }

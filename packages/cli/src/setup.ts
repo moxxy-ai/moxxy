@@ -348,7 +348,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // manifest default, already applied by activateProvider + applyPluginsTree
   // above. Only the per-session header (resumed session's own provider/model)
   // still overlays here.
-  await applySessionHeaderPreferences(session, opts.sessionId, credentialResolver, logger);
+  await applySessionHeaderPreferences(session, opts.resumeSessionId ?? opts.sessionId, credentialResolver, logger);
   progress({ kind: 'prefs-applied' });
 
   const discovered = await discoverSkills({

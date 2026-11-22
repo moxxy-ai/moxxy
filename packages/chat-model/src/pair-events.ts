@@ -122,6 +122,7 @@ function handleSubagentEvent(
   }
   if (e.subtype === 'subagent_error' || e.subtype === 'subagent_abort') {
     block.completedAtMs = new Date(e.ts).getTime();
+    if (e.subtype === 'subagent_abort') block.stopReason = 'stopped';
     const reason =
       (typeof payload.message === 'string' && payload.message) ||
       (typeof payload.reason === 'string' && payload.reason) ||

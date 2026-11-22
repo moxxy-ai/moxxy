@@ -20,6 +20,7 @@ import type {
   GovernanceInfo,
   LLMProvider,
 } from '@moxxy/sdk';
+import { fitReasoningEffort, reasoningEffortsOf } from '@moxxy/sdk';
 import { newSessionId, newTurnId } from './events/factory.js';
 import { runTurn as runTurnImpl } from './run-turn.js';
 import type { SessionRuntime } from './session-runtime.js';
@@ -225,6 +226,7 @@ export class Session implements ClientSession, SessionRuntime {
    * when the active model advertises `supportsReasoning`. Undefined → off.
    */
   reasoning: { readonly effort?: ReasoningEffort } | boolean | undefined = undefined;
+  private reasoningEffortSet = false;
   /** Ask for the provider's faster tier (OpenAI fast mode), from `config.context.fast`. */
   fast = false;
   /**
@@ -794,6 +796,28 @@ export class Session implements ClientSession, SessionRuntime {
     };
   }
 
+  setReasoningEffort(effort: ReasoningEffort | 'off'): void {
+    this.reasoningEffortSet = true;
+    this.reasoning = effort === 'off' ? undefined : { effort };
+    for (const listener of [...this.workListeners]) listener();
+  }
+
+  /**
+   * Lower the effort to one the model a turn runs on takes (ultra on a model
+   * that stops at max becomes max) and keep it: switching back to a model with
+   * ultra does not raise it again, so every client shows the effort turns run at.
+   * A model that does not reason leaves the effort alone.
+   */
+  fitReasoningTo(provider: Pick<LLMProvider, 'name' | 'models'>, modelId: string): void {
+    // The models every client is shown: what the agent listed, else the provider's own.
+    const model = (this.agentClis.models(provider.name) ?? provider.models).find((descriptor) => descriptor.id === modelId);
+    if (model?.supportsReasoning !== true || typeof this.reasoning !== 'object' || this.reasoning.effort === undefined) return;
+    const fitted = fitReasoningEffort(this.reasoning.effort, reasoningEffortsOf(model));
+    if (fitted === this.reasoning.effort) return;
+    this.reasoning = { ...this.reasoning, effort: fitted };
+    for (const listener of [...this.workListeners]) listener();
+  }
+
   /**
    * The reasoning a turn runs with. An agent connection always thinks, so it
    * has no "off": one without an effort set runs at low, its lowest level.
@@ -909,6 +933,7 @@ export class Session implements ClientSession, SessionRuntime {
       activeSynthesizer: this.synthesizers.getActiveName(),
       autoApprove: this.autoApprove,
       reasoningEffort: reasoningEffortOf(this.turnReasoning()),
+      reasoningEffortSet: this.reasoningEffortSet,
       fast: this.fast,
       ...(defaultModel !== undefined ? { defaultModel } : {}),
       backgroundWork: this.runningWork,

@@ -1,6 +1,9 @@
 import {
+  createMutex,
   isFirstPartyPackage,
+  isReasoningEffort,
   type ClientSession as Session,
+  type Mutex,
   type PluginsAdminView,
 } from '@moxxy/sdk';
 import {
@@ -8,8 +11,9 @@ import {
   packageNameFromSpec,
   undeclaredToolsWarning,
 } from '@moxxy/plugin-plugins-admin';
-import { loadConfig, setCategoryDefault, setConfigValue, setProviderModel } from '@moxxy/config';
+import { loadConfig, setCategoryDefault, setConfigValue, setModelDefaults } from '@moxxy/config';
 import type { Picker } from './types.js';
+import { modelSwitchEffort } from './reasoning-picker.js';
 import {
   openMcpPicker,
   openModelPicker,
@@ -91,6 +95,20 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
     if (kind === 'install-consent') {
       return handleInstallConsent(picker, id, deps);
     }
+    if (kind === 'reasoning') {
+      if ((id === 'off' || isReasoningEffort(id)) && picker.options.some(option => option.id === id)) {
+        void (async () => {
+          try {
+            if (!deps.session.setReasoningEffort) throw new Error('This session cannot change reasoning effort');
+            await deps.session.setReasoningEffort(id);
+          } catch (err) {
+            deps.setSystemNotice(err instanceof Error ? err.message : String(err));
+          }
+          openSettingsPicker(deps);
+        })();
+      }
+      return;
+    }
     if (kind === 'settings') {
       return handleSettingSelected(id, deps);
     }
@@ -112,6 +130,10 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
  * re-opens with fresh badges after every write.
  */
 function handleSettingSelected(id: string, deps: PickerHandlerDeps): void {
+  if (id === 'session-reasoning') {
+    deps.setPicker({ kind: 'reasoning', title: 'Model reasoning', options: [] });
+    return;
+  }
   const knob = findKnob(id);
   if (!knob) return;
   if (knob.kind === 'link') {
@@ -621,41 +643,40 @@ function handleModelSelected(id: string, deps: PickerHandlerDeps): void {
   void applyProviderModelSwitch(deps, providerId, modelId);
 }
 
-/**
- * The provider+model switch tail — credential resolution, instance replace,
- * setActive, model override, persistence. Shared by the ready-provider path
- * and the post-connect continuation (the connect dialog's onSuccess), so a
- * freshly-connected provider switches through EXACTLY the same code.
- */
-export async function applyProviderModelSwitch(
-  deps: Pick<
-    PickerHandlerDeps,
-    'session' | 'providerName' | 'setSystemNotice' | 'setActiveModelOverride'
-  >,
-  providerId: string,
-  modelId: string,
-): Promise<void> {
-  // Provider switches must resolve credentials (vault tokens for
-  // OAuth providers, API keys for the rest) before setActive — the
-  // registry caches the instance on first activation, so passing
-  // empty config strands the new provider without auth. The CLI
-  // stashes a credentialResolver on the session at boot.
+type ModelSwitchDeps = Pick<PickerHandlerDeps, 'session' | 'setSystemNotice' | 'setActiveModelOverride'>;
+const modelSwitches = new WeakMap<Session, Mutex>();
+
+/** Apply picks in input order, including while an attached runner is still confirming the previous effort. */
+export function applyProviderModelSwitch(deps: ModelSwitchDeps, providerId: string, modelId: string): Promise<void> {
+  let pending = modelSwitches.get(deps.session);
+  if (!pending) {
+    pending = createMutex();
+    modelSwitches.set(deps.session, pending);
+  }
+  return pending.run(() => switchModel(deps, providerId, modelId));
+}
+
+async function switchModel(deps: ModelSwitchDeps, providerId: string, modelId: string): Promise<void> {
   try {
-    if (providerId !== deps.providerName) {
-      const resolver = deps.session.credentialResolver;
-      const cfg = resolver ? await resolver(providerId) : {};
-      // Drop any previously-cached instance for this provider so the
-      // freshly-resolved credentials actually take effect — setActive
-      // alone keeps the first-cached instance.
-      const def = deps.session.providers.list().find((p) => p.name === providerId);
-      if (def) deps.session.providers.replace(def);
-      deps.session.providers.setActive(providerId, cfg);
+    if (providerId !== deps.session.providers.getActiveName()) {
+      if (deps.session.setActiveProvider) {
+        await deps.session.setActiveProvider(providerId);
+      } else {
+        // Standalone owns the registry; re-create the client with its current credentials.
+        const cfg = await deps.session.credentialResolver?.(providerId) ?? {};
+        const def = deps.session.providers.list().find((p) => p.name === providerId);
+        if (def) deps.session.providers.replace(def);
+        deps.session.providers.setActive(providerId, cfg);
+      }
+    }
+    if (deps.session.setReasoningEffort) {
+      const effort = modelSwitchEffort(deps.session.getInfo(), providerId, modelId);
+      if (effort) await deps.session.setReasoningEffort(effort);
     }
     deps.setActiveModelOverride(modelId);
     deps.setSystemNotice(`switched to ${providerId}:${modelId}`);
     // Persist to the unified manifest so the next boot keeps this pick.
-    void setCategoryDefault('provider', providerId).catch(() => undefined);
-    void setProviderModel(providerId, modelId).catch(() => undefined);
+    await setModelDefaults({ model: { provider: providerId, model: modelId } }).catch(() => undefined);
   } catch (err) {
     deps.setSystemNotice(
       `failed to switch: ${err instanceof Error ? err.message : String(err)}`,

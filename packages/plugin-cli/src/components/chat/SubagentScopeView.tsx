@@ -17,7 +17,7 @@ export const SubagentScopeView: React.FC<{ scope: SubagentBlock }> = ({ scope })
   const endMs = scope.completedAtMs ?? now;
   const elapsed = formatElapsed(endMs - scope.startedAtMs);
   const toolPart = subagentToolsLabel(scope, 'call');
-  const dotColor = scope.error
+  const dotColor = state === 'failed'
     ? Colors.danger
     : running || state === 'background'
       ? Colors.busy
@@ -34,7 +34,7 @@ export const SubagentScopeView: React.FC<{ scope: SubagentBlock }> = ({ scope })
       {scope.error ? (
         <Box marginLeft={2}>
           <Text dimColor>└ </Text>
-          <Text color={Colors.danger}>{truncate(scope.error, 100)}</Text>
+          <Text color={dotColor}>{truncate(scope.error, 100)}</Text>
         </Box>
       ) : scope.finalPreview && !running ? (
         <Box marginLeft={2}>

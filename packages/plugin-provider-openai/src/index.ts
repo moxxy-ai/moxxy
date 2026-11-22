@@ -1,5 +1,5 @@
 import { defineProvider, definePlugin } from '@moxxy/sdk';
-import { OpenAIProvider, openAIModels, type OpenAIProviderConfig } from './provider.js';
+import { OPENAI_STARTER_MODEL, OpenAIProvider, openAIModels, type OpenAIProviderConfig } from './provider.js';
 
 export { OpenAIProvider, openAIModels };
 export type { OpenAIProviderConfig };
@@ -25,6 +25,7 @@ import { validateKey as validateOpenAIKey } from './validate.js';
 export const openaiProviderDef = defineProvider({
   name: 'openai',
   models: [...openAIModels],
+  starterModel: OPENAI_STARTER_MODEL,
   createClient: (config) => new OpenAIProvider(config as OpenAIProviderConfig),
   validateKey: (key) => validateOpenAIKey(key),
 });

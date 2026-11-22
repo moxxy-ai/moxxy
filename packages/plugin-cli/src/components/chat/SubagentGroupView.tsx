@@ -38,8 +38,9 @@ export const SubagentGroupView: React.FC<{
   expandToolOutputs: boolean;
 }> = ({ group, expandToolOutputs }) => {
   const agents = group.agents;
-  const failed = agents.some((a) => a.error != null);
-  const busy = agents.some((a) => subagentState(a) === 'running' || subagentState(a) === 'background');
+  const states = agents.map(subagentState);
+  const failed = states.includes('failed');
+  const busy = states.includes('running') || states.includes('background');
   const dotColor = failed ? Colors.danger : busy ? Colors.busy : DotColors.subagent;
   const header = subagentGroupHeader(group);
 
@@ -73,8 +74,9 @@ export const SubagentGroupView: React.FC<{
 
 /** The status line under one agent of the group. */
 export function subagentStatusText(agent: SubagentBlock): string {
-  if (agent.error) return truncate(agent.error, ERROR_MAX);
   const state = subagentState(agent);
+  if (state === 'stopped') return 'Stopped';
+  if (agent.error) return truncate(agent.error, ERROR_MAX);
   if (state === 'running') return 'running';
   if (state === 'background') return 'going on in the background';
   return agent.continued === true ? 'Done in the background' : 'Done';
@@ -84,7 +86,7 @@ const SubagentRow: React.FC<{ agent: SubagentBlock }> = ({ agent }) => {
   const state = subagentState(agent);
   const tokens = formatTokensK(agent.tokensUsed);
   const toolPart = subagentToolsLabel(agent, 'use');
-  const statusColor = agent.error ? Colors.danger : state === 'running' || state === 'background' ? Colors.busy : DotColors.subagent;
+  const statusColor = state === 'failed' ? Colors.danger : state === 'running' || state === 'background' ? Colors.busy : DotColors.subagent;
   const statusText = subagentStatusText(agent);
   return (
     <Box flexDirection="column">

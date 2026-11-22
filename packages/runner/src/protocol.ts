@@ -1,5 +1,5 @@
 import { z } from 'zod/v3';
-import { questionAnswersSchema } from '@moxxy/sdk';
+import { REASONING_EFFORTS, questionAnswersSchema } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -12,6 +12,7 @@ import type {
   Principal,
   QuestionAnswers,
   OpenSurfaceResult,
+  ReasoningEffort,
   SessionInfo,
   SurfaceDataMessage,
   SurfaceInfo,
@@ -209,7 +210,15 @@ import type {
  * connection before the desktop signs it out, so a running agent cannot keep
  * the old account and save it back (additive).
  */
-export const RUNNER_PROTOCOL_VERSION = 34;
+/**
+ * v35: reasoning efforts `max` and `ultra` (`session.setReasoning`,
+ * `SessionInfo.reasoningEffort`), and `ModelDescriptor.reasoningEfforts`, the
+ * levels each model takes. A turn on a model that lacks the set level lowers it
+ * for good and pushes `info.changed`. A client never sends `max`/`ultra` to an
+ * older runner, whose schema rejects them (additive).
+ * v36: session info reports whether a client already chose the effort on this runner, so reopening the desktop preserves a TUI choice.
+ */
+export const RUNNER_PROTOCOL_VERSION = 36;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -469,11 +478,13 @@ export interface ModeSetActiveParams {
   readonly name: string;
 }
 
-/** Reasoning-effort levels accepted by `session.setReasoning` (v9). `off` clears
+/** Reasoning-effort levels accepted by `session.setReasoning` (v9; `xhigh` later, `max` and `ultra` v35). `off` clears
  *  the preference (no reasoning requested); the others map to
  *  `session.reasoning = { effort }`, the CLI's proven `config.context.reasoning`
  *  shape. */
-export type ReasoningEffortLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+export type ReasoningEffortLevel = 'off' | ReasoningEffort;
+/** The protocol a runner takes `max` and `ultra` at. */
+export const DEEPEST_REASONING_PROTOCOL = 35;
 export interface SessionSetReasoningParams {
   readonly effort: ReasoningEffortLevel;
 }
@@ -752,7 +763,7 @@ export const questionAnswerParamsSchema = z
 export const modeSetActiveParamsSchema = z.object({ name: z.string() });
 
 export const sessionSetReasoningParamsSchema = z.object({
-  effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']),
+  effort: z.enum(['off', ...REASONING_EFFORTS]),
 });
 
 export const sessionSetFastParamsSchema = z.object({ enabled: z.boolean() });
