@@ -56,6 +56,7 @@ export interface OpenAIProviderConfig {
 
 /** Default per-request timeout for streamed agentic turns (2 minutes). */
 const DEFAULT_TIMEOUT_MS = 120_000;
+export const OPENAI_STARTER_MODEL = 'gpt-6-luna';
 
 /**
  * Model catalog: the models the API's `/v1/models` and Codex's `model/list`
@@ -142,6 +143,7 @@ function isOpenAIAddress(baseURL: string | undefined): boolean {
 export class OpenAIProvider implements LLMProvider {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  readonly starterModel?: string;
   private readonly client: OpenAI;
   private readonly defaultModel: string;
   /** `auto` tries Responses once and settles on whichever route works. */
@@ -149,6 +151,7 @@ export class OpenAIProvider implements LLMProvider {
 
   constructor(config: OpenAIProviderConfig = {}) {
     this.name = config.name ?? 'openai';
+    if (this.name === 'openai') this.starterModel = OPENAI_STARTER_MODEL;
     this.api = config.api ?? (this.name === 'openai' && isOpenAIAddress(config.baseURL) ? 'responses' : 'auto');
     this.models = config.models ?? openAIModels;
     this.client =
@@ -160,7 +163,8 @@ export class OpenAIProvider implements LLMProvider {
         timeout: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
       });
-    this.defaultModel = config.defaultModel ?? 'gpt-5.6-luna';
+    // Compatible vendors also use this client and supply their own defaults.
+    this.defaultModel = config.defaultModel ?? this.starterModel ?? 'gpt-5.6-luna';
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {

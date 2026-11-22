@@ -525,7 +525,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
           if (note) setSystemNotice(note);
           if (target) {
             void applyProviderModelSwitch(
-              { session, providerName, setSystemNotice, setActiveModelOverride },
+              { session, setSystemNotice, setActiveModelOverride },
               target.providerId,
               target.modelId,
             );

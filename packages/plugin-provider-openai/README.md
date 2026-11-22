@@ -37,11 +37,12 @@ session.pluginHost.registerStatic(openaiPlugin);
 
 session.providers.setActive('openai', {
   apiKey: process.env.OPENAI_API_KEY,
-  // model: 'gpt-6-sol',        // optional — defaults to gpt-5.6-luna
 });
 
 console.log((await collectTurn(session, 'Hello!')).findLast((e) => e.type === 'assistant_message')?.content);
 ```
+
+A new OpenAI conversation starts on `gpt-6-luna` when you have no model configured. Pass an explicit model to `collectTurn` as its third argument, for example `{ model: 'gpt-6-sol' }`.
 
 ### Point at an OpenAI-compatible vendor
 

@@ -98,6 +98,8 @@ export interface ClientSession extends SessionLike {
   readonly synthesizers: SynthesizersClientView;
   readonly requirements: RequirementsClientView;
   readonly permissions: PermissionsClientView;
+  /** Ask the owning runner to activate a provider and wait for its confirmation. */
+  setActiveProvider?(name: string, config?: Record<string, unknown>): Promise<void>;
   /** Set the effort of this conversation. Changes are reported through getInfo and onInfoChanged. */
   setReasoningEffort?(effort: ReasoningEffort | 'off'): void | Promise<void>;
   /** Switch the conversation's auto-approve (read it from `getInfo().autoApprove`).
