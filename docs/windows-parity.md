@@ -5,7 +5,7 @@ by people who install the result. This page records what has already broken on
 Windows after working on macOS, why CI did not always catch it, and what to do
 before a change is called done.
 
-The short version is in the `windows-parity` skill (`.ai/skills/windows-parity`).
+The short version is in the `windows-parity` skill (`.rulesync/skills/windows-parity`).
 
 ## What CI does and does not prove
 
@@ -73,9 +73,7 @@ Still open, and worth knowing before building on top of them:
   the desktop installer carries MinGit, which has no bash. The model is told
   to write PowerShell there; set `MOXXY_GIT_BASH` to a `bash.exe` to use one
   that is not where the Git installer puts it.
-- The `.claude/skills`, `.claude/agents`, `.codex/*` symlinks into `.ai/` check
-  out as small text files on Windows (symlinks need extra rights), so skills
-  are found only under `.ai/` there.
+- Rulesync generates regular files for Claude Code and Codex. The project skills work on a Windows checkout with Git symlinks disabled.
 - `scripts/security-audit.mjs` runs `spawnSync('pnpm', …)`, which cannot find
   `pnpm.cmd`. It works in CI because that job runs on Ubuntu.
 

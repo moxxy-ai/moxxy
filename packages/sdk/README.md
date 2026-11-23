@@ -275,7 +275,7 @@ export default definePlugin({
 });
 ```
 
-Per-block author guides for skill, plugin, tool, channel, provider, loop strategy, compactor, and cache strategy live in the monorepo at [`.claude/agents/`](https://github.com/moxxy-ai/moxxy/tree/main/.claude/agents).
+Per-block author guides for skill, plugin, tool, channel, provider, loop strategy, compactor, and cache strategy live in the monorepo at [`.rulesync/subagents/`](https://github.com/moxxy-ai/moxxy/tree/main/.rulesync/subagents).
 
 ## Architectural rules
 
