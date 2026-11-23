@@ -263,7 +263,10 @@ export class Session implements ClientSession, SessionRuntime {
     this.logger = opts.logger ?? (opts.silent ? silentLogger : createLogger());
     if (opts.governance) this.governance = Object.freeze({ ...opts.governance });
     this.log = opts.log ?? new EventLog();
-    this.questions = new SessionQuestionsImpl({ log: this.log, sessionId: this.id });
+    this.questions = new SessionQuestionsImpl({
+      log: this.log, sessionId: this.id,
+      saveShared: (name, value) => this.services.require<{ setShared(name: string, value: string): Promise<void> }>('vault').setShared(name, value),
+    });
     if (opts.log) {
       this.questions.closeLeftOver().catch((err: unknown) => {
         this.logger.warn('could not close questions left open by an earlier run', { err: String(err) });

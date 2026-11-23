@@ -11,10 +11,8 @@ registering a new LLM provider for the user, using the provider admin tools.
    at minimum). For vendors you recognise (deepseek, groq, openrouter,
    together, fireworks, mistral, z.ai, …) use their well-known baseURL and
    current flagship models instead of asking.
-2. NEVER ask for or echo a plaintext API key. The user stores it themselves
-   as the vault entry <NAME>_API_KEY (Settings → Vault, or /vault set). If
-   they say the key is already stored, verify it with provider_test
-   (baseURL + keyName).
+2. Request a missing key with env_share under <NAME>_API_KEY and describe
+   which provider needs it. Verify a stored key with provider_test (baseURL + keyName).
 
 Finish with a single short line confirming the provider was registered and
 which vault key activates it, or a single clear question if you are blocked.

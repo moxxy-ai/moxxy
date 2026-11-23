@@ -75,48 +75,44 @@ async function commitAtomic(
     // chmod explicitly: writeFile's mode option is masked by umask, but a
     // 0o600 secret file must be exactly 0o600 regardless of the host umask.
     if (opts.mode != null) await chmod(tmp, opts.mode);
-    await renameOverReaders(tmp, target);
+    await retryWindowsSharingViolation(() => rename(tmp, target));
   } catch (err) {
     await rm(tmp, { force: true }).catch(() => {});
     throw err;
   }
 }
 
-/**
- * Windows refuses to rename over a file that any other handle has open — a
- * reader mid-read in this or another process — with EPERM / EACCES / EBUSY.
- * Readers hold the file for milliseconds, so the rename is retried briefly
- * instead of failing the write. Elsewhere rename never blocks on readers.
- */
-const RENAME_RETRY_BUDGET_MS = 2000;
-const MAX_RENAME_BACKOFF_MS = 50;
+// A reader can briefly prevent replacement on Windows. An unlinked file can
+// also prevent exclusive creation at the same path until its last handle closes.
+const SHARING_RETRY_BUDGET_MS = 2000;
+const MAX_SHARING_BACKOFF_MS = 50;
 
-function isHeldByReader(err: unknown): boolean {
+function isWindowsSharingViolation(err: unknown): boolean {
   if (process.platform !== 'win32') return false;
   const code = (err as NodeJS.ErrnoException | null)?.code;
   return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
 }
 
-async function renameOverReaders(from: string, to: string): Promise<void> {
-  const deadline = Date.now() + RENAME_RETRY_BUDGET_MS;
-  for (let backoff = 1; ; backoff = Math.min(backoff * 2, MAX_RENAME_BACKOFF_MS)) {
+export async function retryWindowsSharingViolation<T>(operation: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + SHARING_RETRY_BUDGET_MS;
+  for (let backoff = 1; ; backoff = Math.min(backoff * 2, MAX_SHARING_BACKOFF_MS)) {
     try {
-      return await rename(from, to);
+      return await operation();
     } catch (err) {
-      if (!isHeldByReader(err) || Date.now() >= deadline) throw err;
+      if (!isWindowsSharingViolation(err) || Date.now() >= deadline) throw err;
       await new Promise((resolve) => setTimeout(resolve, backoff));
     }
   }
 }
 
 function renameOverReadersSync(from: string, to: string): void {
-  const deadline = Date.now() + RENAME_RETRY_BUDGET_MS;
+  const deadline = Date.now() + SHARING_RETRY_BUDGET_MS;
   const pause = new Int32Array(new SharedArrayBuffer(4));
-  for (let backoff = 1; ; backoff = Math.min(backoff * 2, MAX_RENAME_BACKOFF_MS)) {
+  for (let backoff = 1; ; backoff = Math.min(backoff * 2, MAX_SHARING_BACKOFF_MS)) {
     try {
       return renameSync(from, to);
     } catch (err) {
-      if (!isHeldByReader(err) || Date.now() >= deadline) throw err;
+      if (!isWindowsSharingViolation(err) || Date.now() >= deadline) throw err;
       Atomics.wait(pause, 0, 0, backoff);
     }
   }

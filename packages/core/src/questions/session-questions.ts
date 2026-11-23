@@ -28,28 +28,37 @@ import type { EventLog } from '../events/log.js';
  */
 export class SessionQuestionsImpl implements SessionQuestions {
   private surfaces = 0;
+  private envSurfaces = 0;
   /** Questions an asker in this process still waits on; one left in the log by an earlier run is dead. */
   private readonly waiting = new Set<string>();
 
-  constructor(private readonly deps: { readonly log: EventLog; readonly sessionId: SessionId }) {}
+  private readonly saving = new Set<string>();
+
+  constructor(private readonly deps: {
+    readonly log: EventLog;
+    readonly sessionId: SessionId;
+    readonly saveShared?: (name: string, value: string) => Promise<void>;
+  }) {}
 
   get surfaceCount(): number {
     return this.surfaces;
   }
 
-  attachSurface(): () => void {
+  attachSurface({ envShare = false } = {}): () => void {
     this.surfaces += 1;
+    if (envShare) this.envSurfaces += 1;
     let attached = true;
     return () => {
       if (!attached) return;
       attached = false;
       this.surfaces -= 1;
+      if (envShare) this.envSurfaces -= 1;
     };
   }
 
   readonly ask: QuestionAsker = async ({ turnId, questions, signal }) => {
     if (signal.aborted) return { kind: 'dismissed', reason: 'cancelled' };
-    if (this.surfaces === 0) return { kind: 'unanswerable' };
+    if (this.surfaces === 0 || (this.envSurfaces === 0 && questions.some((item) => item.vaultName))) return { kind: 'unanswerable' };
 
     const questionId = ulid();
     const { log } = this.deps;
@@ -75,13 +84,46 @@ export class SessionQuestionsImpl implements SessionQuestions {
   async answer(questionId: string, answers: QuestionAnswers): Promise<void> {
     // Check and record in one synchronous step (append pushes before it
     // awaits), so two surfaces answering at once cannot both get in.
+    const open = this.pending(questionId);
+    if (open.questions.some((item) => item.vaultName)) {
+      throw new Error('Open Env Share in the Moxxy desktop or TUI.');
+    }
+    const problem = questionAnswersProblem(open.questions, answers);
+    if (problem) throw new Error(problem);
+    await this.record(asTurnId(open.turnId), QUESTION_RESOLVED, { questionId, answers });
+  }
+
+  private pending(questionId: string) {
     const open = this.waiting.has(questionId)
       ? openQuestionsFromEvents(this.deps.log.ofType('plugin_event')).find((q) => q.questionId === questionId)
       : undefined;
     if (!open) throw new Error('This question is no longer open.');
-    const problem = questionAnswersProblem(open.questions, answers);
-    if (problem) throw new Error(problem);
-    await this.record(asTurnId(open.turnId), QUESTION_RESOLVED, { questionId, answers });
+    if (this.saving.has(questionId)) throw new Error('Env Share is already saving.');
+    return open;
+  }
+
+  async shareEnv(questionId: string, value: string | null): Promise<void> {
+    const open = this.pending(questionId);
+    const name = open.questions[0]?.vaultName;
+    if (!name || open.questions.length !== 1) throw new Error('No Env Share request is open here.');
+    this.saving.add(questionId);
+    try {
+      if (value !== null) {
+        if (!value.length || value.length > 65536) throw new Error('Enter a value of up to 65536 characters.');
+        if (!this.deps.saveShared) throw new Error('Vault unavailable.');
+        try {
+          await this.deps.saveShared(name, value);
+        } catch {
+          throw new Error('Could not save to the Moxxy vault.');
+        }
+      }
+      if (this.isOpen(questionId)) {
+        const answers = { env: { selected: [value === null ? 'skip' : 'saved'] } };
+        await this.record(asTurnId(open.turnId), QUESTION_RESOLVED, { questionId, answers });
+      }
+    } finally {
+      this.saving.delete(questionId);
+    }
   }
 
   /**

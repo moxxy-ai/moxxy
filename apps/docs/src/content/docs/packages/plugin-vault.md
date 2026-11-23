@@ -26,12 +26,23 @@ const { plugin, vault } = buildVaultPlugin({
 session.pluginHost.registerStatic(plugin);
 ```
 
+## Env Share
+
+When an integration needs a credential, Moxxy opens a masked field with the entry name and purpose. Choose **Save to vault** to create or replace the entry, or **Skip** to close the request. The conversation receives the outcome and the agent can use the reference, for example `${vault:GITHUB_TOKEN}` in an MCP server environment.
+
+You can also start a private entry yourself.
+
+- In desktop, open **Settings → Vault → Env Share**.
+- In the TUI, type `/env share GITHUB_TOKEN`.
+- In a terminal, run `moxxy env share GITHUB_TOKEN` and enter the value at the prompt.
+
 ## Tools
 
 | Tool | Permission | Purpose |
 |---|---|---|
+| `env_share` | person enters or skips | Request a credential by name and purpose. |
 | `vault_set` | prompt | Store a secret. Overwrites if name exists. |
-| `vault_get` | prompt | Fetch plaintext by name. |
+| `vault_get` | prompt | Fetch a legacy entry by name. Env Share entries allow integration use by reference only. |
 | `vault_list` | prompt | List names + metadata, never plaintext. |
 | `vault_delete` | prompt | Delete by name. |
 | `vault_status` | auto | Report which key source unlocked the vault. |

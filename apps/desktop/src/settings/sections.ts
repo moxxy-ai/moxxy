@@ -104,7 +104,7 @@ export const SETTINGS_SECTIONS = [
     group: 'Trust',
     view: 'settings',
     keywords: ['secrets', 'keys', 'tokens', 'credentials', 'passwords'],
-    finds: [],
+    finds: [{ label: 'Env Share', keywords: ['environment variables', 'store credential'] }],
   },
   {
     id: 'preferences',

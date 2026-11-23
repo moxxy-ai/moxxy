@@ -3,6 +3,7 @@ import { Box } from 'ink';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { PermissionDialog } from '../components/PermissionDialog.js';
 import { ApprovalDialog } from '../components/ApprovalDialog.js';
+import { EnvShareDialog } from '../components/EnvShareDialog.js';
 import { QuestionDialog } from '../components/QuestionDialog.js';
 import { ProviderConnectDialog } from '../components/ProviderConnectDialog.js';
 import { PluginSetupDialog } from '../components/PluginSetupDialog.js';
@@ -113,6 +114,20 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
     );
   }
   if (question) {
+    const item = question.question.questions[0];
+    if (item?.vaultName) {
+      const { questionId } = question.question;
+      return (
+        <EnvShareDialog
+          key={questionId}
+          item={item}
+          submit={async (value) => {
+            if (!session.questions?.shareEnv) throw new Error('Env Share unavailable.');
+            await session.questions.shareEnv(questionId, value);
+          }}
+        />
+      );
+    }
     return (
       <QuestionDialog
         question={question.question}

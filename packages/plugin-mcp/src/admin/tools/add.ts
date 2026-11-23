@@ -31,7 +31,7 @@ export function buildAddServerTool(deps: AddServerToolDeps): ToolDef {
       '(npm/uv packages, scripts); pick "http" or "sse" for remote HTTP servers. The new ' +
       'server\'s tools become available after the next moxxy restart. Call mcp_test_server ' +
       'first if you want to verify connectivity before persisting. NEVER pass API keys or ' +
-      'tokens in plaintext: store the secret in the vault first (vault_set), then reference ' +
+      'tokens in plaintext: request the secret with env_share, then reference ' +
       'it as "${vault:NAME}" in the env/header value — the placeholder is what gets ' +
       'persisted, and it is resolved only at connect time.',
     inputSchema: addServerInput,

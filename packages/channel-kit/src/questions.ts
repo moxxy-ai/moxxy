@@ -136,7 +136,7 @@ export class ChatQuestions {
   }
 
   private show(question: OpenQuestion): void {
-    if (this.held.has(question.questionId)) return;
+    if (question.questions.some((item) => item.vaultName) || this.held.has(question.questionId)) return;
     const held = { question, draft: emptyDraft(question.questions) };
     this.held.set(question.questionId, held);
     this.emit({ kind: 'show', card: openCard(held) });

@@ -1,6 +1,9 @@
 import {
   z,
   defineTool,
+  envShareNameSchema,
+  type QuestionItem,
+  type QuestionAsker,
   definePlugin,
   MoxxyError,
   type Plugin,
@@ -29,6 +32,15 @@ export interface BuildVaultPluginOptions {
   /** Demand a human-chosen passphrase instead of generating a key. Off by
    *  default; see `CombinedKeySourceOptions.requirePassphrase`. */
   readonly requirePassphrase?: boolean;
+}
+
+function envQuestion(name: string, purpose: string): QuestionItem {
+  return {
+    id: 'env', vaultName: name, header: 'Env Share',
+    question: name + ' — ' + purpose,
+    options: [{ id: 'saved', label: 'Saved to vault' }, { id: 'skip', label: 'Skip' }],
+    multiSelect: false, allowOther: false,
+  };
 }
 
 export function defaultVaultPath(): string {
@@ -163,15 +175,48 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
         );
       },
     },
-    commands: [vaultCmd],
+    commands: [vaultCmd, {
+      name: 'env',
+      channels: ['tui'],
+      description: 'Open Env Share to store a credential privately',
+      argumentHint: 'share <NAME>',
+      handler: async (ctx) => {
+        const [action, name, ...extra] = ctx.args.trim().split(/\s+/);
+        if (action !== 'share' || !name || extra.length || !envShareNameSchema.safeParse(name).success) {
+          return { kind: 'error', message: 'Usage: /env share <NAME>. Enter the value in the private prompt.' };
+        }
+        const session = ctx.session as { questions: { ask: QuestionAsker }; startTurn(): { turnId: TurnId } };
+        const outcome = await session.questions.ask({
+          turnId: session.startTurn().turnId,
+          signal: new AbortController().signal,
+          questions: [envQuestion(name, 'Save a credential for your integrations')],
+        });
+        return { kind: 'text', text: outcome.kind === 'answered' && outcome.answers.env?.selected.includes('saved')
+          ? 'Saved. Reference: ${vault:' + name + '}' : 'Env Share closed without a credential.' };
+      },
+    }],
     tools: [
+      defineTool({
+        name: 'env_share',
+        description: 'Request a missing user credential or environment variable by name and purpose. Use this whenever an integration needs a user secret. Only use its vault reference afterwards.',
+        inputSchema: z.object({ name: envShareNameSchema, purpose: z.string().trim().min(1).max(300) }).strict(),
+        permission: { action: 'allow' },
+        isolation: { required: 'inproc', capabilities: { net: { mode: 'none' } } },
+        async handler({ name, purpose }, ctx) {
+          const outcome = await ctx.ask?.([envQuestion(name, purpose)]);
+          if (outcome?.kind === 'answered' && outcome.answers.env?.selected.includes('saved')) {
+            return 'Saved to the Moxxy vault. Reference: ${vault:' + name + '}';
+          }
+          if (!outcome || outcome.kind === 'unanswerable') return `Ask the person to run moxxy env share ${name} in their terminal. Never request the value in chat.`;
+          return 'Env Share closed without a credential. Stop work that requires it.';
+        },
+      }),
       defineTool({
         name: 'vault_set',
         description:
           'Store a secret in the encrypted vault. Overwrites if name exists. ' +
           'IMPORTANT: do NOT use this for a secret the USER supplies — that would route the ' +
-          'plaintext through the conversation. Instead tell the user to run `/vault set <name> <value>` ' +
-          'themselves; you only receive a ${vault:<name>} reference. Use this tool only for a value you ' +
+          'plaintext through the conversation. Use env_share for a user credential. Use vault_set only for a value you ' +
           'legitimately already hold and may see.',
         inputSchema: z.object({
           name: z.string().min(1).regex(/^[A-Za-z0-9_.-]+$/),
@@ -204,7 +249,7 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
           },
         },
         handler: async ({ name }) => {
-          const value = await vault.get(name);
+          const value = await vault.getForModel(name);
           if (value === null) {
             throw new MoxxyError({
               code: 'TOOL_ERROR',

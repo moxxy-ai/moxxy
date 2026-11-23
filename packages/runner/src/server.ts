@@ -36,6 +36,7 @@ import {
   runTurnParamsSchema,
   setResolverParamsSchema,
   questionAnswerParamsSchema,
+  shareEnvParamsSchema,
   type AttachResult,
   type RunTurnResult,
 } from './protocol.js';
@@ -287,6 +288,11 @@ export class RunnerServer {
     peer.handle(RunnerMethod.SessionSetAutoApprove, (raw) => handleSessionSetAutoApprove(ctx, raw));
     peer.handle(RunnerMethod.SessionStopBackgroundWork, (raw) => handleSessionStopBackgroundWork(ctx, raw));
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
+    peer.handle(RunnerMethod.QuestionShareEnv, async (raw) => {
+      const { questionId, value } = shareEnvParamsSchema.parse(raw);
+      await this.session.questions.shareEnv(questionId, value);
+      return {};
+    });
     peer.handle(RunnerMethod.QuestionAnswer, (raw) => this.handleQuestionAnswer(raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));
     peer.handle(RunnerMethod.SessionSetReasoning, (raw) => handleSessionSetReasoning(ctx, raw));
@@ -564,8 +570,9 @@ export class RunnerServer {
     const params = setResolverParamsSchema.parse(raw);
     if (params.permission !== undefined) client.handlesPermission = params.permission;
     if (params.approval !== undefined) client.handlesApproval = params.approval;
-    if (params.question === true && !client.detachQuestions) {
-      client.detachQuestions = this.session.questions.attachSurface();
+    if (params.question === true) {
+      client.detachQuestions?.();
+      client.detachQuestions = this.session.questions.attachSurface({ envShare: params.envShare === true });
     } else if (params.question === false && client.detachQuestions) {
       client.detachQuestions();
       delete client.detachQuestions;

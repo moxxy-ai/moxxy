@@ -15,6 +15,7 @@ triggers:
   - add mistral
   - add perplexity
 allowed-tools:
+  - env_share
   - provider_add
   - provider_list
   - provider_remove
@@ -67,17 +68,9 @@ Build the list, show it to the user as a markdown table (id / context / tools / 
 
 Tool-call support and streaming default to `true` for OpenAI-compatible vendors (their /v1/chat/completions endpoint inherits both). Only flip them to `false` if you've confirmed the vendor doesn't.
 
-## 3. Store the API key in the vault — via the `/vault` command
+## 3. Request the provider credential
 
-**Never ask the user to paste their API key to you.** The key must not pass through the conversation or a tool argument (both are visible to you). Instead, tell the user to store it themselves:
-
-```
-/vault set <SLUG>_API_KEY <their-key>
-```
-
-Use the uppercase slug, e.g. "Please run `/vault set DEEPSEEK_API_KEY <your-key>` — the value stays local; I'll only get a reference." `<SLUG>_API_KEY` is moxxy's canonical resolution path (config.apiKey → vault → env → prompt), so once it's there the provider picks it up automatically. **Stop and wait** for the user to confirm before continuing.
-
-After they run it you'll get a note confirming storage and the reference `${vault:<SLUG>_API_KEY}` — you never see the key itself.
+Call `env_share` with the name `<SLUG>_API_KEY` and the provider it will authenticate. After a successful save, pass this name to `provider_test`. If the person skips the request, stop the connection setup.
 
 ## 4. (Optional) Test the endpoint
 
@@ -87,7 +80,7 @@ Once the user has stored the key (step 3), verify the baseURL + key with `provid
 { "baseURL": "<base url>", "keyName": "<SLUG>_API_KEY" }
 ```
 
-If it reports the secret is missing, the user hasn't run `/vault set <SLUG>_API_KEY <key>` yet — go back to step 3. Alternatively, after registering (step 5), the user can run `moxxy doctor`, which resolves `<SLUG>_API_KEY` from the vault and reports whether the provider's key is present.
+If it reports the secret is missing, the credential is still missing — go back to step 3. Alternatively, after registering (step 5), the user can run `moxxy doctor`, which resolves `<SLUG>_API_KEY` from the vault and reports whether the provider's key is present.
 
 ## 5. Register the provider
 
@@ -122,13 +115,13 @@ Ask if they want this provider as the default:
 
 Report:
 - Provider slug + baseURL + default model.
-- That the API key is in the vault under `<SLUG>_API_KEY` (the user stored it via `/vault set`).
+- That the API key is in the vault under `<SLUG>_API_KEY` (the user stored it via Env Share).
 - That `~/.moxxy/providers.json` was updated and the provider is live this session.
 - How to switch to it.
 
 ## Don't
 
-- Don't ask the user to paste their API key to you, and don't call any tool with the key as an argument. Direct them to `/vault set <SLUG>_API_KEY <key>` so it never enters the conversation.
+- Don't ask the user to paste their API key to you, and don't call any tool with the key as an argument. Use `env_share` so it never enters the conversation.
 - Don't invent baseURLs, model ids, or context windows. If you're not sure, `web_fetch` or ask.
 - Don't store the API key anywhere except the vault. Never write it into a file in the repo, never echo it back.
 - Don't try to handle non-OpenAI-compatible vendors here — those need a real provider plugin (`.claude/agents/provider-author.md`).

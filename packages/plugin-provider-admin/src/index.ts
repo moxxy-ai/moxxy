@@ -226,7 +226,7 @@ const testProviderInput = z.object({
     .describe(
       'NAME of the vault secret holding the API key (e.g. DEEPSEEK_API_KEY). The key is ' +
         'resolved from the vault inside the tool — never ask the user for the plaintext key ' +
-        'and never pass one as a tool argument. Have them store it first: /vault set <NAME> <key>.',
+        'and never pass one as a tool argument. Request the key with env_share.',
     ),
 });
 
@@ -479,7 +479,7 @@ export function buildProviderAdminPlugin(
             replaced: wasRegistered,
             note:
               `Provider "${entry.name}" is live in this session. ` +
-              `Have the USER store the API key by running: /vault set ${vaultKeyName} <key> ` +
+              `Use env_share to request ${vaultKeyName} ` +
               `— never ask them to paste the key to you. ` +
               `Once stored, you can verify it with provider_test (baseURL + keyName "${vaultKeyName}") — it resolves the key from the vault itself. ` +
               `Switch with the /provider command or set provider.name in moxxy.config.ts.`,
@@ -560,7 +560,7 @@ export function buildProviderAdminPlugin(
           'Probe an OpenAI-compatible endpoint by calling /v1/models. Takes the NAME of a vault ' +
           'secret (e.g. ZAI_API_KEY) and resolves the API key via the vault inside the handler — ' +
           'the plaintext key never enters the conversation or logs. Have the USER store the key ' +
-          'first with /vault set <NAME> <key>, then call this to confirm the baseURL + key are ' +
+          'first with env_share, then call this to confirm the baseURL + key are ' +
           'valid (typically before provider_add). Returns { ok: true } on success or ' +
           '{ ok: false, message } with the vendor error verbatim.',
         inputSchema: testProviderInput,
@@ -593,7 +593,7 @@ export function buildProviderAdminPlugin(
               ok: false,
               message:
                 `provider_test: no vault secret named "${keyName}". Ask the USER to store it ` +
-                `by running: /vault set ${keyName} <key> — then call provider_test again with ` +
+                `with env_share under ${keyName} — then call provider_test again with ` +
                 `keyName "${keyName}". Never ask them to paste the key into the conversation.`,
             };
           }

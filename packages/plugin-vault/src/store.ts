@@ -48,6 +48,7 @@ export class VaultPassphraseError extends Error {
 }
 
 export interface VaultEntry extends EncryptedBlob {
+  readonly referenceOnly?: true;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly tags?: ReadonlyArray<string>;
@@ -278,12 +279,21 @@ export class VaultStore {
   }
 
   async set(name: string, value: string, tags?: ReadonlyArray<string>): Promise<void> {
+    return this.writeEntry(name, value, tags, false);
+  }
+
+  async setShared(name: string, value: string): Promise<void> {
+    return this.writeEntry(name, value, undefined, true);
+  }
+
+  private async writeEntry(name: string, value: string, tags: ReadonlyArray<string> | undefined, referenceOnly: boolean): Promise<void> {
     await this.open();
     return this.mutex.run(async () => {
       if (!this.file || !this.masterKey) throw new Error('vault not open');
       await this.syncFromDisk();
       const now = new Date().toISOString();
-      const existing = this.file.entries[name];
+      const previous = this.file;
+      const existing = previous.entries[name];
       const blob = encrypt(value, this.masterKey);
       this.file = {
         ...this.file,
@@ -291,17 +301,31 @@ export class VaultStore {
           ...this.file.entries,
           [name]: {
             ...blob,
+            ...(referenceOnly || existing?.referenceOnly ? { referenceOnly: true } : {}),
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
             tags: tags ?? existing?.tags,
           },
         },
       };
-      await this.persist();
+      try {
+        await this.persist();
+      } catch (error) {
+        this.file = previous;
+        throw error;
+      }
     });
   }
 
   async get(name: string): Promise<string | null> {
+    return this.readEntry(name, false);
+  }
+
+  async getForModel(name: string): Promise<string | null> {
+    return this.readEntry(name, true);
+  }
+
+  private async readEntry(name: string, forModel: boolean): Promise<string | null> {
     await this.open();
     // Read the entry inside the same mutex turn as syncFromDisk so a
     // concurrent set()/delete() (which replaces this.file wholesale) can't
@@ -311,6 +335,7 @@ export class VaultStore {
       if (!this.file || !this.masterKey) throw new Error('vault not open');
       const entry = this.file.entries[name];
       if (!entry) return null;
+      if (forModel && entry.referenceOnly) throw new Error('Use the vault reference for this shared secret.');
       return this.decryptEntry(name, entry);
     });
   }

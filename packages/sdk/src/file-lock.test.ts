@@ -1,9 +1,14 @@
-import { mkdtemp, readdir, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, readdir, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 import { withFileLock } from './file-lock.js';
+
+vi.mock('node:fs/promises', async (load) => {
+  const fs = await load<typeof import('node:fs/promises')>();
+  return { ...fs, open: vi.fn(fs.open) };
+});
 
 describe('withFileLock', () => {
   let dir: string;
@@ -46,6 +51,21 @@ describe('withFileLock', () => {
     ]);
 
     expect(mostAtOnce).toBe(1);
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it.runIf(process.platform === 'win32')('retries exclusive creation while the previous lock or takeover guard is pending deletion', async () => {
+    const lock = file + '.lock';
+    await leaveStale(lock);
+    const pendingDeletion = new Set([lock, lock + '.takeover']);
+    const fs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    await vi.mocked(open).withImplementation(async (path, flags, mode) => {
+      if (pendingDeletion.delete(String(path))) throw Object.assign(new Error('pending deletion'), { code: 'EPERM' });
+      return fs.open(path, flags, mode);
+    }, async () => {
+      expect(await withFileLock(file, async () => 'done')).toBe('done');
+    });
+    expect(pendingDeletion.size).toBe(0);
     expect(await readdir(dir)).toEqual([]);
   });
 

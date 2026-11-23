@@ -9,6 +9,7 @@ triggers:
   - register mcp
   - install mcp
 allowed-tools:
+  - env_share
   - mcp_test_server
   - mcp_add_server
   - mcp_list_servers
@@ -22,6 +23,8 @@ When the user wants to add an MCP server, walk them through these steps:
      - `stdio` — a local executable (npm/uv package, custom script). Need `command`, optional `args`, `env`, `cwd`.
      - `http` or `sse` — a remote HTTP server. Need `url`, optional `headers` (for auth).
    - Ask what NAME to use. Must be slug-like (lowercase letters, digits, hyphens). The name prefixes every tool the server exposes — pick something short and recognizable (e.g. `canva`, `github`, `fs`).
+
+   - For a missing credential call `env_share` with its name and purpose. Put the returned `${vault:NAME}` reference in the env or header field.
 
 2. **Test the connection BEFORE persisting**
    - Call `mcp_test_server` with the gathered details.
