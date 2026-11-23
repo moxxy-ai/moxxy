@@ -4,7 +4,7 @@
  * child process speaking the protocol, one JSON message per line.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JsonRpcError, JsonRpcLineClient } from './json-rpc.js';
 
 /**
@@ -13,6 +13,8 @@ import { JsonRpcError, JsonRpcLineClient } from './json-rpc.js';
  * Messages are written in two pieces to prove lines are joined.
  */
 const AGENT = String.raw`
+const LS = String.fromCharCode(0x2028);
+const PS = String.fromCharCode(0x2029);
 const rl = require('node:readline').createInterface({ input: process.stdin });
 const withJsonrpc = process.argv[1] === 'jsonrpc';
 let queue = Promise.resolve();
@@ -35,6 +37,21 @@ rl.on('line', (line) => {
   else if (m.id === 'srv-1') send({ id: asked, result: m.result ?? { error: m.error } });
   else if (m.method === 'quit') process.exit(0);
   else if (m.method === 'hang') {}
+  else if (m.method === 'separators') {
+    send({ method: 'turn/progress', params: { text: 'a' + LS + 'b' } });
+    send({ id: m.id, result: 'one' + LS + 'two' + PS + 'three' });
+  }
+  else if (m.method === 'split-letters') {
+    // Pieces cut inside the bytes of a Polish letter and of an emoji.
+    const bytes = Buffer.from(JSON.stringify({ id: m.id, result: 'zażółć 🦊' }) + '\n');
+    const cuts = [bytes.indexOf(Buffer.from('ż')) + 1, bytes.indexOf(Buffer.from('🦊')) + 2, bytes.length];
+    let from = 0;
+    for (const [i, to] of cuts.entries()) { const piece = bytes.subarray(from, to); setTimeout(() => process.stdout.write(piece), 5 * i); from = to; }
+  }
+  else if (m.method === 'crlf') process.stdout.write(JSON.stringify({ id: m.id, result: 'windows' }) + '\r\n');
+  else if (m.method === 'blank-lines') process.stdout.write('\n\n' + JSON.stringify({ id: m.id, result: 'after blanks' }) + '\n');
+  else if (m.method === 'last-words') process.stdout.write(JSON.stringify({ id: m.id, result: 'bye' }), () => process.exit(0));
+  else if (m.method === 'garbage') { process.stdout.write('not json, private text\n'); process.stdout.write('{"cut":\n'); send({ id: m.id, result: 'still here' }); }
 });
 `;
 
@@ -43,11 +60,15 @@ afterEach(() => {
   for (const child of children.splice(0)) child.kill();
 });
 
-function agent(mode: 'plain' | 'jsonrpc' = 'plain', env: Record<string, string> = {}): JsonRpcLineClient {
+function agent(mode: 'plain' | 'jsonrpc' = 'plain', env: Record<string, string> = {}, warn?: (message: string) => void): JsonRpcLineClient {
   const child = spawn(process.execPath, ['-e', AGENT, mode], { env: { ...process.env, ...env } });
   children.push(child);
-  return new JsonRpcLineClient({ readable: child.stdout, writable: child.stdin, jsonrpc: mode === 'jsonrpc' });
+  return new JsonRpcLineClient({ readable: child.stdout, writable: child.stdin, jsonrpc: mode === 'jsonrpc', ...(warn ? { warn } : {}) });
 }
+
+/** U+2028 and U+2029: valid inside a JSON string, and sent raw by Codex (web search titles, page text). */
+const LS = String.fromCharCode(0x2028);
+const PS = String.fromCharCode(0x2029);
 
 describe('talking to an agent over line JSON-RPC', () => {
   it('sends a request and gets its answer', async () => {
@@ -118,5 +139,58 @@ describe('talking to an agent over line JSON-RPC', () => {
     controller.abort();
 
     await expect(waiting).rejects.toThrow(/abort/i);
+  });
+});
+
+describe('reading what the agent writes, one message per line', () => {
+  it('keeps a message whole when its text holds a line or paragraph separator', async () => {
+    const client = agent();
+    const seen: unknown[] = [];
+    client.onNotification((method, params) => seen.push({ method, params }));
+
+    expect(await client.request('separators')).toBe(`one${LS}two${PS}three`);
+    expect(seen).toEqual([{ method: 'turn/progress', params: { text: `a${LS}b` } }]);
+  });
+
+  it('keeps Polish letters and emoji whose bytes arrive in separate pieces', async () => {
+    expect(await agent().request('split-letters')).toBe('zażółć 🦊');
+  });
+
+  it('reads lines that end the Windows way', async () => {
+    expect(await agent().request('crlf')).toBe('windows');
+  });
+
+  it('skips empty lines', async () => {
+    expect(await agent().request('blank-lines')).toBe('after blanks');
+  });
+
+  it('reads the last message even when the agent exits before ending its line', async () => {
+    expect(await agent().request('last-words')).toBe('bye');
+  });
+
+  it('reports a line that is not a message once, by its size only, and reads on', async () => {
+    const warnings: string[] = [];
+    const client = agent('plain', {}, (message) => warnings.push(message));
+
+    expect(await client.request('garbage')).toBe('still here');
+    expect(await client.request('garbage')).toBe('still here');
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/not JSON.*22 bytes/);
+    expect(warnings[0]).not.toContain('private');
+  });
+
+  // The TUI draws on the terminal of the same process: a report on stderr would land in its screen.
+  it('writes nothing on the terminal when no reporter is given', async () => {
+    const written = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let reports: string[];
+    try {
+      expect(await agent().request('garbage')).toBe('still here');
+      reports = written.mock.calls.map(([chunk]) => String(chunk)).filter((text) => text.includes('not JSON'));
+    } finally {
+      written.mockRestore();
+    }
+
+    expect(reports).toEqual([]);
   });
 });

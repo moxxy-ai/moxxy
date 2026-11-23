@@ -227,6 +227,26 @@ describe('a turn on the Codex agent connection', () => {
     expect(codex.last.sent('thread/start')).toHaveLength(0);
   });
 
+  // U+2028 is valid raw inside a JSON string and Codex sends it so (a web search title in a
+  // thread's history); a reader that ends lines there lost the whole message and the turn waited forever.
+  it("shows Codex's answer whole when its text holds a line separator", async () => {
+    const answer = `one${String.fromCharCode(0x2028)}two`;
+    const { session } = connect(async (turn) => turn.say(answer));
+
+    expect(said(await collectTurn(session, 'hello'))).toEqual([answer]);
+  });
+
+  it('goes on in a thread whose earlier answers hold a line separator', async () => {
+    const { codex, session, pool } = connect(async (turn) => turn.say(turn.text === 'first' ? `found: E-Commerce Search:${String.fromCharCode(0x2028)}The` : 'ok'));
+    await collectTurn(session, 'first');
+    await pool.close(String(session.id));
+
+    const next = await collectTurn(session, 'second');
+
+    expect(codex.last.sent('thread/resume')).toHaveLength(1);
+    expect(said(next)).toEqual(['ok']);
+  });
+
   it('starts a new thread when Codex no longer has the old one', async () => {
     const { codex, session, pool } = connect(async (turn) => turn.say('ok'));
     await collectTurn(session, 'hello');
