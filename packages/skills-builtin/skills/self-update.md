@@ -133,8 +133,7 @@ export default definePlugin({
 
 If the plugin needs an API key (e.g. to call a third-party API), **read it at call
 time from the vault via `ctx.getSecret(name)`** — never `process.env`, and never ask
-the user to paste the key into the chat. Tell the user to store it once with
-`/vault set NAME <value>` (or the desktop Secrets UI); the plaintext only ever reaches
+the user to paste the key into the chat. Request it once with `env_share`, giving the name and purpose; the plaintext only ever reaches
 your handler, not the model's context.
 
 ```js
@@ -151,7 +150,7 @@ export default definePlugin({
       permission: { action: 'prompt' },
       handler: async ({ text }, ctx) => {
         const key = await ctx.getSecret?.('ELEVENLABS_API_KEY');
-        if (!key) throw new Error('Set the key first: /vault set ELEVENLABS_API_KEY <value>');
+        if (!key) throw new Error('Set the key first: moxxy env share ELEVENLABS_API_KEY');
         const res = await fetch('https://api.elevenlabs.io/v1/text-to-speech/...', {
           method: 'POST',
           headers: { 'xi-api-key': key, 'content-type': 'application/json' },
@@ -187,7 +186,7 @@ export default definePlugin({
         name: 'elevenlabs',
         async synthesize(text) {
           const key = await getSecret?.('ELEVENLABS_API_KEY');
-          if (!key) throw new Error('Set the key: /vault set ELEVENLABS_API_KEY <value>');
+          if (!key) throw new Error('Set the key: moxxy env share ELEVENLABS_API_KEY');
           const res = await fetch(
             'https://api.elevenlabs.io/v1/text-to-speech/<voiceId>',
             {

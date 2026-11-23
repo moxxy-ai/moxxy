@@ -697,3 +697,5 @@ there is no paid-use modal. Recovery from the retired ChatGPT sign-in shows an
 inline explanation in the provider form; a successful move uses the normal toast.
 
 API key forms and Account → Device sync share the same account-wide checkbox. It is checked by default for signed-in users. Turning it off asks for confirmation because it removes the account copy of the keys. The local vault keeps its entries.
+
+Env Share uses the question dock and a masked field. The card identifies the vault entry and why it is needed. Save and Skip resolve the request. A footer explains local encryption and that Env Share keeps the value out of model requests. Screen readers announce this footer with the password field. The transcript shows only the receipt.

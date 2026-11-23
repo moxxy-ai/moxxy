@@ -207,6 +207,9 @@ export function registerSessionHandlers(
     if (!id) return false;
     return mustDriver(id).stopBackgroundWork(workId);
   });
+  handle('session.shareEnv', async ({ workspaceId, questionId, value }) => {
+    await mustDriver(workspaceId).shareEnv(questionId, value);
+  });
   handle('session.answerQuestion', async ({ workspaceId, questionId, answers }) => {
     const id = workspaceId ?? pool.activeWorkspaceId();
     if (!id) throw new IpcError('not-connected', 'no active session to answer the question in');

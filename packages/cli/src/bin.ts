@@ -68,6 +68,7 @@ const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
   {
     title: 'CONNECT',
     rows: [
+      ['env share <NAME>', 'save a credential through a private vault prompt'],
       ['login <provider>', 'OAuth sign-in for providers that don\'t use API keys'],
       ['login <action>', 'inspect or remove stored OAuth credentials'],
       ['browser <action>', "sign the terminal's browser in to sites, or forget them"],
@@ -286,6 +287,7 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   memory: async () => (await import('./commands/memory.js')).runMemoryCommand,
   mcp: async () => (await import('./commands/mcp.js')).runMcpCommand,
   schedule: async () => (await import('./commands/schedule.js')).runScheduleCommand,
+  env: async () => (await import('./commands/env.js')).runEnvCommand,
   doctor: async () => (await import('./commands/doctor.js')).runDoctorCommand,
   update: async () => (await import('./commands/update.js')).runUpdateCommand,
   prompt: async () => (await import('./commands/prompt.js')).runPromptCommand,

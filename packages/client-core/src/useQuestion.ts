@@ -26,6 +26,7 @@ export interface UseQuestion {
   choose(item: QuestionItem, optionId: string): void;
   type(item: QuestionItem, text: string): void;
   submit(): Promise<void>;
+  shareEnv(value: string | null): Promise<void>;
 }
 
 const NO_DRAFT: QuestionDraft = Object.freeze({});
@@ -87,5 +88,10 @@ export function useQuestion(workspaceId: string | null): UseQuestion {
     }
   }, [workspaceId, questionId, problem, status.sending, draft]);
 
-  return { question, draft, problem, sending: status.sending, error: status.error, choose, type, submit };
+  const shareEnv = async (value: string | null): Promise<void> => {
+    if (!workspaceId || !questionId) throw new Error('No pending Env Share request.');
+    await api().invoke('session.shareEnv', { workspaceId, questionId, value });
+  };
+
+  return { question, draft, problem, shareEnv, sending: status.sending, error: status.error, choose, type, submit };
 }

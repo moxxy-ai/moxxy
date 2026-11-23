@@ -48,6 +48,7 @@ export class VaultPassphraseError extends Error {
 }
 
 export interface VaultEntry extends EncryptedBlob {
+  readonly referenceOnly?: true;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly tags?: ReadonlyArray<string>;
@@ -282,8 +283,12 @@ export class VaultStore {
     await this.setMany([{ name, value, tags }]);
   }
 
+  async setShared(name: string, value: string): Promise<void> {
+    await this.setMany([{ name, value, referenceOnly: true }]);
+  }
+
   /** Install a set of credentials with one encrypted-file commit. */
-  async setMany(updates: ReadonlyArray<{ name: string; value: string; tags?: ReadonlyArray<string> }>): Promise<void> {
+  async setMany(updates: ReadonlyArray<{ name: string; value: string; tags?: ReadonlyArray<string>; referenceOnly?: true }>): Promise<void> {
     if (!updates.length) return;
     await this.open();
     await this.mutex.run(async () => {
@@ -291,10 +296,11 @@ export class VaultStore {
       await this.syncFromDisk();
       const now = new Date().toISOString();
       const entries: Record<string, VaultEntry> = Object.assign(Object.create(null), this.file.entries);
-      for (const { name, value, tags } of updates) {
+      for (const { name, value, tags, referenceOnly } of updates) {
         const existing = entries[name];
         entries[name] = {
           ...encrypt(value, this.masterKey),
+          ...(referenceOnly || existing?.referenceOnly ? { referenceOnly: true as const } : {}),
           createdAt: existing?.createdAt ?? now,
           updatedAt: now,
           tags: tags ?? existing?.tags,
@@ -305,6 +311,14 @@ export class VaultStore {
   }
 
   async get(name: string): Promise<string | null> {
+    return this.readEntry(name, false);
+  }
+
+  async getForModel(name: string): Promise<string | null> {
+    return this.readEntry(name, true);
+  }
+
+  private async readEntry(name: string, forModel: boolean): Promise<string | null> {
     await this.open();
     // Read the entry inside the same mutex turn as syncFromDisk so a
     // concurrent set()/delete() (which replaces this.file wholesale) can't
@@ -314,6 +328,7 @@ export class VaultStore {
       if (!this.file || !this.masterKey) throw new Error('vault not open');
       const entry = this.file.entries[name];
       if (!entry) return null;
+      if (forModel && entry.referenceOnly) throw new Error('Use the vault reference for this shared secret.');
       return this.decryptEntry(name, entry);
     });
   }

@@ -17,7 +17,7 @@ export function buildTestServerTool(deps: TestServerToolDeps = {}): ToolDef {
       'Connect to an MCP server WITHOUT saving it to config. Returns the list of tools the ' +
       'server exposes if the connection succeeds, or a connection-error message. Useful for ' +
       'sanity-checking before calling mcp_add_server. Credentials (env/header values) must be ' +
-      'vault references, never plaintext: store the secret first via vault_set, then pass ' +
+      'vault references, never plaintext: request the secret first via env_share, then pass ' +
       '"${vault:NAME}" — it is resolved at connect time.',
     inputSchema: addServerInput,
     // Mirrors mcp_add_server: a stdio server is an arbitrary local

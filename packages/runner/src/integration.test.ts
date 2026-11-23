@@ -2224,7 +2224,7 @@ describe('questions (protocol v27)', () => {
   };
 
   /** A runner whose model calls a tool that asks one question and returns what came back. */
-  async function serveAsking() {
+  async function serveAsking(item: import('@moxxy/sdk').QuestionItem = colour) {
     const provider = new FakeProvider({ script: [toolUseReply('asks', {}), textReply('done')] });
     const { session, socketPath } = await serve(provider);
     session.tools.register(
@@ -2233,7 +2233,7 @@ describe('questions (protocol v27)', () => {
         description: 'Asks the person one question.',
         inputSchema: z.object({}),
         permission: { action: 'allow' },
-        handler: async (_input, ctx) => (ctx.ask ? JSON.stringify(await ctx.ask([colour])) : 'no ask'),
+        handler: async (_input, ctx) => (ctx.ask ? JSON.stringify(await ctx.ask([item])) : 'no ask'),
       }),
     );
     return { session, socketPath };
@@ -2243,6 +2243,29 @@ describe('questions (protocol v27)', () => {
     const result = remote.log.ofType('tool_result').at(-1);
     return result && result.ok ? result.output : undefined;
   };
+
+  it('saves a private answer only to the requested vault key and broadcasts only a receipt', async () => {
+    const item = { ...colour, id: 'env', vaultName: 'SERVICE_TOKEN', allowOther: false };
+    const { session, socketPath } = await serveAsking(item);
+    const stored = new Map<string, string>();
+    session.services.register('vault', { setShared: async (name: string, value: string) => stored.set(name, value) });
+    const desktop = await attach(socketPath, 'desktop');
+    desktop.questions.attachSurface({ envShare: true });
+    const turn = (async () => {
+      for await (const _event of desktop.runTurn('connect my service')) void _event;
+    })();
+    await waitFor(() => openQuestionsFromEvents(desktop.log.slice()).length === 1);
+    const id = String(openQuestionsFromEvents(desktop.log.slice())[0]?.questionId);
+    const secret = '  private-test-input  ';
+    await expect(desktop.questions.answer(id, { env: { selected: [], other: secret } })).rejects.toThrow('Env Share');
+    await desktop.questions.shareEnv(id, secret);
+    await turn;
+    expect(stored.get('SERVICE_TOKEN')).toBe(secret);
+    expect(JSON.parse(String(toolOutput(desktop)))).toEqual({ kind: 'answered', answers: { env: { selected: ['saved'] } } });
+    expect(JSON.stringify(session.log.slice())).not.toContain(secret.trim());
+    expect(JSON.stringify(desktop.log.slice())).not.toContain(secret.trim());
+    await expect(desktop.questions.shareEnv(id, 'replacement')).rejects.toThrow('no longer open');
+  });
 
   it('a question asked in a turn shows on an attached client, which answers it', async () => {
     const { socketPath } = await serveAsking();

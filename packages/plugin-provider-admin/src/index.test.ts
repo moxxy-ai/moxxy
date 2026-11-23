@@ -317,7 +317,7 @@ describe('provider_test', () => {
     )) as { ok: boolean; message: string };
     expect(result.ok).toBe(false);
     expect(result.message).toContain('DEEPSEEK_API_KEY');
-    expect(result.message).toContain('/vault set DEEPSEEK_API_KEY');
+    expect(result.message).toContain('env_share under DEEPSEEK_API_KEY');
     expect(validateMock).not.toHaveBeenCalled();
   });
 

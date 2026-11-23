@@ -1,5 +1,21 @@
 # @moxxy/desktop
 
+## 0.49.2
+
+### Patch Changes
+
+- Updated dependencies [e1df0ea]
+  - @moxxy/cli@0.49.2
+  - @moxxy/desktop-host@0.18.2
+  - @moxxy/sdk@0.49.2
+  - @moxxy/plugin-vault@0.49.2
+  - @moxxy/chat-model@0.5.11
+  - @moxxy/client-core@0.17.2
+  - @moxxy/client-platform-web@0.1.86
+  - @moxxy/desktop-ipc-contract@0.18.2
+  - @moxxy/runner@0.2.72
+  - @moxxy/workflows-builder@0.1.69
+
 ## 0.49.1
 
 ### Patch Changes

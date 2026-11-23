@@ -54,6 +54,7 @@ describe('searchPlaces', () => {
     ['notification', PREFERENCES],
     ['toast', PREFERENCES],
     ['update', PREFERENCES],
+    ['env share', { destination: 'settings', section: 'vault' }],
     ['vault', { destination: 'settings', section: 'vault' }],
     ['secrets', { destination: 'settings', section: 'vault' }],
     ['computer use', { destination: 'settings', section: 'jev' }],

@@ -12,7 +12,7 @@ import {
  * and its tools are told nobody will answer.
  */
 export function attachQuestions(session: Session): () => void {
-  return session.questions ? session.questions.attachSurface() : () => undefined;
+  return session.questions ? session.questions.attachSurface({ envShare: true }) : () => undefined;
 }
 
 /** The latest open Question in the conversation's events, or null. */

@@ -37,10 +37,8 @@ name: Release
 #
 # Publishing runs through `scripts/safe-publish.mjs` (not `changesets publish`):
 # it skips packages already on the registry, auto-bumps past tombstoned versions
-# (committing those bumps to `development`, the checked-out branch), and emits the
-# `🦋  New tag: ...` markers `changesets/action` greps for so per-package GitHub
-# releases are still created automatically. It is idempotent, so a catch-up run /
-# re-run is always safe.
+# (committing those bumps to development), and tags published npm versions.
+# Only desktop installers get GitHub Releases.
 #
 # Required repo secret:
 #   - NPM_TOKEN: npm automation token with publish rights for the @moxxy scope.
@@ -144,17 +142,30 @@ jobs:
       # tombstoned slots (committing those bumps to `development`, the checked-out
       # branch). We versioned above, so there are no pending changesets here →
       # `changesets/action` goes straight to publish and emits `hasChangesets=false`
-      # (the desktop-cut gate). It still parses safe-publish's `🦋 New tag:` lines
-      # to create the per-package GitHub releases.
+      # (the desktop-cut gate).
       - name: Publish to npm
         id: changesets
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
         with:
           publish: node scripts/safe-publish.mjs
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Changesets normally pushes these tags while creating GitHub Releases.
+      # Keep the npm version tags available independently of desktop releases.
+      - name: Push published npm package tags
+        if: ${{ !cancelled() && steps.changesets.outputs.published == 'true' }}
+        env:
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          refs="$(jq -er '.[] | "refs/tags/\(.name)@\(.version)"' <<< "$PUBLISHED_PACKAGES")"
+          mapfile -t tags <<< "$refs"
+          git push --atomic origin "${tags[@]}"
 
       # 3. ADVANCE main — make `main` exactly development's content as ONE clean
       # `Release: v…` commit. This is a tree COPY, not a merge: `commit-tree` builds
@@ -659,17 +670,12 @@ jobs:
       # DRAFT (human review); the moxxy-app-manifest.json / bundle (Tier-1) and
       # the electron-updater latest*.yml feed (Tier-2) only become downloadable
       # once a human PUBLISHES this release. So: review → Publish → clients
-      # can update. `make_latest: false` — desktop releases must NEVER take the
-      # repo's "Latest" badge: nothing consumes `releases/latest` (the stager
-      # resolves desktop-v* tags via the API precisely because npm-package
-      # releases already break "latest" — see stager.ts), and the badge should
-      # stay on the npm/product releases. Publishing the draft keeps this flag.
+      # can update. Published desktop releases are eligible for Latest.
       - name: Create release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: desktop-v${{ needs.version-publish.outputs.desktop-version }}
           files: artifacts/*
           draft: true
-          make_latest: false
           generate_release_notes: true
           body_path: ${{ runner.temp }}/release-body.md

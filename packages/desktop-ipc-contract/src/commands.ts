@@ -329,6 +329,7 @@ export interface IpcCommands {
   /** Answer an open Question of the workspace's conversation. Questions are
    *  read from the conversation log, so every client of it shows the same one
    *  and the first answer closes it everywhere; a later answer rejects. */
+  'session.shareEnv': (args: { workspaceId: string; questionId: string; value: string | null }) => Promise<void>;
   'session.answerQuestion': (args: {
     workspaceId?: string;
     questionId: string;

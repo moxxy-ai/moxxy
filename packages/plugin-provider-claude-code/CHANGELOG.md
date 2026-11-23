@@ -1,5 +1,14 @@
 # @moxxy/plugin-provider-claude-code
 
+## 0.49.2
+
+### Patch Changes
+
+- Updated dependencies [e1df0ea]
+  - @moxxy/agent-connection-kit@0.2.2
+  - @moxxy/sdk@0.49.2
+  - @moxxy/plugin-browser@0.49.2
+
 ## 0.49.1
 
 ### Patch Changes

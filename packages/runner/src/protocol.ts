@@ -209,7 +209,8 @@ import type {
  * connection before the desktop signs it out, so a running agent cannot keep
  * the old account and save it back (additive).
  */
-export const RUNNER_PROTOCOL_VERSION = 34;
+/** v35: question.shareEnv privately saves a value for a pending vault request. */
+export const RUNNER_PROTOCOL_VERSION = 35;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -276,6 +277,7 @@ export const RunnerMethod = {
   SetResolver: 'setResolver',
   /** client->server: answer an open Question the session recorded (v27). */
   QuestionAnswer: 'question.answer',
+  QuestionShareEnv: 'question.shareEnv',
   /** client->server: switch the active mode. */
   ModeSetActive: 'mode.setActive',
   /** client->server: set the session's reasoning/thinking effort (v9). */
@@ -457,6 +459,7 @@ export interface SetResolverParams {
   readonly approval?: boolean;
   /** This client shows the session's Questions and can answer them (v27). */
   readonly question?: boolean;
+  readonly envShare?: boolean;
 }
 
 /** Params for `question.answer` (v27). */
@@ -743,7 +746,13 @@ export const setResolverParamsSchema = z.object({
   permission: z.boolean().optional(),
   approval: z.boolean().optional(),
   question: z.boolean().optional(),
+  envShare: z.boolean().optional(),
 });
+
+export const shareEnvParamsSchema = z.object({
+  questionId: z.string().min(1).max(128),
+  value: z.string().min(1).max(65536).nullable(),
+}).strict();
 
 export const questionAnswerParamsSchema = z
   .object({ questionId: z.string().min(1), answers: questionAnswersSchema })

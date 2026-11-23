@@ -25,6 +25,6 @@ it('validates the entire restore payload before applying keys or preferences', a
   expect(vault.setMany).not.toHaveBeenCalled();
   expect(updatePrefs).not.toHaveBeenCalled();
   await expect(run({ theme: 'dark' })).resolves.toBe(1);
-  expect(vault.setMany).toHaveBeenCalledWith([{ name: 'OPENAI_API_KEY', value: 'fixture' }]);
+  expect(vault.setMany).toHaveBeenCalledWith([{ name: 'OPENAI_API_KEY', value: 'fixture', referenceOnly: true }]);
   expect(updatePrefs).toHaveBeenCalledWith({ theme: 'dark' });
 });

@@ -36,7 +36,7 @@ export async function syncAccount(
   if (action === 'restore') {
     const snapshot = accountSnapshot.parse(await response.json());
     keys = snapshot.keys;
-    await vault.setMany(Object.entries(keys).map(([name, value]) => ({ name, value })));
+    await vault.setMany(Object.entries(keys).map(([name, value]) => ({ name, value, referenceOnly: true })));
     await updatePrefs(snapshot.prefs);
   }
   return Object.keys(keys).length;

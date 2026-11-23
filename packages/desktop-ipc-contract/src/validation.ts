@@ -448,6 +448,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
   'session.stopBackgroundWork': z.object({ workspaceId: optionalWorkspace, workId: z.string().min(1).max(256) }),
   // An answer is the person's choice plus their own words: bounded like ask.respond's text.
+  'session.shareEnv': z.object({
+    workspaceId: z.string().min(1), questionId: z.string().min(1).max(128), value: z.string().min(1).max(65536).nullable(),
+  }).strict(),
   'session.answerQuestion': z
     .object({
       workspaceId: optionalWorkspace,
