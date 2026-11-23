@@ -6,7 +6,7 @@ const { auth, invoke } = vi.hoisted(() => ({
   auth: { isLoaded: false, user: null as { id: string; fullName: string } | null },
   invoke: vi.fn(),
 }));
-vi.mock('@clerk/clerk-react', () => ({ useUser: () => auth }));
+vi.mock('@clerk/react', () => ({ useUser: () => auth }));
 vi.mock('@moxxy/client-core', () => ({ api: () => ({ invoke }) }));
 
 it('waits for Clerk and reconciles expiry, new sign-in and a same-account rename', async () => {

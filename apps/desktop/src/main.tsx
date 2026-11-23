@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ClerkProvider } from '@clerk/clerk-react';
-import { dark } from '@clerk/themes';
+import { ClerkProvider } from '@clerk/react';
 import { App } from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DeepLinkBridge } from './lib/useDeepLink';
@@ -43,48 +42,24 @@ const REDIRECT_ORIGINS = new RegExp(
   `^(https://desktop\\.moxxy\\.ai|http://(127\\.0\\.0\\.1|localhost)):(?:${LOOPBACK_PORTS_ALT})$`,
 );
 
-// Reactive view of the app theme. `useTheme()` (mounted once in App, inside
-// the provider) owns the `data-theme` attribute on <html> — observing that
-// attribute is the single source of truth, and it also catches OS-driven
-// flips while the preference is `system` (which watching only the persisted
-// pref would miss). useSyncExternalStore + MutationObserver keeps this a
-// plain subscription with no extra state to reconcile.
-function subscribeToDataTheme(onChange: () => void): () => void {
-  const observer = new MutationObserver(onChange);
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme'],
-  });
-  return () => observer.disconnect();
-}
-
-function isDocumentDark(): boolean {
-  return document.documentElement.dataset.theme === 'dark';
-}
-
 // signIn/signUpFallbackRedirectUrl pin the post-auth landing to the app's own
 // origin ('/' resolves against the serving origin above). Without an explicit
 // target, the OAuth code-exchange leg can lose the redirect_url and Clerk's
 // FAPI then falls back to the HOSTED Account Portal (accounts.<domain>) —
 // stranding the desktop window on "My account" instead of back in the app.
-// The `appearance` prop follows <html data-theme> so Clerk's modals (openSignIn
-// etc.) flip with the rest of the app — ClerkProvider applies appearance
-// updates reactively, so an open modal restyles live too.
-function ThemedClerkProvider({
+function DesktopClerkProvider({
   publishableKey,
   children,
 }: {
   publishableKey: string;
   children: React.ReactNode;
 }): React.ReactElement {
-  const isDark = React.useSyncExternalStore(subscribeToDataTheme, isDocumentDark);
   return (
     <ClerkProvider
       publishableKey={publishableKey}
       allowedRedirectOrigins={import.meta.env.DEV ? [REDIRECT_ORIGINS, window.location.origin] : [REDIRECT_ORIGINS]}
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
-      appearance={{ baseTheme: isDark ? dark : undefined }}
     >
       {/* Completes a dangling OAuth sign-up "transfer" (new-user sign-in)
           that the full-window redirect flow failed to finish — see
@@ -99,9 +74,9 @@ function ThemedClerkProvider({
 }
 
 const Tree = CLERK_KEY ? (
-  <ThemedClerkProvider publishableKey={CLERK_KEY}>
+  <DesktopClerkProvider publishableKey={CLERK_KEY}>
     <App />
-  </ThemedClerkProvider>
+  </DesktopClerkProvider>
 ) : (
   <App />
 );

@@ -21,7 +21,7 @@ vi.mock('@moxxy/client-core', () => ({
   usePrefs: () => ({ prefs: null, loading: false, update: vi.fn() }),
 }));
 
-vi.mock('@clerk/clerk-react', () => ({
+vi.mock('@clerk/react', () => ({
   useUser: () => ({ user: null, isLoaded: true }),
   useAuth: () => ({ sessionClaims: null }),
   useClerk: () => ({ openSignIn: vi.fn() }),

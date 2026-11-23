@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSession } from '@clerk/clerk-react';
+import { useSession } from '@clerk/react';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import { isSyncKeyName, keySyncDisabledField } from '@moxxy/desktop-ipc-contract/account-sync';
 import { ConfirmModal } from '@moxxy/desktop-ui';

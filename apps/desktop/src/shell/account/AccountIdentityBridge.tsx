@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@clerk/react';
 import { api } from '@moxxy/client-core';
 
 export function AccountIdentityBridge(): null {

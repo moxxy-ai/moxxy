@@ -1,5 +1,5 @@
 import { useLayoutEffect } from 'react';
-import { useClerk } from '@clerk/clerk-react';
+import { useClerk } from '@clerk/react';
 import { keySyncDisabledField } from '@moxxy/desktop-ipc-contract/account-sync';
 import { registerKeySyncSession } from '../../lib/keySyncTransport';
 
