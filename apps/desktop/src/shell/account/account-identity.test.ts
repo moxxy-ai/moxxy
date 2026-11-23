@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTier, initialsOf } from './account-identity';
+import { personalPlanLabel, initialsOf } from './account-identity';
 
 describe('account identity', () => {
   it('draws initials from a name', () => {
@@ -14,10 +14,14 @@ describe('account identity', () => {
     expect(initialsOf('   ')).toBeNull();
   });
 
-  it('reads the tier from account metadata, defaulting to Free', () => {
-    expect(formatTier('pro')).toBe('Pro');
-    expect(formatTier('  TEAM ')).toBe('Team');
-    expect(formatTier(undefined)).toBe('Free');
-    expect(formatTier(42)).toBe('Free');
+  it('uses the personal plan in the signed session claim', () => {
+    expect(personalPlanLabel('u:free')).toBe('Free');
+    expect(personalPlanLabel('u:creator_plus')).toBe('Creator Plus');
+    expect(personalPlanLabel('u:pro-monthly')).toBe('Pro Monthly');
   });
+
+  it.each([undefined, 42, 'pro', 'u:', 'o:pro', 'u:free,o:pro'])(
+    'omits the tier when there is no personal plan (%s)',
+    claim => expect(personalPlanLabel(claim)).toBeNull(),
+  );
 });

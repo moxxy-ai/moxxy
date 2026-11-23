@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuth, useClerk, useUser } from '@clerk/react';
 import { usePrefs } from '@moxxy/client-core';
 import type { AccountSummary } from '../navigation/AccountMenu';
-import { formatTier, initialsOf } from './account-identity';
+import { personalPlanLabel, initialsOf } from './account-identity';
 
 const HAS_CLERK_KEY = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim());
 
@@ -17,7 +17,7 @@ export interface Account {
   readonly closePanel: () => void;
 }
 
-function summarize(name: string | null, tier: string): AccountSummary {
+function summarize(name: string | null, tier: string | null): AccountSummary {
   return { name, initials: name ? initialsOf(name) : null, tier, signedIn: name !== null };
 }
 
@@ -26,7 +26,7 @@ function useLocalAccount(): Account {
   const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
   return {
-    summary: summarize(prefs?.clerkDisplayName ?? null, 'Free'),
+    summary: summarize(prefs?.clerkDisplayName ?? null, null),
     open: () => setOpen(true),
     panel: open ? 'local' : 'none',
     closePanel: () => setOpen(false),
@@ -39,8 +39,7 @@ function useClerkAccount(): Account {
   const clerk = useClerk();
   const [profileId, setProfileId] = useState<string | null>(null);
   const name = user ? user.fullName ?? user.primaryEmailAddress?.emailAddress ?? user.username ?? 'Account' : null;
-  const claims = (sessionClaims ?? {}) as Record<string, unknown>;
-  const tier = formatTier(user?.publicMetadata['accountType'] ?? claims['accountType'] ?? claims['account_type']);
+  const tier = user && sessionClaims?.sub === user.id ? personalPlanLabel(sessionClaims.pla) : null;
 
   return {
     summary: summarize(name, tier),

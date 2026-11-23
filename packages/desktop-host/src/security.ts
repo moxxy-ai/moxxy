@@ -474,11 +474,13 @@ export function clerkCspHostSources(publishableKey?: string | null): string[] {
  * does not extend to scripts, workers, connections, objects, or remote media.
  */
 function buildCspDirectives(extraClerkHosts: readonly string[], clerkHost?: string | null): string {
+  // Clerk's personal billing screen embeds Stripe.js and its payment authentication frames.
+  const stripeJs = clerkHost ? ' https://js.stripe.com https://*.js.stripe.com' : '';
   const scriptHost = clerkHost ? ` https://${clerkHost}` : '';
   const extra = extraClerkHosts.length ? ` ${extraClerkHosts.join(' ')}` : '';
   return [
     "default-src 'self'",
-    `script-src 'self' 'wasm-unsafe-eval'${clerkHost ? ' https://*.protect.clerk.com' : ''} https://challenges.cloudflare.com${scriptHost}`,
+    `script-src 'self' 'wasm-unsafe-eval'${clerkHost ? ' https://*.protect.clerk.com' : ''} https://challenges.cloudflare.com${scriptHost}${stripeJs}`,
     // No font CDN in either directive: the renderer bundles no webfont and the
     // type stacks resolve to installed system faces, so `fonts.googleapis.com`
     // (style-src) and `fonts.gstatic.com` (font-src) are gone. Two fewer remote
@@ -491,11 +493,11 @@ function buildCspDirectives(extraClerkHosts: readonly string[], clerkHost?: stri
     // sign-up — Clerk's documented CSP needs it in connect-src too, not just
     // script/frame-src, or the captcha can fail and sign-up dead-ends.
     // moxxy-app:: the anonymizer worker's local-only model fetches (above).
-    `connect-src 'self' moxxy-app:${clerkHost ? ' https://*.protect.clerk.com:*' : ''} https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    `connect-src 'self' moxxy-app:${clerkHost ? ' https://*.protect.clerk.com:* https://api.stripe.com' : ''} https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "worker-src 'self' blob:",
     // `blob:` lets the Files viewer render a PDF in an <iframe> via Chromium's
     // built-in PDF viewer (the bytes are an app-created same-origin Blob URL).
-    `frame-src 'self' blob: https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    `frame-src 'self' blob:${stripeJs}${clerkHost ? ' https://hooks.stripe.com' : ''} https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
