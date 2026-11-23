@@ -621,6 +621,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'chat.openMediaFile': chatMediaItemArgs,
   // Vault writes are security-sensitive: lock the key name to a safe slug
   // (letters/digits + . _ / - , no traversal) and bound the secret size.
+  'account.sync': z.object({ action: z.enum(['save', 'restore', 'clear']), token: z.string().min(1).max(8192) }).strict(),
   'settings.vaultSet': z.object({
     name: vaultKeyName,
     value: z.string().min(1).max(32_768),

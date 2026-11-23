@@ -2,13 +2,7 @@
  * Unit tests for the OAuth user-agent scrubber + popup host allow-list builder.
  * Extracted from index.ts so the regex logic is testable without Electron.
  */
-import { describe, expect, it, vi } from 'vitest';
-
-// Control what Frontend API host the publishable key resolves to.
-const clerkFrontendApiHost = vi.fn<(key: string) => string | null>();
-vi.mock('@moxxy/desktop-host', () => ({
-  clerkFrontendApiHost: (k: string) => clerkFrontendApiHost(k),
-}));
+import { describe, expect, it } from 'vitest';
 
 import { buildOAuthHostPatterns, cleanOAuthUserAgent } from './oauth-window.js';
 
@@ -43,33 +37,15 @@ describe('buildOAuthHostPatterns', () => {
   const matches = (patterns: RegExp[], origin: string): boolean =>
     patterns.some((re) => re.test(origin));
 
-  it('always allows Clerk + the major OAuth providers', () => {
-    clerkFrontendApiHost.mockReturnValue(null);
-    const p = buildOAuthHostPatterns('pk_test_x');
-    expect(matches(p, 'https://foo.clerk.accounts.dev')).toBe(true);
-    expect(matches(p, 'https://foo.clerk.com')).toBe(true);
-    expect(matches(p, 'https://accounts.google.com')).toBe(true);
-    expect(matches(p, 'https://appleid.apple.com')).toBe(true);
-    expect(matches(p, 'https://github.com')).toBe(true);
-    expect(matches(p, 'https://evil.example.com')).toBe(false);
-  });
-
-  it('adds nothing extra for a test key whose host is already covered', () => {
-    clerkFrontendApiHost.mockReturnValue('foo.clerk.accounts.dev');
-    const base = buildOAuthHostPatterns('pk_test_covered');
-    clerkFrontendApiHost.mockReturnValue(null);
-    const none = buildOAuthHostPatterns('pk_test_none');
-    expect(base.length).toBe(none.length);
-  });
-
-  it('folds in a pk_live_ instance Frontend API host + parent-domain wildcard', () => {
-    clerkFrontendApiHost.mockReturnValue('clerk.acme.com');
-    const p = buildOAuthHostPatterns('pk_live_acme');
-    expect(matches(p, 'https://clerk.acme.com')).toBe(true);
-    // Parent-domain wildcard covers the account portal subdomain.
-    expect(matches(p, 'https://accounts.acme.com')).toBe(true);
-    expect(matches(p, 'https://deep.sub.acme.com')).toBe(true);
-    // But not a different apex.
-    expect(matches(p, 'https://acme.evil.com')).toBe(false);
+  it('allows the configured instance, portal and supported providers', () => {
+    const key = (host: string) => 'pk_test_' + Buffer.from(host + '$').toString('base64');
+    const patterns = buildOAuthHostPatterns(key('clerk.acme.com'));
+    for (const host of ['accounts.google.com', 'appleid.apple.com', 'github.com', 'clerk.acme.com', 'accounts.acme.com']) {
+      expect(matches(patterns, 'https://' + host)).toBe(true);
+    }
+    for (const host of ['other.acme.com', 'other.clerk.accounts.dev', 'accounts.acme.com.evil.example']) {
+      expect(matches(patterns, 'https://' + host)).toBe(false);
+    }
+    expect(matches(buildOAuthHostPatterns(key('demo.clerk.accounts.dev')), 'https://demo.accounts.dev')).toBe(true);
   });
 });

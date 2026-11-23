@@ -12,8 +12,9 @@
  * the app).
  */
 
+import { DeviceSync } from './account/DeviceSync';
 import { useState } from 'react';
-import { useClerk, useUser } from '@clerk/clerk-react';
+import { TaskChooseOrganization, TaskResetPassword, TaskSetupMFA, useSession, useClerk, useUser } from '@clerk/clerk-react';
 import { Button, Modal, ModalFooter, ConfirmModal, Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@moxxy/client-core';
 
@@ -24,15 +25,18 @@ interface Props {
 
 export function ProfileView({ tier, onClose }: Props): JSX.Element {
   const { user } = useUser();
+  const { session } = useSession();
+  const task = session?.currentTask?.key;
   const { signOut } = useClerk();
-  const { prefs, update } = usePrefs();
+  const { prefs } = usePrefs();
+  const [error, setError] = useState('');
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const primaryEmail = user?.primaryEmailAddress;
   const email = primaryEmail?.emailAddress ?? null;
   const fullName =
-    user?.fullName ?? email ?? prefs?.clerkDisplayName ?? 'Account';
+    user?.fullName ?? email ?? user?.username ?? 'Account';
   const joined = user?.createdAt ? new Date(user.createdAt) : null;
   const initials =
     fullName
@@ -45,12 +49,9 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
     setBusy(true);
     try {
       await signOut();
-      await update({
-        clerkUserId: null,
-        clerkDisplayName: null,
-        signedInAt: null,
-      });
       onClose();
+    } catch {
+      setError('Sign-out failed. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -140,7 +141,7 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
           >
             <Detail label="Member since" value={joined ? joined.toLocaleDateString() : 'Just now'} />
             <Detail label="User ID" value={user?.id ?? '—'} mono />
-            {prefs?.signedInAt && (
+            {prefs?.clerkUserId === user?.id && prefs?.signedInAt && (
               <Detail
                 label="Last sign-in"
                 value={new Date(prefs.signedInAt).toLocaleString()}
@@ -148,6 +149,12 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
             )}
           </dl>
 
+          {task === 'choose-organization' && <TaskChooseOrganization redirectUrlComplete="/" />}
+          {task === 'reset-password' && <TaskResetPassword redirectUrlComplete="/" />}
+          {task === 'setup-mfa' && <TaskSetupMFA redirectUrlComplete="/" />}
+          {!task && session?.status === 'active' && import.meta.env.VITE_ACCOUNT_SYNC_URL?.trim() && user &&
+            <DeviceSync key={user.id} />}
+          {error && <p role="alert">{error}</p>}
           <ModalFooter>
             <Button variant="secondary" onClick={onClose}>
               Close

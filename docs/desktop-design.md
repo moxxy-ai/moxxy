@@ -31,6 +31,8 @@ only; the TUI and the web channel keep their own look.
 | Right panel | Closed by default. Files, terminal, browser and diff open in it from a header icon. |
 | Motion | 120 to 240 ms, ease-out. A pressed control scales to 0.97. |
 
+On a build with device sync, setup offers a returning user an account button before they connect a model. The signed-in account panel groups device backup, restore and removal together. Each action names which copy it changes before confirmation.
+
 ## Motion rules
 
 Motion follows Emil Kowalski's design-engineering rules. They apply to every

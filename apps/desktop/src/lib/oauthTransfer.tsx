@@ -98,8 +98,8 @@ export async function completeDanglingOAuthTransfer(
     // sign-in modal, which resumes the attempt with its full UI.
     console.warn(`[oauth-transfer] transfer did not complete (status: ${res.status})`);
     return 'incomplete';
-  } catch (err) {
-    console.warn('[oauth-transfer] transfer failed', err);
+  } catch {
+    console.warn('[oauth-transfer] transfer failed');
     return 'failed';
   }
 }

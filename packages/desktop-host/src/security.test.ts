@@ -274,8 +274,8 @@ describe('clerk account-portal host', () => {
     expect(clerkAccountPortalHost(LIVE)).toBe('accounts.acme.com');
   });
 
-  it('returns null for test keys (portal host is never allow-listed)', () => {
-    expect(clerkAccountPortalHost(TEST)).toBeNull();
+  it('derives the instance-specific development portal', () => {
+    expect(clerkAccountPortalHost(TEST)).toBe('amazed-cod-67.accounts.dev');
   });
 
   it('returns null for missing / malformed keys', () => {
@@ -488,6 +488,9 @@ describe('CSP injection gate', () => {
       // voice playback uses an app-created Blob URL. Keep this permission
       // media-only so Blob scripts, connections, and objects stay forbidden.
       expect(csp).toContain("media-src 'self' blob:");
+      const scripts = csp.split('; ').find(part => part.startsWith('script-src'));
+      expect(scripts).toContain('https://clerk.acme.com');
+      expect(scripts).not.toContain('https://*.');
       // the live-key prod host folds in
       expect(csp).toContain('https://clerk.acme.com');
     }
