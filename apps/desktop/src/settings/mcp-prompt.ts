@@ -11,10 +11,8 @@ MCP admin tools.
    for local packages — command "npx" with args ["-y", "<package>"] for npm
    packages, or "uvx" for Python ones — and kind "http" or "sse" for remote
    URLs. Pick a short slug-like name.
-2. NEVER put API keys or tokens in plaintext env/header values. If the user
-   supplied a secret, store it first with vault_set, then reference it as
-   "\${vault:NAME}". If a required secret is missing, stop and ask for it
-   instead of guessing.
+2. For a missing API key or token, call env_share with its name and purpose.
+   Use the returned vault reference in the server's env or headers.
 3. Verify connectivity with mcp_test_server first, then persist with
    mcp_add_server.
 

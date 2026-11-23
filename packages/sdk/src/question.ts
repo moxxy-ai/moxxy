@@ -20,7 +20,12 @@ export interface QuestionOption {
   readonly description?: string;
 }
 
+export const envShareNameSchema = z.string().min(1).max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+  .refine((name) => !Object.hasOwn(Object.prototype, name), 'Choose another environment name.');
+
 export interface QuestionItem {
+  /** A local vault prompt. Only its fixed receipt may enter the conversation. */
+  readonly vaultName?: string;
   readonly id: string;
   /** A short tag for the question, as Claude's AskUserQuestion and Codex send it. */
   readonly header?: string;
@@ -78,7 +83,9 @@ export type QuestionAsker = (request: {
 /** The session's side of questions that a surface (desktop, TUI, a channel bot) drives. */
 export interface SessionQuestions {
   /** Say this surface can show questions and take answers; call the result when it detaches. */
-  attachSurface(): () => void;
+  attachSurface(options?: { envShare?: boolean }): () => void;
+  /** Submit directly to the pending vault request. Null declines the request. */
+  shareEnv?(questionId: string, value: string | null): Promise<void>;
   /** Answer an open question. Rejects when it is no longer open or the answer does not fit it. */
   answer(questionId: string, answers: QuestionAnswers): Promise<void>;
 }
@@ -91,6 +98,7 @@ export const questionItemSchema = z
   .object({
     id: z.string().min(1),
     header: z.string().optional(),
+    vaultName: envShareNameSchema.optional(),
     question: z.string().min(1),
     options: z.array(questionOptionSchema),
     multiSelect: z.boolean(),

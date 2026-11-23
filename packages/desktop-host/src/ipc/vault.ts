@@ -21,7 +21,7 @@ export function registerVaultHandlers(): void {
     // Writes to the same on-disk vault the runner reads (shared file +
     // key source via the in-process vault plugin), so a key added here is
     // immediately resolvable as ${vault:NAME}.
-    await getInProcessPlugins().vault.set(name, value);
+    await getInProcessPlugins().vault.setShared(name, value);
   });
   handle('settings.vaultDelete', async ({ name }) => {
     await getInProcessPlugins().vault.delete(name);

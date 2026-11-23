@@ -35,6 +35,28 @@ describe('session questions', () => {
     expect(records()).toEqual([]);
   });
 
+  it('requires a private surface, sanitizes vault failures and can skip after a failed write', async () => {
+    const log = new EventLog();
+    const secret = 'synthetic-value';
+    const requests = new SessionQuestionsImpl({
+      log, sessionId: asSessionId('s1'), saveShared: async () => { throw new Error(secret); },
+    });
+    const ask = () => requests.ask({
+      turnId: asTurnId('t1'), signal: new AbortController().signal,
+      questions: [{ ...colour, id: 'env', vaultName: 'TOKEN', allowOther: false }],
+    });
+    requests.attachSurface();
+    await expect(ask()).resolves.toEqual({ kind: 'unanswerable' });
+    requests.attachSurface({ envShare: true });
+    const pending = ask();
+    await settle();
+    const id = String(openQuestionsFromEvents(log.slice())[0]?.questionId);
+    await expect(requests.shareEnv(id, secret)).rejects.toThrow('Could not save to the Moxxy vault.');
+    await requests.shareEnv(id, null);
+    await expect(pending).resolves.toEqual({ kind: 'answered', answers: { env: { selected: ['skip'] } } });
+    expect(JSON.stringify(log.slice())).not.toContain(secret);
+  });
+
   it('records the question, waits, and gives the asker the answer the person chose', async () => {
     const { questions, ask, open, records } = setup();
     questions.attachSurface();

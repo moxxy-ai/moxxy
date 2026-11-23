@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import type { UseQuestion } from '@moxxy/client-core';
+import { EnvShareCard } from './ask/EnvShareCard';
 import { QuestionCard } from './ask/QuestionCard';
 import { useFocusTrap } from './useFocusTrap';
 
@@ -14,6 +15,9 @@ export function QuestionSheet({ question }: { readonly question: UseQuestion }):
   const focusRef = useRef<HTMLButtonElement>(null);
   useFocusTrap({ containerRef, initialFocusRef: focusRef });
   if (!question.question) return null;
+  if (question.question.questions[0]?.vaultName) {
+    return <div ref={containerRef} role="dialog" aria-label="Env Share"><EnvShareCard request={question} /></div>;
+  }
   return (
     <QuestionCard
       ref={containerRef}
