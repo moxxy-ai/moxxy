@@ -11,6 +11,7 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./account-features": "./dist/account-features.js",
     "./account-sync": "./dist/account-sync.js",
     "./validation": {
       "types": "./dist/validation.d.ts",

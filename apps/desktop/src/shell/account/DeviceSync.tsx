@@ -1,3 +1,4 @@
+import { usePersonalFeature } from './usePersonalFeature';
 import { KeySyncControl } from './KeySyncControl';
 import { useState } from 'react';
 import { useAuth, useUser } from '@clerk/react';
@@ -13,6 +14,7 @@ const details: Record<SyncAction, string> = {
 
 export function DeviceSync(): JSX.Element {
   const { user } = useUser();
+  const canSync = usePersonalFeature('device_key_sync');
   const keySyncOff = user?.publicMetadata[keySyncDisabledField] === true;
   const { getToken } = useAuth();
   const [action, setAction] = useState<SyncAction | null>(null);
@@ -34,15 +36,17 @@ export function DeviceSync(): JSX.Element {
   }
   return <section aria-label="Device sync">
     <strong>Device sync</strong>
-    <KeySyncControl />
-    <p className="form__hint">Copy model and voice API keys, theme, voice engine and notification preferences between your devices.</p>
+    <KeySyncControl allowOptOut />
+    <p className="form__hint">{canSync
+      ? 'Copy model and voice API keys, theme, voice engine and notification preferences between your devices.'
+      : 'Your plan does not include device sync. You can still remove your account backup.'}</p>
     <div className="form__acts">
-      <Button variant="secondary" disabled={busy || keySyncOff} onClick={() => setAction('save')}>Save to account</Button>
-      <Button variant="secondary" disabled={busy} onClick={() => setAction('restore')}>Restore here</Button>
+      <Button variant="secondary" disabled={busy || keySyncOff || !canSync} onClick={() => setAction('save')}>Save to account</Button>
+      <Button variant="secondary" disabled={busy || !canSync} onClick={() => setAction('restore')}>Restore here</Button>
       <Button variant="secondary" disabled={busy} onClick={() => setAction('clear')}>Remove backup</Button>
     </div>
     <p role="status">{busy ? 'Syncing…' : message}</p>
-    {action && <ConfirmModal title="Device sync" message={details[action]} confirmLabel="Continue"
+    {action && (canSync || action === 'clear') && <ConfirmModal title="Device sync" message={details[action]} confirmLabel="Continue"
       destructive={action === 'clear'} onCancel={() => setAction(null)} onConfirm={() => void sync(action)} />}
   </section>;
 }

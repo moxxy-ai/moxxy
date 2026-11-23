@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { hasNoBillingClaims, hasPersonalFeature } from '@moxxy/desktop-ipc-contract/account-features';
 import { accountPatch, accountSnapshot, keySyncDisabledField } from '@moxxy/desktop-ipc-contract/account-sync';
 
 const namespace = 'moxxyDesktopV1';
@@ -12,11 +13,29 @@ export function verifyDesktopSession(issuer, allowedOrigins, jwks = createRemote
     if (!allowedOrigins.includes(payload.azp) || !/^user_[a-zA-Z0-9]+$/.test(payload.sub) ||
         typeof payload.sid !== 'string' || !/^sess_[a-zA-Z0-9]+$/.test(payload.sid) ||
         payload.sts === 'pending' || payload.act) throw new Error('Invalid session');
-    return { user: payload.sub, session: payload.sid };
+    return { user: payload.sub, session: payload.sid, billing: { fea: payload.fea, pla: payload.pla } };
   };
 }
 
-export function createService({ verify, secret, request = fetch }) {
+// Older installations provided sync before Billing existed. Only the configured issuer
+// can confirm this exception. A missing claim on a billed instance grants nothing.
+export function instanceBillingDisabled(issuer, request = fetch) {
+  const url = new URL('/v1/environment', issuer);
+  let cached;
+  let expires = 0;
+  return async () => {
+    if (Date.now() < expires) return cached;
+    const response = await request(url, { redirect: 'error', signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error('Clerk environment unavailable');
+    const enabled = (await response.json()).commerce_settings?.billing?.user?.enabled;
+    if (typeof enabled !== 'boolean') throw new Error('Missing Clerk Billing configuration');
+    cached = !enabled;
+    expires = Date.now() + 60000;
+    return cached;
+  };
+}
+
+export function createService({ verify, secret, request = fetch, billingDisabled = () => false }) {
   const clerk = (path, init) => request('https://api.clerk.com/v1' + path, {
     ...init, headers: { authorization: 'Bearer ' + secret, 'content-type': 'application/json' },
     redirect: 'error', signal: AbortSignal.timeout(8000),
@@ -49,6 +68,9 @@ export function createService({ verify, secret, request = fetch }) {
       if (!session.ok) return end(session.status === 404 ? 401 : 503);
       const state = await session.json();
       if (state.status !== 'active' || state.user_id !== identity.user) return end(401);
+      const canSync = () => hasPersonalFeature(identity.billing, 'device_key_sync') ||
+        (hasNoBillingClaims(identity.billing) && billingDisabled());
+      if ((req.method === 'GET' || req.method === 'PATCH') && !(await canSync())) return end(403);
       const path = '/users/' + identity.user;
       if (req.method === 'GET') {
         const user = await clerk(path);
@@ -72,6 +94,7 @@ export function createService({ verify, secret, request = fetch }) {
         try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return end(400); }
         if (req.method === 'PUT') {
           if (typeof input?.enabled !== 'boolean' || Object.keys(input).length !== 1) return end(400);
+          if (input.enabled && !(await canSync())) return end(403);
           metadata = {
             public_metadata: { [keySyncDisabledField]: input.enabled ? null : true },
             ...(input.enabled ? {} : { private_metadata: { [namespace]: { keys: null } } }),
