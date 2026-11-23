@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import test from 'node:test';
 import { generateKeyPair, SignJWT } from 'jose';
-import { createService, verifyDesktopSession } from './service.mjs';
+import { createService, instanceBillingDisabled, verifyDesktopSession } from './service.mjs';
 
 test('checks issuer, signature, party, expiry and session claims', async () => {
   const { publicKey, privateKey } = await generateKeyPair('RS256');
@@ -13,7 +13,9 @@ test('checks issuer, signature, party, expiry and session claims', async () => {
   const claims = { sid: 'sess_a', sub: 'user_a', azp: origin, iss: issuer };
   const sign = (changes = {}, key = privateKey) => new SignJWT({ ...claims, ...changes })
     .setIssuedAt().setExpirationTime(changes.exp ?? '1m').setProtectedHeader({ alg: 'RS256' }).sign(key);
-  assert.deepEqual(await verify(await sign()), { user: 'user_a', session: 'sess_a' });
+  assert.deepEqual(await verify(await sign()), { user: 'user_a', session: 'sess_a', billing: { fea: undefined, pla: undefined } });
+  const billing = { fea: 'u:device_key_sync', pla: 'u:free' };
+  assert.deepEqual((await verify(await sign(billing))).billing, billing);
   for (const patch of [{ azp: 'elsewhere' }, { exp: 1 }, { iss: 'elsewhere' }, { sts: 'pending' }, { sid: undefined }]) {
     await assert.rejects(verify(await sign(patch)));
   }
@@ -22,6 +24,9 @@ test('checks issuer, signature, party, expiry and session claims', async () => {
 
 test('scopes reads, merges and removal to the active session owner', async (t) => {
   let state = 'active';
+  let billing = { pla: 'u:free', fea: 'u:device_key_sync' };
+  let unbilled = false;
+  let lookupUnavailable = false;
   const privateMetadata = { unrelated: 'private' };
   const publicMetadata = {};
   // Clerk's metadata PATCH recursively merges nested fields and deletes nulls.
@@ -44,9 +49,15 @@ test('scopes reads, merges and removal to the active session owner', async (t) =
   };
   const verify = (token) => {
     assert.equal(token, 'session-test');
-    return { session: 'sess_test', user: 'user_test' };
+    return { session: 'sess_test', user: 'user_test', billing };
   };
-  const server = createServer(createService({ verify, secret: 'service-test', request }));
+  const server = createServer(createService({
+    verify, secret: 'service-test', request,
+    billingDisabled: () => {
+      if (lookupUnavailable) throw new Error('Clerk unavailable');
+      return unbilled;
+    },
+  }));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise(resolve => server.close(resolve)));
@@ -80,10 +91,45 @@ test('scopes reads, merges and removal to the active session owner', async (t) =
   assert.deepEqual(publicMetadata, {});
   assert.deepEqual((await (await send('GET')).json()).keys, {});
   assert.equal((await send('PATCH', backup)).status, 204);
+  billing = { pla: 'u:pro', fea: 'o:device_key_sync,u:local_assistant' };
+  assert.equal((await send('GET')).status, 403);
+  assert.equal((await send('PATCH', backup)).status, 403);
+  assert.equal((await send('PUT', { enabled: true })).status, 403);
+  assert.equal((await send('PUT', { enabled: false })).status, 204);
+  assert.equal((await send('DELETE')).status, 204);
+  billing = {};
+  assert.equal((await send('GET')).status, 403);
+  lookupUnavailable = true;
+  assert.equal((await send('GET')).status, 503);
+  assert.equal((await send('PATCH', backup)).status, 503);
+  assert.equal((await send('DELETE')).status, 204);
+  lookupUnavailable = false;
+  unbilled = true;
+  assert.equal((await send('PUT', { enabled: true })).status, 204);
+  assert.equal((await send('PATCH', backup)).status, 204);
   state = 'revoked';
   assert.equal((await send('GET')).status, 401);
   state = 'active';
   assert.equal((await send('DELETE')).status, 204);
   assert.equal(privateMetadata.unrelated, 'private');
   assert.equal((await send('GET')).status, 404);
+});
+
+test('checks the configured issuer for legacy sync and retries unavailable settings', async () => {
+  let reads = 0;
+  const disabled = instanceBillingDisabled('https://clerk.example.test', async url => {
+    assert.equal(url.href, 'https://clerk.example.test/v1/environment');
+    reads++;
+    if (reads === 1) return new Response(null, { status: 503 });
+    if (reads === 2) return Response.json({});
+    return Response.json({ commerce_settings: { billing: { user: { enabled: false } } } });
+  });
+  await assert.rejects(disabled());
+  await assert.rejects(disabled());
+  assert.equal(await disabled(), true);
+  assert.equal(await disabled(), true);
+  assert.equal(reads, 3);
+  const billed = instanceBillingDisabled('https://clerk.example.test', async () =>
+    Response.json({ commerce_settings: { billing: { user: { enabled: true } } } }));
+  assert.equal(await billed(), false);
 });

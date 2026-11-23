@@ -7,6 +7,7 @@ export async function requestAccountSync(endpoint: string, token: string, method
     method, headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
     ...(body ? { body } : {}), signal: AbortSignal.timeout(20000), redirect: 'error',
   });
+  if (response.status === 403) throw new Error('Your plan does not include device sync.');
   if (response.status === 409) throw new Error('Account key sync is turned off.');
   if (response.status === 404) throw new Error('No account backup was found.');
   if (response.status === 401) throw new Error('Sign in again to sync this device.');

@@ -51,6 +51,12 @@ Set these variables **on the service**:
 
 Set `VITE_ACCOUNT_SYNC_URL=https://your-sync-host.example/v1/device-sync` and the matching `VITE_CLERK_PUBLISHABLE_KEY` before building the desktop. For the GitHub release workflow set repository variable `VITE_ACCOUNT_SYNC_URL` alongside the existing publishable-key secret. For local development the desktop accepts `http://127.0.0.1:4781/v1/device-sync`. Builds with no endpoint omit the sync controls.
 
+## Personal plan features
+
+Add a user feature in Clerk Billing, include it in session tokens and attach it to the intended user plans. Add its slug to `PersonalFeature` in `@moxxy/desktop-ipc-contract/account-features`. Desktop controls can call `usePersonalFeature(slug)`; protected service operations must call `hasPersonalFeature` on verified session claims. New features require an explicit personal grant. A refreshed session token picks up plan changes.
+
+Both Free and Pro currently include `device_key_sync`. The service requires it for reading, writing or enabling backups. The owner can always turn sync off or delete the backup. For existing installations with no Billing claims, device sync also works when the configured Clerk issuer confirms that personal Billing is disabled. The service caches that instance setting for one minute. An unavailable issuer returns a retryable error.
+
 ## Data stored in Clerk
 
 Moxxy writes the signed-in user's supported API keys under `private_metadata.moxxyDesktopV1.keys` and portable preferences under `private_metadata.moxxyDesktopV1.prefs`. The account-wide opt-out is a boolean in `public_metadata.moxxyAutoKeySyncDisabled`. Users manage it from Moxxy through the authenticated service.
