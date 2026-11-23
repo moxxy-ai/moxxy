@@ -1,4 +1,5 @@
 import type { Readable, Writable } from 'node:stream';
+import { debuglog } from 'node:util';
 import { readLines } from './lines.js';
 
 /**
@@ -25,7 +26,11 @@ export interface JsonRpcLineClientOptions {
   readonly writable: Writable;
   /** Write `"jsonrpc": "2.0"` on every message (ACP); Codex expects none. */
   readonly jsonrpc?: boolean;
-  /** Where a line that is not a message is reported; the runner's stderr unless set. */
+  /**
+   * Where a line that is not a message is reported. Unless set, only with
+   * `NODE_DEBUG=moxxy`: the TUI draws on the terminal of this same process,
+   * so a plain write to stderr would land in its screen.
+   */
   readonly warn?: (message: string) => void;
 }
 
@@ -46,6 +51,7 @@ interface Incoming {
   readonly error?: { readonly code?: unknown; readonly message?: unknown; readonly data?: unknown };
 }
 
+const debugLog = debuglog('moxxy');
 const METHOD_NOT_FOUND = -32601;
 const INTERNAL_ERROR = -32603;
 
@@ -146,8 +152,8 @@ export class JsonRpcLineClient {
   private reportUnreadable(bytes: number): void {
     if (this.reportedUnreadable) return;
     this.reportedUnreadable = true;
-    const warn = this.opts.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
-    warn(`moxxy: skipped a line from the agent that is not JSON (${bytes} bytes); later ones are skipped without a report.`);
+    const warn = this.opts.warn ?? debugLog;
+    warn(`skipped a line from the agent that is not JSON (${bytes} bytes); later ones are skipped without a report.`);
   }
 
   private async answer(id: Id, method: string, params: unknown): Promise<void> {

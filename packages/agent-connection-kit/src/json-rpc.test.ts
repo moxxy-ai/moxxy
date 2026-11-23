@@ -4,7 +4,7 @@
  * child process speaking the protocol, one JSON message per line.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JsonRpcError, JsonRpcLineClient } from './json-rpc.js';
 
 /**
@@ -178,5 +178,19 @@ describe('reading what the agent writes, one message per line', () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/not JSON.*22 bytes/);
     expect(warnings[0]).not.toContain('private');
+  });
+
+  // The TUI draws on the terminal of the same process: a report on stderr would land in its screen.
+  it('writes nothing on the terminal when no reporter is given', async () => {
+    const written = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let reports: string[];
+    try {
+      expect(await agent().request('garbage')).toBe('still here');
+      reports = written.mock.calls.map(([chunk]) => String(chunk)).filter((text) => text.includes('not JSON'));
+    } finally {
+      written.mockRestore();
+    }
+
+    expect(reports).toEqual([]);
   });
 });
