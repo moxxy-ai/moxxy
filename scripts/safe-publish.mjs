@@ -46,10 +46,7 @@
  *      inside GitHub Actions.
  *   7. Create the `<pkg>@<ver>` git tag for each published package and
  *      emit the `🦋  New tag: <pkg>@<ver>` lines, so `changesets/action`
- *      can push the tags and create GitHub releases. (The stock
- *      `changeset publish` creates these tags; this wrapper replaces it,
- *      so it must create them too — otherwise the action's tag push fails
- *      with "src refspec <tag> does not match any".)
+ *      can report the published packages to the workflow's tag-push step.
  *
  * Flags:
  *   --dry-run   Print the resolved publish order (with each package's
@@ -313,7 +310,7 @@ async function versionExistsWithRetry(name, version, retry = REGISTRY_READ_RETRY
 }
 
 function announceTag(name, version) {
-  // The pattern changesets/action greps for to create GitHub releases.
+  // The pattern changesets/action uses to report published packages.
   console.log(`🦋  New tag:  ${name}@${version}`);
 }
 
@@ -322,18 +319,12 @@ function inGitHubActions() {
 }
 
 function createGitTag(name, version) {
-  // After parsing our `🦋  New tag:` lines, changesets/action runs
-  // `git push origin <tag>` to create each GitHub Release. The stock
-  // `changeset publish` leaves those tags behind locally; this custom
-  // publisher must create them itself, or the push fails with
-  // "error: src refspec <tag> does not match any". CI-only: that push
-  // only happens inside changesets/action.
+  // The release workflow pushes these local tags after npm publication.
   if (!inGitHubActions()) return;
   const tag = `${name}@${version}`;
   const r = spawnSync('git', ['tag', tag], { encoding: 'utf8' });
   if (r.status === 0) return;
-  // A pre-existing tag (e.g. a re-run over the same version) is fine —
-  // the subsequent push still creates/refreshes the release.
+  // A pre-existing tag (e.g. on a re-run) can be pushed as-is.
   if (/already exists/i.test(r.stderr ?? '')) return;
   console.warn(`Could not create git tag ${tag}: ${(r.stderr ?? '').trim()}`);
 }
