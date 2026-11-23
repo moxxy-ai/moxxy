@@ -47,6 +47,7 @@ describe('QuestionSheet', () => {
     render(<QuestionSheet question={{ ...asked, question: { questionId: 'e', turnId: 't', questions: [item] }, shareEnv }} />);
     const input = screen.getByLabelText('Connect the service');
     expect(input).toHaveAttribute('type', 'password');
+    expect(input).toHaveAccessibleDescription('Moxxy encrypts this value in your local vault. Env Share never sends it to AI models.');
     fireEvent.change(input, { target: { value: '  test only  ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save to vault' }));
     await waitFor(() => expect(input).toHaveValue(''));

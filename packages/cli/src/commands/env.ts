@@ -1,4 +1,5 @@
 import { isCancel, password } from '@clack/prompts';
+import { ENV_SHARE_PRIVACY_NOTE } from '@moxxy/sdk/questions';
 import { envShareNameSchema } from '@moxxy/sdk';
 import { buildVaultPlugin } from '@moxxy/plugin-vault';
 import type { ParsedArgv } from '../argv.js';
@@ -32,6 +33,7 @@ export async function runEnvCommand(argv: ParsedArgv): Promise<number> {
     },
   });
   try {
+    process.stdout.write(ENV_SHARE_PRIVACY_NOTE + '\n');
     const value = await password({
       message: 'Save or replace ' + name + ' in your Moxxy vault',
       validate: (v) => v && v.length <= 65536 ? undefined : 'Enter 1 to 65536 characters.',

@@ -6,6 +6,7 @@
  * that mirrors the IPC schema.
  */
 
+import { ENV_SHARE_PRIVACY_NOTE } from '@moxxy/sdk/questions';
 import { useState } from 'react';
 import { Button, ConfirmModal, Icon, IconButton, TextInput } from '@moxxy/desktop-ui';
 import { Section, Tile, Badge, EmptyState } from './settings-primitives';
@@ -182,6 +183,7 @@ function AddKeyForm({
           {busy ? 'Saving…' : exists ? 'Overwrite' : 'Save key'}
         </Button>
       </div>
+      <p className="question__hint">{ENV_SHARE_PRIVACY_NOTE}</p>
     </div>
   );
 }

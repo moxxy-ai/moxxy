@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Text, useInput } from 'ink';
+import { ENV_SHARE_PRIVACY_NOTE } from '@moxxy/sdk/questions';
 import type { QuestionItem } from '@moxxy/sdk';
 import { terminalSafeText } from './terminal-text.js';
 import { Modal } from './Modal.js';
@@ -39,9 +40,10 @@ export function EnvShareDialog({ item, submit }: {
   return (
     <Modal title="Env Share" hints="Enter save · Esc skip">
       <Text>{terminalSafeText(item.question, 440)}</Text>
-      <Text dimColor>Save or replace {item.vaultName} in your Moxxy vault. The agent receives a reference.</Text>
+      <Text dimColor>Save or replace {item.vaultName} in your vault.</Text>
       <Text>{'•'.repeat(Math.min(length, 32))}</Text>
       {error ? <Text>{error}</Text> : null}
+      <Text dimColor>{ENV_SHARE_PRIVACY_NOTE}</Text>
     </Modal>
   );
 }
