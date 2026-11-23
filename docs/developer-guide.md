@@ -58,7 +58,7 @@ Add Moxxy metadata to the plugin's `package.json` so the host can discover it:
 }
 ```
 
-Author guides in [`.claude/agents/`](../.claude/agents/) cover skills, plugins, tools, channels, providers, modes, compactors, and cache strategies.
+Author guides in [`.rulesync/subagents/`](../.rulesync/subagents/) cover skills, plugins, tools, channels, providers, modes, compactors, and cache strategies.
 
 ## Architecture
 
@@ -97,7 +97,7 @@ apps/            desktop, docs, and fixture applications
 assets/          project media and demonstrations
 docs/            project and operational documentation
 tooling/         shared TypeScript, ESLint, and Vitest configuration
-.claude/agents/  focused author guides for agent and plugin surfaces
+.rulesync/subagents/  focused author guides for agent and plugin surfaces
 AGENTS.md        repository instructions for coding agents
 ```
 

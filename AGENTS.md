@@ -10,9 +10,9 @@ Read `docs/desktop-design.md` before changing how the desktop looks, moves or
 is laid out, and update it in the same change: it is the record of the
 desktop's style, and the code alone does not say which choices were deliberate.
 
-If you're a Claude Code agent or any other autonomous agent: read this file first, then jump to the workflow under `.ai/agents/` that matches your task.
+If you're a Claude Code agent or any other autonomous agent: read this file first, then jump to the workflow under `.rulesync/subagents/` that matches your task.
 
-> **Canonical AI catalog: `.ai/`.** Skills and agent author-guides live once under **`.ai/skills/`** and **`.ai/agents/`** — the single source of truth shared across assistants. `.claude/skills`, `.claude/agents`, `.codex/skills`, `.codex/agents` are **symlinks** into `.ai/`. Always edit the files under `.ai/`; never duplicate them under `.claude/` or `.codex/`, and don't chase the symlinked copies in circles. (`.claude/settings.json` and `.claude/hooks/` stay Claude-Code-specific and are NOT mirrored into `.ai/`.)
+Edit project rules in `.rulesync/rules/`, skills in `.rulesync/skills/` and agent workflows in `.rulesync/subagents/`. Run `pnpm rules:sync` after editing and commit the generated files. Claude Code hook definitions live in `.rulesync/hooks.jsonc` and call scripts in `.rulesync/scripts/`.
 
 ---
 
@@ -121,25 +121,25 @@ Run `pnpm check:deps` to verify after structural changes.
 
 | Task | Open this file |
 |---|---|
-| Create a new Markdown skill | `.ai/agents/skill-author.md` |
-| Create a new `@moxxy/plugin-*` package | `.ai/agents/plugin-author.md` |
-| Add one tool to a plugin | `.ai/agents/tool-author.md` |
-| Implement an `LLMProvider` for a new model API | `.ai/agents/provider-author.md` |
-| Build a text-to-speech `Synthesizer` plugin (ElevenLabs / OpenAI TTS / local) | `.ai/agents/synthesizer-author.md` |
-| Build a new loop strategy | `.ai/agents/loop-strategy-author.md` |
-| Build a new `Compactor` | `.ai/agents/compactor-author.md` |
-| Build a new `CacheStrategy` (prompt-cache breakpoints) | `.ai/agents/cache-strategy-author.md` |
-| Build a new `Channel` | `.ai/agents/channel-author.md` |
-| Add a security isolator (worker / subprocess / wasm / docker / …) | `.ai/agents/isolator-author.md` |
-| Modify `@moxxy/core` itself | `.ai/agents/core-extender.md` |
-| Reproduce and isolate a bug | `.ai/agents/bug-hunter.md` |
-| Identify gaps and propose improvements | `.ai/agents/self-improver.md` |
+| Create a new Markdown skill | `.rulesync/subagents/skill-author.md` |
+| Create a new `@moxxy/plugin-*` package | `.rulesync/subagents/plugin-author.md` |
+| Add one tool to a plugin | `.rulesync/subagents/tool-author.md` |
+| Implement an `LLMProvider` for a new model API | `.rulesync/subagents/provider-author.md` |
+| Build a text-to-speech `Synthesizer` plugin (ElevenLabs / OpenAI TTS / local) | `.rulesync/subagents/synthesizer-author.md` |
+| Build a new loop strategy | `.rulesync/subagents/loop-strategy-author.md` |
+| Build a new `Compactor` | `.rulesync/subagents/compactor-author.md` |
+| Build a new `CacheStrategy` (prompt-cache breakpoints) | `.rulesync/subagents/cache-strategy-author.md` |
+| Build a new `Channel` | `.rulesync/subagents/channel-author.md` |
+| Add a security isolator (worker / subprocess / wasm / docker / …) | `.rulesync/subagents/isolator-author.md` |
+| Modify `@moxxy/core` itself | `.rulesync/subagents/core-extender.md` |
+| Reproduce and isolate a bug | `.rulesync/subagents/bug-hunter.md` |
+| Identify gaps and propose improvements | `.rulesync/subagents/self-improver.md` |
 
-**Skill library.** Beyond these deep workflows, `.ai/skills/` holds ~28 thin,
+**Skill library.** Beyond these deep workflows, `.rulesync/skills/` holds ~28 thin,
 task-scoped SKILL.md checklists (dev loop, every extension point, verify/debug
-recipes, process rules) — scan the index at `.ai/skills/README.md` and read
+recipes, process rules) — scan the index at `.rulesync/skills/README.md` and read
 only the one that matches your task. Claude Code hooks in `.claude/settings.json`
-(see `.claude/hooks/README.md`) backstop the typecheck gate and the changeset
+(see `.rulesync/scripts/README.md`) backstop the typecheck gate and the changeset
 requirement automatically.
 
 ---

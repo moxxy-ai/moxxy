@@ -18,7 +18,7 @@ The live end-to-end workflow drives the real CLI against a real provider. It che
 
 ### A repository that teaches its contributors
 
-The product contract in [`PRODUCT.md`](../PRODUCT.md), focused playbooks in [`.ai/skills/`](../.ai/skills/), and specialized definitions in [`.ai/agents/`](../.ai/agents/) capture decisions close to the code. Each change should leave the repository easier to modify safely.
+The product contract in [`PRODUCT.md`](../PRODUCT.md), focused playbooks in [`.rulesync/skills/`](../.rulesync/skills/), and specialized definitions in [`.rulesync/subagents/`](../.rulesync/subagents/) capture decisions close to the code. Each change should leave the repository easier to modify safely.
 
 ## What this means for releases
 

@@ -31,7 +31,7 @@ The user wants to add a new LLM provider to moxxy so they can switch to it later
 
 This skill only handles **OpenAI-compatible** vendors — i.e. those that expose a Chat Completions endpoint shaped like OpenAI's (`/v1/chat/completions`, tool-call format, streaming with `data:` chunks). That covers the vast majority of modern API vendors: z.ai (GLM), deepseek, groq, openrouter, fireworks, together, mistral, perplexity, anyscale, deepinfra, octoai, and many more.
 
-If the vendor speaks a different protocol (Anthropic-style, Google Vertex, custom), tell the user this skill can't handle it and direct them to author a full provider plugin (see `.claude/agents/provider-author.md`).
+If the vendor speaks a different protocol (Anthropic-style, Google Vertex, custom), tell the user this skill can't handle it and direct them to author a full provider plugin (see `.rulesync/subagents/provider-author.md`).
 
 ## 1. Gather the basics
 
@@ -124,6 +124,6 @@ Report:
 - Don't ask the user to paste their API key to you, and don't call any tool with the key as an argument. Use `env_share` so it never enters the conversation.
 - Don't invent baseURLs, model ids, or context windows. If you're not sure, `web_fetch` or ask.
 - Don't store the API key anywhere except the vault. Never write it into a file in the repo, never echo it back.
-- Don't try to handle non-OpenAI-compatible vendors here — those need a real provider plugin (`.claude/agents/provider-author.md`).
+- Don't try to handle non-OpenAI-compatible vendors here — those need a real provider plugin (`.rulesync/subagents/provider-author.md`).
 - Don't overwrite an existing provider slug without telling the user first. Call `provider_list` if you're unsure whether the slug is taken.
 - Don't auto-edit `moxxy.config.ts` to switch the default without asking. The user may want to keep their current provider as primary.
