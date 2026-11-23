@@ -1,16 +1,15 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ClerkProvider } from '@clerk/clerk-react';
-import { dark } from '@clerk/themes';
+import { ClerkProvider } from '@clerk/electron/react';
 import { App } from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DeepLinkBridge } from './lib/useDeepLink';
 import { TipLayer } from './components/tip/TipLayer';
 import { HotkeyHints } from './hotkeys/HotkeyHints';
-import { OAuthTransferBridge } from './lib/oauthTransfer';
+import { KeySyncSession } from './shell/account/KeySyncSession';
+import { AccountIdentityBridge } from './shell/account/AccountIdentityBridge';
 import { bootClient } from './lib/boot';
 import { registerModeEvents } from './chat/modes/register-mode-events';
-import { LOOPBACK_PORTS_ALT } from '../electron/loopback-ports';
 import './styles.css';
 
 // Install the shared client's transport + platform capabilities before the
@@ -21,83 +20,34 @@ registerModeEvents();
 const root = document.getElementById('root');
 if (!root) throw new Error('#root not found — check index.html');
 
-const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
 
-// The packaged renderer is served from the loopback server at
-// `https://desktop.moxxy.ai:<port>` (a moxxy.ai subdomain → Clerk production
-// keys accept the origin; see electron/main loopback server). Clerk's web SDK
-// refuses to redirect a post-auth flow to an origin it doesn't trust, so
-// allow-list that origin on the fixed LOOPBACK_PORTS. `localhost`/`127.0.0.1`
-// stay allowed for the dev (Vite) origin + the file:// fallback path. Pair this
-// with the SAME origins added to the Clerk dashboard's allowed origins /
-// redirect URLs (the server-side check — see docs/desktop-clerk-loopback-subdomain.md).
-//
-// These ports MUST stay in lockstep with the main process's loopback server —
-// they are the same serving origin. The port list now lives in ONE shared
-// module (../electron/loopback-ports) that both the main process and this
-// renderer import, so the two ends can't drift; a mismatch would silently
-// strand OAuth on the hosted portal.
-const REDIRECT_ORIGINS = new RegExp(
-  `^(https://desktop\\.moxxy\\.ai|http://(127\\.0\\.0\\.1|localhost)):(?:${LOOPBACK_PORTS_ALT})$`,
-);
-
-// Reactive view of the app theme. `useTheme()` (mounted once in App, inside
-// the provider) owns the `data-theme` attribute on <html> — observing that
-// attribute is the single source of truth, and it also catches OS-driven
-// flips while the preference is `system` (which watching only the persisted
-// pref would miss). useSyncExternalStore + MutationObserver keeps this a
-// plain subscription with no extra state to reconcile.
-function subscribeToDataTheme(onChange: () => void): () => void {
-  const observer = new MutationObserver(onChange);
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme'],
-  });
-  return () => observer.disconnect();
-}
-
-function isDocumentDark(): boolean {
-  return document.documentElement.dataset.theme === 'dark';
-}
-
-// signIn/signUpFallbackRedirectUrl pin the post-auth landing to the app's own
-// origin ('/' resolves against the serving origin above). Without an explicit
-// target, the OAuth code-exchange leg can lose the redirect_url and Clerk's
-// FAPI then falls back to the HOSTED Account Portal (accounts.<domain>) —
-// stranding the desktop window on "My account" instead of back in the app.
-// The `appearance` prop follows <html data-theme> so Clerk's modals (openSignIn
-// etc.) flip with the rest of the app — ClerkProvider applies appearance
-// updates reactively, so an open modal restyles live too.
-function ThemedClerkProvider({
+function DesktopClerkProvider({
   publishableKey,
   children,
 }: {
   publishableKey: string;
   children: React.ReactNode;
 }): React.ReactElement {
-  const isDark = React.useSyncExternalStore(subscribeToDataTheme, isDocumentDark);
   return (
     <ClerkProvider
       publishableKey={publishableKey}
-      allowedRedirectOrigins={[REDIRECT_ORIGINS]}
+      allowedRedirectProtocols={['moxxy:']}
+      allowedRedirectOrigins={[window.location.origin]}
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
-      appearance={{ baseTheme: isDark ? dark : undefined }}
     >
-      {/* Completes a dangling OAuth sign-up "transfer" (new-user sign-in)
-          that the full-window redirect flow failed to finish — see
-          lib/oauthTransfer.tsx. Needs Clerk context, hence inside the
-          provider; mounted before children so it sweeps on boot. */}
-      <OAuthTransferBridge />
+      <AccountIdentityBridge />
+      {import.meta.env.VITE_ACCOUNT_SYNC_URL?.trim() && <KeySyncSession />}
       {children}
     </ClerkProvider>
   );
 }
 
 const Tree = CLERK_KEY ? (
-  <ThemedClerkProvider publishableKey={CLERK_KEY}>
+  <DesktopClerkProvider publishableKey={CLERK_KEY}>
     <App />
-  </ThemedClerkProvider>
+  </DesktopClerkProvider>
 ) : (
   <App />
 );

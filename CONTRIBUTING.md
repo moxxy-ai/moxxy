@@ -6,7 +6,7 @@ Thank you for helping improve Moxxy. Contributions to code, documentation, tests
 
 For a non-trivial change, open an issue first so maintainers and contributors can agree on the problem and approach. Keep pull requests focused on one concern and explain the user-visible behavior they change.
 
-Read [AGENTS.md](AGENTS.md) before making code changes. It documents the repository architecture, invariants, and task-specific guides. The author guides in [`.ai/agents/`](.ai/agents/) cover plugins, tools, providers, modes, channels, compactors, cache strategies, and other extension points.
+Read [AGENTS.md](AGENTS.md) before making code changes. It documents the repository architecture, invariants, and task-specific guides. The author guides in [`.rulesync/subagents/`](.rulesync/subagents/) cover plugins, tools, providers, modes, channels, compactors, cache strategies, and other extension points.
 
 Security vulnerabilities should not be reported in a public issue. Follow the private reporting process in [SECURITY.md](SECURITY.md).
 

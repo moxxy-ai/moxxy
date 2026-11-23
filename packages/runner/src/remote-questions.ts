@@ -9,6 +9,7 @@ import { RunnerMethod, type QuestionAnswerParams } from './protocol.js';
  */
 export class RemoteQuestions implements SessionQuestions {
   private surfaces = 0;
+  private envSurfaces = 0;
 
   constructor(
     private readonly deps: {
@@ -17,15 +18,17 @@ export class RemoteQuestions implements SessionQuestions {
     },
   ) {}
 
-  attachSurface(): () => void {
+  attachSurface({ envShare = false } = {}): () => void {
     this.surfaces += 1;
-    if (this.surfaces === 1) this.announce(true);
+    if (envShare) this.envSurfaces += 1;
+    if (this.surfaces === 1 || (envShare && this.envSurfaces === 1)) this.announce(true);
     let attached = true;
     return () => {
       if (!attached) return;
       attached = false;
       this.surfaces -= 1;
-      if (this.surfaces === 0) this.announce(false);
+      if (envShare) this.envSurfaces -= 1;
+      if (this.surfaces === 0 || (envShare && this.envSurfaces === 0)) this.announce(this.surfaces > 0);
     };
   }
 
@@ -35,7 +38,12 @@ export class RemoteQuestions implements SessionQuestions {
     await this.deps.request(RunnerMethod.QuestionAnswer, params);
   }
 
+  async shareEnv(questionId: string, value: string | null): Promise<void> {
+    this.deps.requireServerProtocol(35, 'Env Share');
+    await this.deps.request(RunnerMethod.QuestionShareEnv, { questionId, value });
+  }
+
   private announce(question: boolean): void {
-    void this.deps.request(RunnerMethod.SetResolver, { question }).catch(() => undefined);
+    void this.deps.request(RunnerMethod.SetResolver, { question, envShare: this.envSurfaces > 0 }).catch(() => undefined);
   }
 }

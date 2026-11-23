@@ -110,6 +110,7 @@ export function registerIpcHandlers(
   pool: RunnerPool,
   desks: DeskStore,
   opts: {
+    readonly accountSyncUrl?: string;
     readonly update?: UpdateConfig;
     readonly voice?: Pick<VoiceHandlerDependencies, 'setRealtimeCaptureActive'>;
     /** The main-process browser. Omitted ⇒ the `browser.*` commands are absent
@@ -156,7 +157,7 @@ export function registerIpcHandlers(
     registerPrefsHandlers();
     registerSettingsHandlers(pool);
     registerAgentsHandlers(pool);
-    registerVaultHandlers();
+    registerVaultHandlers(opts.accountSyncUrl);
     registerChatHandlers(pool, desks);
     registerChatMediaHandlers(desks, chatMediaStore(), electronFiles);
     registerChannelsHandlers({

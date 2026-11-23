@@ -1,5 +1,12 @@
 # @moxxy/plugin-channel-http
 
+## 0.50.0
+
+### Patch Changes
+
+- Updated dependencies [13507cf]
+  - @moxxy/sdk@0.50.0
+
 ## 0.49.2
 
 ### Patch Changes

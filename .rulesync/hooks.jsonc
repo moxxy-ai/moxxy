@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "type": "command",
+        "command": "sh -c 'f=\"$CLAUDE_PROJECT_DIR/.rulesync/scripts/gate-on-stop.sh\"; [ -x \"$f\" ] && exec \"$f\"; exit 0'",
+        "timeout": 180
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "command": "sh -c 'f=\"$CLAUDE_PROJECT_DIR/.rulesync/scripts/changeset-reminder.sh\"; [ -x \"$f\" ] && exec \"$f\"; exit 0'",
+        "timeout": 15,
+        "matcher": "Edit|MultiEdit|Write"
+      }
+    ]
+  }
+}

@@ -340,9 +340,11 @@ jobs:
         shell: bash
         env:
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          VITE_ACCOUNT_SYNC_URL: ${{ vars.VITE_ACCOUNT_SYNC_URL }}
         run: |
           if [ -n "$CLERK_PUBLISHABLE_KEY" ]; then
             echo "VITE_CLERK_PUBLISHABLE_KEY=$CLERK_PUBLISHABLE_KEY" > apps/desktop/.env
+            echo "VITE_ACCOUNT_SYNC_URL=$VITE_ACCOUNT_SYNC_URL" >> apps/desktop/.env
             echo "Using CLERK_PUBLISHABLE_KEY secret."
           else
             echo "CLERK_PUBLISHABLE_KEY not set; falling back to the public test key in .env.example."

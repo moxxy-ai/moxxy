@@ -36,6 +36,10 @@ describe('parseDeepLink', () => {
     expect(parseDeepLink('http://moxxy/x')).toBeNull();
   });
 
+  it('keeps native Clerk callbacks out of the general deep-link stream', () => {
+    expect(parseDeepLink('moxxy://renderer/?__clerk_oauth_attempt=fixture')).toBeNull();
+  });
+
   it('returns null for a malformed URL', () => {
     expect(parseDeepLink('not a url')).toBeNull();
     expect(parseDeepLink('')).toBeNull();

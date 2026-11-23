@@ -141,7 +141,7 @@ export class SessionDriver {
     });
     // The app shows the conversation's Questions (read from the log by the
     // renderer), so the runner counts it as a surface that can answer them.
-    this.disposes.push(this.session.questions.attachSurface());
+    this.disposes.push(this.session.questions.attachSurface({ envShare: true }));
 
     this.session.setApprovalResolver({
       name: 'desktop-ask',
@@ -336,6 +336,10 @@ export class SessionDriver {
    *  renderer's approval sheet — for the whole conversation when the runner
    *  shares the switch, for this driver only on an older runner. */
   /** Answer an open Question of this conversation; rejects when it is no longer open. */
+  shareEnv(questionId: string, value: string | null): Promise<void> {
+    return this.session.questions.shareEnv(questionId, value);
+  }
+
   answerQuestion(questionId: string, answers: QuestionAnswers): Promise<void> {
     return this.session.questions.answer(questionId, answers);
   }

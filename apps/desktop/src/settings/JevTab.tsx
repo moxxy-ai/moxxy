@@ -1,3 +1,4 @@
+import { KeySyncControl } from '../shell/account/KeySyncControl';
 import { Button, TextInput } from '@moxxy/desktop-ui';
 import { Section, Switch } from './settings-primitives';
 import { useJevSettings } from './useJevSettings';
@@ -56,6 +57,7 @@ export function JevTab(): JSX.Element {
         </div>
         {jev.editing ? (
           <>
+            <KeySyncControl />
             <label htmlFor="jev-key" style={{ fontSize: 'var(--type-meta)' }}>
               TypeSafe API key{jev.hasKey ? ' · replaces the stored key' : ''}
             </label>

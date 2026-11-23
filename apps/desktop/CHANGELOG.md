@@ -1,5 +1,47 @@
 # @moxxy/desktop
 
+## 0.51.0
+
+### Minor Changes
+
+- e41b287: Manage personal accounts and subscriptions from the desktop profile and show the signed-in user's Clerk Billing plan.
+
+### Patch Changes
+
+- 43fd195: Check personal Clerk Billing features in the desktop and account-sync service and keep backup removal available after plan changes.
+- 63cab9e: Update the desktop sign-in SDK so Clerk accepts sign-in requests from current production instances.
+- 32de927: Open social sign-in in the system browser and return to the original Moxxy window using the native Clerk callback. This update requires the full desktop installer.
+- Updated dependencies [43fd195]
+- Updated dependencies [32de927]
+- Updated dependencies [e41b287]
+  - @moxxy/desktop-host@0.18.4
+  - @moxxy/desktop-ipc-contract@0.18.4
+  - @moxxy/runner@0.2.74
+  - @moxxy/client-core@0.17.4
+  - @moxxy/cli@0.50.0
+  - @moxxy/client-platform-web@0.1.88
+
+## 0.50.0
+
+### Minor Changes
+
+- 9b4852c: Automatically sync API keys entered in Moxxy Desktop to the signed-in account, with an account-wide opt-out. Restore keys and backed-up preferences on another device.
+- 13507cf: Request credentials with Env Share in desktop and terminal conversations, or use the private `moxxy env share NAME` prompt. Shared values go directly to the encrypted vault and integrations use their references.
+
+### Patch Changes
+
+- Updated dependencies [13507cf]
+  - @moxxy/cli@0.50.0
+  - @moxxy/sdk@0.50.0
+  - @moxxy/chat-model@0.5.12
+  - @moxxy/client-core@0.17.3
+  - @moxxy/client-platform-web@0.1.87
+  - @moxxy/desktop-host@0.18.3
+  - @moxxy/desktop-ipc-contract@0.18.3
+  - @moxxy/plugin-vault@0.50.0
+  - @moxxy/runner@0.2.73
+  - @moxxy/workflows-builder@0.1.70
+
 ## 0.49.2
 
 ### Patch Changes

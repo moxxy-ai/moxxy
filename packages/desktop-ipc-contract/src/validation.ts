@@ -13,6 +13,7 @@ import { z } from 'zod/v3';
 import { assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
+import { syncKeyNames } from './account-sync.js';
 import { ATTACHMENT_LIMITS } from './attachment-limits.js';
 
 /** Single source of truth for the runtime attachment-kind enum. It is tied to
@@ -447,6 +448,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
   'session.stopBackgroundWork': z.object({ workspaceId: optionalWorkspace, workId: z.string().min(1).max(256) }),
   // An answer is the person's choice plus their own words: bounded like ask.respond's text.
+  'session.shareEnv': z.object({
+    workspaceId: z.string().min(1), questionId: z.string().min(1).max(128), value: z.string().min(1).max(65536).nullable(),
+  }).strict(),
   'session.answerQuestion': z
     .object({
       workspaceId: optionalWorkspace,
@@ -621,6 +625,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'chat.openMediaFile': chatMediaItemArgs,
   // Vault writes are security-sensitive: lock the key name to a safe slug
   // (letters/digits + . _ / - , no traversal) and bound the secret size.
+  'account.syncKey': z.object({ name: z.enum(syncKeyNames), value: z.string().min(1).max(4096).nullable(), token: z.string().min(1).max(8192) }).strict(),
+  'account.setKeySync': z.object({ enabled: z.boolean(), token: z.string().min(1).max(8192) }).strict(),
+  'account.sync': z.object({ action: z.enum(['save', 'restore', 'clear']), token: z.string().min(1).max(8192) }).strict(),
   'settings.vaultSet': z.object({
     name: vaultKeyName,
     value: z.string().min(1).max(32_768),

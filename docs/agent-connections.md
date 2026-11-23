@@ -167,7 +167,7 @@ The context window a model shows starts from the built-in list (Codex's defaults
 
 ## For developers
 
-- The seam: a provider with `agentStep()` hands each round to the vendor's agent inside `runReactLoop`, so every mode keeps working. How to write one is in [the provider author guide](../.ai/agents/provider-author.md).
+- The seam: a provider with `agentStep()` hands each round to the vendor's agent inside `runReactLoop`, so every mode keeps working. How to write one is in [the provider author guide](../.rulesync/subagents/provider-author.md).
 - Shared parts (the Moxxy tools MCP server, the JSON-RPC client, the session pool, CLI checks) live in `@moxxy/agent-connection-kit`.
 - Codex and OpenCode send one JSON message per line. The JSON-RPC client ends a line only at `\n` (`readLines`): JSON allows the line separators U+2028 and U+2029 raw inside a string, Codex sends them that way (a web page title in a thread's history), and `node:readline` cut such a message in two. A lost answer left the turn running with nothing happening. A line that is not JSON is reported once per connection, by its size only, and only with `NODE_DEBUG=moxxy`: the TUI draws on the terminal of the same process.
 - Terms used here are defined in [GLOSSARY.md](../GLOSSARY.md).

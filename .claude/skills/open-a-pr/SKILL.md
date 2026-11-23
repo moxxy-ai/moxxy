@@ -1,0 +1,53 @@
+---
+name: open-a-pr
+description: >-
+  Open a PR following this repo's conventions (worktree branch, changeset, title
+  format, no AI attribution) — use when work is ready for review.
+---
+# Open a PR
+
+Pre-flight, in order:
+
+1. Work lives on its own branch from `development`; a dedicated worktree under
+   `.claude/worktrees/<name>` is preferred for concurrent work.
+2. Rebase onto latest `origin/development` (see rebase-and-resolve skill).
+3. Run the full gate (see run-the-gate skill) — all green.
+4. A `.changeset/*.md` exists (see add-a-changeset skill) — CI hard-fails
+   without one.
+5. For a PR into `development`, `pnpm test:agents:live` passed on the commit
+   you push (AGENTS.md, "Agent connections: live check before merging"). The
+   box below starts unticked; tick it only once that check passed on the PR's
+   latest commit. Until it is ticked the `Agent live check confirmed` check is
+   red (a reminder; Merge is not locked).
+
+```sh
+git push -u origin <branch>
+gh pr create --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
+## What
+...
+
+## Why
+...
+
+## Verification
+- pnpm build / typecheck / test / lint / check:deps green
+- <manual verification if any>
+
+- [ ] I ran `pnpm test:agents:live` on this PR's latest commit and every agent passed.
+EOF
+)"
+```
+
+Conventions:
+- **Title:** conventional-commit style, matching history — `fix(desktop): ...`,
+  `feat(client): ...`, `chore(desktop): ...`, `docs(product): ...`,
+  `refactor(modes): ...`. Check `git log --oneline -20` for the house style.
+- **No AI attribution.** Never add `Co-Authored-By: Claude`, "Generated with
+  Claude Code", or any robot footer to commits or PR bodies. The user is the
+  sole author.
+- **Squash-merge is the norm** — one PR squashes to one commit on development titled
+  like the PR, so the PR title IS the future commit message. Make it carry the
+  whole story.
+- PR body says what was verified, not just what changed. `--body` replaces
+  `.github/pull_request_template.md`, so keep its live check box (above) in
+  any body you write.

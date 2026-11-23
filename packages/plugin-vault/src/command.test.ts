@@ -43,6 +43,21 @@ function setup() {
   return { vault, cmd, appended, run };
 }
 
+describe('Env Share', () => {
+  it('keeps the shared entry reference-only across reopen and ordinary writes', async () => {
+    const { vault } = setup();
+    await vault.setShared('API_KEY', SECRET);
+    expect(await fs.readFile(filePath, 'utf8')).not.toContain(SECRET);
+    vault.close();
+    await expect(vault.getForModel('API_KEY')).rejects.toThrow('reference');
+    expect(await vault.get('API_KEY')).toBe(SECRET);
+    await vault.set('API_KEY', 'rotated');
+    await expect(vault.getForModel('API_KEY')).rejects.toThrow('reference');
+    await vault.set('LEGACY', 'existing');
+    expect(await vault.getForModel('LEGACY')).toBe('existing');
+  });
+});
+
 describe('/vault command', () => {
   it('is registered with name "vault"', () => {
     const { cmd } = setup();

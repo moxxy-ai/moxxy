@@ -287,15 +287,13 @@ function trimTrailing(value: string, char: string): string {
  * top-frame landing on this host and recovers back to the app root (see
  * {@link installAccountPortalRecovery}).
  *
- * null for missing/malformed keys and for test keys: a dev instance's
- * portal lives on `<slug>.accounts.dev`, which the navigation lockdown
- * never allows in the first place (only live keys get the parent-domain
- * wildcard), so there is nothing to recover from.
+ * A development instance uses its own <slug>.accounts.dev portal.
  */
 export function clerkAccountPortalHost(publishableKey?: string | null): string | null {
   const host = clerkFrontendApiHost(publishableKey);
   if (!host) return null;
-  if (host.endsWith('.clerk.accounts.dev') || host.endsWith('.clerk.com')) return null;
+  if (host.endsWith('.clerk.accounts.dev')) return host.replace('.clerk.accounts.dev', '.accounts.dev');
+  if (host.endsWith('.clerk.com')) return null;
   const parent = host.split('.').slice(1).join('.');
   // Same registrable-parent guard as the CSP sources — never a bare TLD.
   if (parent.split('.').length < 2) return null;
@@ -475,11 +473,14 @@ export function clerkCspHostSources(publishableKey?: string | null): string[] {
  * `media-src` therefore permits only the app origin and `blob:`; the allowance
  * does not extend to scripts, workers, connections, objects, or remote media.
  */
-function buildCspDirectives(extraClerkHosts: readonly string[]): string {
+function buildCspDirectives(extraClerkHosts: readonly string[], clerkHost?: string | null): string {
+  // Clerk's personal billing screen embeds Stripe.js and its payment authentication frames.
+  const stripeJs = clerkHost ? ' https://js.stripe.com https://*.js.stripe.com' : '';
+  const scriptHost = clerkHost ? ` https://${clerkHost}` : '';
   const extra = extraClerkHosts.length ? ` ${extraClerkHosts.join(' ')}` : '';
   return [
     "default-src 'self'",
-    `script-src 'self' 'wasm-unsafe-eval' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    `script-src 'self' 'wasm-unsafe-eval'${clerkHost ? ' https://*.protect.clerk.com' : ''} https://challenges.cloudflare.com${scriptHost}${stripeJs}`,
     // No font CDN in either directive: the renderer bundles no webfont and the
     // type stacks resolve to installed system faces, so `fonts.googleapis.com`
     // (style-src) and `fonts.gstatic.com` (font-src) are gone. Two fewer remote
@@ -492,11 +493,11 @@ function buildCspDirectives(extraClerkHosts: readonly string[]): string {
     // sign-up — Clerk's documented CSP needs it in connect-src too, not just
     // script/frame-src, or the captcha can fail and sign-up dead-ends.
     // moxxy-app:: the anonymizer worker's local-only model fetches (above).
-    `connect-src 'self' moxxy-app: https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    `connect-src 'self' moxxy-app:${clerkHost ? ' https://*.protect.clerk.com:* https://api.stripe.com' : ''} https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "worker-src 'self' blob:",
     // `blob:` lets the Files viewer render a PDF in an <iframe> via Chromium's
     // built-in PDF viewer (the bytes are an app-created same-origin Blob URL).
-    `frame-src 'self' blob: https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    `frame-src 'self' blob:${stripeJs}${clerkHost ? ' https://hooks.stripe.com' : ''} https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -534,7 +535,7 @@ export function installContentSecurityPolicy(
   },
 ): void {
   if (opts.isDev) return;
-  const directives = buildCspDirectives(clerkCspHostSources(opts.clerkPublishableKey));
+  const directives = buildCspDirectives(clerkCspHostSources(opts.clerkPublishableKey), clerkFrontendApiHost(opts.clerkPublishableKey));
   const loopbackOrigin = opts.loopbackOrigin ?? null;
   const isOwnDocument = (url: string): boolean =>
     url.startsWith('file://') || (!!loopbackOrigin && url.startsWith(`${loopbackOrigin}/`));

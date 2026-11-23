@@ -1,3 +1,4 @@
+import { EnvShareCard } from '@/chat/ask/EnvShareCard';
 import { AskCard } from '@/chat/ask/AskCard';
 import { QuestionCard } from '@/chat/ask/QuestionCard';
 import type { FocusAskPrompt } from './useFocusAsk';
@@ -18,6 +19,9 @@ export function FocusAskCard({
   if (ask.kind === 'approval') return <AskCard prompt={ask.prompt} variant={variant} role="group" />;
   const { question } = ask;
   if (!question.question) return null;
+  if (question.question.questions[0]?.vaultName) {
+    return <EnvShareCard key={question.question.questionId} request={question} variant={variant} />;
+  }
   return (
     <QuestionCard
       key={question.question.questionId}

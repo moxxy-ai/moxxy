@@ -1,38 +1,30 @@
-/**
- * Account modal shown when the user clicks their profile pill in the
- * sidebar footer. Reads the current Clerk user via useUser() and
- * exposes:
- *
- *   - Header with name + email + tier badge.
- *   - Account details (joined date, identifier).
- *   - Sign-out button that clears Clerk session + cached prefs.
- *
- * Kept lightweight so we don't pull in Clerk's UserProfile component
- * (which carries its own card chrome that clashes with the rest of
- * the app).
- */
+/** Personal account details, Clerk profile management, and device sync. */
 
+import { DeviceSync } from './account/DeviceSync';
 import { useState } from 'react';
-import { useClerk, useUser } from '@clerk/clerk-react';
+import { TaskChooseOrganization, TaskResetPassword, TaskSetupMFA, useSession, useClerk, useUser } from '@clerk/react';
 import { Button, Modal, ModalFooter, ConfirmModal, Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@moxxy/client-core';
 
 interface Props {
-  readonly tier: string;
+  readonly tier: string | null;
   readonly onClose: () => void;
 }
 
 export function ProfileView({ tier, onClose }: Props): JSX.Element {
   const { user } = useUser();
-  const { signOut } = useClerk();
-  const { prefs, update } = usePrefs();
+  const { session } = useSession();
+  const task = session?.currentTask?.key;
+  const { signOut, openUserProfile } = useClerk();
+  const { prefs } = usePrefs();
+  const [error, setError] = useState('');
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const primaryEmail = user?.primaryEmailAddress;
   const email = primaryEmail?.emailAddress ?? null;
   const fullName =
-    user?.fullName ?? email ?? prefs?.clerkDisplayName ?? 'Account';
+    user?.fullName ?? email ?? user?.username ?? 'Account';
   const joined = user?.createdAt ? new Date(user.createdAt) : null;
   const initials =
     fullName
@@ -45,12 +37,9 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
     setBusy(true);
     try {
       await signOut();
-      await update({
-        clerkUserId: null,
-        clerkDisplayName: null,
-        signedInAt: null,
-      });
       onClose();
+    } catch {
+      setError('Sign-out failed. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -117,7 +106,7 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
                 </div>
               )}
             </div>
-            <span style={tierBadgeStyle(tier)}>{tier}</span>
+            {tier && <span style={tierBadgeStyle(tier)}>{tier}</span>}
           </div>
 
           <hr
@@ -140,7 +129,7 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
           >
             <Detail label="Member since" value={joined ? joined.toLocaleDateString() : 'Just now'} />
             <Detail label="User ID" value={user?.id ?? '—'} mono />
-            {prefs?.signedInAt && (
+            {prefs?.clerkUserId === user?.id && prefs?.signedInAt && (
               <Detail
                 label="Last sign-in"
                 value={new Date(prefs.signedInAt).toLocaleString()}
@@ -148,6 +137,20 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
             )}
           </dl>
 
+          {session?.status === 'active' && user && (
+            <Button variant="secondary" onClick={() => {
+              onClose();
+              openUserProfile();
+            }}>
+              {tier ? 'Manage account and billing' : 'Manage account'}
+            </Button>
+          )}
+          {task === 'choose-organization' && <TaskChooseOrganization redirectUrlComplete="/" />}
+          {task === 'reset-password' && <TaskResetPassword redirectUrlComplete="/" />}
+          {task === 'setup-mfa' && <TaskSetupMFA redirectUrlComplete="/" />}
+          {!task && session?.status === 'active' && import.meta.env.VITE_ACCOUNT_SYNC_URL?.trim() && user &&
+            <DeviceSync key={user.id} />}
+          {error && <p role="alert">{error}</p>}
           <ModalFooter>
             <Button variant="secondary" onClick={onClose}>
               Close

@@ -48,6 +48,7 @@ export class VaultPassphraseError extends Error {
 }
 
 export interface VaultEntry extends EncryptedBlob {
+  readonly referenceOnly?: true;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly tags?: ReadonlyArray<string>;
@@ -265,9 +266,10 @@ export class VaultStore {
    * rename is atomic, so a crash mid-write leaves the previous vault intact
    * rather than truncated. mode 0o600 keeps the secret store owner-only.
    */
-  private async persist(): Promise<void> {
-    if (!this.file) return;
-    await writeFileAtomic(this.filePath, JSON.stringify(this.file, null, 2), { mode: 0o600 });
+  private async persist(next = this.file): Promise<void> {
+    if (!next) return;
+    await writeFileAtomic(this.filePath, JSON.stringify(next, null, 2), { mode: 0o600 });
+    this.file = next;
     // Force the next syncFromDisk() to re-read rather than recording a stat
     // here: between our rename and a post-write fs.stat another process may
     // have renamed ITS version in, so the fingerprint we'd capture could be
@@ -278,30 +280,45 @@ export class VaultStore {
   }
 
   async set(name: string, value: string, tags?: ReadonlyArray<string>): Promise<void> {
+    await this.setMany([{ name, value, tags }]);
+  }
+
+  async setShared(name: string, value: string): Promise<void> {
+    await this.setMany([{ name, value, referenceOnly: true }]);
+  }
+
+  /** Install a set of credentials with one encrypted-file commit. */
+  async setMany(updates: ReadonlyArray<{ name: string; value: string; tags?: ReadonlyArray<string>; referenceOnly?: true }>): Promise<void> {
+    if (!updates.length) return;
     await this.open();
-    return this.mutex.run(async () => {
+    await this.mutex.run(async () => {
       if (!this.file || !this.masterKey) throw new Error('vault not open');
       await this.syncFromDisk();
       const now = new Date().toISOString();
-      const existing = this.file.entries[name];
-      const blob = encrypt(value, this.masterKey);
-      this.file = {
-        ...this.file,
-        entries: {
-          ...this.file.entries,
-          [name]: {
-            ...blob,
-            createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
-            tags: tags ?? existing?.tags,
-          },
-        },
-      };
-      await this.persist();
+      const entries: Record<string, VaultEntry> = Object.assign(Object.create(null), this.file.entries);
+      for (const { name, value, tags, referenceOnly } of updates) {
+        const existing = entries[name];
+        entries[name] = {
+          ...encrypt(value, this.masterKey),
+          ...(referenceOnly || existing?.referenceOnly ? { referenceOnly: true as const } : {}),
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+          tags: tags ?? existing?.tags,
+        };
+      }
+      await this.persist({ ...this.file, entries });
     });
   }
 
   async get(name: string): Promise<string | null> {
+    return this.readEntry(name, false);
+  }
+
+  async getForModel(name: string): Promise<string | null> {
+    return this.readEntry(name, true);
+  }
+
+  private async readEntry(name: string, forModel: boolean): Promise<string | null> {
     await this.open();
     // Read the entry inside the same mutex turn as syncFromDisk so a
     // concurrent set()/delete() (which replaces this.file wholesale) can't
@@ -311,6 +328,7 @@ export class VaultStore {
       if (!this.file || !this.masterKey) throw new Error('vault not open');
       const entry = this.file.entries[name];
       if (!entry) return null;
+      if (forModel && entry.referenceOnly) throw new Error('Use the vault reference for this shared secret.');
       return this.decryptEntry(name, entry);
     });
   }

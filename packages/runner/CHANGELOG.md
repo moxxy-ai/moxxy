@@ -1,5 +1,20 @@
 # @moxxy/runner
 
+## 0.2.74
+
+### Patch Changes
+
+- 32de927: Open social sign-in in the system browser and return to the original Moxxy window using the native Clerk callback. This update requires the full desktop installer.
+
+## 0.2.73
+
+### Patch Changes
+
+- Updated dependencies [13507cf]
+  - @moxxy/sdk@0.50.0
+  - @moxxy/config@0.50.0
+  - @moxxy/core@0.50.0
+
 ## 0.2.72
 
 ### Patch Changes

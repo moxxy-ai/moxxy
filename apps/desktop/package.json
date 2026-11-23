@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/desktop",
   "private": true,
-  "version": "0.49.2",
+  "version": "0.51.0",
   "description": "moxxy desktop — Electron app that connects to moxxy via @moxxy/runner and renders a TUI-equivalent chat surface.",
   "homepage": "https://moxxy.ai",
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
@@ -28,8 +28,8 @@
     "clean": "rm -rf dist dist-electron .turbo node_modules/.vite"
   },
   "dependencies": {
-    "@clerk/clerk-react": "^5.61.6",
-    "@clerk/themes": "^2.4.57",
+    "@clerk/electron": "0.1.18",
+    "@clerk/react": "^6.19.4",
     "@huggingface/transformers": "^4.3.2",
     "@moxxy/anonymizer": "workspace:*",
     "@moxxy/chat-model": "workspace:*",
@@ -49,6 +49,7 @@
     "electron-updater": "^6.8.11",
     "prismjs": "1.30.0",
     "qrcode": "^1.5.4",
+    "electron-store": "^8.2.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "^10.1.0",

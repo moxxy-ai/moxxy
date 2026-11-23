@@ -177,7 +177,7 @@ const BUNDLED_WORKSPACE_DEPS = [
  * (`unbundledImports` in @moxxy/desktop-host/app-update), so a new one shows
  * up there first.
  */
-const BUNDLED_THIRD_PARTY_DEPS = ['zod', 'openai', 'electron-updater'];
+const BUNDLED_THIRD_PARTY_DEPS = ['zod', 'openai', 'electron-updater', '@clerk/electron', 'electron-store'];
 
 /**
  * Native / optional modules that must stay external even though they ride
@@ -214,7 +214,17 @@ export default defineConfig(({ mode }) => {
   // only exposes VITE_ vars to the renderer, so bake the key into the main
   // bundle explicitly as a `define` global (read in electron/main/index.ts).
   const env = loadEnv(mode, process.cwd(), 'VITE_');
+  const syncUrl = env.VITE_ACCOUNT_SYNC_URL?.trim() ?? '';
+  if (syncUrl) {
+    const url = new URL(syncUrl);
+    if (url.username || url.password || url.search || url.hash ||
+        url.pathname !== '/v1/device-sync' ||
+        (url.protocol !== 'https:' && !(mode === 'development' && url.protocol === 'http:' && url.hostname === '127.0.0.1'))) {
+      throw new Error('VITE_ACCOUNT_SYNC_URL must be an HTTPS /v1/device-sync endpoint.');
+    }
+  }
   const clerkDefine = {
+    __ACCOUNT_SYNC_URL__: JSON.stringify(syncUrl),
     __CLERK_PUBLISHABLE_KEY__: JSON.stringify(env.VITE_CLERK_PUBLISHABLE_KEY ?? ''),
   };
   // The runner version this app is built with. The launch after an update
@@ -276,7 +286,7 @@ export default defineConfig(({ mode }) => {
       // We DON'T dedupe @clerk/shared — its sub-path exports
       // (e.g. /loadClerkJsScript) can't be resolved when dedupe
       // collapses it.
-      dedupe: ['@clerk/clerk-react', 'react', 'react-dom'],
+      dedupe: ['@clerk/react', 'react', 'react-dom'],
     },
     build: {
       outDir: 'dist',

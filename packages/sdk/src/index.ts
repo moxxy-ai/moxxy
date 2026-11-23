@@ -153,6 +153,7 @@ export {
   questionCloseNote,
   questionOptionSchema,
   questionItemSchema,
+  envShareNameSchema,
   questionAnswerSchema,
   questionAnswersSchema,
   questionRecord,

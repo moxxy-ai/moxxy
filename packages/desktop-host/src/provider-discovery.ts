@@ -13,6 +13,7 @@
  * desktop never reads plaintext from disk directly.
  */
 
+import { builtinProviderKeyName } from '@moxxy/desktop-ipc-contract/account-sync';
 import { readFile } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
 import path from 'node:path';
@@ -188,9 +189,7 @@ export async function readAdminProviderDetails(): Promise<Map<string, AdminProvi
  * `<NAME>_API_KEY` derivation `saveProviderKey` (onboarding) and the CLI's
  * credential resolver use.
  */
-export function builtinProviderKeyName(providerName: string): string {
-  return `${providerName.toUpperCase().replace(/-/g, '_')}_API_KEY`;
-}
+export { builtinProviderKeyName };
 
 /**
  * Resolve the env-var name a stored OpenAI-compat provider uses for

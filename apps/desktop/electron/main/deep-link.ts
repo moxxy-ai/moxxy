@@ -16,7 +16,8 @@ import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
 export function parseDeepLink(url: string): DeepLinkPayload | null {
   try {
     const u = new URL(url);
-    if (u.protocol !== 'moxxy:') return null;
+    // Clerk consumes its callback in main. Never buffer or broadcast the nonce.
+    if (u.protocol !== 'moxxy:' || u.hostname === 'renderer') return null;
     const params: Record<string, string> = {};
     u.searchParams.forEach((v, k) => {
       params[k] = v;

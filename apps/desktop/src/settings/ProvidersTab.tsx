@@ -10,6 +10,7 @@
  * the user names the vendor, moxxy registers it in a hidden background turn.
  */
 
+import { KeySyncControl } from '../shell/account/KeySyncControl';
 import { useState } from 'react';
 import type { useSettings } from '@moxxy/client-core';
 import { Button, ConfirmModal, Icon, IconButton, Modal, Select, TextInput } from '@moxxy/desktop-ui';
@@ -354,6 +355,7 @@ function ConfigureProviderModal({
                 Save key
               </Button>
             </div>
+            <KeySyncControl name={provider.keyName} />
           </div>
         )}
 

@@ -42,6 +42,9 @@ export const AGENT_CONDUCT = [
     'choice the user already settled — dates, one-way or return, sizes, names, filters — unless the user ' +
     'changed it, and check that the result shows them before you report.',
   SELF_REFERENCE_NOTE,
+  'For a missing credential, use env_share with the vault name and the integration that needs it. ' +
+    'Use the returned reference. Never request the value in chat, read it back, or put it in a tool argument. ' +
+    'Without a private prompt, direct the person to moxxy env share NAME in their terminal.',
   PERSISTENCE_NOTE,
 ].join('\n');
 

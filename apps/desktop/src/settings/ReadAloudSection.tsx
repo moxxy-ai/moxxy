@@ -4,6 +4,7 @@
  * live in `useVoiceSettings`.
  */
 
+import { KeySyncControl } from '../shell/account/KeySyncControl';
 import { Button, TextInput } from '@moxxy/desktop-ui';
 import { Badge, CardGroup, Row } from './settings-primitives';
 import type { VoiceSettingsState } from './useVoiceSettings';
@@ -61,6 +62,7 @@ export function ReadAloudSection({ voice }: { readonly voice: VoiceSettingsState
 function GeminiFields({ voice }: { readonly voice: VoiceSettingsState }): JSX.Element {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+      <KeySyncControl />
       <label htmlFor="gemini-tts-key" style={{ fontSize: 'var(--type-meta)' }}>
         Gemini API key {voice.hasGeminiKey ? '· key saved in this device vault' : ''}
       </label>

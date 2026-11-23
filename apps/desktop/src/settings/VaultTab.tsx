@@ -1,11 +1,12 @@
 /**
  * Vault tab — secrets stored by the moxxy CLI, shown as a grid of
  * password-manager-style credential cards (key glyph + name + masked value).
- * Names only ever surface here; values are encrypted at rest and never leave
- * the host. The "Add key" action reveals an inline form with light validation
+ * Stored values are never displayed. The "Add key" action reveals an inline form with light validation
  * that mirrors the IPC schema.
  */
 
+import { KeySyncControl } from '../shell/account/KeySyncControl';
+import { ENV_SHARE_PRIVACY_NOTE } from '@moxxy/sdk/questions';
 import { useState } from 'react';
 import { Button, ConfirmModal, Icon, IconButton, TextInput } from '@moxxy/desktop-ui';
 import { Section, Tile, Badge, EmptyState } from './settings-primitives';
@@ -30,12 +31,12 @@ export function VaultTab({
     <Section
       title="Vault"
       count={vault.length}
-      description="Secrets stored by the moxxy CLI. Names only — values are encrypted at rest and never leave the host."
+      description="Secrets are encrypted on this device."
       search={search}
       actions={
         <Button variant="cta" onClick={() => setAdding((v) => !v)} style={{ gap: 7 }}>
           <Icon name={adding ? 'x' : 'plus'} size={14} />
-          {adding ? 'Close' : 'Add key'}
+          {adding ? 'Close' : 'Env Share'}
         </Button>
       }
     >
@@ -101,7 +102,7 @@ function AddKeyForm({
   const trimmed = name.trim();
   const validName = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(trimmed) && !trimmed.includes('..');
   const exists = existing.includes(trimmed);
-  const canSubmit = validName && !exists && value.length > 0 && !busy;
+  const canSubmit = validName && value.length > 0 && !busy;
 
   const submit = async (): Promise<void> => {
     if (!canSubmit) return;
@@ -109,8 +110,8 @@ function AddKeyForm({
     setError(null);
     try {
       await onSubmit(trimmed, value);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    } catch {
+      setError('Could not save this value to the vault.');
     } finally {
       // Reset even on success: the parent normally unmounts this form, but a
       // redundant reset is harmless if unmounted and prevents a stuck
@@ -149,6 +150,7 @@ function AddKeyForm({
         }}
         style={vaultFieldStyle}
       />
+      <KeySyncControl name={trimmed} />
       {name.trim() && !validName && (
         <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
           Use letters, digits, and . _ / - (no spaces or “..”).
@@ -171,7 +173,7 @@ function AddKeyForm({
         <Button
           variant="cta"
           onClick={() => void submit()}
-          disabled={!(validName && value.length > 0) || busy}
+          disabled={!canSubmit}
           style={{
             padding: '7px 14px',
             fontSize: 'var(--type-row)',
@@ -182,6 +184,7 @@ function AddKeyForm({
           {busy ? 'Saving…' : exists ? 'Overwrite' : 'Save key'}
         </Button>
       </div>
+      <p className="question__hint">{ENV_SHARE_PRIVACY_NOTE}</p>
     </div>
   );
 }

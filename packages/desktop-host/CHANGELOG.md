@@ -1,5 +1,40 @@
 # @moxxy/desktop-host
 
+## 0.18.4
+
+### Patch Changes
+
+- 43fd195: Check personal Clerk Billing features in the desktop and account-sync service and keep backup removal available after plan changes.
+- 32de927: Open social sign-in in the system browser and return to the original Moxxy window using the native Clerk callback. This update requires the full desktop installer.
+- e41b287: Manage personal accounts and subscriptions from the desktop profile and show the signed-in user's Clerk Billing plan.
+- Updated dependencies [43fd195]
+- Updated dependencies [32de927]
+  - @moxxy/desktop-ipc-contract@0.18.4
+  - @moxxy/runner@0.2.74
+  - @moxxy/workspace-registry@0.2.57
+
+## 0.18.3
+
+### Patch Changes
+
+- Updated dependencies [13507cf]
+  - @moxxy/sdk@0.50.0
+  - @moxxy/agent-connection-kit@0.2.3
+  - @moxxy/config@0.50.0
+  - @moxxy/core@0.50.0
+  - @moxxy/desktop-ipc-contract@0.18.3
+  - @moxxy/plugin-browser@0.50.0
+  - @moxxy/plugin-computer-control@0.50.0
+  - @moxxy/plugin-provider-local@0.50.0
+  - @moxxy/plugin-provider-openai@0.50.0
+  - @moxxy/plugin-scheduler@0.50.0
+  - @moxxy/plugin-stt-whisper@0.50.0
+  - @moxxy/plugin-tts-gemini@0.50.0
+  - @moxxy/plugin-vault@0.50.0
+  - @moxxy/plugin-webhooks@0.50.0
+  - @moxxy/runner@0.2.73
+  - @moxxy/workspace-registry@0.2.56
+
 ## 0.18.2
 
 ### Patch Changes

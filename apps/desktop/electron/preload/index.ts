@@ -6,6 +6,8 @@
  * on), so this is the only path across the boundary.
  */
 
+import { exposeClerkBridge } from '@clerk/electron/preload';
+import { isAppDocument } from './trusted-document';
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   IpcCommandName,
@@ -31,7 +33,12 @@ const api: MoxxyApi = {
   },
 };
 
-contextBridge.exposeInMainWorld('moxxy', api);
+declare const location: { readonly href: string };
+const target = process.argv.find(arg => arg.startsWith('--moxxy-renderer='))?.slice('--moxxy-renderer='.length);
+if (process.isMainFrame && isAppDocument(target, location.href)) {
+  contextBridge.exposeInMainWorld('moxxy', api);
+  if (process.argv.includes('--moxxy-clerk')) exposeClerkBridge();
+}
 
 // Augment the renderer-side global so consumers get types.
 declare global {

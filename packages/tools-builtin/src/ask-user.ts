@@ -11,7 +11,7 @@ export const askUserTool = defineTool({
     "genuinely the user's to make and you cannot settle it from the request, the code, or a sensible " +
     'default — which of two designs, which scope, which name. Offer two to four concrete answers per ' +
     'question; the user can always answer in their own words instead. Do not ask leave to run a tool ' +
-    '(the user is asked for that separately) or whether to continue.',
+    '(the user is asked for that separately) or whether to continue. For credentials use env_share.',
   inputSchema: z.object({
     questions: z
       .array(

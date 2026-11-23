@@ -10,6 +10,7 @@
  * out plus the next-action affordances (input + mic).
  */
 
+import { pathToFileURL } from 'node:url';
 import { BrowserWindow, screen } from 'electron';
 import {
   FOCUS_PET_LAYOUT,
@@ -282,6 +283,7 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     // would reveal the transparent BrowserWindow bounds.
     hasShadow: false,
     webPreferences: {
+      additionalArguments: ['--moxxy-renderer=' + (opts.devUrl ?? opts.loopbackBase ?? pathToFileURL(opts.focusHtml).href)],
       preload: opts.preloadPath,
       contextIsolation: true,
       sandbox: true,

@@ -12,8 +12,8 @@
  *
  * This module is the thin orchestrator: it assembles the gate context,
  * runs the step-flow engine, and dispatches to the per-step components in
- * ./steps. The Shell + step primitives live in ./chrome. Sign-in to a Moxxy
- * account is not part of onboarding: it lives in the sidebar profile pill.
+ * ./steps. The Shell + step primitives live in ./chrome. A returning user can open their account
+ * here to restore saved keys while setting up a new device.
  */
 
 import { usePrefs } from '@moxxy/client-core';
@@ -21,6 +21,7 @@ import { useOnboarding, type UseOnboarding } from '@moxxy/client-core';
 import { useStepFlow } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 
+import { SetupAccount } from './SetupAccount';
 import { Shell } from './chrome';
 import { ONBOARDING_STEPS, type OnboardingCtx } from './flow';
 import { NodeStep } from './steps/NodeStep';
@@ -76,6 +77,7 @@ export function Onboarding({ phase, notice, onComplete }: Props): JSX.Element {
         ob,
         notice,
       )}
+      {import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() && <SetupAccount />}
     </Shell>
   );
 }

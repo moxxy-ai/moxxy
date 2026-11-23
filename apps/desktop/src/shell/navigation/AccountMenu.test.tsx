@@ -12,7 +12,7 @@ import { DESTINATIONS, RUNNER_LOCKED_REASON, type DestinationId } from './destin
  */
 
 const SIGNED_IN: AccountSummary = { name: 'Alex Chen', initials: 'AC', tier: 'Free', signedIn: true };
-const SIGNED_OUT: AccountSummary = { name: null, initials: null, tier: 'Free', signedIn: false };
+const SIGNED_OUT: AccountSummary = { name: null, initials: null, tier: null, signedIn: false };
 
 function Harness({
   view = 'chat',
