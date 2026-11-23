@@ -155,6 +155,10 @@ importers:
       jose:
         specifier: 6.2.3
         version: 6.2.3
+    devDependencies:
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.2
 
   apps/desktop:
     dependencies:

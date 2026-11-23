@@ -10,5 +10,8 @@
   "dependencies": {
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "jose": "6.2.3"
+  },
+  "devDependencies": {
+    "esbuild": "catalog:"
   }
 }

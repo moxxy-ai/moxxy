@@ -27,6 +27,7 @@ export function createService({ verify, secret, request = fetch }) {
       res.writeHead(status, { 'cache-control': 'no-store', 'content-type': 'application/json' });
       res.end(data === undefined ? undefined : JSON.stringify(data));
     };
+    if (req.method === 'GET' && req.url === '/healthz') return end(200, { status: 'ok' });
     if (req.url !== '/v1/device-sync') return end(404);
     if (!['GET', 'PATCH', 'DELETE'].includes(req.method)) return end(405);
     const token = /^Bearer ([^\s]+)$/.exec(req.headers.authorization ?? '')?.[1];

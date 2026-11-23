@@ -8,4 +8,4 @@ if (!CLERK_SECRET_KEY || !CLERK_ISSUER || !DESKTOP_ORIGINS ||
 }
 const verify = verifyDesktopSession(CLERK_ISSUER, DESKTOP_ORIGINS.split(',').map(s => s.trim()));
 const server = createServer({ requestTimeout: 15000, headersTimeout: 10000 }, createService({ verify, secret: CLERK_SECRET_KEY }));
-server.listen(Number(PORT), '127.0.0.1');
+server.listen(Number(PORT), process.env.HOST ?? '127.0.0.1');

@@ -1,0 +1,16 @@
+# The context is the monorepo root. Send only inputs needed by this service.
+**
+!package.json
+!pnpm-workspace.yaml
+!pnpm-lock.yaml
+!.npmrc
+!apps/account-sync/package.json
+!apps/account-sync/*.mjs
+!packages/sdk/package.json
+!packages/sdk/tsconfig.json
+!packages/sdk/src/**
+!packages/desktop-ipc-contract/package.json
+!packages/desktop-ipc-contract/tsconfig.json
+!packages/desktop-ipc-contract/src/**
+!tooling/tsconfig/*.json
+!tooling/vitest-preset/package.json
