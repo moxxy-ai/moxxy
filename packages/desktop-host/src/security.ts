@@ -478,7 +478,7 @@ function buildCspDirectives(extraClerkHosts: readonly string[], clerkHost?: stri
   const extra = extraClerkHosts.length ? ` ${extraClerkHosts.join(' ')}` : '';
   return [
     "default-src 'self'",
-    `script-src 'self' 'wasm-unsafe-eval' https://cdn.protect.clerk.com https://challenges.cloudflare.com${scriptHost}`,
+    `script-src 'self' 'wasm-unsafe-eval'${clerkHost ? ' https://*.protect.clerk.com' : ''} https://challenges.cloudflare.com${scriptHost}`,
     // No font CDN in either directive: the renderer bundles no webfont and the
     // type stacks resolve to installed system faces, so `fonts.googleapis.com`
     // (style-src) and `fonts.gstatic.com` (font-src) are gone. Two fewer remote
@@ -491,7 +491,7 @@ function buildCspDirectives(extraClerkHosts: readonly string[], clerkHost?: stri
     // sign-up — Clerk's documented CSP needs it in connect-src too, not just
     // script/frame-src, or the captcha can fail and sign-up dead-ends.
     // moxxy-app:: the anonymizer worker's local-only model fetches (above).
-    `connect-src 'self' moxxy-app: https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    `connect-src 'self' moxxy-app:${clerkHost ? ' https://*.protect.clerk.com:*' : ''} https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "worker-src 'self' blob:",
     // `blob:` lets the Files viewer render a PDF in an <iframe> via Chromium's
     // built-in PDF viewer (the bytes are an app-created same-origin Blob URL).

@@ -1,4 +1,4 @@
-/** The preload also runs on third-party top-frame OAuth redirects. */
+/** Restrict preload capabilities to the document selected by the main process. */
 export function isAppDocument(target: string | undefined, href: string): boolean {
   if (!target) return false;
   try {

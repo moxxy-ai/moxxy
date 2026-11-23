@@ -1,47 +1,10 @@
-# Desktop Clerk sign-in: serving the renderer from `https://desktop.moxxy.ai`
+# Desktop Clerk sign-in
 
-The packaged **MoxxyAI Workspaces** desktop app serves its renderer from an
-in-app loopback server at **`https://desktop.moxxy.ai:<port>`** so that **Clerk
-production keys (`pk_live_`) work** in the desktop sign-in flow.
+Moxxy serves its packaged renderer from a stable HTTPS origin on loopback. The native Clerk SDK opens Google in the user's default browser. The operating system sends Clerk's callback to the running desktop app via `moxxy://renderer/`.
 
-This doc explains *why* (the Clerk Origin-lock problem), *how* (a self-signed
-cert + scoped trust), and — most importantly — the **one-time owner setup**
-(DNS record + Clerk dashboard origins) the feature depends on.
+## Renderer origin
 
----
-
-## The problem: Clerk production keys are domain-locked
-
-clerk-js (the Clerk web SDK) runs inside the renderer and calls Clerk's
-Frontend API with an `Origin` header equal to the renderer's origin. A Clerk
-**production** instance is locked to its instance domain: it **rejects any
-`Origin` that isn't `moxxy.ai` or a subdomain of it** —
-
-> `Production Keys are only allowed for domain moxxy.ai` /
-> `Origin header must be … a subdomain`
-
-Previously the packaged renderer was served from a loopback **IP** origin
-(`http://127.0.0.1:<port>`). That's a secure context and works fine for a
-**dev** key (`pk_test_`), but a `pk_live_` key can **never** accept a bare
-`127.0.0.1` origin — it isn't a `moxxy.ai` subdomain. So packaged sign-in with a
-production key silently failed.
-
-`file://` is even worse: clerk-js rejects it outright (`prohibited_redirect_url`).
-
-## The fix: serve from a `moxxy.ai` subdomain that resolves to loopback
-
-The renderer is now served at **`https://desktop.moxxy.ai:<port>`**, where
-`desktop.moxxy.ai` is a **public DNS A-record pointing at `127.0.0.1`**. The
-hostname is a `moxxy.ai` subdomain, so Clerk production accepts the origin — but
-because it only ever resolves to loopback, the server is **not externally
-reachable**: the bytes never leave the machine.
-
-- **Dev is unchanged.** With `ELECTRON_RENDERER_URL` set (Vite), the app loads
-  from `http://localhost:<vite-port>` and a `pk_test_` key works from localhost
-  exactly as before. Only the **packaged** build uses `desktop.moxxy.ai`.
-- A **missing / dev key** is graceful: the renderer mounts without
-  `<ClerkProvider>` (no sign-in gate), and the loopback server still serves the
-  app. The loopback fallback to `file://` (if every port is taken) still boots.
+The packaged renderer uses `https://desktop.moxxy.ai:<port>`. Keeping this origin preserves local browser storage across upgrades and lets account-sync check the authorized party of the signed session token. In development, Vite serves the renderer on localhost. Configure each instance with the origins its builds actually use.
 
 ### Self-signed cert + scoped trust (no real TLS cert needed)
 
@@ -87,24 +50,16 @@ The app code is wired for all of this, but it **does not work until the owner
 completes these one-time steps**. They are owner-only (DNS + Clerk dashboard +
 build-time key).
 
-### (a) DNS — point `desktop.moxxy.ai` at loopback
+### (a) Desktop hostname
 
-Add to the `moxxy.ai` zone:
-
-| Type | Name             | Value       |
-|------|------------------|-------------|
-| A    | `desktop.moxxy.ai` | `127.0.0.1` |
-| AAAA | `desktop.moxxy.ai` | `::1`       | *(optional — only if IPv6 loopback is needed; the server binds IPv4 `127.0.0.1`, so the A record is what matters)* |
-
-This record is intentionally a loopback address, so the name is **never
-externally reachable** — it only ever resolves to the user's own machine.
+The bootstrap maps `desktop.moxxy.ai` to loopback in Electron's host resolver.
+Google opens in the system browser and returns through the operating system's
+`moxxy://` handler. The browser never needs to visit the loopback website.
 
 ### (b) Clerk dashboard — allow the desktop origins (production instance)
 
 For the **production** Clerk instance (the one whose `pk_live_` key ships in the
-desktop build), add **all four** origins to the allowed origins / allowed
-redirect origins (the server-side check that mirrors the renderer's
-`allowedRedirectOrigins`):
+desktop build), add **all four** origins to the instance's allowed origins, preserving all existing entries:
 
 ```
 https://desktop.moxxy.ai:51789
@@ -117,13 +72,13 @@ Confirm the production instance permits **subdomains of `moxxy.ai`** (it should
 by default, since `desktop.moxxy.ai` is a subdomain of the instance domain).
 
 > No TLS certificate procurement is needed — the app uses a self-signed cert
-> that it scope-trusts itself. You only need the DNS record + these origins.
+> that it scope-trusts itself.
 
 ### (c) Build-time publishable key (already wired)
 
 The production key goes in **`VITE_CLERK_PUBLISHABLE_KEY`** at build time. It's
 read by the renderer (`<ClerkProvider>`) and baked into the main bundle via
-electron-vite `define` (so the CSP + OAuth allow-list can fold in the instance's
+electron-vite `define` (so the CSP can include the instance's
 own Frontend API host). Nothing further to wire — just set the env var in CI.
 
 ---
@@ -140,23 +95,13 @@ own Frontend API host). Nothing further to wire — just set the env var in CI.
 
 ---
 
-## Postscript (2026-06-11): the flow is a TOP-FRAME redirect, not a popup
+## Google sign-in and native callbacks
 
-First real packaged-build sign-in attempt surfaced one more blocker: clicking
-"Continue with Google" did nothing (eternal button spinner, no window). The
-serving stack was healthy — DNS, loopback https, `allowed_origins` all verified
-— and the FAPI `POST /v1/client/sign_ins` returned the Google
-`external_verification_redirect_url` fine.
+1. In the Clerk instance used by the build, enable Google under Social connections and enable the Native API under Native applications.
+2. In Native applications, add `moxxy://renderer/` (including the slash) to the allowlist for mobile SSO redirects. Keep the HTTPS renderer origins above. For a Vite development build also allow the actual localhost origin.
+3. Install the full desktop update and start sign-in in Moxxy. Clerk opens Google in the default browser. After consent, approve the browser's prompt to open Moxxy. Keep Moxxy running while signing in. If the attempt expires, start it again from Moxxy.
+4. Check that the original Moxxy window displays the account profile and offers Sign out. Use disposable provider credentials when testing device sync.
 
-The wrong assumption was that clerk-js opens the provider in a **popup**
-(`window.open` → `setWindowOpenHandler`). The prebuilt `openSignIn` modal
-actually runs OAuth as a **top-frame redirect** (`window.location = accounts.google.com…`),
-which `lockDownNavigation`'s blanket `will-navigate`/`will-redirect` deny
-silently swallowed. Fix: `lockDownNavigation` takes `allowOriginPatterns`; the
-main window passes `OAUTH_HOST_PATTERNS` **plus its own loopback serving
-origins** — the return leg (`clerk.moxxy.ai → desktop.moxxy.ai:<port>`) is not
-same-origin with the page's mid-flow URL, so the app origins must be explicit.
-The focus window passes nothing and keeps the blanket deny.
+The native bridge is registered in the desktop bootstrap before Electron becomes ready. Clerk correlates the return with a pending sign-in, focuses the originating window, and completes the session there. OAuth callbacks are excluded from Moxxy's general deep-link stream. The session cache uses the OS keystore and a separate store per Clerk instance. Existing web sessions may require signing in again after the native update.
 
-Also folded `challenges.cloudflare.com` into CSP `connect-src` (Clerk's
-documented Turnstile set) so the sign-up captcha can't dead-end.
+[Clerk's Electron OAuth guide](https://clerk.com/docs/guides/configure/auth-strategies/oauth-deep-links)

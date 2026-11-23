@@ -28,6 +28,7 @@
     "clean": "rm -rf dist dist-electron .turbo node_modules/.vite"
   },
   "dependencies": {
+    "@clerk/electron": "0.1.18",
     "@clerk/react": "^6.19.4",
     "@huggingface/transformers": "^4.3.2",
     "@moxxy/anonymizer": "workspace:*",
@@ -48,6 +49,7 @@
     "electron-updater": "^6.8.11",
     "prismjs": "1.30.0",
     "qrcode": "^1.5.4",
+    "electron-store": "^8.2.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "^10.1.0",

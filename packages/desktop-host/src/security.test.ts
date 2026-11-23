@@ -490,7 +490,8 @@ describe('CSP injection gate', () => {
       expect(csp).toContain("media-src 'self' blob:");
       const scripts = csp.split('; ').find(part => part.startsWith('script-src'));
       expect(scripts).toContain('https://clerk.acme.com');
-      expect(scripts).not.toContain('https://*.');
+      expect(scripts?.split(' ').filter(source => source.includes('*'))).toEqual(['https://*.protect.clerk.com']);
+      expect(csp.split('; ').find(part => part.startsWith('connect-src'))).toContain('https://*.protect.clerk.com:*');
       // the live-key prod host folds in
       expect(csp).toContain('https://clerk.acme.com');
     }
