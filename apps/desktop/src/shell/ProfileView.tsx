@@ -14,7 +14,7 @@
 
 import { DeviceSync } from './account/DeviceSync';
 import { useState } from 'react';
-import { TaskChooseOrganization, TaskResetPassword, TaskSetupMFA, useSession, useClerk, useUser } from '@clerk/clerk-react';
+import { TaskChooseOrganization, TaskResetPassword, TaskSetupMFA, useSession, useClerk, useUser } from '@clerk/react';
 import { Button, Modal, ModalFooter, ConfirmModal, Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@moxxy/client-core';
 

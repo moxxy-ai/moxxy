@@ -24,7 +24,7 @@
  */
 
 import React from 'react';
-import { useAuth, useClerk } from '@clerk/clerk-react';
+import { useAuth, useClerk } from '@clerk/react';
 
 // Structural slices of the Clerk client so the transfer logic is testable
 // without clerk-js. The real resources satisfy these (method params are
@@ -115,7 +115,7 @@ export function OAuthTransferBridge(): React.ReactElement {
   React.useEffect(() => {
     if (!isLoaded || isSignedIn || attempted.current) return;
     attempted.current = true;
-    void completeDanglingOAuthTransfer(clerk as unknown as TransferClerkLike);
+    void completeDanglingOAuthTransfer(clerk);
   }, [isLoaded, isSignedIn, clerk]);
 
   // Captcha mount node — empty (and invisible) until clerk-js needs to show

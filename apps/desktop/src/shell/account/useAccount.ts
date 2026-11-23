@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
+import { useAuth, useClerk, useUser } from '@clerk/react';
 import { usePrefs } from '@moxxy/client-core';
 import type { AccountSummary } from '../navigation/AccountMenu';
 import { formatTier, initialsOf } from './account-identity';

@@ -28,8 +28,7 @@
     "clean": "rm -rf dist dist-electron .turbo node_modules/.vite"
   },
   "dependencies": {
-    "@clerk/clerk-react": "^5.61.6",
-    "@clerk/themes": "^2.4.57",
+    "@clerk/react": "^6.19.4",
     "@huggingface/transformers": "^4.3.2",
     "@moxxy/anonymizer": "workspace:*",
     "@moxxy/chat-model": "workspace:*",

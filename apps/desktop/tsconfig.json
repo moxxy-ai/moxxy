@@ -12,7 +12,7 @@
     "paths": {
       "@/*": ["./src/*"],
       // Pin every type-land `import 'react'` (incl. react-virtuoso's and
-      // @clerk/clerk-react's .d.ts) to THIS package's @types/react. Should a
+      // @clerk/react's .d.ts) to THIS package's @types/react. Should a
       // second copy (e.g. @types/react@19) enter the workspace again and pnpm
       // bind a library's peer types to it, its components would stop being
       // assignable to our React-18 JSX (TS2786).

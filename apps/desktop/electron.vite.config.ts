@@ -286,7 +286,7 @@ export default defineConfig(({ mode }) => {
       // We DON'T dedupe @clerk/shared — its sub-path exports
       // (e.g. /loadClerkJsScript) can't be resolved when dedupe
       // collapses it.
-      dedupe: ['@clerk/clerk-react', 'react', 'react-dom'],
+      dedupe: ['@clerk/react', 'react', 'react-dom'],
     },
     build: {
       outDir: 'dist',

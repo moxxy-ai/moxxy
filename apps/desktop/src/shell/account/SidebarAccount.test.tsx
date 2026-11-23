@@ -4,7 +4,7 @@ import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 
 // A guard, not a stand-in: a build without a publishable key has no
 // ClerkProvider, so reaching any of these would throw in the real app too.
-vi.mock('@clerk/clerk-react', () => {
+vi.mock('@clerk/react', () => {
   const fail = (): never => {
     throw new Error('Clerk hook should not be called without a publishable key');
   };

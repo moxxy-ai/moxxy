@@ -1,6 +1,6 @@
 import { KeySyncControl } from './KeySyncControl';
 import { useState } from 'react';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@clerk/react';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import { Button, ConfirmModal } from '@moxxy/desktop-ui';
 import { keySyncDisabledField, type SyncAction } from '@moxxy/desktop-ipc-contract/account-sync';
