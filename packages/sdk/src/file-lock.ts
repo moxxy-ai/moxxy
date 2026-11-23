@@ -1,5 +1,6 @@
 import { mkdir, open, stat, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { retryWindowsSharingViolation } from './fs-utils.js';
 
 /** A change takes milliseconds; a lock this old was left by a process that died. */
 const STALE_LOCK_MS = 10_000;
@@ -28,7 +29,8 @@ const ageOf = (path: string): Promise<number> =>
 async function removeStaleLock(lock: string): Promise<void> {
   const guard = `${lock}.takeover`;
   try {
-    await (await open(guard, 'wx')).close();
+    const handle = await retryWindowsSharingViolation(() => open(guard, 'wx'));
+    await handle.close();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
     // Another waiter is taking over. A guard this old was left by one that died.
@@ -58,7 +60,7 @@ export async function withFileLock<R>(
   await mkdir(dirname(lock), { recursive: true });
   for (;;) {
     try {
-      const handle = await open(lock, 'wx');
+      const handle = await retryWindowsSharingViolation(() => open(lock, 'wx'));
       await handle.writeFile(String(process.pid)).finally(() => handle.close());
       break;
     } catch (err) {
