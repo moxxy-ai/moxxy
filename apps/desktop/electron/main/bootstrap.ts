@@ -22,6 +22,9 @@
  * replace — never the hot-updatable `index.js`.
  */
 import { app } from 'electron';
+import { createClerkBridge } from '@clerk/electron';
+import { storage } from '@clerk/electron/storage';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -204,7 +207,17 @@ function messageOf(e: unknown): string {
   return e instanceof Error ? `${e.message}` : String(e);
 }
 
-void boot().catch((err) => {
+// The native bridge must register its scheme before Electron is ready. A second
+// instance only forwards its arguments to the original window and exits.
+declare const __CLERK_PUBLISHABLE_KEY__: string;
+const clerkKey = __CLERK_PUBLISHABLE_KEY__.trim();
+const clerkBridge = clerkKey ? createClerkBridge({
+  renderer: { scheme: 'moxxy', host: 'renderer' },
+  storage: storage({ name: 'clerk-' + createHash('sha256').update(clerkKey).digest('hex').slice(0, 16) }),
+}) : undefined;
+if (clerkBridge?.isPrimaryInstance) app.once('will-quit', () => clerkBridge.cleanup());
+
+if (clerkBridge?.isPrimaryInstance !== false) void boot().catch((err) => {
   // The floor itself failing to load is unrecoverable — surface it loudly rather
   // than dying with a silent unhandled rejection.
   console.error('[moxxy] bootstrap: failed to load app main:', err);

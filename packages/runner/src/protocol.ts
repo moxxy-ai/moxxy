@@ -210,7 +210,8 @@ import type {
  * the old account and save it back (additive).
  */
 /** v35: question.shareEnv privately saves a value for a pending vault request. */
-export const RUNNER_PROTOCOL_VERSION = 35;
+/** v36: the native Clerk callback bridge ships in the immutable desktop bootstrap, requiring a full installer. */
+export const RUNNER_PROTOCOL_VERSION = 36;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is

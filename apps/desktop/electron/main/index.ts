@@ -47,8 +47,6 @@ import {
   installMediaPermissions,
   lockDownNavigation,
   opensInBrowser,
-  clerkAccountPortalHost,
-  installAccountPortalRecovery,
   preferredCliEntry,
   seedModelsFromResources,
   adoptSeededLocalVoice,
@@ -79,7 +77,7 @@ import type {
   FocusVerticalAnchor,
 } from '@moxxy/desktop-ipc-contract';
 
-import { LOOPBACK_PORTS, LOOPBACK_PORTS_ALT } from '../loopback-ports.js';
+import { LOOPBACK_PORTS } from '../loopback-ports.js';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
@@ -94,7 +92,6 @@ import {
 } from '@moxxy/desktop-host/app-update';
 import { finishFullAppUpdate, installFullAppUpdate } from './shell-updater.js';
 import { DeepLinkRouter } from './deep-link.js';
-import { buildOAuthHostPatterns, cleanOAuthUserAgent } from './oauth-window.js';
 import { makeCertVerifyProc, makeCertificateErrorHandler } from './loopback-tls.js';
 import { armBootProbe } from './boot-probe.js';
 import { installApplicationMenu } from './menus.js';
@@ -149,8 +146,7 @@ const isDev = !!process.env['ELECTRON_RENDERER_URL'];
 // The Clerk publishable key, baked into the main bundle at build time by
 // electron-vite's `define` (see electron.vite.config.ts) from the same
 // VITE_CLERK_PUBLISHABLE_KEY the renderer reads. The main process needs it to
-// allow the instance's prod Frontend API host through the CSP + OAuth popup
-// allow-list — a `pk_live_` key serves clerk-js from the instance's own
+// allow the instance's prod Frontend API host through the renderer CSP — a `pk_live_` key serves clerk-js from the instance's own
 // domain, which the static dev/test hosts don't cover. '' when unset.
 declare const __CLERK_PUBLISHABLE_KEY__: string;
 declare const __ACCOUNT_SYNC_URL__: string;
@@ -318,12 +314,6 @@ async function createWindow(): Promise<void> {
     ? path.join(__dirname, '..', '..', '..', 'public', 'logo.png')
     : path.join(__dirname, '..', '..', 'dist', 'logo.png');
 
-  // Hosts where Clerk's OAuth popup is allowed to open (static set + the
-  // `pk_live_` instance's own Frontend API host and Account Portal).
-  // Anything else returns `action: 'deny'` so we don't accidentally let
-  // arbitrary window.open() calls spawn full Electron windows.
-  const OAUTH_HOST_PATTERNS = buildOAuthHostPatterns(CLERK_PUBLISHABLE_KEY);
-
   mainWindow = new BrowserWindow({
     title: 'MoxxyAI Workspaces',
     width: 1180,
@@ -338,7 +328,7 @@ async function createWindow(): Promise<void> {
     autoHideMenuBar: true,
     icon: iconPath,
     webPreferences: {
-      additionalArguments: ['--moxxy-renderer=' + (process.env.ELECTRON_RENDERER_URL ??
+      additionalArguments: [...(CLERK_PUBLISHABLE_KEY ? ['--moxxy-clerk'] : []), '--moxxy-renderer=' + (process.env.ELECTRON_RENDERER_URL ??
         loopback?.origin ?? pathToFileURL(path.join(__dirname, '..', '..', 'dist', 'index.html')).href)],
       preload: path.join(__dirname, '..', 'preload', 'index.cjs'),
       contextIsolation: true,
@@ -427,62 +417,17 @@ async function createWindow(): Promise<void> {
     realtimeCapture.detach(captureTarget);
   });
 
-  // Refuse top-frame navigation away from our own origin — EXCEPT to the
-  // OAuth hosts. clerk-js's prebuilt sign-in buttons run the provider flow
-  // as a top-frame redirect (not a popup), so the frame must be allowed to
-  // round-trip app → accounts.google.com → clerk FAPI → back here. The
-  // return leg lands on a loopback serving origin that differs from the
-  // page's CURRENT origin mid-flow, so those origins are allow-listed
-  // explicitly (dev: the Vite origin).
-  const appOriginPatterns = [
-    new RegExp(`^https://desktop\\.moxxy\\.ai:(?:${LOOPBACK_PORTS_ALT})$`),
-    ...(isDev ? [/^http:\/\/(?:localhost|127\.0\.0\.1):\d+$/] : []),
-  ];
   lockDownNavigation(mainWindow, {
     keepWindowOpenHandler: true,
-    allowOriginPatterns: [...OAUTH_HOST_PATTERNS, ...appOriginPatterns],
     // One persistent profile for the agent's browser, shared across its tabs —
     // so signing in on one tab is still signed in on the next, which is what
     // makes a multi-step task on a real site possible at all.
     webviewAttach: { partition: BROWSER_PARTITION },
   });
 
-  // OAuth popup handling — Clerk's clerk-js calls window.open() to
-  // run the provider's OAuth flow. We allow popups whose origin is on
-  // the OAUTH_HOST_PATTERNS list (Clerk's own domain + the major
-  // providers' login pages), open them as child BrowserWindows that
-  // share this window's session (so cookies/localStorage are visible
-  // to the renderer when the popup closes), and deny everything else.
+  // Authentication and external links open in the system browser. The main
+  // window stays on its trusted document throughout the sign-in attempt.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const origin = new URL(url).origin;
-      if (OAUTH_HOST_PATTERNS.some((re) => re.test(origin))) {
-        return {
-          action: 'allow',
-          overrideBrowserWindowOptions: {
-            width: 480,
-            height: 640,
-            minWidth: 380,
-            minHeight: 480,
-            autoHideMenuBar: true,
-            parent: mainWindow ?? undefined,
-            modal: false,
-            webPreferences: {
-              contextIsolation: true,
-              sandbox: true,
-              // No preload: this is third-party Clerk/OAuth UI; we don't
-              // want our IPC surface exposed.
-            },
-          },
-        };
-      }
-    } catch {
-      return { action: 'deny' };
-    }
-    // Any other http/https link (e.g. a markdown link in the chat, opened
-    // via target="_blank") goes to the user's default browser rather than an
-    // in-app window — except the app's own pages. Non-http(s) schemes are
-    // refused outright; local files open through `files.open`.
     if (opensInBrowser(url, mainWindow?.webContents.getURL() ?? '')) void shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -493,23 +438,6 @@ async function createWindow(): Promise<void> {
     realtimeCapture.reset();
     deepLinks.markLoading();
   });
-
-  // Recovery net for the OAuth return leg: when Clerk's FAPI loses the
-  // redirect_url mid-flow it falls back to the hosted Account Portal
-  // (accounts.<domain>) — a host the instance-specific navigation allow-list
-  // legitimately allows for the FAPI round-trip — stranding the window on
-  // "My account" instead of back in the app. Detect that landing and load
-  // the app root again (the session cookie is already set, so the user
-  // arrives signed in). Recovery only; the allow-list above is unchanged.
-  const appRootUrl = isDev
-    ? process.env['ELECTRON_RENDERER_URL']
-    : loopback?.url('index.html');
-  if (appRootUrl) {
-    installAccountPortalRecovery(mainWindow, {
-      portalHost: clerkAccountPortalHost(CLERK_PUBLISHABLE_KEY),
-      appUrl: appRootUrl,
-    });
-  }
 
   if (isDev) {
     const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
@@ -769,7 +697,7 @@ let stopTrayBlink: (() => void) | null = null;
 // Single-instance lock — required for `moxxy://` deep-links: a link opened
 // while the app is already running must hand its URL to the existing instance
 // (via `second-instance`) instead of spawning a second app. The loser quits.
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
+const gotSingleInstanceLock = app.hasSingleInstanceLock() || app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
@@ -791,7 +719,9 @@ if (!gotSingleInstanceLock) {
   // handler buffers until the renderer drains).
   app.on('open-url', (event, url) => {
     event.preventDefault();
-    deepLinks.handle(url);
+    // A macOS window hidden to the tray needs show() in addition to SDK focus.
+    if (url.startsWith('moxxy://renderer/')) focusMain();
+    else deepLinks.handle(url);
   });
   // Windows/Linux: a link opened while running relaunches with the URL in
   // argv, delivered here to the primary instance.
@@ -817,13 +747,6 @@ app.whenReady().then(async () => {
   const themePref = readPrefs().theme;
   nativeTheme.themeSource =
     themePref === 'light' || themePref === 'dark' ? themePref : 'system';
-
-  // Present a plain desktop-Chrome user-agent (no Electron/app product
-  // tokens) to every request. Google blocks OAuth from "embedded"
-  // user-agents ("this browser may not be secure"); a clean UA lets the
-  // in-app sign-in popup through. Set before any window so the very first
-  // request carries it. Harmless for our own + Clerk requests.
-  app.userAgentFallback = cleanOAuthUserAgent(app.userAgentFallback, app.getName());
 
   // Serve the packaged renderer over an HTTPS loopback origin at
   // `https://desktop.moxxy.ai:<port>` — a Chromium secure context AND, crucially,

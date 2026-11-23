@@ -177,7 +177,7 @@ const BUNDLED_WORKSPACE_DEPS = [
  * (`unbundledImports` in @moxxy/desktop-host/app-update), so a new one shows
  * up there first.
  */
-const BUNDLED_THIRD_PARTY_DEPS = ['zod', 'openai', 'electron-updater'];
+const BUNDLED_THIRD_PARTY_DEPS = ['zod', 'openai', 'electron-updater', '@clerk/electron', 'electron-store'];
 
 /**
  * Native / optional modules that must stay external even though they ride
