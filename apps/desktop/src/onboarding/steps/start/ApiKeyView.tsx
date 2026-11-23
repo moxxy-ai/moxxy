@@ -4,6 +4,8 @@
  * shared sign-in instead. Presentational: {@link useApiKeyConnect} holds it.
  */
 
+import { builtinProviderKeyName } from '@moxxy/desktop-ipc-contract/account-sync';
+import { KeySyncControl } from '../../../shell/account/KeySyncControl';
 import { Button, Select } from '@moxxy/desktop-ui';
 import { Fields, PrimaryButton, StepCard, inputStyle } from '../../chrome';
 import { OAuthSignIn } from '../../../settings/shared/OAuthSignIn';
@@ -51,6 +53,7 @@ export function ApiKeyView({ connect, onBack }: { readonly connect: ApiKeyConnec
                 style={inputStyle}
               />
             </label>
+            <KeySyncControl name={builtinProviderKeyName(connect.service)} />
             {connect.openKeyPage && (
               <button type="button" className="onboard-link" onClick={connect.openKeyPage}>
                 Where do I get a key?

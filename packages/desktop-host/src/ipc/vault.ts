@@ -12,6 +12,14 @@ import { getInProcessPlugins, handle } from './shared';
 
 export function registerVaultHandlers(accountSyncUrl?: string): void {
   if (accountSyncUrl) {
+    handle('account.syncKey', async ({ name, value, token }) => {
+      const { requestAccountSync } = await import('../account-sync');
+      await requestAccountSync(accountSyncUrl, token, 'PATCH', JSON.stringify({ keys: { [name]: value } }));
+    });
+    handle('account.setKeySync', async ({ enabled, token }) => {
+      const { requestAccountSync } = await import('../account-sync');
+      await requestAccountSync(accountSyncUrl, token, 'PUT', JSON.stringify({ enabled }));
+    });
     handle('account.sync', async ({ action, token }) => {
       const { syncAccount } = await import('../account-sync');
       return syncAccount(accountSyncUrl, token, action, getInProcessPlugins().vault);

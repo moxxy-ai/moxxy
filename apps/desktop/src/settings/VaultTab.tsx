@@ -1,11 +1,11 @@
 /**
  * Vault tab — secrets stored by the moxxy CLI, shown as a grid of
  * password-manager-style credential cards (key glyph + name + masked value).
- * Names only ever surface here; values are encrypted at rest and never leave
- * the host. The "Add key" action reveals an inline form with light validation
+ * Stored values are never displayed. The "Add key" action reveals an inline form with light validation
  * that mirrors the IPC schema.
  */
 
+import { KeySyncControl } from '../shell/account/KeySyncControl';
 import { useState } from 'react';
 import { Button, ConfirmModal, Icon, IconButton, TextInput } from '@moxxy/desktop-ui';
 import { Section, Tile, Badge, EmptyState } from './settings-primitives';
@@ -30,7 +30,7 @@ export function VaultTab({
     <Section
       title="Vault"
       count={vault.length}
-      description="Secrets stored by the moxxy CLI. Names only — values are encrypted at rest and never leave the host."
+      description="Secrets are encrypted on this device."
       search={search}
       actions={
         <Button variant="cta" onClick={() => setAdding((v) => !v)} style={{ gap: 7 }}>
@@ -149,6 +149,7 @@ function AddKeyForm({
         }}
         style={vaultFieldStyle}
       />
+      <KeySyncControl name={trimmed} />
       {name.trim() && !validName && (
         <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
           Use letters, digits, and . _ / - (no spaces or “..”).

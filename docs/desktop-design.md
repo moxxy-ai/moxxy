@@ -695,3 +695,5 @@ by colour. Each option is indexed for
 ⌘K. Existing read-aloud choices remain available. API billing is explained inline;
 there is no paid-use modal. Recovery from the retired ChatGPT sign-in shows an
 inline explanation in the provider form; a successful move uses the normal toast.
+
+API key forms and Account → Device sync share the same account-wide checkbox. It is checked by default for signed-in users. Turning it off asks for confirmation because it removes the account copy of the keys. The local vault keeps its entries.

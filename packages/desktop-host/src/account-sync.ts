@@ -2,6 +2,19 @@ import { accountSnapshot, syncKeyNames, type AccountSnapshot, type SyncAction } 
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { readPrefs, updatePrefs } from './prefs';
 
+export async function requestAccountSync(endpoint: string, token: string, method: string, body?: string, request = fetch): Promise<Response> {
+  const response = await request(endpoint, {
+    method, headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+    ...(body ? { body } : {}), signal: AbortSignal.timeout(20000), redirect: 'error',
+  });
+  if (response.status === 409) throw new Error('Account key sync is turned off.');
+  if (response.status === 404) throw new Error('No account backup was found.');
+  if (response.status === 401) throw new Error('Sign in again to sync this device.');
+  if ([413, 422].includes(response.status)) throw new Error('Check the account metadata format and size.');
+  if (!response.ok) throw new Error('Account sync is unavailable. Try again later.');
+  return response;
+}
+
 export async function syncAccount(
   endpoint: string, token: string, action: SyncAction,
   vault: Pick<VaultStore, 'get' | 'setMany'>, request = fetch,
@@ -19,17 +32,7 @@ export async function syncAccount(
     }));
     if (Buffer.byteLength(body) > 7000) throw new Error('Account backup exceeds the size limit.');
   }
-  const response = await request(endpoint, {
-    method: { save: 'PATCH', restore: 'GET', clear: 'DELETE' }[action],
-    headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
-    ...(body ? { body } : {}), signal: AbortSignal.timeout(20000), redirect: 'error',
-  });
-  if (!response.ok) {
-    if (response.status === 404) throw new Error('No account backup was found.');
-    if (response.status === 401) throw new Error('Sign in again to sync this device.');
-    if ([413, 422].includes(response.status)) throw new Error('Check the account metadata format and size.');
-    throw new Error('Account sync is unavailable. Try again later.');
-  }
+  const response = await requestAccountSync(endpoint, token, { save: 'PATCH', restore: 'GET', clear: 'DELETE' }[action], body, request);
   if (action === 'restore') {
     const snapshot = accountSnapshot.parse(await response.json());
     keys = snapshot.keys;

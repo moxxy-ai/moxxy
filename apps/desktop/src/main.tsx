@@ -7,6 +7,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { DeepLinkBridge } from './lib/useDeepLink';
 import { TipLayer } from './components/tip/TipLayer';
 import { HotkeyHints } from './hotkeys/HotkeyHints';
+import { KeySyncSession } from './shell/account/KeySyncSession';
 import { AccountIdentityBridge } from './shell/account/AccountIdentityBridge';
 import { OAuthTransferBridge } from './lib/oauthTransfer';
 import { bootClient } from './lib/boot';
@@ -90,6 +91,7 @@ function ThemedClerkProvider({
           lib/oauthTransfer.tsx. Needs Clerk context, hence inside the
           provider; mounted before children so it sweeps on boot. */}
       <AccountIdentityBridge />
+      {import.meta.env.VITE_ACCOUNT_SYNC_URL?.trim() && <KeySyncSession />}
       <OAuthTransferBridge />
       {children}
     </ClerkProvider>

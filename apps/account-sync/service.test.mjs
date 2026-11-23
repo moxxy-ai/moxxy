@@ -23,12 +23,23 @@ test('checks issuer, signature, party, expiry and session claims', async () => {
 test('scopes reads, merges and removal to the active session owner', async (t) => {
   let state = 'active';
   const privateMetadata = { unrelated: 'private' };
+  const publicMetadata = {};
+  // Clerk's metadata PATCH recursively merges nested fields and deletes nulls.
+  function merge(target, patch) {
+    for (const [key, value] of Object.entries(patch ?? {})) {
+      if (value === null) delete target[key];
+      else if (typeof value === 'object') merge(target[key] ??= {}, value);
+      else target[key] = value;
+    }
+  }
   const request = async (url, init) => {
     assert.equal(init.headers.authorization, 'Bearer service-test');
     if (url.endsWith('/sessions/sess_test')) return Response.json({ status: state, user_id: 'user_test' });
-    if (url.endsWith('/users/user_test')) return Response.json({ private_metadata: privateMetadata });
+    if (url.endsWith('/users/user_test')) return Response.json({ private_metadata: privateMetadata, public_metadata: publicMetadata });
     assert.equal(url, 'https://api.clerk.com/v1/users/user_test/metadata');
-    Object.assign(privateMetadata, JSON.parse(init.body).private_metadata);
+    const patch = JSON.parse(init.body);
+    merge(privateMetadata, patch.private_metadata);
+    merge(publicMetadata, patch.public_metadata);
     return Response.json({});
   };
   const verify = (token) => {
@@ -54,6 +65,21 @@ test('scopes reads, merges and removal to the active session owner', async (t) =
   const result = await send('GET');
   assert.equal(result.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await result.json(), backup);
+  assert.equal((await send('PATCH', { keys: { GEMINI_API_KEY: 'second' } })).status, 204);
+  assert.equal((await send('PATCH', { keys: { OPENAI_API_KEY: 'rotated' } })).status, 204);
+  assert.deepEqual((await (await send('GET')).json()).keys, { OPENAI_API_KEY: 'rotated', GEMINI_API_KEY: 'second' });
+  assert.equal((await send('PATCH', { keys: { GEMINI_API_KEY: null } })).status, 204);
+  assert.deepEqual((await (await send('GET')).json()).keys, { OPENAI_API_KEY: 'rotated' });
+  assert.equal((await send('PUT', { enabled: false })).status, 204);
+  assert.equal(publicMetadata.moxxyAutoKeySyncDisabled, true);
+  assert.deepEqual(await (await send('GET')).json(), { prefs: backup.prefs, keys: {} });
+  // Another signed-in device can still have the old setting cached.
+  assert.equal((await send('PATCH', backup)).status, 409);
+  assert.equal((await send('PUT', { enabled: 'true' })).status, 400);
+  assert.equal((await send('PUT', { enabled: true })).status, 204);
+  assert.deepEqual(publicMetadata, {});
+  assert.deepEqual((await (await send('GET')).json()).keys, {});
+  assert.equal((await send('PATCH', backup)).status, 204);
   state = 'revoked';
   assert.equal((await send('GET')).status, 401);
   state = 'active';

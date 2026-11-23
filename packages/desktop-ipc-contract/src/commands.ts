@@ -887,6 +887,8 @@ export interface IpcCommands {
     enabled: boolean;
   }) => Promise<void>;
   /** Vault entries are global per-user — no workspaceId. */
+  'account.syncKey': (args: { name: import('./account-sync.js').SyncKeyName; value: string | null; token: string }) => Promise<void>;
+  'account.setKeySync': (args: { enabled: boolean; token: string }) => Promise<void>;
   'account.sync': (args: { action: import('./account-sync.js').SyncAction; token: string }) => Promise<number>;
   'settings.vaultEntries': () => Promise<ReadonlyArray<VaultEntryName>>;
   /** Store (or overwrite) a vault secret. Value is encrypted at rest. */

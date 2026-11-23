@@ -1,8 +1,9 @@
+import { KeySyncControl } from './KeySyncControl';
 import { useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@clerk/clerk-react';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import { Button, ConfirmModal } from '@moxxy/desktop-ui';
-import type { SyncAction } from '@moxxy/desktop-ipc-contract/account-sync';
+import { keySyncDisabledField, type SyncAction } from '@moxxy/desktop-ipc-contract/account-sync';
 
 const details: Record<SyncAction, string> = {
   save: 'Copy supported API keys and preferences from this computer to your account? This replaces matching values in the account. Only save keys you own.',
@@ -11,6 +12,8 @@ const details: Record<SyncAction, string> = {
 };
 
 export function DeviceSync(): JSX.Element {
+  const { user } = useUser();
+  const keySyncOff = user?.publicMetadata[keySyncDisabledField] === true;
   const { getToken } = useAuth();
   const [action, setAction] = useState<SyncAction | null>(null);
   const [busy, setBusy] = useState(false);
@@ -31,9 +34,10 @@ export function DeviceSync(): JSX.Element {
   }
   return <section aria-label="Device sync">
     <strong>Device sync</strong>
+    <KeySyncControl />
     <p className="form__hint">Copy model and voice API keys, theme, voice engine and notification preferences between your devices.</p>
     <div className="form__acts">
-      <Button variant="secondary" disabled={busy} onClick={() => setAction('save')}>Save to account</Button>
+      <Button variant="secondary" disabled={busy || keySyncOff} onClick={() => setAction('save')}>Save to account</Button>
       <Button variant="secondary" disabled={busy} onClick={() => setAction('restore')}>Restore here</Button>
       <Button variant="secondary" disabled={busy} onClick={() => setAction('clear')}>Remove backup</Button>
     </div>
