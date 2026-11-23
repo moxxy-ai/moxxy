@@ -15,7 +15,7 @@ import { app, BrowserWindow } from 'electron';
 // the packaged productName for the bundled .app/.exe.
 app.setName('MoxxyAI Workspaces');
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   RunnerPool,
@@ -153,6 +153,7 @@ const isDev = !!process.env['ELECTRON_RENDERER_URL'];
 // allow-list — a `pk_live_` key serves clerk-js from the instance's own
 // domain, which the static dev/test hosts don't cover. '' when unset.
 declare const __CLERK_PUBLISHABLE_KEY__: string;
+declare const __ACCOUNT_SYNC_URL__: string;
 /** `@moxxy/cli`'s version at build time (electron.vite.config.ts). */
 declare const __MOXXY_COMPONENTS_VERSION__: string;
 const CLERK_PUBLISHABLE_KEY =
@@ -318,7 +319,7 @@ async function createWindow(): Promise<void> {
     : path.join(__dirname, '..', '..', 'dist', 'logo.png');
 
   // Hosts where Clerk's OAuth popup is allowed to open (static set + the
-  // `pk_live_` instance's own Frontend API host + parent-domain wildcard).
+  // `pk_live_` instance's own Frontend API host and Account Portal).
   // Anything else returns `action: 'deny'` so we don't accidentally let
   // arbitrary window.open() calls spawn full Electron windows.
   const OAUTH_HOST_PATTERNS = buildOAuthHostPatterns(CLERK_PUBLISHABLE_KEY);
@@ -337,6 +338,8 @@ async function createWindow(): Promise<void> {
     autoHideMenuBar: true,
     icon: iconPath,
     webPreferences: {
+      additionalArguments: ['--moxxy-renderer=' + (process.env.ELECTRON_RENDERER_URL ??
+        loopback?.origin ?? pathToFileURL(path.join(__dirname, '..', '..', 'dist', 'index.html')).href)],
       preload: path.join(__dirname, '..', 'preload', 'index.cjs'),
       contextIsolation: true,
       // The preload bridge only touches ipcRenderer + contextBridge, so
@@ -493,7 +496,7 @@ async function createWindow(): Promise<void> {
 
   // Recovery net for the OAuth return leg: when Clerk's FAPI loses the
   // redirect_url mid-flow it falls back to the hosted Account Portal
-  // (accounts.<domain>) — a host the lockdown's parent-domain wildcard
+  // (accounts.<domain>) — a host the instance-specific navigation allow-list
   // legitimately allows for the FAPI round-trip — stranding the window on
   // "My account" instead of back in the app. Detect that landing and load
   // the app root again (the session cookie is already set, so the user
@@ -938,6 +941,7 @@ app.whenReady().then(async () => {
   const electronBus = new ElectronCommandBus();
 
   registerIpcHandlers([electronBus], pool, desks, {
+    accountSyncUrl: __ACCOUNT_SYNC_URL__,
     openExternal: (url) => shell.openExternal(url),
     // A chat link opened in the Moxxy browser. Only the main window offers it
     // (the Mini Chat leaves it out), so the window asking is the one to show it.

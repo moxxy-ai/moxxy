@@ -7,6 +7,8 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { DeepLinkBridge } from './lib/useDeepLink';
 import { TipLayer } from './components/tip/TipLayer';
 import { HotkeyHints } from './hotkeys/HotkeyHints';
+import { KeySyncSession } from './shell/account/KeySyncSession';
+import { AccountIdentityBridge } from './shell/account/AccountIdentityBridge';
 import { OAuthTransferBridge } from './lib/oauthTransfer';
 import { bootClient } from './lib/boot';
 import { registerModeEvents } from './chat/modes/register-mode-events';
@@ -21,7 +23,7 @@ registerModeEvents();
 const root = document.getElementById('root');
 if (!root) throw new Error('#root not found — check index.html');
 
-const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim();
 
 // The packaged renderer is served from the loopback server at
 // `https://desktop.moxxy.ai:<port>` (a moxxy.ai subdomain → Clerk production
@@ -79,7 +81,7 @@ function ThemedClerkProvider({
   return (
     <ClerkProvider
       publishableKey={publishableKey}
-      allowedRedirectOrigins={[REDIRECT_ORIGINS]}
+      allowedRedirectOrigins={import.meta.env.DEV ? [REDIRECT_ORIGINS, window.location.origin] : [REDIRECT_ORIGINS]}
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
       appearance={{ baseTheme: isDark ? dark : undefined }}
@@ -88,6 +90,8 @@ function ThemedClerkProvider({
           that the full-window redirect flow failed to finish — see
           lib/oauthTransfer.tsx. Needs Clerk context, hence inside the
           provider; mounted before children so it sweeps on boot. */}
+      <AccountIdentityBridge />
+      {import.meta.env.VITE_ACCOUNT_SYNC_URL?.trim() && <KeySyncSession />}
       <OAuthTransferBridge />
       {children}
     </ClerkProvider>

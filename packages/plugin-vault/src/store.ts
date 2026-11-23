@@ -266,9 +266,10 @@ export class VaultStore {
    * rename is atomic, so a crash mid-write leaves the previous vault intact
    * rather than truncated. mode 0o600 keeps the secret store owner-only.
    */
-  private async persist(): Promise<void> {
-    if (!this.file) return;
-    await writeFileAtomic(this.filePath, JSON.stringify(this.file, null, 2), { mode: 0o600 });
+  private async persist(next = this.file): Promise<void> {
+    if (!next) return;
+    await writeFileAtomic(this.filePath, JSON.stringify(next, null, 2), { mode: 0o600 });
+    this.file = next;
     // Force the next syncFromDisk() to re-read rather than recording a stat
     // here: between our rename and a post-write fs.stat another process may
     // have renamed ITS version in, so the fingerprint we'd capture could be
@@ -279,41 +280,33 @@ export class VaultStore {
   }
 
   async set(name: string, value: string, tags?: ReadonlyArray<string>): Promise<void> {
-    return this.writeEntry(name, value, tags, false);
+    await this.setMany([{ name, value, tags }]);
   }
 
   async setShared(name: string, value: string): Promise<void> {
-    return this.writeEntry(name, value, undefined, true);
+    await this.setMany([{ name, value, referenceOnly: true }]);
   }
 
-  private async writeEntry(name: string, value: string, tags: ReadonlyArray<string> | undefined, referenceOnly: boolean): Promise<void> {
+  /** Install a set of credentials with one encrypted-file commit. */
+  async setMany(updates: ReadonlyArray<{ name: string; value: string; tags?: ReadonlyArray<string>; referenceOnly?: true }>): Promise<void> {
+    if (!updates.length) return;
     await this.open();
-    return this.mutex.run(async () => {
+    await this.mutex.run(async () => {
       if (!this.file || !this.masterKey) throw new Error('vault not open');
       await this.syncFromDisk();
       const now = new Date().toISOString();
-      const previous = this.file;
-      const existing = previous.entries[name];
-      const blob = encrypt(value, this.masterKey);
-      this.file = {
-        ...this.file,
-        entries: {
-          ...this.file.entries,
-          [name]: {
-            ...blob,
-            ...(referenceOnly || existing?.referenceOnly ? { referenceOnly: true } : {}),
-            createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
-            tags: tags ?? existing?.tags,
-          },
-        },
-      };
-      try {
-        await this.persist();
-      } catch (error) {
-        this.file = previous;
-        throw error;
+      const entries: Record<string, VaultEntry> = Object.assign(Object.create(null), this.file.entries);
+      for (const { name, value, tags, referenceOnly } of updates) {
+        const existing = entries[name];
+        entries[name] = {
+          ...encrypt(value, this.masterKey),
+          ...(referenceOnly || existing?.referenceOnly ? { referenceOnly: true as const } : {}),
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+          tags: tags ?? existing?.tags,
+        };
       }
+      await this.persist({ ...this.file, entries });
     });
   }
 

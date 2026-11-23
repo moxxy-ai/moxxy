@@ -4,11 +4,16 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["VITE_CLERK_PUBLISHABLE_KEY", "VITE_ACCOUNT_SYNC_URL"],
       "outputs": ["dist/**", "dist-electron/**"],
       "inputs": [
         "src/**",
         "electron/**",
         "public/**",
+        ".env",
+        ".env.local",
+        ".env.production",
+        ".env.production.local",
         "index.html",
         "focus.html",
         "electron.vite.config.ts",

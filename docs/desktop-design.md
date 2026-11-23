@@ -31,6 +31,8 @@ only; the TUI and the web channel keep their own look.
 | Right panel | Closed by default. Files, terminal, browser and diff open in it from a header icon. |
 | Motion | 120 to 240 ms, ease-out. A pressed control scales to 0.97. |
 
+On a build with device sync, setup offers a returning user an account button before they connect a model. The signed-in account panel groups device backup, restore and removal together. Each action names which copy it changes before confirmation.
+
 ## Motion rules
 
 Motion follows Emil Kowalski's design-engineering rules. They apply to every
@@ -693,5 +695,7 @@ by colour. Each option is indexed for
 ⌘K. Existing read-aloud choices remain available. API billing is explained inline;
 there is no paid-use modal. Recovery from the retired ChatGPT sign-in shows an
 inline explanation in the provider form; a successful move uses the normal toast.
+
+API key forms and Account → Device sync share the same account-wide checkbox. It is checked by default for signed-in users. Turning it off asks for confirmation because it removes the account copy of the keys. The local vault keeps its entries.
 
 Env Share uses the question dock and a masked field. The card identifies the vault entry and why it is needed. Save and Skip resolve the request. A footer explains local encryption and that Env Share keeps the value out of model requests. Screen readers announce this footer with the password field. The transcript shows only the receipt.

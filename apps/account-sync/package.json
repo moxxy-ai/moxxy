@@ -1,0 +1,17 @@
+{
+  "name": "@moxxy/account-sync",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test *.test.mjs"
+  },
+  "dependencies": {
+    "@moxxy/desktop-ipc-contract": "workspace:*",
+    "jose": "6.2.3"
+  },
+  "devDependencies": {
+    "esbuild": "catalog:"
+  }
+}

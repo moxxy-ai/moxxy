@@ -5,6 +5,7 @@
  * the switch's lifecycle live in `useTranscriptionSettings`.
  */
 
+import { KeySyncControl } from '../shell/account/KeySyncControl';
 import type { LocalTranscriptionModelId, LocalTranscriptionModelState } from '@moxxy/desktop-ipc-contract';
 import { Button, TextInput } from '@moxxy/desktop-ui';
 import { Badge, CardGroup, Row } from './settings-primitives';
@@ -176,6 +177,7 @@ function OpenAiKeyField({
 }): JSX.Element {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+      <KeySyncControl />
       <label htmlFor="openai-api-key" style={{ fontSize: 'var(--type-meta)' }}>
         OpenAI API key{openAiKey.hasKey ? ' · key saved in this device vault' : ''}
       </label>
