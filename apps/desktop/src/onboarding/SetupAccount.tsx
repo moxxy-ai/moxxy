@@ -4,9 +4,13 @@ import { ProfileView } from '../shell/ProfileView';
 
 export function SetupAccount(): JSX.Element {
   const account = useAccount();
+  const syncEnabled = Boolean(import.meta.env.VITE_ACCOUNT_SYNC_URL?.trim());
+  const label = account.summary.signedIn
+    ? (syncEnabled ? 'Account and device sync' : 'Account')
+    : (syncEnabled ? 'Sign in to restore a device' : 'Sign in');
   return <>
     <Button variant="secondary" onClick={account.open}>
-      {account.summary.signedIn ? 'Account and device sync' : 'Sign in to restore a device'}
+      {label}
     </Button>
     {account.panel === 'profile' && <ProfileView tier={account.summary.tier} onClose={account.closePanel} />}
   </>;

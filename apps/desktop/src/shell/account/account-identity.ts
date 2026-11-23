@@ -8,9 +8,10 @@ export function initialsOf(name: string): string | null {
   return (first.charAt(0) + last.charAt(0)).toUpperCase();
 }
 
-/** An account type as a badge label. Free when the account carries none. */
-export function formatTier(raw: unknown): string {
-  if (typeof raw !== 'string' || raw.trim().length === 0) return 'Free';
-  const tier = raw.trim().toLowerCase();
-  return tier.charAt(0).toUpperCase() + tier.slice(1);
+/** Clerk's v2 session token identifies the active plan as scope:slug. */
+export function personalPlanLabel(claim: unknown): string | null {
+  if (typeof claim !== 'string') return null;
+  const match = /^u:([a-z0-9]+(?:[-_][a-z0-9]+)*)$/i.exec(claim);
+  if (!match?.[1]) return null;
+  return match[1].replace(/[-_]/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
 }

@@ -9,7 +9,7 @@ import { DESTINATIONS, type Destination, type DestinationId } from './destinatio
 export interface AccountSummary {
   readonly name: string | null;
   readonly initials: string | null;
-  readonly tier: string;
+  readonly tier: string | null;
   readonly signedIn: boolean;
 }
 
@@ -99,7 +99,7 @@ export function AccountMenu({
         <span className="account-row__text">
           <span className="account-row__name">{account.name ?? 'Sign in'}</span>
           <span className="account-row__meta">
-            {account.signedIn ? account.tier : 'Menu and settings'}
+            {account.tier ?? 'Menu and settings'}
           </span>
         </span>
         <span className="account-row__more" aria-hidden>

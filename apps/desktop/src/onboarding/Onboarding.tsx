@@ -77,7 +77,7 @@ export function Onboarding({ phase, notice, onComplete }: Props): JSX.Element {
         ob,
         notice,
       )}
-      {import.meta.env.VITE_ACCOUNT_SYNC_URL?.trim() && import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() && <SetupAccount />}
+      {import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() && <SetupAccount />}
     </Shell>
   );
 }

@@ -490,11 +490,25 @@ describe('CSP injection gate', () => {
       expect(csp).toContain("media-src 'self' blob:");
       const scripts = csp.split('; ').find(part => part.startsWith('script-src'));
       expect(scripts).toContain('https://clerk.acme.com');
-      expect(scripts?.split(' ').filter(source => source.includes('*'))).toEqual(['https://*.protect.clerk.com']);
+      expect(scripts?.split(' ').filter(source => source.includes('*'))).toEqual(['https://*.protect.clerk.com', 'https://*.js.stripe.com']);
       expect(csp.split('; ').find(part => part.startsWith('connect-src'))).toContain('https://*.protect.clerk.com:*');
       // the live-key prod host folds in
       expect(csp).toContain('https://clerk.acme.com');
     }
+  });
+
+  it('allows Stripe payment resources only in builds configured for Clerk', () => {
+    const policy = (key?: string) =>
+      probe({ isDev: false, clerkPublishableKey: key })('file:///app/index.html')?.['Content-Security-Policy']?.[0];
+    expect(policy()).not.toContain('stripe.com');
+    const directives = policy(LIVE)?.split('; ') ?? [];
+    const sources = (directive: string) => directives.find(line => line.startsWith(directive))?.split(' ');
+    expect(sources('script-src')).toContain('https://js.stripe.com');
+    expect(sources('frame-src')).toEqual(expect.arrayContaining([
+      'https://js.stripe.com', 'https://*.js.stripe.com', 'https://hooks.stripe.com',
+    ]));
+    expect(sources('connect-src')).toContain('https://api.stripe.com');
+    expect(sources('script-src')).not.toContain('https://api.stripe.com');
   });
 
   it('passes third-party + OAuth-popup responses through untouched', () => {

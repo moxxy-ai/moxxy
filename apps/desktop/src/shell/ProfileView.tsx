@@ -1,16 +1,4 @@
-/**
- * Account modal shown when the user clicks their profile pill in the
- * sidebar footer. Reads the current Clerk user via useUser() and
- * exposes:
- *
- *   - Header with name + email + tier badge.
- *   - Account details (joined date, identifier).
- *   - Sign-out button that clears Clerk session + cached prefs.
- *
- * Kept lightweight so we don't pull in Clerk's UserProfile component
- * (which carries its own card chrome that clashes with the rest of
- * the app).
- */
+/** Personal account details, Clerk profile management, and device sync. */
 
 import { DeviceSync } from './account/DeviceSync';
 import { useState } from 'react';
@@ -19,7 +7,7 @@ import { Button, Modal, ModalFooter, ConfirmModal, Icon } from '@moxxy/desktop-u
 import { usePrefs } from '@moxxy/client-core';
 
 interface Props {
-  readonly tier: string;
+  readonly tier: string | null;
   readonly onClose: () => void;
 }
 
@@ -27,7 +15,7 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
   const { user } = useUser();
   const { session } = useSession();
   const task = session?.currentTask?.key;
-  const { signOut } = useClerk();
+  const { signOut, openUserProfile } = useClerk();
   const { prefs } = usePrefs();
   const [error, setError] = useState('');
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -118,7 +106,7 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
                 </div>
               )}
             </div>
-            <span style={tierBadgeStyle(tier)}>{tier}</span>
+            {tier && <span style={tierBadgeStyle(tier)}>{tier}</span>}
           </div>
 
           <hr
@@ -149,6 +137,14 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
             )}
           </dl>
 
+          {session?.status === 'active' && user && (
+            <Button variant="secondary" onClick={() => {
+              onClose();
+              openUserProfile();
+            }}>
+              {tier ? 'Manage account and billing' : 'Manage account'}
+            </Button>
+          )}
           {task === 'choose-organization' && <TaskChooseOrganization redirectUrlComplete="/" />}
           {task === 'reset-password' && <TaskResetPassword redirectUrlComplete="/" />}
           {task === 'setup-mfa' && <TaskSetupMFA redirectUrlComplete="/" />}
