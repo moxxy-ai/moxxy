@@ -1,5 +1,12 @@
 # @moxxy/client-core
 
+## 0.17.4
+
+### Patch Changes
+
+- Updated dependencies [43fd195]
+  - @moxxy/desktop-ipc-contract@0.18.4
+
 ## 0.17.3
 
 ### Patch Changes

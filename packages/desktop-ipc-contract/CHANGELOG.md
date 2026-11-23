@@ -1,5 +1,11 @@
 # @moxxy/desktop-ipc-contract
 
+## 0.18.4
+
+### Patch Changes
+
+- 43fd195: Check personal Clerk Billing features in the desktop and account-sync service and keep backup removal available after plan changes.
+
 ## 0.18.3
 
 ### Patch Changes
