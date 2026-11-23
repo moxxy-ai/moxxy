@@ -1,5 +1,5 @@
 /**
- * Everything `codex app-server` 0.167.1 can send (0.155.1, the oldest supported, sends a part of it) — its generated protocol types,
+ * Everything `codex app-server` 0.171.0 can send (0.155.1, the oldest supported, sends a part of it) — its generated protocol types,
  * listed in fixtures/ — checked against what Moxxy does with it. An item shows
  * in the chat or is left out on purpose, a notification is read or left alone
  * on purpose, a request always gets an answer. A newer Codex brings a new
@@ -25,9 +25,9 @@ interface CodexKinds {
   readonly requests: ReadonlyArray<string>;
 }
 
-const kinds = JSON.parse(readFileSync(new URL('./fixtures/codex-app-server-0.167.1.json', import.meta.url), 'utf8')) as CodexKinds;
+const kinds = JSON.parse(readFileSync(new URL('./fixtures/codex-app-server-0.171.0.json', import.meta.url), 'utf8')) as CodexKinds;
 
-/** One item of every kind, shaped as Codex 0.155.1–0.167.1 sends it once it ends. */
+/** One item of every kind, shaped as Codex 0.155.1–0.171.0 sends it once it ends. */
 const ITEMS: Record<string, Record<string, unknown>> = {
   agentMessage: { text: 'Done.' },
   plan: { text: '1. Read the code' },
@@ -83,7 +83,7 @@ const LEFT_ALONE: ReadonlyArray<readonly [RegExp, string]> = [
   [/^(model\/(rerouted|safetyBuffering\/updated|verification)|rawResponse\/completed|rawResponseItem\/completed)$/, "the model's raw stream; the items carry what it did"],
   [/^(warning|configWarning|deprecationNotice|windows\/worldWritableWarning|windowsSandbox\/setupCompleted)$/, "notes about the person's Codex setup, for their own Codex"],
   [/^(mcpServer\/|app\/list\/updated|skills\/changed|serverRequest\/resolved)/, 'servers, apps and skills Codex keeps; its requests are answered as they come'],
-  [/^(command\/exec\/outputDelta|process\/(exited|outputDelta)|fs\/changed|fuzzyFileSearch\/|project\/changed|remoteControl\/status\/changed|externalAgentConfig\/import\/|hook\/(started|completed))/, 'calls Moxxy does not make, or work whose result is an item'],
+  [/^(command\/exec\/outputDelta|process\/(exited|outputDelta)|fs\/changed|fuzzyFileSearch\/|thread\/search\/partial$|project\/changed|remoteControl\/status\/changed|externalAgentConfig\/import\/|hook\/(started|completed))/, 'calls Moxxy does not make, or work whose result is an item'],
 ];
 
 const sessions: Session[] = [];
@@ -94,7 +94,7 @@ afterEach(async () => {
   await Promise.all(sessions.splice(0).map((session) => session.close()));
 });
 
-describe('every item Codex 0.167.1 can send', () => {
+describe('every item Codex 0.171.0 can send', () => {
   it('has a sample here, so a kind a newer Codex adds needs a decision', () => {
     expect(Object.keys(ITEMS).sort()).toEqual([...kinds.items]);
   });
@@ -108,7 +108,7 @@ describe('every item Codex 0.167.1 can send', () => {
   });
 });
 
-describe('every notification Codex 0.167.1 can send', () => {
+describe('every notification Codex 0.171.0 can send', () => {
   it.each(kinds.notifications)('%s is read, or left alone for a reason', (method) => {
     const reasons = [NOTIFICATIONS[method], ...LEFT_ALONE.filter(([pattern]) => pattern.test(method)).map(([, reason]) => reason)].filter(Boolean);
 
@@ -123,9 +123,18 @@ describe('every notification Codex 0.167.1 can send', () => {
       { type: 'text_delta', delta: 'Still working.' },
     ]);
   });
+
+  it('leaves partial thread search results alone, as Moxxy never searches threads, and keeps translating the reply', () => {
+    const translator = new TurnTranslator();
+
+    expect(translator.translate('thread/search/partial', { requestId: 7, data: [{ threadId: 't9' }] })).toEqual([]);
+    expect(translator.translate('item/agentMessage/delta', { threadId: 't1', delta: 'Still working.' })).toEqual([
+      { type: 'text_delta', delta: 'Still working.' },
+    ]);
+  });
 });
 
-describe('every request Codex 0.167.1 can make', () => {
+describe('every request Codex 0.171.0 can make', () => {
   const allowAll: PermissionResolver = { name: 'allow-all', check: async () => ({ mode: 'allow' }) };
   const PARAMS: Record<string, Record<string, unknown>> = {
     'item/commandExecution/requestApproval': { itemId: 'c1', command: 'ls', cwd: '/work/app' },

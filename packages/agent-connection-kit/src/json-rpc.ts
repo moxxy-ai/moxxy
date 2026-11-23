@@ -1,5 +1,6 @@
-import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
+import { debuglog } from 'node:util';
+import { readLines } from './lines.js';
 
 /**
  * JSON-RPC over newline-delimited JSON, the way vendor agents serve their own
@@ -25,6 +26,12 @@ export interface JsonRpcLineClientOptions {
   readonly writable: Writable;
   /** Write `"jsonrpc": "2.0"` on every message (ACP); Codex expects none. */
   readonly jsonrpc?: boolean;
+  /**
+   * Where a line that is not a message is reported. Unless set, only with
+   * `NODE_DEBUG=moxxy`: the TUI draws on the terminal of this same process,
+   * so a plain write to stderr would land in its screen.
+   */
+  readonly warn?: (message: string) => void;
 }
 
 type Id = string | number;
@@ -44,6 +51,7 @@ interface Incoming {
   readonly error?: { readonly code?: unknown; readonly message?: unknown; readonly data?: unknown };
 }
 
+const debugLog = debuglog('moxxy');
 const METHOD_NOT_FOUND = -32601;
 const INTERNAL_ERROR = -32603;
 
@@ -53,11 +61,14 @@ export class JsonRpcLineClient {
   private readonly notificationHandlers = new Set<NotificationHandler>();
   private requestHandler: RequestHandler | undefined;
   private closedWith: Error | undefined;
+  private reportedUnreadable = false;
 
   constructor(private readonly opts: JsonRpcLineClientOptions) {
-    const lines = createInterface({ input: opts.readable, crlfDelay: Infinity });
-    lines.on('line', (line) => this.receive(line));
-    lines.on('close', () => this.close(new Error('The agent stopped.')));
+    readLines(
+      opts.readable,
+      (line) => this.receive(line),
+      () => this.close(new Error('The agent stopped.')),
+    );
     opts.writable.on('error', (err: Error) => this.close(err));
   }
 
@@ -114,7 +125,10 @@ export class JsonRpcLineClient {
     try {
       message = JSON.parse(line) as Incoming;
     } catch {
-      return; // Agents print the odd non-protocol line (warnings); it is not ours to read.
+      // Agents print the odd non-protocol line (warnings); it is not ours to read. Its size is
+      // reported once, never its text, which can hold the person's files or messages.
+      this.reportUnreadable(Buffer.byteLength(line));
+      return;
     }
     if (typeof message !== 'object' || message === null) return;
     const hasId = message.id !== undefined && message.id !== null;
@@ -133,6 +147,13 @@ export class JsonRpcLineClient {
     } else {
       pending.resolve(message.result);
     }
+  }
+
+  private reportUnreadable(bytes: number): void {
+    if (this.reportedUnreadable) return;
+    this.reportedUnreadable = true;
+    const warn = this.opts.warn ?? debugLog;
+    warn(`skipped a line from the agent that is not JSON (${bytes} bytes); later ones are skipped without a report.`);
   }
 
   private async answer(id: Id, method: string, params: unknown): Promise<void> {

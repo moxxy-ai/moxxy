@@ -1,5 +1,12 @@
 # @moxxy/plugin-tts-local
 
+## 0.49.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.49.2
+- @moxxy/chat-model@0.5.11
+
 ## 0.49.1
 
 ### Patch Changes
