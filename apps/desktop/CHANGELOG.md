@@ -1,5 +1,26 @@
 # @moxxy/desktop
 
+## 0.50.0
+
+### Minor Changes
+
+- 9b4852c: Automatically sync API keys entered in Moxxy Desktop to the signed-in account, with an account-wide opt-out. Restore keys and backed-up preferences on another device.
+- 13507cf: Request credentials with Env Share in desktop and terminal conversations, or use the private `moxxy env share NAME` prompt. Shared values go directly to the encrypted vault and integrations use their references.
+
+### Patch Changes
+
+- Updated dependencies [13507cf]
+  - @moxxy/cli@0.50.0
+  - @moxxy/sdk@0.50.0
+  - @moxxy/chat-model@0.5.12
+  - @moxxy/client-core@0.17.3
+  - @moxxy/client-platform-web@0.1.87
+  - @moxxy/desktop-host@0.18.3
+  - @moxxy/desktop-ipc-contract@0.18.3
+  - @moxxy/plugin-vault@0.50.0
+  - @moxxy/runner@0.2.73
+  - @moxxy/workflows-builder@0.1.70
+
 ## 0.49.2
 
 ### Patch Changes

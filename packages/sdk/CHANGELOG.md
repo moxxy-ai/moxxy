@@ -1,5 +1,11 @@
 # @moxxy/sdk
 
+## 0.50.0
+
+### Minor Changes
+
+- 13507cf: Request credentials with Env Share in desktop and terminal conversations, or use the private `moxxy env share NAME` prompt. Shared values go directly to the encrypted vault and integrations use their references.
+
 ## 0.49.2
 
 ## 0.49.1

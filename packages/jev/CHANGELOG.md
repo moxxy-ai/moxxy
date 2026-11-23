@@ -1,5 +1,12 @@
 # @moxxy/jev
 
+## 0.2.16
+
+### Patch Changes
+
+- Updated dependencies [13507cf]
+  - @moxxy/sdk@0.50.0
+
 ## 0.2.15
 
 ### Patch Changes

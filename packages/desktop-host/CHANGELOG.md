@@ -1,5 +1,27 @@
 # @moxxy/desktop-host
 
+## 0.18.3
+
+### Patch Changes
+
+- Updated dependencies [13507cf]
+  - @moxxy/sdk@0.50.0
+  - @moxxy/agent-connection-kit@0.2.3
+  - @moxxy/config@0.50.0
+  - @moxxy/core@0.50.0
+  - @moxxy/desktop-ipc-contract@0.18.3
+  - @moxxy/plugin-browser@0.50.0
+  - @moxxy/plugin-computer-control@0.50.0
+  - @moxxy/plugin-provider-local@0.50.0
+  - @moxxy/plugin-provider-openai@0.50.0
+  - @moxxy/plugin-scheduler@0.50.0
+  - @moxxy/plugin-stt-whisper@0.50.0
+  - @moxxy/plugin-tts-gemini@0.50.0
+  - @moxxy/plugin-vault@0.50.0
+  - @moxxy/plugin-webhooks@0.50.0
+  - @moxxy/runner@0.2.73
+  - @moxxy/workspace-registry@0.2.56
+
 ## 0.18.2
 
 ### Patch Changes
