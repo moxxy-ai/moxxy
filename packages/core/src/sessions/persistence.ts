@@ -30,7 +30,7 @@ import {
 } from '@moxxy/sdk/server';
 import { createLogger, type Logger } from '../logger.js';
 import { isMoxxyEventShape } from './event-shape.js';
-import { readLines } from './jsonl-lines.js';
+import { readLines, readLinesBackwards } from './jsonl-lines.js';
 
 // `SessionSource`, `SessionMeta` and `EventPage` are the EventStore contract's
 // data shapes — defined in @moxxy/sdk so `EventStoreDef` can reference them.
@@ -807,23 +807,44 @@ export async function readEventPage(
 ): Promise<EventPage> {
   assertSafeSessionId(sessionId);
   const logPath = path.join(dir, `${sessionId}.jsonl`);
-  // Parse the JSONL, skipping corrupt AND wrong-shape lines (one bad append
-  // must not make the rest unreadable), same as restoreEvents. Read-only: we
-  // never rewrite the file here.
-  const all: MoxxyEvent[] = [];
-  try {
-    for await (const line of readLines(logPath)) {
-      const parsed = parseEventLine(line);
-      if (isMoxxyEventShape(parsed)) all.push(parsed);
-    }
-  } catch {
-    // No log on disk yet → empty history, not an error.
-    return { events: [], prevCursor: null };
+  const limit = Math.floor(opts.limit);
+  const before = Number.isInteger(opts.before) ? opts.before : null;
+  // Cursor pages on old, un-repaired logs stop at the *first* seq >= before.
+  // Preserve that boundary even if later seqs are out of order.
+  if (before !== null || !(limit > 0)) {
+    const events: MoxxyEvent[] = [];
+    let next = 0;
+    let wrapped = false;
+    try {
+      for await (const line of readLines(logPath)) {
+        const event = parseEventLine(line);
+        if (!isMoxxyEventShape(event)) continue;
+        if (!(limit > 0)) return { events: [], prevCursor: before };
+        if (before !== null && event.seq >= before) break;
+        if (events.length < limit) events.push(event);
+        else {
+          events[next] = event;
+          next = (next + 1) % limit;
+          wrapped = true;
+        }
+      }
+    } catch { return { events: [], prevCursor: null }; }
+    if (!wrapped) return { events, prevCursor: null };
+    return { events: events.slice(next).concat(events.slice(0, next)), prevCursor: events[next]?.seq ?? null };
   }
-  // Delegate ALL paging (including the limit/cursor clamping) to pageEvents so
-  // the disk and in-memory paths are identical by construction — no separate
-  // limit handling here that could diverge from the in-memory page.
-  return pageEvents(all, opts.before, opts.limit);
+  const events: MoxxyEvent[] = [];
+  try {
+    for await (const line of readLinesBackwards(logPath)) {
+      const parsed = parseEventLine(line);
+      if (!isMoxxyEventShape(parsed)) continue;
+      if (events.length === limit) {
+        events.reverse();
+        return { events, prevCursor: events[0]?.seq ?? null };
+      }
+      events.push(parsed);
+    }
+  } catch { return { events: [], prevCursor: null }; }
+  return { events: events.reverse(), prevCursor: null };
 }
 
 /**

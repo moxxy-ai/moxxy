@@ -431,3 +431,16 @@ describe.skipIf(!process.env['MOXXY_SCALE_TESTS'])('a session log over the strin
     expect((await fs.readdir(dir)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   }, 300_000);
 });
+
+it('reads LF-delimited UTF-8 backwards across tiny blocks from the size at open', async () => {
+  const { readLinesBackwards } = await import('./jsonl-lines.js');
+  const file = path.join(await makeTempDir(), 'backwards.jsonl');
+  const lines = ['α\r', '', '🚀'.repeat(50), 'Zażółć', 'end'];
+  await fs.writeFile(file, lines.join('\n'));
+  const reader = readLinesBackwards(file, 3);
+  expect((await reader.next()).value).toBe('end');
+  await fs.appendFile(file, '\nnew');
+  const rest: string[] = [];
+  for await (const line of reader) rest.push(line);
+  expect(rest).toEqual(lines.slice(0, -1).reverse());
+});

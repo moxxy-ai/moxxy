@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rename, symlink } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { prepareComputerUpdate, activateComputerUpdate, computerTreeHash, recoverComputerUpdates, isBundledComputerCurrent } from './computer-update.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
@@ -158,4 +158,47 @@ it('recognizes an unchanged managed package without staging another copy, includ
   expect(await computerTreeHash(join(options.moxxyHome,'desktop'))).toBe(before);
   await writeFile(join(options.resourcesPath,'plugins-seed','node_modules','@moxxy','sdk','index.js'),'export const revision="new code, same version";');
   expect(await isBundledComputerCurrent(options)).toBe(false);
+});
+
+
+it('copies an already nested dependency only once while installing its hoisted dependencies', async () => {
+  const plugin = '@moxxy/plugin-computer-control';
+  const options = await fixture();
+  const modules = join(options.resourcesPath, 'plugins-seed', 'node_modules');
+  const nested = join(modules, plugin, 'node_modules', '@moxxy', 'sdk');
+  await mkdir(nested, { recursive: true });
+  await writeFile(join(nested, 'package.json'), JSON.stringify({ name: '@moxxy/sdk', version: '2', dependencies: { shared: '1' } }));
+  await mkdir(join(modules, 'shared'));
+  await writeFile(join(modules, 'shared', 'package.json'), JSON.stringify({ name: 'shared', version: '1' }));
+  vi.stubEnv('MOXXY_HOME', options.moxxyHome);
+  vi.stubEnv('MOXXY_STARTUP_TRACE', '1');
+  try {
+    const { stagedPath } = await prepareComputerUpdate(options);
+    expect(JSON.parse(await readFile(join(stagedPath, 'node_modules', '@moxxy', 'sdk', 'node_modules', 'shared', 'package.json'), 'utf8')).name).toBe('shared');
+    const trace = await readFile(join(options.moxxyHome, 'desktop', 'startup-traces', process.pid + '.jsonl'), 'utf8');
+    expect(trace.trim().split('\n').filter(row => JSON.parse(row).stage === plugin + '.copy-tree')).toHaveLength(2);
+  } finally { vi.unstubAllEnvs(); }
+});
+
+it('preserves one shared instance of a dependency hoisted in the installer', async () => {
+  const options = await fixture('export { a } from "left"; export { b } from "right";');
+  const plugin = '@moxxy/plugin-computer-control';
+  const modules = join(options.resourcesPath, 'plugins-seed', 'node_modules');
+  await writeFile(join(modules, plugin, 'package.json'), JSON.stringify({
+    name: plugin, version: '1.0.0', type: 'module', dependencies: { left: '1', right: '1' },
+  }));
+  for (const [name, symbol] of [['left', 'a'], ['right', 'b']]) {
+    const dependency = join(modules, name);
+    await mkdir(dependency);
+    await writeFile(join(dependency, 'package.json'), JSON.stringify({
+      name, version: '1.0.0', type: 'module', exports: './index.js', dependencies: { '@moxxy/sdk': '1' },
+    }));
+    await writeFile(join(dependency, 'index.js'), 'export { singleton as ' + symbol + ' } from "@moxxy/sdk";');
+  }
+  await writeFile(join(modules, '@moxxy/sdk/index.js'), 'export const singleton = {};');
+  const update = await prepareComputerUpdate(options);
+  await activateComputerUpdate(update, update.installedHash, async directory => {
+    const { a, b } = await import(pathToFileURL(join(directory, 'dist/index.js')).href);
+    expect(a).toBe(b);
+  });
 });

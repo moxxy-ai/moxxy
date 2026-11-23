@@ -242,6 +242,7 @@ export function Composer({
   });
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (!ready || compacting) return;
     // An open menu has the arrows, Enter/Tab and Escape before anything else.
     if (slash.handleKey(e) || mentions.handleKey(e)) return;
     // Enter alone submits; Shift+Enter inserts a newline (the browser
@@ -265,6 +266,7 @@ export function Composer({
    *  the draft. Both consume the same draft, which is the point of arming rather
    *  than opening a dialog. */
   const send = (): void => {
+    if (!ready || compacting) return;
     if (goalArmed) {
       const objective = draft.trim();
       if (objective.length === 0) return;
@@ -330,6 +332,7 @@ export function Composer({
 
   return (
     <form
+      aria-busy={!ready}
       data-testid="composer"
       className="cmdbar"
       onSubmit={(e) => {
@@ -405,7 +408,8 @@ export function Composer({
               hasAttachments: attachments.length > 0,
               mode,
             })}
-            disabled={!ready || compacting}
+            readOnly={!ready}
+            disabled={compacting}
             rows={1}
             className="cmdbar__ta"
           />

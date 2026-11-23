@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { compareSemver, z } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { timeStartup, writeFileAtomic } from '@moxxy/sdk/server';
 import { readBoundedFile } from './bounded-read.js';
 import { applyComputerLedgers, computerLedgerSchema, prepareComputerLedgers, type ComputerLedger } from './computer-update-ledger.js';
 
@@ -174,23 +174,24 @@ async function packageDependencies(from:string,seed:string):Promise<Array<{name:
   return result;
 }
 
-async function bundleFingerprint(resourcesPath:string, plugin: ManagedPackage = pluginName):Promise<string> {
+async function inspectBundle(resourcesPath: string, plugin: ManagedPackage) {
   const seed=path.join(path.resolve(resourcesPath),'plugins-seed');
-  const seen=new Set<string>(), records:unknown[]=[];
+  const packages = new Map<string, Awaited<ReturnType<typeof packageDependencies>>>();
+  const records: unknown[] = [];
   const relative=(file:string)=>path.relative(seed,file).split(path.sep).join('/');
   async function visit(directory:string):Promise<void> {
-    if (seen.has(directory)) return;
-    seen.add(directory);
-    if (seen.size>64) throw new Error('Computer Use bundle exceeds dependency limit');
+    if (packages.has(directory)) return;
+    if (packages.size >= 64) throw new Error('Computer Use bundle exceeds dependency limit');
     await assertOwnedParents(seed,directory);
     const tree=await computerTreeHash(directory);
     if (!tree) throw new Error('Computer Use bundle missing');
     const dependencies=await packageDependencies(directory,seed);
+    packages.set(directory, dependencies);
     records.push([relative(directory),tree,dependencies.map(dep=>[dep.name,relative(dep.source)])]);
     for (const dependency of dependencies) await visit(dependency.source);
   }
   await visit(path.join(seed,'node_modules',plugin));
-  return createHash('sha256').update(JSON.stringify(records)).digest('hex');
+  return { hash: createHash('sha256').update(JSON.stringify(records)).digest('hex'), packages };
 }
 
 export async function isBundledComputerCurrent(options:UpdateOptions):Promise<boolean> {
@@ -201,7 +202,7 @@ export async function isBundledComputerCurrent(options:UpdateOptions):Promise<bo
   if (!records.some(({record})=>record.phase==='verified' && record.source)) return false;
   await assertOwnedParents(home,targetPath(home, plugin));
   const installed=await computerTreeHash(targetPath(home, plugin));
-  const source=await bundleFingerprint(options.resourcesPath, plugin);
+  const {hash: source} = await inspectBundle(options.resourcesPath, plugin);
   return records.some(({record})=>record.phase==='verified' && record.staged===installed && record.source===source);
 }
 
@@ -288,32 +289,43 @@ export async function prepareComputerUpdate(options: UpdateOptions): Promise<Pre
   const seed=path.join(path.resolve(options.resourcesPath),'plugins-seed');
   const source=path.join(seed,'node_modules',plugin);
   if ((await manifest(source)).name !== plugin) throw new Error('Unexpected bundled package');
-  const sourceHash=await bundleFingerprint(options.resourcesPath, plugin);
+  const bundle = await timeStartup(plugin + '.source-hash', () => inspectBundle(options.resourcesPath, plugin));
+  const sourceHash = bundle.hash;
   await fs.mkdir(updatesPath(home, plugin),{recursive:true});
   const transaction=await fs.mkdtemp(path.join(updatesPath(home, plugin),'update-'));
   staging.add(transaction);
   const staged=path.join(transaction,'staged');
+  // A flat npm seed can keep the same module resolution inside the private copy.
+  // When the installer carries nested versions, preserve each resolved edge.
+  const modules = path.join(seed, 'node_modules');
+  const flat = !await exists(path.join(source, 'node_modules')) &&
+    [...bundle.packages.values()].every(deps => deps.every(dep => dep.source === path.join(modules, dep.name)));
+  const copied = new Set<string>();
   let count=0;
-  async function copy(from: string, to: string, ancestors: ReadonlySet<string>): Promise<void> {
-    // OpenAI's SDK has a legitimate nine-level transitive chain. Keep the
-    // existing Computer Use bound and the shared package/byte/cycle limits.
+  async function stagePackage(from: string, to: string, ancestors: ReadonlySet<string>, alreadyCopied: boolean): Promise<void> {
     const maxDepth = plugin === pluginName ? 8 : 16;
     if (++count > 64 || ancestors.size > maxDepth || ancestors.has(from)) throw new Error('Unsupported bundled dependency cycle or size');
-    await assertOwnedParents(seed,from);
-    await computerTreeHash(from);
-    await fs.mkdir(path.dirname(to),{recursive:true});
-    await fs.cp(from,to,{recursive:true,force:false,errorOnExist:true});
-    for (const {name,source:dependency} of await packageDependencies(from,seed)) {
-      const destination=path.join(to,'node_modules',name);
-      // Nested npm dependencies were copied with their parent; still walk them.
-      if (await exists(destination)) await fs.rm(destination,{recursive:true});
-      await copy(dependency,destination,new Set([...ancestors,from]));
+    await assertOwnedParents(seed, from);
+    await assertOwnedParents(transaction, to);
+    if (!alreadyCopied && !copied.has(to)) {
+      await fs.mkdir(path.dirname(to), { recursive: true });
+      await timeStartup(plugin + '.copy-tree', () => fs.cp(from, to, { recursive: true, force: false, errorOnExist: true }));
+    }
+    copied.add(to);
+    const dependencies = bundle.packages.get(from);
+    if (!dependencies) throw new Error('Bundled dependency was not verified');
+    const visited = new Set([...ancestors, from]);
+    for (const dependency of dependencies) {
+      const nested = path.join('node_modules', dependency.name);
+      // fs.cp already included physical children. Walk their dependencies to materialize hoisted ones.
+      await stagePackage(dependency.source, path.join(flat ? staged : to, nested), visited, dependency.source === path.join(from, nested));
     }
   }
   try {
-    await copy(source,staged,new Set());
-    if (await bundleFingerprint(options.resourcesPath, plugin) !== sourceHash) throw new Error('Bundled extension changed while staging');
-    const stagedHash=await computerTreeHash(staged);
+    await timeStartup(plugin + '.copy', () => stagePackage(source, staged, new Set(), false));
+    const checked = await timeStartup(plugin + '.source-recheck', () => inspectBundle(options.resourcesPath, plugin));
+    if (checked.hash !== sourceHash) throw new Error('Bundled extension changed while staging');
+    const stagedHash = await timeStartup(plugin + '.staged-hash', () => computerTreeHash(staged));
     if (!stagedHash) throw new Error('Missing staged Computer Use package');
     const installedHash=await computerTreeHash(target);
     const verified=(await journals(home, plugin)).filter(({record})=>record.phase==='verified');
@@ -360,7 +372,7 @@ export async function activateComputerUpdate(
       await fs.rename(update.stagedPath,update.targetPath); newMoved=true;
       await writeJournal(update,'activated',approvedInstalledHash,ledgers);
       if (await computerTreeHash(update.targetPath) !== update.stagedHash) throw new Error('Computer Use bytes changed before verification');
-      await verifyInstalled(update.targetPath);
+      await timeStartup(update.plugin + '.verify-installed', () => verifyInstalled(update.targetPath));
       if (await computerTreeHash(update.targetPath) !== update.stagedHash) throw new Error('Installed Computer Use bytes changed during verification');
       await applyComputerLedgers(update.moxxyHome,update.transactionPath,ledgers);
       await writeJournal(update,'verified',approvedInstalledHash,ledgers);

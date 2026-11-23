@@ -343,7 +343,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
     );
   }
 
-  if (shouldShowBlockingConnectionScreen(shell, hasEverConnected)) {
+  if (shell.phase.phase === 'protocol-incompatible' || shouldShowBlockingConnectionScreen(shell, hasEverConnected)) {
     // Terminal protocol-incompatible self-heal: update the bundled CLI in
     // place (host `app.updateCli`), then re-run the supervisor connect — which
     // respawns the runner from the now-newer CLI, so the client attaches
@@ -415,6 +415,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
       {view === 'chat' && (
         <>
           <ChatSurface
+            onRetry={() => void retry()}
             phase={shellPhase}
             workspaceId={activeWorkspaceId}
             sessionLoading={shell.sessionLoading}
@@ -459,7 +460,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
       {paletteOpen && (
         <ShellPalette workspaceId={activeWorkspaceId} onClose={() => setPaletteOpen(false)} />
       )}
-      {!connected && <ReconnectBanner label={describeConnectionPhase(shellPhase)} />}
+      {!connected && (view !== 'chat' || bench.full) && <ReconnectBanner label={describeConnectionPhase(shellPhase)} />}
       {/* The runner BLOCKS on permission/approval asks. ChatSurface renders
           them in the chat view and AgentTaskModal claims the surface while a
           background-agent modal is open — this fallback catches every other

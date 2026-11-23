@@ -1,3 +1,4 @@
+import { timeStartup } from '@moxxy/sdk/server';
 /**
  * Everything a packaged launch does before its first runner: finish what a
  * crash cut short, put in place the extensions and the connections the
@@ -70,7 +71,7 @@ const isDir = (dir: string): Promise<boolean> => fs.stat(dir).then((stat) => sta
 async function clearOldBackups(moxxyHome: string, plugin: string, log?: (message: string) => void): Promise<void> {
   if (!isManagedPackage(plugin)) return;
   try {
-    const removed = await pruneComputerUpdates(moxxyHome, plugin);
+    const removed = await timeStartup(plugin + '.prune', () => pruneComputerUpdates(moxxyHome, plugin));
     if (removed.length > 0) log?.(`${plugin}: removed ${removed.length} old backup(s)`);
   } catch (error) {
     log?.(`${plugin}: old backups not removed (${error instanceof Error ? error.message : String(error)})`);

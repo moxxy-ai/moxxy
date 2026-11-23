@@ -2391,6 +2391,20 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   animation: moxxy-mark-breathe 2.4s ease-in-out infinite;
 }
 
+.chat-preparing {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2rem;
+  text-align: center;
+}
+.chat-preparing h2 { margin: 0; font-size: var(--type-section); font-weight: 600; }
+.chat-preparing-mark { animation-iteration-count: 2; }
+.chat-connection-status { margin: 0 auto 8px; font-size: var(--type-ui); color: var(--color-text-dim); }
 .moxxy-avatar-loader--sm {
   animation-duration: 1.6s;
 }

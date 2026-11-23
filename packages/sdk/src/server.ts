@@ -91,3 +91,4 @@ export {
   type SafeExecFileSyncOptions,
   type SafeSpawnOptions,
 } from './process-invocation.js';
+export { startupMark, timeStartup } from './startup-trace.js';

@@ -574,6 +574,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // are also served to remote (WS) clients, so the bounds are load-bearing.
   'sessions.create': z
     .object({
+      activate: z.boolean().optional(),
       deskId: z.string().min(1).max(256).optional(),
       name: z.string().min(1).max(200).optional(),
     })

@@ -29,7 +29,7 @@ import {
   type SessionSource,
 } from '@moxxy/core';
 import type { Desk, DeskSession, DesksOverview, SessionsOverview } from '@moxxy/desktop-ipc-contract';
-import { createMutex, type Mutex } from '@moxxy/sdk';
+import { assertDefined, createMutex, type Mutex } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 
 export const MOXXY_WORKSPACE_ID = 'moxxy';
@@ -116,6 +116,12 @@ export class WorkspaceRegistry {
   async getActive(): Promise<Desk | null> {
     const view = await this.derive();
     return view.desks.find((desk) => desk.id === view.activeId) ?? null;
+  }
+
+  /** Check a completed runner start against the latest selection without scanning history. */
+  async isSelectedSession(sessionId: string): Promise<boolean> {
+    const doc = await this.loadDoc();
+    return doc.desks.some(desk => desk.id === doc.activeId && desk.activeSessionId === sessionId);
   }
 
   async listSessions(deskId?: string): Promise<SessionsOverview> {
@@ -214,8 +220,8 @@ export class WorkspaceRegistry {
   async createSession(
     deskId?: string,
     name?: string,
-    options: { cwd?: string; source?: WorkspaceSessionSource } = {},
-  ): Promise<{ desk: Desk; session: DeskSession }> {
+    options: { cwd?: string; source?: WorkspaceSessionSource; activate?: boolean } = {},
+  ): Promise<{ desk: Desk; session: DeskSession; overview: DesksOverview }> {
     return this.mutex.run(async () => {
       const doc = await this.loadDoc();
       const record = await this.resolveRecord(doc, deskId);
@@ -225,10 +231,14 @@ export class WorkspaceRegistry {
       await seedSessionMeta(sessionId, cwd, options.source ?? 'desktop', undefined, record.id);
       if (name?.trim()) await setSessionTitle(sessionId, name);
       record.activeSessionId = sessionId;
+      if (options.activate) doc.activeId = record.id;
       await this.save(doc);
-      const desk = (await this.derive()).desks.find((d) => d.id === record.id)!;
-      const session = desk.sessions.find((s) => s.id === sessionId)!;
-      return { desk, session };
+      const overview = await this.derive();
+      const desk = overview.desks.find(d => d.id === record.id);
+      assertDefined(desk, 'Created session workspace');
+      const session = desk.sessions.find(s => s.id === sessionId);
+      assertDefined(session, 'Created session');
+      return { desk, session, overview };
     });
   }
 

@@ -110,8 +110,7 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
     // resets the current one in place) and foreground it right away.
     setSessionBusyDeskId(deskId);
     try {
-      const session = await desks.createSession(deskId);
-      if (session) await desks.setActiveSession(session.id);
+      await desks.createSession(deskId, undefined, true);
     } finally {
       setSessionBusyDeskId(null);
     }

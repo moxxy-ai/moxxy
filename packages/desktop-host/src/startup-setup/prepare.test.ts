@@ -5,7 +5,7 @@
 
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PackageRegistry } from '../component-update.js';
 import { fixtureProviderCode, providerFixture, removeProviderFixtures } from '../provider-update.fixture.js';
 import { prepareInstalledApp, type PrepareInstalledAppOptions } from './prepare.js';
@@ -50,6 +50,20 @@ async function installed(overrides: Partial<PrepareInstalledAppOptions> = {}) {
 }
 
 describe('prepareInstalledApp', () => {
+  it('times package staging, verification and cleanup on a real install', async () => {
+    const { fixture, launch } = await installed();
+    vi.stubEnv('MOXXY_HOME', fixture.moxxyHome);
+    vi.stubEnv('MOXXY_STARTUP_TRACE', '1');
+    try {
+      await launch();
+      const data = await readFile(join(fixture.moxxyHome, 'desktop', 'startup-traces', process.pid + '.jsonl'), 'utf8');
+      const phases = data.trim().split('\n').map(line => JSON.parse(line).stage);
+      for (const phase of ['source-hash', 'copy', 'verify-installed', 'prune']) {
+        expect(phases).toContain(fixture.plugin + '.' + phase);
+      }
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it('sets up what a new installer carries without asking', async () => {
     const { fixture, launch } = await installed();
 

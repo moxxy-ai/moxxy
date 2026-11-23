@@ -261,7 +261,7 @@ export interface IpcCommands {
    *  resets the CURRENT session in place), this adds another concurrent
    *  conversation. Name defaults to "Session N". Does not change the
    *  active session — call `sessions.setActive` to foreground it. */
-  'sessions.create': (args?: { deskId?: string; name?: string }) => Promise<DeskSession>;
+  'sessions.create': (args?: { deskId?: string; name?: string; activate?: boolean }) => Promise<DeskSession>;
   /** Foreground a session: persists it as its desk's active session (and
    *  that desk as the active desk), spawns its runner if needed, and
    *  points the pool at it. */

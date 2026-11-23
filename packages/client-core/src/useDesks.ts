@@ -10,6 +10,7 @@ export interface UseDesks {
   readonly desks: ReadonlyArray<Desk>;
   readonly activeId: string | null;
   readonly loading: boolean;
+  readonly creatingFromSession: string | null;
   readonly error: string | null;
   readonly refresh: () => Promise<void>;
   /** Create a desk with an already-picked folder. Callers that need a
@@ -23,8 +24,8 @@ export interface UseDesks {
   // ---- desk-scoped session ops (the sidebar tree spans EVERY desk, so
   // these take explicit desk/session ids — unlike useSessions, whose store
   // is pointed at one desk at a time) -------------------------------------
-  /** Add a session under `deskId` (auto-named; does not foreground it). */
-  readonly createSession: (deskId: string, name?: string) => Promise<DeskSession | null>;
+  /** Add a session under `deskId`; optionally foreground its workspace in the same operation. */
+  readonly createSession: (deskId: string, name?: string, activate?: boolean) => Promise<DeskSession | null>;
   /** Foreground a session anywhere — its desk becomes active too. */
   readonly setActiveSession: (id: string) => Promise<void>;
   readonly renameSession: (id: string, name: string) => Promise<void>;
@@ -35,10 +36,11 @@ interface DesksState {
   readonly desks: ReadonlyArray<Desk>;
   readonly activeId: string | null;
   readonly loading: boolean;
+  readonly creatingFromSession: string | null;
   readonly error: string | null;
 }
 
-const INITIAL: DesksState = { desks: [], activeId: null, loading: true, error: null };
+const INITIAL: DesksState = { creatingFromSession: null, desks: [], activeId: null, loading: true, error: null };
 
 /**
  * Module-level desks store.
@@ -237,18 +239,23 @@ class DesksStore {
   // these mirror the sessionsStore mutations but address any desk/session by
   // id instead of going through that store's single tracked desk.
 
-  createSession = async (deskId: string, name?: string): Promise<DeskSession | null> => {
+  createSession = async (deskId: string, name?: string, activate = false): Promise<DeskSession | null> => {
+    if (activate && this.state.creatingFromSession !== null) return null;
+    if (activate) this.set({ creatingFromSession: connectionStore.active$() });
     this.mutationEpoch += 1;
     try {
       const session = await api().invoke('sessions.create', {
         deskId,
+        ...(activate ? { activate } : {}),
         ...(name ? { name } : {}),
       });
-      await this.refresh();
+      if (!activate) await this.refresh();
       return session;
     } catch (e) {
       this.set({ error: toErrorMessage(e) });
       return null;
+    } finally {
+      if (activate) this.set({ creatingFromSession: null });
     }
   };
 
@@ -364,6 +371,7 @@ export function useDesks(): UseDesks {
     desks: state.desks,
     activeId: state.activeId,
     loading: state.loading,
+    creatingFromSession: state.creatingFromSession,
     error: state.error,
     refresh: desksStore.refresh,
     create: desksStore.create,

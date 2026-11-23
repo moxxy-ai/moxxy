@@ -56,6 +56,14 @@ function renderComposer(props: Partial<Parameters<typeof Composer>[0]> = {}) {
 const openTools = () => fireEvent.click(screen.getByRole('button', { name: 'More tools' }));
 
 describe('Composer layout', () => {
+  it('keeps a draft selectable while the connection recovers and blocks sending', () => {
+    renderComposer({ ready: false });
+    const field = screen.getByTestId('composer-input');
+    expect(field).not.toBeDisabled();
+    expect(field).toHaveAttribute('readonly');
+    expect(screen.getByTestId('composer-send')).toBeDisabled();
+  });
+
   it('is one card with no status strip and no line of keyboard hints', () => {
     const { container } = renderComposer();
     expect(container.querySelector('.cmdbar__card')).not.toBeNull();

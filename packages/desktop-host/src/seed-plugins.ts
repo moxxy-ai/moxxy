@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
 import { compareSemver, z } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { timeStartup, writeFileAtomic } from '@moxxy/sdk/server';
 
 /**
  * First-launch plugin seeding: copy the packaged app's bundled
@@ -114,7 +114,7 @@ export async function seedPluginsFromResources(
     const fingerprint = fingerprints?.[entry];
     if (!(await exists(to))) {
       await fs.mkdir(path.dirname(to), { recursive: true });
-      await fs.cp(from, to, { recursive: true, force: false, errorOnExist: false });
+      await timeStartup('extensions.copy', () => fs.cp(from, to, { recursive: true, force: false, errorOnExist: false }));
       copied.push(entry);
       if (fingerprint) applied[entry] = fingerprint;
       continue;
@@ -130,7 +130,8 @@ export async function seedPluginsFromResources(
     }
     try {
       backup ??= await createBackup(opts.moxxyHome, targetDir);
-      await replaceEntry(from, to, staging, path.join(backup, entry));
+      const previous = path.join(backup, entry);
+      await timeStartup('extensions.replace', () => replaceEntry(from, to, staging, previous));
     } catch (error) {
       // A file another process holds open (Windows) keeps the installed copy;
       // it is not recorded, so the next launch tries again.

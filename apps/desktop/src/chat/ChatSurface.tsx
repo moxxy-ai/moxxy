@@ -6,6 +6,7 @@ import { useAgentUpdateToast } from '../notices/useAgentUpdateToast';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
+import { useChatPreparation } from './chat-surface/useChatPreparation';
 import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
 import { QuestionSheet } from './QuestionSheet';
@@ -46,6 +47,7 @@ interface ChatSurfaceProps {
   readonly title?: { readonly context: string; readonly subject: string };
   /** A one-line note above the conversation (e.g. "the bot is offline"). */
   readonly notice?: ReactNode;
+  readonly onRetry?: () => void;
   /** Who keeps the chat's model when it is not the app's pick (a bot's chat). */
   readonly modelOwner?: ModelOwner;
   /** The workbench is in full view: the chat floats over it as a composer.
@@ -112,6 +114,7 @@ export function ChatSurface({
   sessionLoading,
   title,
   notice,
+  onRetry,
   modelOwner,
   docked = false,
   workPanel,
@@ -124,7 +127,8 @@ export function ChatSurface({
   const question = useQuestion(workspaceId);
   // The run waits on the person: an approval it is blocked on, or a Question it asked.
   const waitingOnPerson = activeAsk !== null || question.question !== null;
-  const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
+  const creating = desks.creatingFromSession === workspaceId && !title;
+  const { ready, failed, awaitingFirstLoad } = useChatPreparation(workspaceId, phase, sessionLoading || chat.loading, creating);
   const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && usesComputer(actionCatalog.tools)
     ? {workspaceId,sessionId:phase.sessionId,turnId:chat.activeTurnId} : null);
   // The live view exists only while a turn can still act on the computer.
@@ -229,7 +233,7 @@ export function ChatSurface({
   // history to wait for: it keeps the surface — composer and empty state — while
   // its runner starts, instead of swapping it for a loader and back.
   const knownEmpty = activeDesk?.sessions.find((sn) => sn.id === workspaceId)?.eventCount === 0;
-  const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty && !knownEmpty;
+  const showBlockingLoading = awaitingFirstLoad && chat.isEmpty && !knownEmpty;
 
   if (showBlockingLoading) {
     return (
@@ -255,7 +259,7 @@ export function ChatSurface({
           style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
         >
           <ChatLoading
-            label={sessionLoading ? 'Moxxy is loading this session…' : undefined}
+            label={creating ? 'Getting your workspace ready…' : undefined}
           />
         </div>
       </main>
@@ -292,8 +296,8 @@ export function ChatSurface({
           previewHidden={preview.hidden} onShowPreview={preview.show} />}
         {!computer.view && agentComputer && <ComputerControlStrip view={agentComputer} busy={false} error={null} onCommand={() => void chat.abort()} />}
         {preview.view && <ComputerPreviewPip view={preview.view} target={computer.view?.target ?? null} cursor={computer.cursor} onHide={preview.hide} videoCanvas={preview.videoCanvas} />}
-        {chat.isEmpty ? (
-          <EmptyState ready={ready} />
+        {creating ? <ChatLoading label="Getting your workspace ready…" /> : chat.isEmpty ? (
+          failed ? null : <EmptyState ready={ready} />
         ) : (
           <Transcript
             events={filteredEvents}
@@ -342,7 +346,15 @@ export function ChatSurface({
             />
           </div>
         )}
+        {failed ? (
+          <div className="chat-connection-status" role="alert">
+            {phase.phase === 'protocol-incompatible' ? phase.hint : "Couldn’t connect to this chat."}
+            {phase.phase === 'failed' && <details><summary>Technical details</summary>{phase.error}</details>}
+            {onRetry && <button type="button" className="btn-quiet" onClick={onRetry}>Try again</button>}
+          </div>
+        ) : !docked && !creating && !ready && !chat.isEmpty && <p className="chat-connection-status" role="status">Connecting to your chat…</p>}
         <Composer
+          key={workspaceId}
           agent={agent}
           voiceModeActive={voiceCall.active}
           ready={ready}

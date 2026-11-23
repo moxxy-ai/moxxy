@@ -31,7 +31,7 @@ import {
 } from '@moxxy/plugin-plugins-admin';
 import { cliVersion } from './version.js';
 import { buildSessionConfigApplier } from './config-applier.js';
-import { resolveOsPrincipal } from '@moxxy/sdk/server';
+import { resolveOsPrincipal, timeStartup } from '@moxxy/sdk/server';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
 import { applyEgressSettings } from './setup/egress.js';
 import { applyContextConfig } from './setup/context-config.js';
@@ -82,12 +82,12 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // Executable project configs need consent before they run. A probe or any
   // other non-interactive boot passes no prompt, and the loader then refuses to
   // execute rather than silently running unreviewed code.
-  const { rawConfig, sources } = await loadRawConfig({
+  const { rawConfig, sources } = await timeStartup('runner.config', () => loadRawConfig({
     cwd: opts.cwd,
     configPath: opts.configPath,
     skipUser: opts.skipUserConfig,
     trustPrompt: skipKeyPrompt ? undefined : interactiveConfigTrustPrompt(),
-  });
+  }));
   progress({ kind: 'config-loaded', sources: sources.length });
 
   // `requirePassphrase` comes from the RAW config: the vault is what resolves
@@ -141,7 +141,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
         }
       : undefined;
 
-  const session = await buildSession({
+  const session = await timeStartup('runner.restore-session', () => buildSession({
     cwd: opts.cwd,
     config,
     bundledRules: { allow: policy.allow, deny: policy.deny },
@@ -156,7 +156,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     // handler that asks receives it. `vault.get` lazily opens the vault and
     // returns null for unknown names.
     secretResolver,
-  });
+  }));
   sessionRef = session;
 
   // Register the vault as the protected FLOOR of the secret-provider registry.
@@ -213,7 +213,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     },
   };
 
-  let pluginRegistration = await registerPlugins(session, config, builtins, opts.cwd, logger);
+  let pluginRegistration = await timeStartup('runner.plugins', () => registerPlugins(session, config, builtins, opts.cwd, logger));
 
   // Re-resolve `${vault:…}` now that plugins have registered, this time through
   // the session's resolver rather than the vault directly.
@@ -301,7 +301,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     // best-effort — never block boot
   }
 
-  const { credentialResolver, activated, retiredReplaced } = await activateProvider({
+  const { credentialResolver, activated, retiredReplaced } = await timeStartup('runner.provider', () => activateProvider({
     session,
     config: resolvedConfig,
     vault,
@@ -315,7 +315,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     onProgress: opts.onProgress,
     progress,
     logger,
-  });
+  }));
 
   // Save the move off the retired ChatGPT sign-in only once the Codex agent
   // really started; otherwise provider recovery asks the person to choose.
@@ -351,14 +351,14 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   await applySessionHeaderPreferences(session, opts.sessionId, credentialResolver, logger);
   progress({ kind: 'prefs-applied' });
 
-  const discovered = await discoverSkills({
+  const discovered = await timeStartup('runner.skills', () => discoverSkills({
     projectDir: config.skills?.projectDir ?? defaultProjectSkillsDir(opts.cwd),
     userDir: config.skills?.userDir ?? defaultUserSkillsDir(),
     // Plugins ship skills too (Computer Use, the browser, OAuth, sub-agents).
     pluginDirs: [...session.pluginHost.skillDirs(), ...(config.skills?.extraDirs ?? [])],
     builtinDir: BUILTIN_SKILLS_DIR_RESOLVED,
     logger,
-  });
+  }));
   for (const skill of discovered) session.skills.register(skill);
   progress({ kind: 'skills-loaded', count: discovered.length });
 

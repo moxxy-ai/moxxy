@@ -99,10 +99,7 @@ export function useAppHotkeys(opts: AppHotkeysOptions): void {
       run: () => {
         const deskId = desks.activeId;
         if (!deskId) return;
-        void (async () => {
-          const session = await desks.createSession(deskId);
-          if (session) await desks.setActiveSession(session.id);
-        })();
+        void desks.createSession(deskId, undefined, true);
       },
     },
     {

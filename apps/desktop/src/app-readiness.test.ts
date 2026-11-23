@@ -178,7 +178,7 @@ describe('describeConnectionPhase', () => {
 
     const label = describeConnectionPhase(state.phase);
     expect(label).not.toMatch(/reconnect/i);
-    expect(label).toBe('Starting the agent runtime…');
+    expect(label).toBe('Getting your workspace ready…');
   });
 
   it('says a newly selected session is loading, not reconnecting', () => {

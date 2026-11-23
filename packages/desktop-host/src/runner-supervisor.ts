@@ -1,3 +1,4 @@
+import { startupMark } from '@moxxy/sdk/server';
 /**
  * Owns the lifecycle of the connection to a moxxy runner.
  *
@@ -727,6 +728,14 @@ export class RunnerSupervisor extends EventEmitter {
   }
 
   private setPhase(phase: ConnectionPhase): void {
+    if (phase.phase === 'reconnecting') {
+      const cause = phase.reason.startsWith('moxxy serve did not bind') ? 'socket-timeout'
+        : phase.reason.startsWith('moxxy serve exited before binding') ? 'early-exit'
+        : phase.reason.startsWith('stale runner replaced') ? 'reattach' : 'connection';
+      startupMark('runner.reconnecting', 0, false, this.sessionId, { attempt: phase.attempt, cause });
+    } else {
+      startupMark('runner.' + phase.phase, 0, !isTerminalPhase(phase.phase), this.sessionId);
+    }
     this.currentPhase = phase;
     this.emit('change', this.snapshot());
   }

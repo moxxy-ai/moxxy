@@ -14,7 +14,7 @@ export interface ComposerPlaceholderState {
  *  for the desktop composer and the focus window's. */
 export function composerPlaceholder(state: ComposerPlaceholderState): string {
   if (state.compacting) return 'Compacting context…';
-  if (!state.ready) return 'Waiting for runner…';
+  if (!state.ready) return 'Preparing chat…';
   if (state.goalArmed) return GOAL_PLACEHOLDER;
   if (state.inFlight) return 'Queue a follow-up…';
   if (state.hasAttachments) return 'Ask about the attached file…';

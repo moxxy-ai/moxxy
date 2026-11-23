@@ -24,7 +24,7 @@ describe('composerPlaceholder', () => {
   it('names the one thing in the way, the most blocking first', () => {
     const busy = { ...idle, inFlight: true, hasAttachments: true, mode: 'plan' };
     expect(composerPlaceholder({ ...busy, compacting: true, ready: false })).toBe('Compacting context…');
-    expect(composerPlaceholder({ ...busy, ready: false })).toBe('Waiting for runner…');
+    expect(composerPlaceholder({ ...busy, ready: false })).toBe('Preparing chat…');
     expect(composerPlaceholder(busy)).toBe('Queue a follow-up…');
     expect(composerPlaceholder({ ...idle, hasAttachments: true })).toBe('Ask about the attached file…');
   });

@@ -1,28 +1,10 @@
-/** Initial-load spinner — shown while the first window of persisted
- *  transcript is read from disk, before EmptyState or the Transcript. */
-export function ChatLoading({
-  label = 'Loading conversation…',
-}: {
-  readonly label?: string;
-}): JSX.Element {
+import { MoxxyMark } from '@/components/MoxxyMark';
+
+export function ChatLoading({ label = 'Loading conversation…' }: { readonly label?: string }): JSX.Element {
   return (
-    <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: '2rem' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-        <span
-          aria-hidden
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: '50%',
-            border: '2.5px solid var(--color-card-border)',
-            borderTopColor: 'var(--color-primary)',
-            animation: 'moxxy-spin 0.8s linear infinite',
-          }}
-        />
-        <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-text-dim)' }}>
-          {label}
-        </p>
-      </div>
+    <div className="chat-preparing" role="status" aria-atomic="true">
+      <span aria-hidden="true"><MoxxyMark size={96} className="moxxy-avatar-loader chat-preparing-mark" /></span>
+      <h2>{label}</h2>
     </div>
   );
 }

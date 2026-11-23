@@ -25,7 +25,7 @@ const SELECTED_SESSION_LOADING_PHASE: ConnectionPhase = {
 // install or an update is shown by the installer screen (`update/`), over this.
 const FIRST_RUNNER_STARTING_PHASE: ConnectionPhase = {
   phase: 'reconnecting',
-  reason: 'starting the agent runtime',
+  reason: 'getting your workspace ready',
   attempt: 0,
 };
 
@@ -40,11 +40,11 @@ export function describeConnectionPhase(phase: ConnectionPhase | undefined): str
     case 'idle':
       return 'Starting…';
     case 'resolving-cli':
-      return 'Resolving moxxy CLI…';
+      return 'Getting your workspace ready…';
     case 'spawning':
-      return 'Starting agent runtime…';
+      return 'Getting your workspace ready…';
     case 'adopting':
-      return 'Attaching to running runner…';
+      return 'Connecting to your chat…';
     case 'attaching':
       return 'Attaching session…';
     case 'reconnecting':

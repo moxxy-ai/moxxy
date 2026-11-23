@@ -15,6 +15,7 @@
  * conversation instead.
  */
 
+import { startupMark } from '@moxxy/sdk/server';
 import type { RunnerPool } from '../runner-pool';
 import { cwdForSession, type DeskStore } from '../desks';
 import { broadcastHostEvent } from '../event-bus';
@@ -28,11 +29,12 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
   handle('sessions.list', async (args) => desks.listSessions(args?.deskId));
 
   handle('sessions.create', async (args) => {
-    const { desk, session } = await desks.createSession(args?.deskId, args?.name);
-    // Spawn the session's runner eagerly so a follow-up setActive (the usual
-    // next call from the UI) foregrounds an already-connecting supervisor.
+    const started = performance.now();
+    const { desk, session, overview } = await desks.createSession(args?.deskId, args?.name, { activate: args?.activate ?? false });
+    startupMark('session.create', performance.now() - started, true, session.id);
+    broadcastHostEvent('desks.changed', overview);
     await pool.getOrCreate(session.id, cwdForSession(desk, session.id));
-    await broadcastDesksChanged(desks);
+    if (args?.activate && await desks.isSelectedSession(session.id)) pool.setActive(session.id);
     return session;
   });
 

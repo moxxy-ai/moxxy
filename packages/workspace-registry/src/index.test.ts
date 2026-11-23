@@ -201,6 +201,15 @@ describe('WorkspaceRegistry — desk + session mutations', () => {
     expect(desk.activeSessionId).toBe(desk.id);
   });
 
+  it('keeps the most recent foreground selection when two runners become ready in reverse order', async () => {
+    const reg = registry();
+    const desk = await reg.create({ name: 'First', cwd: process.cwd(), color: '#445566' });
+    const first = await reg.createSession(desk.id, 'First', { activate: true });
+    const second = await reg.createSession(desk.id, 'Second', { activate: true });
+    expect(await reg.isSelectedSession(second.session.id)).toBe(true);
+    expect(await reg.isSelectedSession(first.session.id)).toBe(false);
+  });
+
   it('createSession adds a session under the desk and foregrounds it', async () => {
     const reg = registry();
     const desk = await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
@@ -209,6 +218,16 @@ describe('WorkspaceRegistry — desk + session mutations', () => {
     expect(fresh.sessions.map((s) => s.id)).toContain(session.id);
     expect(fresh.activeSessionId).toBe(session.id);
     expect(fresh.sessions.find((s) => s.id === session.id)!.name).toBe('Second');
+  });
+
+  it('creates and foregrounds a session in one registry operation, and persists it on restart', async () => {
+    const reg = registry();
+    const first = await reg.create({ name: 'First', cwd: path.join(home, 'first') });
+    const second = await reg.create({ name: 'Second', cwd: path.join(home, 'second') });
+    await reg.setActive(first.id);
+    const { session, overview } = await reg.createSession(second.id, undefined, { activate: true });
+    expect(overview.activeId).toBe(second.id);
+    expect((await registry().getActive())?.activeSessionId).toBe(session.id);
   });
 
   it('renameSession persists a title that the derived name reflects', async () => {

@@ -188,7 +188,7 @@ describe('ChatSurface session readiness', () => {
       />,
     );
 
-    expect(screen.getByText('Moxxy is loading this session…')).toBeInTheDocument();
+    expect(screen.getByText('Loading conversation…')).toBeInTheDocument();
     expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
     expect(screen.queryByText(/^Model:/)).not.toBeInTheDocument();
     expect(screen.queryByText('Attach')).not.toBeInTheDocument();
@@ -228,7 +228,7 @@ describe('ChatSurface session readiness', () => {
 
     render(<ChatSurface phase={loadingPhase} workspaceId="new-session" sessionLoading />);
 
-    expect(screen.queryByText('Moxxy is loading this session…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading conversation…')).not.toBeInTheDocument();
     expect(screen.getByText('Getting your workspace ready…')).toBeInTheDocument();
     expect(screen.getByTestId('composer-mock')).toHaveAttribute('data-ready', 'false');
   });
@@ -238,8 +238,16 @@ describe('ChatSurface session readiness', () => {
 
     render(<ChatSurface phase={loadingPhase} workspaceId="old-session" sessionLoading />);
 
-    expect(screen.getByText('Moxxy is loading this session…')).toBeInTheDocument();
+    expect(screen.getByText('Loading conversation…')).toBeInTheDocument();
     expect(screen.queryByText('Getting your workspace ready…')).not.toBeInTheDocument();
+  });
+
+  it('keeps a previously ready empty composer mounted during a reconnect', () => {
+    const view = render(<ChatSurface phase={{ phase: 'connected', socket: '/test', sessionId: 'same', activeMode: 'default', activeProvider: 'opencode' }} workspaceId="same" sessionLoading={false} />);
+    const field = screen.getByTestId('composer-mock');
+    view.rerender(<ChatSurface phase={loadingPhase} workspaceId="same" sessionLoading />);
+    expect(screen.getByTestId('composer-mock')).toBe(field);
+    expect(field).toHaveAttribute('data-ready', 'false');
   });
 
   it('keeps an already loaded transcript mounted while the selected session runner reconnects', () => {
@@ -256,7 +264,7 @@ describe('ChatSurface session readiness', () => {
       />,
     );
 
-    expect(screen.queryByText('Moxxy is loading this session…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading conversation…')).not.toBeInTheDocument();
     expect(screen.getByTestId('transcript-mock')).toHaveTextContent(
       'cached answer from a huge session',
     );

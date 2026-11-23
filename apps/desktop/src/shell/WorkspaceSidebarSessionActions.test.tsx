@@ -133,7 +133,7 @@ describe('WorkspaceSidebar session actions', () => {
   it('starts a new run in the current workspace from the sidebar head', async () => {
     renderSidebar();
     fireEvent.click(screen.getByTestId('session-new'));
-    expect(mocks.desksApi.createSession).toHaveBeenCalledWith('desk-1');
+    expect(mocks.desksApi.createSession).toHaveBeenCalledWith('desk-1', undefined, true);
   });
 
   it('starts a new workspace from the end of the list', () => {
