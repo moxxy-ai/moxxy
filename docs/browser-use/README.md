@@ -468,6 +468,10 @@ installs Chromium before the Ubuntu and Windows test suites.
   same rules. It is not a tab, so the agent cannot act in it; the click that
   opened it returns `popup: { url, note }` telling the agent the person
   finishes there. A popup with `noopener`, or a shift-click, is still a tab.
+  Only right after a press on the page (a click or a key, the person's or the
+  agent's, within five seconds — Chrome's transient activation): Electron has
+  no popup blocker, so a popup a page opens on its own stays a tab, as before,
+  instead of a window thrown over the app.
   `apps/desktop/scripts/browser-trial/probes/oauth-popup.mjs` checks the whole
   round trip (and, with `PROBE_CANCEL=1 TRIAL_CLOSE_POPUP_MS=1200`, a closed
   popup) against a real `<webview>`.

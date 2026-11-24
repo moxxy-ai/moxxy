@@ -17,6 +17,14 @@
  * the app window it works the way it does in Chrome: it closes when it is done
  * and the page that asked is still the tab in front, signed in.
  *
+ * Only right after a press on the page, though. Electron has no popup blocker
+ * (measured: a page opened two sized windows by itself, on load and a second
+ * later), so a popup the page opens on its own stays a tab, as before, rather
+ * than a window thrown over the app. Chrome draws the same line: a popup needs
+ * the page's "transient activation", a press in the last five seconds. A
+ * sign-in opens its popup straight from the click (ElevenLabs: 0.5 s), and an
+ * agent's click is a press like any other.
+ *
  * Main calls this for every web contents it creates; only the pane's views
  * (type `webview`) are touched, and through them the popups they open.
  */
@@ -66,7 +74,14 @@ export interface PopupSource<W> {
   getType(): string;
   setWindowOpenHandler(handler: (details: PopupRequest) => PopupDecision<W>): void;
   on(event: 'did-create-window', listener: (window: W & PopupWindow<W>) => void): unknown;
+  on(event: 'input-event', listener: (event: unknown, input: { type: string }) => void): unknown;
 }
+
+/** How long a press lets the page open a popup: Chrome's transient activation. */
+export const POPUP_ACTIVATION_MS = 5_000;
+
+/** The input that counts as a press, the events Chrome's user activation is given by. */
+const PRESSES = new Set(['mouseDown', 'rawKeyDown', 'keyDown', 'touchStart', 'touchEnd', 'gestureTap']);
 
 export interface PopupHost {
   /** Open the address as a tab in the pane, counted against the page that asked. */
@@ -84,16 +99,22 @@ export function routeGuestPopups<W>(
   contents: PopupSource<W>,
   host: PopupHost,
   windowOf: (contents: PopupSource<W>) => W | null,
+  now: () => number = Date.now,
 ): void {
   if (contents.getType() !== 'webview') return;
-  route(contents, host, () => windowOf(contents));
+  route(contents, host, () => windowOf(contents), now);
 }
 
-function route<W>(contents: PopupSource<W>, host: PopupHost, parentOf: () => W | null): void {
+function route<W>(contents: PopupSource<W>, host: PopupHost, parentOf: () => W | null, now: () => number): void {
+  let pressedAt = Number.NEGATIVE_INFINITY;
+  contents.on('input-event', (_event, input) => {
+    if (PRESSES.has(input.type)) pressedAt = now();
+  });
   contents.setWindowOpenHandler((details) => {
     // Only a web page opens at all; anything else opens nowhere.
     if (!isWebPage(details.url)) return { action: 'deny' };
-    const parent = isPopup(details) ? parentOf() : null;
+    const pressed = now() - pressedAt <= POPUP_ACTIVATION_MS;
+    const parent = pressed && isPopup(details) ? parentOf() : null;
     if (parent) {
       host.openedWindowFromPage?.(contents.id, details.url);
       return { action: 'allow', overrideBrowserWindowOptions: popupWindowOptions(parent) };
@@ -102,7 +123,7 @@ function route<W>(contents: PopupSource<W>, host: PopupHost, parentOf: () => W |
     return { action: 'deny' };
   });
   // The popup's own new windows follow the same rules, with the popup as their parent.
-  contents.on('did-create-window', (window) => route(window.webContents, host, () => window));
+  contents.on('did-create-window', (window) => route(window.webContents, host, () => window, now));
 }
 
 function isWebPage(url: string): boolean {
