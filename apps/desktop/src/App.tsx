@@ -30,7 +30,7 @@ import { useShellNavigation } from './shell/navigation/useShellNavigation';
 import { ShellPalette } from './shell/navigation/ShellPalette';
 import { useSections } from './shell/navigation/useSections';
 import type { SectionTarget } from './shell/navigation/places';
-import { Workbench } from './shell/Workbench';
+import { WindowWorkbench } from './shell/WindowWorkbench';
 import { useWorkbench } from './shell/useWorkbench';
 import { showsRuns } from './shell/views';
 import { SettingsPanel } from './settings/SettingsPanel';
@@ -413,23 +413,13 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
         <SettingsIndex tab={settingsTab} onPick={setSettingsTab} scope="settings" />
       )}
       {view === 'chat' && (
-        <>
-          <ChatSurface
-            phase={shellPhase}
-            workspaceId={activeWorkspaceId}
-            sessionLoading={shell.sessionLoading}
-            docked={bench.full}
-            workPanel={{ open: bench.open, onToggle: bench.toggle }}
-          />
-          <Workbench
-            tab={bench.tab}
-            onPick={bench.setTab}
-            onClose={() => bench.setTab(null)}
-            workspaceId={activeWorkspaceId}
-            full={bench.full}
-            onToggleFull={bench.toggleFull}
-          />
-        </>
+        <ChatSurface
+          phase={shellPhase}
+          workspaceId={activeWorkspaceId}
+          sessionLoading={shell.sessionLoading}
+          docked={bench.full}
+          workPanel={{ open: bench.open, onToggle: bench.toggle }}
+        />
       )}
       {view === 'settings' && (
         <main className="field">
@@ -454,7 +444,9 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
       {/* Channels is independent of the runner session (the gateway lives in the
           main process), so it is never runner-locked. It owns its pane: a
           channel's chat is a full chat surface, its setup a field page. */}
-      {view === 'channels' && <ChannelsSurface selected={channelId} />}
+      <WindowWorkbench workspace={{ ...bench, workspaceId: activeWorkspaceId, tab: view === 'chat' ? bench.tab : null }}>
+        {view === 'channels' && <ChannelsSurface selected={channelId} />}
+      </WindowWorkbench>
       {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
       {paletteOpen && (
         <ShellPalette workspaceId={activeWorkspaceId} onClose={() => setPaletteOpen(false)} />
