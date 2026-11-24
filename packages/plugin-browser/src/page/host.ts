@@ -701,7 +701,8 @@ export class BrowserHost {
     this.detachDebugger(tab, 'the tab closed');
     this.pointer.forget(tabId);
     this.tabs.delete(tabId);
-    if (this.active === tabId) this.active = this.tabs.keys().next().value ?? null;
+    // A renderer reload can destroy a guest before its release reaches main.
+    if (this.active === tabId) this.active = this.list()[0]?.tabId ?? null;
     // An aim at a tab that is gone would resolve to "unknown tab_id" forever.
     if (this.agentTab === tabId) this.agentTab = null;
     this.changed();
