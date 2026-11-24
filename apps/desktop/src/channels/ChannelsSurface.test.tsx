@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatStoreBridge, ConnectionBridge, __setApiOverride } from '@moxxy/client-core';
 import type { ChannelEntry, ChannelRunMode, ChannelRuntimeStatus } from '@moxxy/desktop-ipc-contract';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { WindowWorkbench } from '../shell/WindowWorkbench';
+import { useWorkbench } from '../shell/useWorkbench';
 import { ChannelsSurface } from './ChannelsSurface';
 
 // The transcript virtualizer measures a real layout jsdom does not have; render
@@ -112,12 +114,21 @@ function installHost(entry: ChannelEntry = discord()) {
   });
 }
 
+function ChannelWindow() {
+  const workspace = useWorkbench('workspace');
+  return (
+    <WindowWorkbench workspace={{ ...workspace, workspaceId: 'workspace', tab: null }}>
+      <ChannelsSurface selected="discord" />
+    </WindowWorkbench>
+  );
+}
+
 function renderSurface() {
   return render(
     <>
       <ConnectionBridge />
       <ChatStoreBridge />
-      <ChannelsSurface selected="discord" />
+      <ChannelWindow />
     </>,
   );
 }

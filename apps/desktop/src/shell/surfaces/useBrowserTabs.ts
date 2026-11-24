@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { hasBrowserRequests, onBrowserRequest, takeBrowserRequests } from './browser-link-requests';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useBrowserPanes } from './useBrowserPanes';
+export { HOME_URL } from './useBrowserPanes';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import type { BrowserControlState, BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
 
@@ -69,16 +70,6 @@ export interface BrowserTabsApi {
  */
 export const BROWSER_PARTITION_NAME = 'persist:moxxy-browser';
 
-/**
- * Where a fresh tab starts, and what a typed phrase is searched with.
- *
- * On a profile that has never been there, Google answers with the EU consent
- * wall rather than results. That is not a wall the agent may clear — the choice
- * is the user's — so the snapshot flags it and the agent hands over. The
- * partition is persistent, so it is asked once and then never again.
- */
-export const HOME_URL = 'https://www.google.com';
-
 /** Turn what the user typed into something navigable. */
 export function normalizeAddress(input: string): string | null {
   const raw = input.trim();
@@ -96,11 +87,6 @@ export function useBrowserTabs(): BrowserTabsApi {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [control, setControl] = useState<BrowserControlState>(AGENT_DRIVES);
   const [error, setError] = useState<string | null>(null);
-  // Survives re-renders so an unmount can release what this pane adopted even
-  // if React has already discarded the state.
-  const adopted = useRef<Set<string>>(new Set());
-  /** pane key → the tab id main gave it, so a closed tab can be pruned. */
-  const adoptedByPane = useRef<Map<string, string>>(new Map());
   const handoffRef = useRef<{
     requestId: string;
     tabId: string;
@@ -131,7 +117,6 @@ export function useBrowserTabs(): BrowserTabsApi {
           'browser.registerTab',
           requestId ? { webContentsId, requestId } : { webContentsId },
         );
-        adopted.current.add(tabId);
         await refresh();
         return tabId;
       } catch (err) {
@@ -144,7 +129,6 @@ export function useBrowserTabs(): BrowserTabsApi {
 
   const release = useCallback(
     async (tabId: string) => {
-      adopted.current.delete(tabId);
       await api().invoke('browser.releaseTab', { tabId }).catch(() => {});
       await refresh();
     },
@@ -175,15 +159,10 @@ export function useBrowserTabs(): BrowserTabsApi {
     [refresh],
   );
 
-  // One entry per <webview> this pane renders. The first is the user's home
-  // tab; the rest arrive because the agent asked for them — main cannot create
-  // the element itself, so it sends `browser.openTab` and we oblige. A pane
-  // opened for a chat link starts at the link alone: with a home tab beside
-  // it, whichever page loaded last would end up in front.
-  const [panes, setPanes] = useState<ReadonlyArray<{ key: string; initialUrl: string; requestId?: string }>>(() =>
-    hasBrowserRequests() ? [] : [{ key: 'home', initialUrl: HOME_URL }],
-  );
-  const paneSeq = useRef(0);
+  const { panes, openPane, closeHostedTab, openAgentPane, reconcile, noteAdoption } = useBrowserPanes();
+  const closeTab = useCallback(async (tabId: string) => {
+    if (!closeHostedTab(tabId)) await release(tabId);
+  }, [closeHostedTab, release]);
   const [handoff, setHandoff] = useState<{
     requestId: string;
     tabId: string;
@@ -191,47 +170,6 @@ export function useBrowserTabs(): BrowserTabsApi {
     onScreen: boolean;
     label?: string;
   } | null>(null);
-
-  const openPane = useCallback((url: string) => {
-    setPanes((prev) => [...prev, { key: `p${++paneSeq.current}`, initialUrl: url }]);
-  }, []);
-
-  // A chat link asked for an address in the Moxxy browser: each becomes a new
-  // tab. Before paint, so a pane started without its home tab is never drawn
-  // empty; and should another pane have taken the links first, it gets one.
-  useLayoutEffect(() => {
-    const take = (): void => takeBrowserRequests().forEach(openPane);
-    take();
-    setPanes((prev) => (prev.length > 0 ? prev : [{ key: 'home', initialUrl: HOME_URL }]));
-    return onBrowserRequest(take);
-  }, [openPane]);
-
-  /**
-   * Close a tab by dropping the pane that hosts it.
-   *
-   * Main cannot close a tab on its own: the `<webview>` is a renderer element,
-   * and main only ever borrowed its webContents. Unmounting is therefore the
-   * close — the view is destroyed and `release` tells main to forget the tab.
-   * A browser with zero tabs is a broken-looking empty rectangle with an
-   * address bar, so the last close opens a fresh home tab instead.
-   */
-  const closeTab = useCallback(
-    async (tabId: string) => {
-      let hosted = false;
-      setPanes((prev) => {
-        const key = [...adoptedByPane.current.entries()].find(([, id]) => id === tabId)?.[0];
-        if (key === undefined) return prev;
-        hosted = true;
-        adoptedByPane.current.delete(key);
-        const left = prev.filter((pane) => pane.key !== key);
-        return left.length > 0 ? left : [{ key: `p${++paneSeq.current}`, initialUrl: HOME_URL }];
-      });
-      // A tab main knows about but this pane never hosted (a stale id, or a
-      // second pane's view) still deserves an answer rather than silence.
-      if (!hosted) await release(tabId);
-    },
-    [release],
-  );
 
   const history = useCallback(
     async (action: 'back' | 'forward' | 'reload', tabId?: string) => {
@@ -256,7 +194,7 @@ export function useBrowserTabs(): BrowserTabsApi {
   useEffect(() => {
     void refresh();
     const offOpen = api().subscribe('browser.openTab', ({ requestId, url }) => {
-      setPanes((prev) => [...prev, { key: `agent-${requestId}`, initialUrl: url, requestId }]);
+      openAgentPane(requestId, url);
     });
     // The agent can switch, open and close tabs. Without this the strip would
     // show a set the page no longer matches.
@@ -264,10 +202,7 @@ export function useBrowserTabs(): BrowserTabsApi {
       setTabs(next);
       setActiveTabId(active);
       setControl(drives ?? AGENT_DRIVES);
-      const live = new Set(next.map((t) => t.tabId));
-      // Drop views main no longer knows about, so a tab the agent closed stops
-      // being rendered instead of lingering as an orphan.
-      setPanes((prev) => prev.filter((pane) => !adoptedByPane.current.has(pane.key) || live.has(adoptedByPane.current.get(pane.key)!)));
+      reconcile(next);
     });
     /**
      * Show what is being asked about, then ask.
@@ -317,7 +252,7 @@ export function useBrowserTabs(): BrowserTabsApi {
       offHandoff();
       offFocus();
     };
-  }, [refresh]);
+  }, [refresh, openAgentPane, reconcile]);
 
   return {
     tabs,
@@ -335,7 +270,7 @@ export function useBrowserTabs(): BrowserTabsApi {
     history,
     handoff,
     answerHandoff,
-    noteAdoption: (paneKey: string, tabId: string) => adoptedByPane.current.set(paneKey, tabId),
+    noteAdoption,
     registerView: (tabId: string, focus: (() => void) | null) => {
       if (focus) views.current.set(tabId, focus);
       else views.current.delete(tabId);

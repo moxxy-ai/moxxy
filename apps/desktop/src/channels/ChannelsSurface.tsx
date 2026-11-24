@@ -15,8 +15,7 @@ import { ChatSurface } from '../chat/ChatSurface';
 import type { ModelOwner } from '../chat/agent-picker/useAgentSession';
 import { IndexColumn, IndexEmpty, IndexRow } from '../shell/IndexColumn';
 import { BarActions, InstrumentBar } from '../shell/InstrumentBar';
-import { Workbench } from '../shell/Workbench';
-import { useWorkbench } from '../shell/useWorkbench';
+import { useChannelWorkbench } from '../shell/WindowWorkbench';
 import { ChannelModelSection } from './ChannelModelSection';
 import { ChannelRunModeSection } from './ChannelRunModeSection';
 import { useChannelModel } from './useChannelModel';
@@ -254,42 +253,32 @@ function ChannelChatSurface({
 }): JSX.Element {
   const phase = useConnection(workspaceId).snapshot?.phase ?? NOT_ATTACHED;
   const infoReady = useSessionInfoReady(workspaceId, phase);
-  const bench = useWorkbench(workspaceId);
+  const bench = useChannelWorkbench(workspaceId);
   const online = phase.phase === 'connected';
   return (
-    <>
-      <ChatSurface
-        phase={phase}
-        workspaceId={workspaceId}
-        sessionLoading={online && !infoReady}
-        title={{ context: 'Channels', subject: name }}
-        {...(modelOwner ? { modelOwner } : {})}
-        docked={bench.full}
-        workPanel={{ open: bench.open, onToggle: bench.toggle }}
-        notice={
-          online ? null : (
-            <p
-              role="status"
-              style={{
-                margin: 'var(--space-8) var(--space-32) 0',
-                fontSize: 'var(--type-meta)',
-                color: 'var(--color-text-dim)',
-              }}
-            >
-              The {name} bot is not running — start it to chat here. Earlier messages stay below.
-            </p>
-          )
-        }
-      />
-      <Workbench
-        tab={bench.tab}
-        onPick={bench.setTab}
-        onClose={() => bench.setTab(null)}
-        workspaceId={workspaceId}
-        full={bench.full}
-        onToggleFull={bench.toggleFull}
-      />
-    </>
+    <ChatSurface
+      phase={phase}
+      workspaceId={workspaceId}
+      sessionLoading={online && !infoReady}
+      title={{ context: 'Channels', subject: name }}
+      {...(modelOwner ? { modelOwner } : {})}
+      docked={bench.full}
+      workPanel={{ open: bench.open, onToggle: bench.toggle }}
+      notice={
+        online ? null : (
+          <p
+            role="status"
+            style={{
+              margin: 'var(--space-8) var(--space-32) 0',
+              fontSize: 'var(--type-meta)',
+              color: 'var(--color-text-dim)',
+            }}
+          >
+            The {name} bot is not running — start it to chat here. Earlier messages stay below.
+          </p>
+        )
+      }
+    />
   );
 }
 
