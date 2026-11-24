@@ -128,8 +128,20 @@ interface Tab {
   frameOwners?: Map<string, number>;
   /** Tabs this page opened (target=_blank, window.open), counted so an action can tell it caused one. */
   opened?: { count: number; last: Promise<{ tabId: string; url: string } | null> };
+  /** Popup windows this page opened over the app (a sign-in), counted the same way. */
+  popups?: { count: number; lastUrl: string };
   /** The latest picture of the viewport, the one `point` coordinates refer to. */
   view?: View;
+}
+
+/** What the agent is told about a popup window a page opened over the app. */
+function popupNotice(url: string): { url: string; note: string } {
+  return {
+    url,
+    note:
+      `It opened a popup window over the app (${url}) — usually a sign-in. It is not a tab: you cannot read or act in it. ` +
+      'The person completes it there; it closes itself when done and this page gets the result. Do not click again.',
+  };
 }
 
 /** A rectangle in CSS pixels of the viewport. */
@@ -1522,6 +1534,21 @@ export class BrowserHost {
     }
   }
 
+  /**
+   * A page opened a popup window over the app — a sign-in through Google,
+   * Apple or Microsoft. It stays a real popup so it can hand the result back to
+   * the page that opened it (see desktop-host's routeGuestPopups); it is not a
+   * tab, so the agent cannot read or act in it. Counted so the action that
+   * opened one can say so, instead of looking like a click that did nothing.
+   */
+  openedWindowFromPage(openerWebContentsId: number, url: string): void {
+    for (const opener of this.tabs.values()) {
+      if (opener.webContentsId === openerWebContentsId) {
+        opener.popups = { count: (opener.popups?.count ?? 0) + 1, lastUrl: url };
+      }
+    }
+  }
+
   /** The CDP channel for a tab, with its dialogs and navigations watched. */
   private async ready(tab: Tab, wc: HostWebContents): Promise<Cdp> {
     const cdp = this.cdp(wc);
@@ -1628,10 +1655,12 @@ export class BrowserHost {
     progress?: { key: string; pending: string };
     dialog?: Dialog & { open?: true; result?: 'accepted' };
     opened?: { tabId: string; url: string };
+    popup?: { url: string; note: string };
   }> {
     const watch = tab.watch?.watching ? tab.watch : undefined;
     const mark = watch?.mark();
     const openedBefore = tab.opened?.count ?? 0;
+    const popupsBefore = tab.popups?.count ?? 0;
     let dialog: (Dialog & { open?: true; result?: 'accepted' }) | undefined;
 
     const opening = watch?.nextDialog();
@@ -1663,10 +1692,11 @@ export class BrowserHost {
     }
 
     let opened: { tabId: string; url: string } | null = null;
-    const popup = tab.opened;
-    if (popup && popup.count > openedBefore) {
-      opened = await Promise.race([popup.last, new Promise<null>((r) => setTimeout(() => r(null), 3000).unref?.())]);
+    const openedTabs = tab.opened;
+    if (openedTabs && openedTabs.count > openedBefore) {
+      opened = await Promise.race([openedTabs.last, new Promise<null>((r) => setTimeout(() => r(null), 3000).unref?.())]);
     }
+    const popup = tab.popups && tab.popups.count > popupsBefore ? popupNotice(tab.popups.lastUrl) : null;
     if (navigated) this.changed();
     const pending = loading
       ? 'the page was still loading when the action returned'
@@ -1679,6 +1709,7 @@ export class BrowserHost {
       ...(pending ? { progress: { key: readKey(tab.id), pending: `tab ${tab.id}: ${pending}` } } : {}),
       ...(dialog ? { dialog } : {}),
       ...(opened ? { opened } : {}),
+      ...(popup ? { popup } : {}),
     };
   }
 
@@ -1857,6 +1888,7 @@ export class BrowserHost {
       if (outcome.navigated) said.push(`The page navigated to ${next.url}.`);
       if (outcome.dialog) said.push(`A ${outcome.dialog.type} dialog: "${outcome.dialog.message}".`);
       if (outcome.opened) said.push(`It opened tab ${outcome.opened.tabId} (${outcome.opened.url}).`);
+      if (outcome.popup) said.push(outcome.popup.note);
       return ok({ tabId: tab.id, ...outcome, url: next.url, ...pictureOf(next, tab.id, said.join(' ')) });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));

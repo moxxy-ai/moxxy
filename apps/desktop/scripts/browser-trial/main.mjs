@@ -25,8 +25,19 @@ const host = new BrowserHost((id) => {
   return wc && !wc.isDestroyed() ? wc : null;
 });
 const bridge = new BrowserBridge(host);
-// As the desktop does: a new window from a page becomes a tab.
-app.on('web-contents-created', (_event, contents) => routeGuestPopups(contents, host));
+// As the desktop does: a new window from a page becomes a tab, a sign-in popup a popup over this window.
+app.on('web-contents-created', (_event, contents) =>
+  routeGuestPopups(contents, host, (guest) => (guest.hostWebContents ? BrowserWindow.fromWebContents(guest.hostWebContents) : null)),
+);
+// Every popup window logged; TRIAL_CLOSE_POPUP_MS closes each that long after it opens, as a person cancelling would.
+app.on('browser-window-created', (_event, popup) => {
+  if (!popup.getParentWindow()) return;
+  const url = () => (popup.isDestroyed() ? '' : popup.webContents.getURL());
+  log({ popupOpened: url() || '(loading)' });
+  popup.on('closed', () => log({ popupClosed: true }));
+  const after = Number(process.env.TRIAL_CLOSE_POPUP_MS);
+  if (after > 0) setTimeout(() => !popup.isDestroyed() && popup.close(), after);
+});
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({

@@ -1739,6 +1739,46 @@ describe('BrowserHost — a tab the page opened', () => {
     expect((reply.result as { opened?: unknown }).opened).toEqual({ tabId: 't2', url: 'https://example.org/' });
   });
 
+  /**
+   * A sign-in popup opens over the app, not as a tab, so the page can hand it
+   * the result (MOXXY-5). The agent cannot act in it, and without a word the
+   * click looked like it did nothing — it would click again and open another.
+   */
+  it('reports a popup window a click opened, and that the person signs in there', async () => {
+    const a = fakeWc(1);
+    const host = new BrowserHost((id) => (id === 1 ? a.wc : null));
+    host.register(1);
+    const send = a.wc.debugger.sendCommand;
+    a.wc.debugger.sendCommand = async (method, params) => {
+      if (method === 'Input.dispatchMouseEvent' && params?.type === 'mouseReleased') {
+        host.openedWindowFromPage(1, 'https://accounts.google.com/signin');
+      }
+      return send(method, params);
+    };
+
+    await host.snapshot();
+    const reply = await host.act({ action: 'click', uid: '2' });
+
+    expect(reply.ok).toBe(true);
+    const result = reply.result as { popup?: { url: string; note: string }; opened?: unknown };
+    expect(result.opened).toBeUndefined();
+    expect(result.popup?.url).toBe('https://accounts.google.com/signin');
+    expect(result.popup?.note).toMatch(/window over the app/i);
+    expect(result.popup?.note).toMatch(/person/i);
+  });
+
+  it('does not report a popup to an action that did not open one', async () => {
+    const a = fakeWc(1);
+    const host = new BrowserHost((id) => (id === 1 ? a.wc : null));
+    host.register(1);
+    host.openedWindowFromPage(1, 'https://accounts.google.com/signin');
+
+    await host.snapshot();
+    const reply = await host.act({ action: 'click', uid: '2' });
+
+    expect((reply.result as { popup?: unknown }).popup).toBeUndefined();
+  });
+
   it('opens nothing for an address that is not a web page', () => {
     const a = fakeWc(1);
     const host = new BrowserHost((id) => (id === 1 ? a.wc : null));
