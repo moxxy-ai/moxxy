@@ -458,6 +458,19 @@ installs Chromium before the Ubuntu and Windows test suites.
   rests on the view's `allowpopups` attribute, written as the string
   `"true"`: React drops a bare boolean on `<webview>`, and without it
   Electron refuses the window before main's handler sees it.
+- **Sign-in popups** stay popups. A page that opens a window with a size
+  (`window.open(url, name, 'width=…,height=…')`: Google, Apple and Microsoft
+  sign-in) gets a real popup over the app window, with `window.opener` set, so
+  the provider can hand the result back to the page and close itself. As a tab
+  it had no opener: the site saw "popup blocked" and the person signed in
+  inside a tab that led nowhere (MOXXY-5). The popup shares the pane's session
+  and the pane views' security preferences, and its own new windows follow the
+  same rules. It is not a tab, so the agent cannot act in it; the click that
+  opened it returns `popup: { url, note }` telling the agent the person
+  finishes there. A popup with `noopener`, or a shift-click, is still a tab.
+  `apps/desktop/scripts/browser-trial/probes/oauth-popup.mjs` checks the whole
+  round trip (and, with `PROBE_CANCEL=1 TRIAL_CLOSE_POPUP_MS=1200`, a closed
+  popup) against a real `<webview>`.
 - **A tab that closed between turns**: a new turn starts with the tab the
   agent remembers, and the pane may have been closed and opened again since.
   An address for that tab (`browser_navigate`) opens in a new tab, which

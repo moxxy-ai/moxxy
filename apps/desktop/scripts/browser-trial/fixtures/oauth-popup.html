@@ -1,0 +1,72 @@
+<!doctype html>
+<!--
+  A sign-in through a popup, the way Google Sign-In, Firebase and MSAL do it, with no account needed.
+  The page opens a popup window (window.open with a size), the popup leaves for another origin (the "provider"),
+  comes back to the site's callback, hands the result to the page that opened it and closes itself.
+  It only works when the popup is a real popup of that page: window.open must return it and window.opener must be set.
+  The same file is every step; ?step= picks which one, and the provider is the same server under the name localhost.
+  With ?hold on the start page the provider never finishes, so closing the popup is a cancelled sign-in.
+-->
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <title>Logowanie przez okienko</title>
+  </head>
+  <body>
+    <h1 id="heading">Sklep testowy</h1>
+    <p id="result">niezalogowany</p>
+    <button id="signin" type="button">Zaloguj przez Google</button>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const step = params.get('step');
+      const hold = params.has('hold');
+      const heading = document.getElementById('heading');
+      const result = document.getElementById('result');
+      const signin = document.getElementById('signin');
+
+      if (step === 'provider') {
+        // The provider's page: in a real sign-in the person picks an account here.
+        heading.textContent = 'Logowanie Google (test)';
+        signin.remove();
+        result.textContent = 'wybieranie konta…';
+        if (!hold) setTimeout(() => {
+          location.href = `http://127.0.0.1:${location.port}/?step=callback`;
+        }, 400);
+      } else if (step === 'callback') {
+        // Back on the site: hand the result to the page that opened the popup, then close.
+        heading.textContent = 'Powrót z logowania';
+        signin.remove();
+        if (window.opener) {
+          window.opener.postMessage({ signedIn: 'Kamil' }, location.origin);
+          result.textContent = 'przekazano wynik';
+          setTimeout(() => window.close(), 300);
+        } else {
+          result.textContent = 'brak strony, która otworzyła logowanie';
+        }
+      } else {
+        let popup = null;
+        window.addEventListener('message', (event) => {
+          if (event.origin !== location.origin || !event.data?.signedIn) return;
+          result.textContent = `zalogowano jako ${event.data.signedIn}`;
+        });
+        signin.addEventListener('click', () => {
+          popup = window.open(
+            `http://localhost:${location.port}/?step=provider${hold ? '&hold' : ''}`,
+            'signin',
+            'popup,width=480,height=640',
+          );
+          if (!popup) {
+            result.textContent = 'okienko logowania zablokowane';
+            return;
+          }
+          result.textContent = 'logowanie w okienku…';
+          const watch = setInterval(() => {
+            if (!popup.closed) return;
+            clearInterval(watch);
+            if (!result.textContent.startsWith('zalogowano')) result.textContent = 'logowanie anulowane';
+          }, 200);
+        });
+      }
+    </script>
+  </body>
+</html>
