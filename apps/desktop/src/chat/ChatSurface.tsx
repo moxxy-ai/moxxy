@@ -343,6 +343,7 @@ export function ChatSurface({
           </div>
         )}
         <Composer
+          key={workspaceId}
           agent={agent}
           voiceModeActive={voiceCall.active}
           ready={ready}

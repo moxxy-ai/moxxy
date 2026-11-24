@@ -6,6 +6,7 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent,
+  type SetStateAction,
 } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import { api } from '@moxxy/client-core';
@@ -31,6 +32,7 @@ import { stepsForCommand } from './command-palette/steppers';
 import type { CommandInfo } from './command-palette/types';
 import { useComposerMentions } from './composer/useComposerMentions';
 import { useAutoGrow } from './composer/useAutoGrow';
+import { getSessionDraft, setSessionDraft } from './composer/sessionDrafts';
 import { useDictation } from './composer/useDictation';
 import {
   useComposerAttachments,
@@ -110,7 +112,14 @@ export function Composer({
   onAbort,
   onPreviewImage,
 }: ComposerProps): JSX.Element {
-  const [draft, setDraft] = useState('');
+  const [draft, setDraftState] = useState(() => getSessionDraft(workspaceId));
+  const setDraft = useCallback((value: SetStateAction<string>) => {
+    setDraftState((current) => {
+      const next = typeof value === 'function' ? value(current) : value;
+      setSessionDraft(workspaceId, next);
+      return next;
+    });
+  }, [workspaceId]);
   const dictation = useDictation({
     workspaceId,
     ready,
@@ -148,7 +157,7 @@ export function Composer({
   } = useComposerAttachments(focusInput);
   const attachmentPreviews = useAttachmentImagePreviews(workspaceId, attachments);
 
-  const setDraftEmpty = useCallback(() => setDraft(''), []);
+  const setDraftEmpty = useCallback(() => setDraft(''), [setDraft]);
   const mentions = useComposerMentions(agent.info?.skills, draft, setDraft, taRef);
   const closeGoal = useCallback(() => setGoalArmed(false), []);
 
@@ -213,7 +222,7 @@ export function Composer({
       ta.focus();
       ta.selectionStart = ta.selectionEnd = ta.value.length;
     });
-  }, [pendingDraft, workspaceId]);
+  }, [pendingDraft, workspaceId, setDraft]);
 
   useAutoGrow(taRef, draft, MAX_TEXTAREA_HEIGHT);
 
@@ -366,6 +375,7 @@ export function Composer({
               <QueuedChip
                 key={q.id}
                 text={q.prompt}
+                onForceSend={() => chatStore.forceSendNext(workspaceId, q.id)}
                 onRemove={() => chatStore.dropFromQueue(workspaceId, q.id)}
               />
             ))}

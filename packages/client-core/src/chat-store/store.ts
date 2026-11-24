@@ -217,6 +217,16 @@ class ChatStore {
     return this.slots.get(workspaceId)?.queue ?? EMPTY_QUEUE;
   }
 
+  forceSendNext(workspaceId: string, id: string): void {
+    const slot = this.slots.get(workspaceId);
+    if (!slot) return;
+    const index = slot.queue.findIndex((q) => q.id === id);
+    if (index <= 0) return;
+    const selected = slot.queue[index]!;
+    slot.queue = [selected, ...slot.queue.slice(0, index), ...slot.queue.slice(index + 1)];
+    this.emit();
+  }
+
   enqueue(
     workspaceId: string,
     prompt: string,

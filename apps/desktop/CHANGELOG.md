@@ -1,5 +1,11 @@
 # @moxxy/desktop
 
+## 0.51.1
+
+### Patch Changes
+
+- b9c028e: Keep desktop composer drafts separate by session and allow queued turns to be prioritized.
+
 ## 0.51.0
 
 ### Minor Changes

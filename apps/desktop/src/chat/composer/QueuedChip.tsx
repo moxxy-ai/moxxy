@@ -8,10 +8,12 @@ import { Icon } from '@moxxy/desktop-ui';
 export function QueuedChip({
   text,
   onRemove,
+  onForceSend,
   compact = false,
 }: {
   readonly text: string;
   readonly onRemove: () => void;
+  readonly onForceSend?: () => void;
   /** Dense, single-row treatment used by constrained surfaces such as Mini Chat. */
   readonly compact?: boolean;
 }): JSX.Element {
@@ -71,6 +73,27 @@ export function QueuedChip({
       >
         {text || '(attachment only)'}
       </span>
+      {onForceSend && (
+        <button
+          type="button"
+          aria-label="Force send next turn"
+          title="Send as the model's next turn"
+          onClick={onForceSend}
+          style={{
+            minHeight: compact ? 22 : 18,
+            borderRadius: 'var(--radius-chip)',
+            background: 'transparent',
+            color: 'var(--color-primary-strong)',
+            fontSize: 'var(--type-label)',
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            padding: '0 4px',
+          }}
+        >
+          Next
+        </button>
+      )}
       <button
         type="button"
         aria-label="Drop queued message"

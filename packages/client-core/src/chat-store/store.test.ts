@@ -90,6 +90,21 @@ describe('chatStore queue', () => {
     expect(chatStore.getQueue(id).map((q) => q.id)).toEqual([q1]);
   });
 
+  it('moves a selected queued turn to the front for the next turn', () => {
+    const id = ws();
+    chatStore.enqueue(id, 'first');
+    const selected = chatStore.enqueue(id, 'selected');
+    chatStore.enqueue(id, 'last');
+
+    chatStore.forceSendNext(id, selected);
+
+    expect(chatStore.getQueue(id).map((turn) => turn.prompt)).toEqual([
+      'selected',
+      'first',
+      'last',
+    ]);
+  });
+
   it('mints unique ids across a shift — no collision drops the wrong twin', () => {
     const id = ws();
     // Burst of enqueues with no intervening event (rev/length-derived ids would
