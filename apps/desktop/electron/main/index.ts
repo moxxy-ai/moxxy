@@ -172,8 +172,14 @@ const browserHost = new BrowserHost((id) => {
   return wc as unknown as HostWebContents;
 });
 // A new window from a page in the pane becomes a tab there, not a bare window
-// of its own beside the app. See routeGuestPopups.
-app.on('web-contents-created', (_event, contents) => routeGuestPopups(contents, browserHost));
+// of its own beside the app — except a sign-in popup, which stays a popup over
+// the window hosting the pane, so it can hand its result back. See routeGuestPopups.
+app.on('web-contents-created', (_event, contents) =>
+  routeGuestPopups(contents, browserHost, (guest) => {
+    const embedder = (guest as typeof contents).hostWebContents;
+    return embedder ? BrowserWindow.fromWebContents(embedder) : null;
+  }),
+);
 /**
  * How the agent's browser tools — which run in the runner, a separate process —
  * reach the page this one owns. Without it the agent would drive its own

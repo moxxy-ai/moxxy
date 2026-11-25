@@ -556,6 +556,9 @@ Windows, still show the tool's end marker.
 Its width is never animated: the terminal measures its columns when it mounts.
 The closed panel stays in the layout at zero width instead of being removed,
 because the browser parked inside it has to keep painting to keep its pages.
+The window owns one work panel. Leaving a chat for Settings, Skills or MCP
+parks its browser there. Returning shows the same live pages, with the active
+tab, history and form contents intact. Channel chats use this panel too.
 
 ### Shared media
 
