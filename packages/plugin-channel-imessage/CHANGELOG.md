@@ -1,5 +1,14 @@
 # @moxxy/plugin-channel-imessage
 
+## 0.50.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.1
+- @moxxy/core@0.50.1
+- @moxxy/channel-kit@0.50.1
+- @moxxy/plugin-vault@0.50.1
+
 ## 0.50.0
 
 ### Patch Changes

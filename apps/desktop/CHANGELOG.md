@@ -1,5 +1,24 @@
 # @moxxy/desktop
 
+## 0.51.2
+
+### Patch Changes
+
+- 98d9098: Closing a browser tab keeps the other pages open when tabs are opening at the same time. Closing the active tab selects a surviving page even after the desktop renderer reloads. Moving between chat and other desktop views keeps the same browser tabs and unsaved form entries.
+- 93e49e7: Sign-in popups (Google, Apple, Microsoft) in the Moxxy browser open as real popups over the app when the page opens them right after a click or key press, so the sign-in returns to the tab that started it instead of ending in a new tab; the agent is told a popup opened.
+- Updated dependencies [98d9098]
+- Updated dependencies [93e49e7]
+  - @moxxy/cli@0.50.1
+  - @moxxy/sdk@0.50.1
+  - @moxxy/plugin-vault@0.50.1
+  - @moxxy/chat-model@0.5.13
+  - @moxxy/client-core@0.17.5
+  - @moxxy/client-platform-web@0.1.89
+  - @moxxy/desktop-host@0.18.5
+  - @moxxy/desktop-ipc-contract@0.18.5
+  - @moxxy/runner@0.2.75
+  - @moxxy/workflows-builder@0.1.71
+
 ## 0.51.1
 
 ### Patch Changes

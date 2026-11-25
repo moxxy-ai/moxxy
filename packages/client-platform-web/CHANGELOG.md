@@ -1,5 +1,12 @@
 # @moxxy/client-platform-web
 
+## 0.1.89
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.1
+- @moxxy/client-core@0.17.5
+
 ## 0.1.88
 
 ### Patch Changes

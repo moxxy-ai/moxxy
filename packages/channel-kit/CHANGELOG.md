@@ -1,5 +1,12 @@
 # @moxxy/channel-kit
 
+## 0.50.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.1
+- @moxxy/chat-model@0.5.13
+
 ## 0.50.0
 
 ### Patch Changes

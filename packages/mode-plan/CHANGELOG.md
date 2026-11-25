@@ -1,5 +1,11 @@
 # @moxxy/mode-plan
 
+## 0.50.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.1
+
 ## 0.50.0
 
 ### Patch Changes
