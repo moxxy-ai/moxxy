@@ -39,6 +39,7 @@
     "@moxxy/plugin-provider-openai": "workspace:*",
     "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-stt-whisper": "workspace:*",
+    "@moxxy/plugin-terminal": "workspace:*",
     "@moxxy/plugin-tts-gemini": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/plugin-webhooks": "workspace:*",

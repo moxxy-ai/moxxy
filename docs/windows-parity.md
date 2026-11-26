@@ -103,6 +103,32 @@ real Claude Code, Codex or OpenCode. What is handled:
   children (MCP servers it started) would outlive it too. On macOS and Linux
   the agent is signalled directly: it is not spawned as a process-group
   leader, so a group kill (`killTree` there) would miss it.
+- **Quitting the app** stops each runner with `stopProcessTree` and then
+  `killProcessesWithEnv` (`packages/sdk/src/process-tree.ts`), so what it
+  started (agent CLIs and the dev servers they run) does not keep running. On
+  macOS and Linux the runner gets SIGTERM, then SIGKILL after the grace; every
+  descendant listed by `ps` before it ended is killed after it, and so is every
+  process whose environment still holds the runner's `MOXXY_RUNNER_SOCKET`,
+  which catches work an agent detached on purpose (`(nohup npx vite &)`).
+  That last sweep runs only when the app quits or a workspace is removed
+  (`stopRunnerProcess` in `packages/desktop-host/src/runner-process.ts`): a
+  new chat restarts the runner but keeps such a dev server running. On
+  Windows it is `taskkill /T /F` on the runner at once; detached work is not
+  found there yet (no environment scan), so it can outlive the app.
+- **Your own terminal tabs** (`packages/desktop-host/src/terminal-tabs.ts`)
+  are shells the main process owns, through `plugin-terminal`'s
+  `createTerminalProcess` with node-pty loaded from the installed plugin
+  (`nodePtyFrom`: the main bundle carries no `node_modules`). Each tab's shell
+  gets `MOXXY_TERMINAL_TAB=<tab id>`. Closing a tab (or quitting) first notes
+  every process on the shell's terminal (`ps -A -o pid=,tty=`), hangs the
+  shell up, waits up to a second, kills what was noted, and then kills every
+  process carrying the tab's value. On Windows the shell is ended through
+  ConPTY, which takes what runs in its console with it; `ps` and the
+  environment sweep find nothing there, so work detached from the console can
+  outlive the tab. On macOS the sweep cannot read the environment of Apple's
+  own binaries (`/bin/sleep`), so such a binary is only caught while it still
+  sits on the tab's terminal; one that left it (`setsid`) outlives the tab, a
+  node or Python dev server does not.
 - **Claude's plan file** is recognised under `.claude\plans\` as well as
   `.claude/plans/` (`claudePlanFileOf`).
 

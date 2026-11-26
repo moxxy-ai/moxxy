@@ -15,6 +15,7 @@ import { cwdForSession, type DeskStore } from '../desks';
 import { broadcastHostEvent } from '../event-bus';
 import { assertDefined } from '@moxxy/sdk';
 import { handle } from './shared';
+import { terminalTabs } from './terminal';
 
 export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void {
   // ---- Desks --------------------------------------------------------------
@@ -39,6 +40,8 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
     // Defensive: also drop a pool entry keyed by the bare desk id (the
     // pre-multi-session key; normally identical to the first session's id).
     await pool.remove(id);
+    // The project's terminal tabs go with it, and what was started from them.
+    await terminalTabs().closeProject(id);
     await desks.remove(id);
     const active = await desks.getActive();
     if (active?.activeSessionId) {

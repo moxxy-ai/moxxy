@@ -243,3 +243,21 @@ describe('workbenchTabForTool', () => {
     expect(workbenchTabForTool('browser')).toBeUndefined();
   });
 });
+
+describe('Workbench, Agents tab', () => {
+  it('counts what runs in the background of the chat on the tab, so it shows without opening the pane', async () => {
+    __setApiOverride({
+      invoke: vi.fn(async (cmd: string) =>
+        cmd === 'session.info'
+          ? { backgroundWork: [{ id: 'b1', kind: 'command', label: 'npm run dev' }, { id: 'b2', kind: 'agent', label: 'Helper' }] }
+          : { desks: [], activeId: null },
+      ),
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+    render(<Workbench tab="terminal" onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws-count" />);
+
+    const tab = await screen.findByRole('tab', { name: 'Agents, 2 running' });
+    expect(tab.querySelector('b')).toHaveTextContent('2');
+  });
+});
+

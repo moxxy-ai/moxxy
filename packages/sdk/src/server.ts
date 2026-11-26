@@ -51,7 +51,7 @@ export { withFileLock } from './file-lock.js';
 export { readRequestBody, bearerTokenMatches } from './http-utils.js';
 export { fetchNpmLatest, type FetchNpmLatestOptions } from './npm-registry.js';
 // Stop a child and everything it started (process group / taskkill /T).
-export { killTree } from './process-tree.js';
+export { killProcessesWithEnv, killTree, stopProcessTree } from './process-tree.js';
 // Dedicated-channel run-status file: a channel publishes readiness + its public
 // ingest URL so the desktop "Channels" supervisor can observe it out-of-process
 // (node:fs). The `ChannelRunStatus` *type* rides the main barrel like the others.

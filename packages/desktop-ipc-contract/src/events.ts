@@ -98,6 +98,12 @@ export interface IpcEvents {
    *  matching pane by `data.surfaceId` and ignores frames for panes it isn't
    *  showing. Forwarded verbatim from the runner's `surface.data`. */
   'surface.data': { workspaceId: string; data: SurfaceDataMessage };
+  /** Output of one of the person's terminal tabs. */
+  'terminal.data': { tabId: string; data: string };
+  /** A terminal tab's shell exited by itself; the tab is gone. */
+  'terminal.exit': { tabId: string; code: number };
+  /** A project's terminal tabs changed (one opened, closed or exited). `projectId` is the desk id. */
+  'terminal.tabsChanged': { projectId: string };
   /** The agent asked for a browser tab. Main cannot create a `<webview>` —
    *  that element belongs to the renderer — so the pane makes one and echoes
    *  `requestId` back through `browser.registerTab`. */

@@ -6,7 +6,7 @@ export {
   buildTerminalTool,
   closeAllTerminals,
 } from './terminal.js';
-export { createTerminalProcess, type TerminalProcess } from './pty.js';
+export { createTerminalProcess, type TerminalProcess, type TerminalProcessOptions } from './pty.js';
 
 export function buildTerminalPlugin() {
   return definePlugin({

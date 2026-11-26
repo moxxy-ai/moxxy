@@ -193,3 +193,38 @@ button.agent-work:active { transform: scale(0.97); filter: none; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* A row and its menu button side by side: a button cannot hold another. */
+.agent-work__row { display: flex; align-items: center; gap: 2px; }
+.agent-work__row > .agent-work { flex: 1; min-width: 0; }
+.agent-work__more { flex-shrink: 0; opacity: 0.55; }
+.agent-work__more[aria-expanded='true'] { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  .agent-work__row:hover .agent-work__more { opacity: 1; }
+}
+.agent-work__more:focus-visible { opacity: 1; }
+
+/* Whose work the list shows: two choices drawn as one control. */
+.agents-pane__scope {
+  margin-left: auto;
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+}
+.agents-pane__header > span { white-space: nowrap; }
+.agents-pane__scope { flex-shrink: 0; }
+.agents-pane__scope button {
+  white-space: nowrap;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--type-meta);
+  font-weight: 400;
+  cursor: pointer;
+}
+.agents-pane__scope button[aria-pressed='true'] { background: var(--color-app-bg); color: var(--color-text); }
