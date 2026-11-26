@@ -118,7 +118,7 @@ Most people see one screen, the question "How do you want to start?"
 |---|---|
 | Continue with Claude / ChatGPT | Shown first, lit in the accent, only when that agent is already installed and signed in here; it switches to it and opens the chat. |
 | Use my Claude or ChatGPT plan | Opens the two plans. Each row says in plain words what is next ("Moxxy installs it for you", "Sign in with your ChatGPT account", "Signed in as …") and one press runs the whole chain: install, then the browser sign-in, then the chat. |
-| Start free | OpenCode's free model, no account: installed if needed, then the chat. |
+| Start free | Installs OpenCode's free model if needed, then opens the chat. One press shows “Preparing…” while the installer waits for the bundled tools, then starts the installation automatically. |
 | I have an API key | A quiet link to the key form: the service, the key, a link to where keys are made, Connect. |
 
 The chain lives in `onboarding/useStartStep.ts`; what each agent state means to

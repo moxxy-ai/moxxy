@@ -20,6 +20,8 @@ export type AgentConnectionAction = 'install' | 'update' | 'sign-in' | 'check';
 export interface AgentCliJob {
   readonly action: AgentCliAction;
   readonly running: boolean;
+  /** The host has yet to start the installer. */
+  readonly preparing?: boolean;
   /** The last line it printed. */
   readonly line: string | null;
   /** 0–1 when it printed a percentage. */

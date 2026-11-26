@@ -14,6 +14,7 @@ import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import { CODEX_CLI, OPENCODE_CLI, checkAgentCli, type AgentCliDescriptor } from '@moxxy/agent-connection-kit';
 import type { AgentCliProgress } from '@moxxy/desktop-ipc-contract';
 import { agentCliLogFile, agentConnectionsWithoutRunner, checkAgentClis, runAgentCli, signOutAgent, type AgentCliRunner } from './agent-cli';
+import { prepareBundledRuntimes } from './seed-runtimes';
 
 let home: string | undefined;
 afterEach(() => {
@@ -62,6 +63,46 @@ function placesOpenCode(): string {
 const INSTALL_TIMEOUT_MS = 30_000;
 
 describe('installing an agent CLI from the desktop', () => {
+  it('starts an early install only after startup has put the runtimes on PATH', async () => {
+    const dir = newHome();
+    const runtimeDir = path.join(dir, 'runtime-bin');
+    mkdirSync(runtimeDir);
+    const previousPath = process.env.PATH;
+    const previousHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = dir;
+    const terminalPath = Promise.withResolvers<string>();
+    const preparation = prepareBundledRuntimes({
+      resourcesPath: dir,
+      moxxyHome: dir,
+      loginShellPath: () => terminalPath.promise,
+    });
+    try {
+      const install = runAgentCli('opencode', 'install', {
+        runners: () => [],
+        emit: () => undefined,
+        agents: installer(`
+          if (!process.env.PATH.split(require('node:path').delimiter).includes(${JSON.stringify(runtimeDir)})) {
+            console.error('Runtime is missing from PATH');
+            process.exit(1);
+          }
+          ${placesOpenCode()}
+          console.log('Installed');
+        `),
+        search: { home: dir, pathEnv: '' },
+      });
+
+      terminalPath.resolve([runtimeDir, previousPath].filter(Boolean).join(path.delimiter));
+      expect(await install).toEqual({ ok: true, message: 'Installed' });
+    } finally {
+      terminalPath.resolve(runtimeDir);
+      await preparation;
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = previousHome;
+    }
+  }, INSTALL_TIMEOUT_MS);
+
   it('sends each line and how far it got to the window, then has every runner check again', async () => {
     const search = { home: newHome(), pathEnv: '' };
     const runners = [runner(), runner()];
@@ -76,6 +117,7 @@ describe('installing an agent CLI from the desktop', () => {
 
     expect(result).toEqual({ ok: true, message: 'Installed' });
     expect(progress).toEqual([
+      { provider: 'opencode', action: 'install' },
       { provider: 'opencode', action: 'install', line: 'Installing opencode' },
       { provider: 'opencode', action: 'install', line: '#### 50.0%', fraction: 0.5 },
       { provider: 'opencode', action: 'install', line: 'Installed' },

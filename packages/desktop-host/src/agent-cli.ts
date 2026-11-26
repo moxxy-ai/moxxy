@@ -19,6 +19,7 @@ import { delimiter } from 'node:path';
 import { moxxyPath } from '@moxxy/sdk/server';
 import { fallbackPathDirs, spawnPath } from './cli-resolver';
 import type { RunnerPool } from './runner-pool';
+import { bundledRuntimesReady } from './seed-runtimes';
 
 /** What this needs of a runner: whether a turn runs, and asking it to check again. */
 export interface AgentCliRunner {
@@ -140,6 +141,11 @@ export async function runAgentCli(
   }
   running.add(provider);
   try {
+    if (action === 'install') {
+      // On a fresh launch the installer may need npm before the runner exists.
+      await bundledRuntimesReady();
+      deps.emit({ provider, action });
+    }
     let fraction: number | undefined;
     const result = await runAgentCliAction(desc, action, {
       ...(deps.search ?? runnerSearch()),

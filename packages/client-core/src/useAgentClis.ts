@@ -52,7 +52,10 @@ function change(provider: string, next: (job: AgentCliJob | undefined) => AgentC
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   stopProgress ??= api().subscribe('agents.progress', (p: AgentCliProgress) => {
-    change(p.provider, (job) => (job?.running ? { ...job, line: p.line ?? job.line, fraction: p.fraction ?? job.fraction } : job));
+    change(p.provider, (job) => {
+      if (!job?.running || job.action !== p.action) return job;
+      return { ...job, preparing: false, line: p.line ?? job.line, fraction: p.fraction ?? job.fraction };
+    });
   });
   return () => {
     listeners.delete(listener);
@@ -75,7 +78,9 @@ function afterRun(action: AgentCliAction, result: AgentCliRunResult): AgentCliJo
 
 async function run(provider: string, action: AgentCliAction): Promise<AgentCliRunResult> {
   if (jobs[provider]?.running) return { ok: false, message: 'It is already running.' };
-  change(provider, () => ({ action, running: true, line: null, fraction: null, error: null, note: null, retry: action }));
+  change(provider, () => ({
+    action, running: true, preparing: action === 'install', line: null, fraction: null, error: null, note: null, retry: action,
+  }));
   let result: AgentCliRunResult;
   try {
     result = await api().invoke('agents.run', { provider, action });

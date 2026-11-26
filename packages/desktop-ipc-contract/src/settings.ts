@@ -86,7 +86,7 @@ export interface AgentCliRunResult {
   outcome?: 'updated' | 'unchanged' | 'unverified' | 'gone';
 }
 
-/** A line an installer or updater printed, and how far it got when it said so. */
+/** An installer starting, or a line an installer or updater printed. */
 export interface AgentCliProgress {
   provider: string;
   action: AgentCliAction;
