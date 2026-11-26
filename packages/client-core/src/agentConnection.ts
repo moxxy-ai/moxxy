@@ -26,7 +26,7 @@ export interface AgentCliJob {
   readonly fraction: number | null;
   /** Why it failed; null while running or after it worked. */
   readonly error: string | null;
-  /** A failed install's own last words, shown only on request; absent when it said none. */
+  /** One diagnostic from a failed install, when available. */
   readonly details?: string | null;
   /** What to know about one that ended without proof it worked; null otherwise. */
   readonly note: string | null;
@@ -41,7 +41,7 @@ export interface AgentConnectionView {
   readonly action: AgentConnectionAction | null;
   /** 0–1 while installing or updating and it said how far; null otherwise. */
   readonly progress: number | null;
-  /** A failed install's own words, kept for a "details" disclosure; null otherwise. */
+  /** The failed install diagnostic for the details disclosure, or null. */
   readonly details: string | null;
 }
 

@@ -550,6 +550,55 @@ describe('installing and updating a CLI', () => {
     });
    }, INSTALL_TIMEOUT_MS);
 
+  it.each([
+    {
+      source: 'a missing command in Windows PowerShell',
+      lines: [
+        "npm : The term 'npm' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the",
+        'spelling of the name, or if a path was included, verify that the path is correct and try again.',
+        'At line:1 char:1',
+        '+ npm install -g @opencode/cli',
+        '+ ~~~',
+        '+ CategoryInfo          : ObjectNotFound: (npm:String) [], CommandNotFoundException',
+        '+ FullyQualifiedErrorId : CommandNotFoundException',
+      ],
+      details: "The installer could not find the command 'npm'.",
+    },
+    {
+      source: 'a wrapped PowerShell missing-command header',
+      lines: [
+        "npm : The term 'npm' is not",
+        'recognized as the name of a cmdlet, function, script file, or operable program.',
+        '+ CategoryInfo          : ObjectNotFound: (npm:String) [], CommandNotFoundException',
+        '+ FullyQualifiedErrorId : CommandNotFoundException',
+      ],
+      details: "The installer could not find the command 'npm'.",
+    },
+    {
+      source: 'an unfamiliar PowerShell error',
+      lines: [
+        'Expand-Archive : The archive has an invalid header.',
+        'At line:2 char:1',
+        '+ Expand-Archive agent.zip',
+        '+ FullyQualifiedErrorId : InvalidData',
+      ],
+      details: 'Expand-Archive : The archive has an invalid header.',
+    },
+    {
+      source: 'npm with a log-file footer',
+      lines: ['npm error Invalid package manifest', 'npm error A complete log of this run can be found in: npm-debug.log'],
+      details: 'npm error Invalid package manifest',
+    },
+  ])('shows one diagnostic from $source and keeps the transcript in the log', async ({ lines, details }) => {
+    const logFile = path.join(newHome(), 'logs', 'agent-opencode.log');
+    const script = `console.error(${JSON.stringify(lines.join('\r\n'))}); process.exitCode = 1;`;
+    const result = await runAgentCliAction(fake(script), 'install', { home, pathEnv: '', logFile });
+
+    expect(result.details).toBe(details);
+    expect(result.ok).toBe(false);
+    expect(readFileSync(logFile, 'utf8')).toContain(lines.join('\n'));
+  }, INSTALL_TIMEOUT_MS);
+
   it('says so when the installer ended well but left no CLI on the computer', async () => {
     newHome();
     const result = await runAgentCliAction(fake("console.log('Installation complete!');"), 'install', {
@@ -576,6 +625,16 @@ describe('installing and updating a CLI', () => {
     expect(text).toContain('Result: done — Installed');
     expect(text).not.toContain('first run');
    }, INSTALL_TIMEOUT_MS);
+
+  it('keeps every line of a long install in the log while showing just the diagnostic', async () => {
+    const logFile = path.join(newHome(), 'logs', 'agent-opencode.log');
+    const script = "for (let i = 0; i < 2100; i++) console.log('step ' + i); console.log('Invalid archive'); process.exitCode = 1;";
+    const result = await runAgentCliAction(fake(script), 'install', { home, pathEnv: '', logFile });
+
+    expect(result.details).toBe('Invalid archive');
+    const steps = readFileSync(logFile, 'utf8').split('\n').filter((line) => line.startsWith('step '));
+    expect(steps).toEqual(Array.from({ length: 2100 }, (_, i) => `step ${i}`));
+  }, INSTALL_TIMEOUT_MS);
 
   it('installs as before when the log file cannot be written', async () => {
     newHome();

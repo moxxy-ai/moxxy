@@ -1,6 +1,7 @@
 import { execFile, spawn, type ChildProcess, type StdioOptions } from 'node:child_process';
 import { existsSync, realpathSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
+import { PassThrough } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -929,7 +930,7 @@ export interface AgentCliActionResult {
   readonly ok: boolean;
   /** The line that says how it went: the last thing printed, or the error. */
   readonly message: string;
-  /** A failed install's own last words, kept apart from `message` so a window can show them only on request. */
+  /** One diagnostic from a failed install, shown on request. */
   readonly details?: string;
   /** Set on an update that ended with an exit code of 0. */
   readonly outcome?: AgentCliOutcome;
@@ -959,17 +960,26 @@ export async function runAgentCliAction(
 ): Promise<AgentCliActionResult> {
   const platform = opts.platform ?? process.platform;
   const printed: string[] = [];
+  const log = opts.logFile ? startRunLog(opts.logFile, desc, action) : undefined;
   const watched: AgentCliActionOptions = {
     ...opts,
     onLine: (line) => {
-      printed.push(line);
-      if (printed.length > LOG_LINES) printed.shift();
+      if (action === 'install') {
+        printed.push(line);
+        if (printed.length > DIAGNOSTIC_LINES) printed.shift();
+      }
+      log?.line(line);
       opts.onLine?.(line);
     },
   };
-  const result = action === 'update' ? await updateAgentCli(desc, watched, platform) : await installAgentCli(desc, watched, platform, printed);
-  if (opts.logFile) await keepRunLog(opts.logFile, desc, action, printed, result);
-  return result;
+  try {
+    const result = action === 'update' ? await updateAgentCli(desc, watched, platform) : await installAgentCli(desc, watched, platform, printed);
+    log?.line(`Result: ${result.ok ? 'done' : 'failed'} — ${result.message}`);
+    if (result.details) log?.line(`Details: ${result.details}`);
+    return result;
+  } finally {
+    await log?.close();
+  }
 }
 
 /** A failed install in plain words: what to check when {@link installFailureHint} knows it, else to try again. */
@@ -981,8 +991,7 @@ export function installStopped(desc: Pick<AgentCliDescriptor, 'name'>, hint: str
  * The vendor's installer, then a look for what it left: its exit code proves
  * nothing, and a fresh program can be gone a moment later (an antivirus that
  * removes it). A failure says so in plain words, with what to check for the
- * few failures {@link installFailureHint} knows, and keeps the installer's own
- * words apart in `details`.
+ * few failures {@link installFailureHint} knows, and one diagnostic in `details`.
  */
 async function installAgentCli(
   desc: AgentCliDescriptor,
@@ -1000,7 +1009,11 @@ async function installAgentCli(
   const result = await watch(child, opts, 'the installer');
   if (!result.ok) {
     if (result.message === STOPPED) return result;
-    return { ok: false, message: installStopped(desc, installFailureHint([...printed, result.message])), details: result.message };
+    return {
+      ok: false,
+      message: installStopped(desc, installFailureHint([...printed, result.message])),
+      details: installFailureDetails(printed, result.message),
+    };
   }
   return (await installLeftACopy(desc, opts)) ? result : { ok: false, message: installLeftNothing(desc, platform) };
 }
@@ -1047,29 +1060,48 @@ export function installFailureHint(printed: ReadonlyArray<string>): string | nul
   return INSTALL_FAILURES.find((failure) => failure.seen.test(text))?.hint ?? null;
 }
 
-/** How many of the last printed lines a run's log keeps. */
-const LOG_LINES = 2_000;
+const POWERSHELL_ERROR_ID = /^\+\s*FullyQualifiedErrorId\s*:/i;
+const NPM_LOG_FOOTER = /^npm (?:error|ERR!)\s+A complete log of this run can be found in:/i;
 
-async function keepRunLog(
-  file: string,
-  desc: AgentCliDescriptor,
-  action: AgentCliAction,
-  printed: ReadonlyArray<string>,
-  result: AgentCliActionResult,
-): Promise<void> {
-  const text = [
-    `Moxxy · ${action} ${desc.name} (${desc.command}) · ${new Date().toISOString()}`,
-    ...printed,
-    `Result: ${result.ok ? 'done' : 'failed'} — ${result.message}`,
-    ...(result.details ? [`Installer said: ${result.details}`] : []),
-    '',
-  ].join('\n');
-  try {
-    await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, text);
-  } catch {
-    // A log that cannot be written leaves the install as it went.
+/** PowerShell and npm can print bookkeeping after the error. Look within the last error only. */
+function installFailureDetails(printed: ReadonlyArray<string>, last: string): string {
+  const end = printed.lastIndexOf(last);
+  if (POWERSHELL_ERROR_ID.test(last)) {
+    for (let i = end - 1; i >= 0; i--) {
+      const line = printed[i];
+      if (!line || POWERSHELL_ERROR_ID.test(line)) break;
+      const target = /^\+\s*CategoryInfo\s*:\s*ObjectNotFound:\s*\((.+):String\)\s*\[\],\s*CommandNotFoundException$/i.exec(line);
+      if (target && /:\s*CommandNotFoundException$/i.test(last)) {
+        return `The installer could not find the command '${target[1]}'.`;
+      }
+      if (/^[^+\s]\S*\s+:\s+\S/.test(line)) return line;
+    }
+  } else if (NPM_LOG_FOOTER.test(last)) {
+    for (let i = end - 1; i >= 0; i--) {
+      const line = printed[i];
+      if (!line || NPM_LOG_FOOTER.test(line)) break;
+      if (/^npm (?:error|ERR!)\s+\S/i.test(line)) return line;
+    }
   }
+  return last;
+}
+
+/** The diagnostic only needs recent output. The file keeps the entire run. */
+const DIAGNOSTIC_LINES = 2_000;
+
+function startRunLog(file: string, desc: AgentCliDescriptor, action: AgentCliAction) {
+  const stream = new PassThrough();
+  const saved = writeFileAtomic(file, stream).catch(() => { stream.destroy(); });
+  stream.write(`Moxxy · ${action} ${desc.name} (${desc.command}) · ${new Date().toISOString()}\n`);
+  return {
+    line(text: string) {
+      if (!stream.destroyed) stream.write(text + '\n');
+    },
+    close() {
+      stream.end();
+      return saved;
+    },
+  };
 }
 
 /** What a run stopped by its caller ends with. */
