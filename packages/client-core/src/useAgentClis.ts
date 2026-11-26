@@ -67,7 +67,9 @@ const getJobs = (): Jobs => jobs;
 /** What is left to say once it ended; nothing when it plainly worked. */
 function afterRun(action: AgentCliAction, result: AgentCliRunResult): AgentCliJob | undefined {
   const ended = { action, running: false, line: null, fraction: null, error: null, note: null, retry: action };
-  if (!result.ok) return { ...ended, error: result.message, retry: result.outcome === 'gone' ? 'install' : action };
+  if (!result.ok) {
+    return { ...ended, error: result.message, details: result.details ?? null, retry: result.outcome === 'gone' ? 'install' : action };
+  }
   return result.outcome === 'unchanged' || result.outcome === 'unverified' ? { ...ended, note: result.message } : undefined;
 }
 

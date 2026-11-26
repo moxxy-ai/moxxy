@@ -157,6 +157,16 @@ describe('moxxy agents install / update', () => {
     expect(err).toContain("OpenCode: OpenCode's installer finished, but OpenCode is not on this computer afterwards.");
   }, 30_000);
 
+  it("fails in plain words, with the installer's own words on the next line", async () => {
+    const fake = { ...OPENCODE, install: fakeInstaller(newHome(), "console.error('curl: (6) Could not resolve host'); process.exit(6);") };
+
+    const { code, err } = await run(['install', 'opencode'], { agents: { opencode: fake } });
+
+    expect(code).toBe(1);
+    expect(err).toContain("OpenCode: OpenCode's installer stopped before it finished. Check the internet connection and try again.\n");
+    expect(err).toContain('curl: (6) Could not resolve host');
+  }, 30_000);
+
   it('updates by the command name or the connection name', async () => {
     const upgraded = path.join(newHome(), 'upgraded');
     cli(

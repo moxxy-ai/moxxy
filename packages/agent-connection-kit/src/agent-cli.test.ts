@@ -522,24 +522,32 @@ describe('installing and updating a CLI', () => {
     expect(progress).toEqual([0.4, 1]);
    }, INSTALL_TIMEOUT_MS);
 
-  it('says why an install failed, with what to check for a failure it knows', async () => {
+  it('says in plain words that an install failed, with what to check for a failure it knows, and keeps the installer’s words apart', async () => {
     newHome();
     const result = await runAgentCliAction(fake("console.log('Downloading'); console.error('curl: (6) Could not resolve host'); process.exit(6);"), 'install', {
       home,
       pathEnv: '',
     });
 
-    expect(result).toEqual({ ok: false, message: 'curl: (6) Could not resolve host — Check the internet connection and try again.' });
+    expect(result).toEqual({
+      ok: false,
+      message: "OpenCode's installer stopped before it finished. Check the internet connection and try again.",
+      details: 'curl: (6) Could not resolve host',
+    });
    }, INSTALL_TIMEOUT_MS);
 
-  it("passes on the installer's own words for a failure it does not know", async () => {
+  it("passes on the installer's own words, apart, for a failure it does not know", async () => {
     newHome();
     const result = await runAgentCliAction(fake("console.error('Unexpected token in manifest'); process.exit(3);"), 'install', {
       home,
       pathEnv: '',
     });
 
-    expect(result).toEqual({ ok: false, message: 'Unexpected token in manifest' });
+    expect(result).toEqual({
+      ok: false,
+      message: "OpenCode's installer stopped before it finished. Try again in a moment.",
+      details: 'Unexpected token in manifest',
+    });
    }, INSTALL_TIMEOUT_MS);
 
   it('says so when the installer ended well but left no CLI on the computer', async () => {

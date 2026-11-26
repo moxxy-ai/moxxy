@@ -77,6 +77,8 @@ export type AgentCliAction = 'install' | 'update';
 export interface AgentCliRunResult {
   ok: boolean;
   message: string;
+  /** A failed install's own last words, for a window to show on request beside `message`. */
+  details?: string;
   /**
    * What an update left, read from the copy. `unchanged` and `unverified` are
    * no failures; `gone` is, and only an install brings the agent back.

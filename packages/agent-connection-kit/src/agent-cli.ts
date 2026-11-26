@@ -929,6 +929,8 @@ export interface AgentCliActionResult {
   readonly ok: boolean;
   /** The line that says how it went: the last thing printed, or the error. */
   readonly message: string;
+  /** A failed install's own last words, kept apart from `message` so a window can show them only on request. */
+  readonly details?: string;
   /** Set on an update that ended with an exit code of 0. */
   readonly outcome?: AgentCliOutcome;
 }
@@ -970,11 +972,17 @@ export async function runAgentCliAction(
   return result;
 }
 
+/** A failed install in plain words: what to check when {@link installFailureHint} knows it, else to try again. */
+export function installStopped(desc: Pick<AgentCliDescriptor, 'name'>, hint: string | null): string {
+  return `${desc.name}'s installer stopped before it finished. ${hint ?? 'Try again in a moment.'}`;
+}
+
 /**
  * The vendor's installer, then a look for what it left: its exit code proves
  * nothing, and a fresh program can be gone a moment later (an antivirus that
- * removes it). A failure keeps the installer's own words, with what to check
- * added for the few failures {@link installFailureHint} knows.
+ * removes it). A failure says so in plain words, with what to check for the
+ * few failures {@link installFailureHint} knows, and keeps the installer's own
+ * words apart in `details`.
  */
 async function installAgentCli(
   desc: AgentCliDescriptor,
@@ -991,8 +999,8 @@ async function installAgentCli(
   });
   const result = await watch(child, opts, 'the installer');
   if (!result.ok) {
-    const hint = result.message === STOPPED ? null : installFailureHint([...printed, result.message]);
-    return hint ? { ...result, message: `${result.message} — ${hint}` } : result;
+    if (result.message === STOPPED) return result;
+    return { ok: false, message: installStopped(desc, installFailureHint([...printed, result.message])), details: result.message };
   }
   return (await installLeftACopy(desc, opts)) ? result : { ok: false, message: installLeftNothing(desc, platform) };
 }
@@ -1053,6 +1061,7 @@ async function keepRunLog(
     `Moxxy · ${action} ${desc.name} (${desc.command}) · ${new Date().toISOString()}`,
     ...printed,
     `Result: ${result.ok ? 'done' : 'failed'} — ${result.message}`,
+    ...(result.details ? [`Installer said: ${result.details}`] : []),
     '',
   ].join('\n');
   try {

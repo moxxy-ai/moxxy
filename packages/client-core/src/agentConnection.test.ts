@@ -54,18 +54,29 @@ describe('an agent connection row', () => {
     });
   });
 
-  it('shows how far an install got, and why it failed', () => {
+  it('shows how far an install got, in words of its own rather than the installer’s, and why it failed', () => {
     const missing = entry(report({ state: 'missing', installed: null }));
-    expect(view(missing, { action: 'install', running: true, line: 'Downloading', fraction: 0.4, error: null })).toMatchObject({
+    expect(view(missing, { action: 'install', running: true, line: '#### 40.0%', fraction: 0.4, error: null })).toMatchObject({
       state: 'installing',
-      detail: 'Downloading',
+      detail: 'This usually takes about a minute.',
       progress: 0.4,
       action: null,
+    });
+    expect(view(missing, { action: 'install', running: true, line: 'Checking', fraction: 1, error: null })).toMatchObject({
+      state: 'installing',
+      detail: 'Almost done…',
     });
     expect(view(missing, { action: 'install', running: false, line: null, fraction: null, error: 'curl: (6) Could not resolve host' })).toMatchObject({
       state: 'install-failed',
       detail: 'curl: (6) Could not resolve host',
+      details: null,
       action: 'install',
+    });
+    const plain = "Codex's installer stopped before it finished. Check the internet connection and try again.";
+    expect(view(missing, { action: 'install', running: false, line: null, fraction: null, error: plain, details: 'curl: (6) Could not resolve host' })).toMatchObject({
+      state: 'install-failed',
+      detail: plain,
+      details: 'curl: (6) Could not resolve host',
     });
   });
 
