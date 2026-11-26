@@ -41,9 +41,9 @@ When no shell answers, the app adds the usual GUI folders (`/usr/local/bin`, `/o
 
 | Agent | Installer | Update command | Oldest version Moxxy accepts |
 |---|---|---|---|
-| Claude Code | `curl -fsSL https://claude.ai/install.sh \| bash` (Windows: `irm https://claude.ai/install.ps1 \| iex`) | `claude update` | 2.1.296 |
-| Codex | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` (Windows: `irm https://chatgpt.com/codex/install.ps1 \| iex`) | `codex update` | 0.155.1 |
-| OpenCode | `curl -fsSL https://opencode.ai/v2/install \| bash` (Windows: `npm install -g @opencode/cli`) | `opencode upgrade`; from OpenCode 1 to 2, `opencode upgrade --major` | 1.19.0 |
+| Claude Code | Download `https://claude.ai/install.sh`, then run with `bash` (Windows: `irm https://claude.ai/install.ps1 \| iex`) | `claude update` | 2.1.296 |
+| Codex | Download `https://chatgpt.com/codex/install.sh`, then run with `sh` (Windows: `irm https://chatgpt.com/codex/install.ps1 \| iex`) | `codex update` | 0.155.1 |
+| OpenCode | Download `https://opencode.ai/v2/install`, then run with `bash` (Windows: `npm install -g @opencode/cli`) | `opencode upgrade`; from OpenCode 1 to 2, `opencode upgrade --major` | 1.19.0 |
 
 ## Versions and updates
 

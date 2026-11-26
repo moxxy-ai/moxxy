@@ -95,7 +95,7 @@ describe('installing an agent CLI from the desktop', () => {
 
     expect(result).toEqual({
       ok: false,
-      message: "OpenCode's installer stopped before it finished. Check the internet connection and try again.",
+      message: "Couldn't download OpenCode. Check the internet connection and try again.",
       details: 'curl: (6) Could not resolve host',
     });
     expect(runners[0]?.checks).toBe(1);

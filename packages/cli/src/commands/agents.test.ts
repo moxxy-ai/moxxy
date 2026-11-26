@@ -163,7 +163,7 @@ describe('moxxy agents install / update', () => {
     const { code, err } = await run(['install', 'opencode'], { agents: { opencode: fake } });
 
     expect(code).toBe(1);
-    expect(err).toContain("OpenCode: OpenCode's installer stopped before it finished. Check the internet connection and try again.\n");
+    expect(err).toContain("OpenCode: Couldn't download OpenCode. Check the internet connection and try again.\n");
     expect(err).toContain('curl: (6) Could not resolve host');
   }, 30_000);
 

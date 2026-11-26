@@ -105,6 +105,11 @@ export interface WindowsNativeProgram {
   readonly env?: (root: string) => Readonly<Record<string, string>>;
 }
 
+/** Keep the small bootstrap script on stdin, but only after curl received it in full. */
+function downloadInstaller(url: string, shell: 'bash' | 'sh'): string {
+  return `script=$(curl -fsSL '${url}') && printf '%s\\n' "$script" | ${shell}`;
+}
+
 export const CLAUDE_CLI: AgentCliDescriptor = {
   name: 'Claude Code',
   command: 'claude',
@@ -118,7 +123,7 @@ export const CLAUDE_CLI: AgentCliDescriptor = {
     setting: 'autoUpdatesChannel',
     fallback: 'latest',
   },
-  install: { posix: 'curl -fsSL https://claude.ai/install.sh | bash', windows: 'irm https://claude.ai/install.ps1 | iex' },
+  install: { posix: downloadInstaller('https://claude.ai/install.sh', 'bash'), windows: 'irm https://claude.ai/install.ps1 | iex' },
   installDirs: ['.local/bin'],
   windowsShim: { entry: 'node_modules/@anthropic-ai/claude-code/cli.js', runs: 'node' },
 };
@@ -166,7 +171,7 @@ export const CODEX_CLI: AgentCliDescriptor = {
   minimumVersion: '0.155.1',
   updateArgs: ['update'],
   install: {
-    posix: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
+    posix: downloadInstaller('https://chatgpt.com/codex/install.sh', 'sh'),
     windows: 'irm https://chatgpt.com/codex/install.ps1 | iex',
   },
   // install.ps1 puts it in %LOCALAPPDATA%\Programs\OpenAI\Codex\bin.
@@ -187,7 +192,7 @@ export const OPENCODE_CLI: AgentCliDescriptor = {
   // OpenCode 1's `upgrade` stays on 1; `--major` replaces it with OpenCode 2 the way it was installed.
   majorUpdateArgs: ['upgrade', '--major'],
   // OpenCode's install script is POSIX only; on Windows it ships through npm. `/install` still installs OpenCode 1.
-  install: { posix: 'curl -fsSL https://opencode.ai/v2/install | bash', windows: 'npm install -g @opencode/cli' },
+  install: { posix: downloadInstaller('https://opencode.ai/v2/install', 'bash'), windows: 'npm install -g @opencode/cli' },
   installDirs: ['.opencode/bin'],
   // OpenCode 2 is published as @opencode/cli; OpenCode 1 as opencode-ai.
   windowsShim: {
@@ -1009,9 +1014,12 @@ async function installAgentCli(
   const result = await watch(child, opts, 'the installer');
   if (!result.ok) {
     if (result.message === STOPPED) return result;
+    const hint = installFailureHint([...printed, result.message]);
     return {
       ok: false,
-      message: installStopped(desc, installFailureHint([...printed, result.message])),
+      message: /^curl: \(\d+\)/.test(result.message)
+        ? `Couldn't download ${desc.name}. ${hint ?? 'Try again in a moment.'}`
+        : installStopped(desc, hint),
       details: installFailureDetails(printed, result.message),
     };
   }
@@ -1045,7 +1053,7 @@ const INSTALL_FAILURES: ReadonlyArray<{ readonly seen: RegExp; readonly hint: st
     hint: "Check the computer's date and time. A school or work network can also block the download.",
   },
   {
-    seen: /could not (?:be )?resolved?|\bENOTFOUND\b|\bEAI_AGAIN\b|getaddrinfo|\bETIMEDOUT\b|\bECONNREFUSED\b|\bECONNRESET\b|unable to connect to the remote server|network is unreachable|no such host is known/i,
+    seen: /curl: \((?:5|6|7|28)\)|could not (?:be )?resolved?|\bENOTFOUND\b|\bEAI_AGAIN\b|getaddrinfo|\bETIMEDOUT\b|\bECONNREFUSED\b|\bECONNRESET\b|unable to connect to the remote server|network is unreachable|no such host is known/i,
     hint: 'Check the internet connection and try again.',
   },
   {

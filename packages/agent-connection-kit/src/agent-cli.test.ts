@@ -5,10 +5,12 @@
  * is stood in for.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fakeInstaller, writeFakeCli } from '@moxxy/vitest-preset/fake-cli';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import {
   AGENT_CLIS,
@@ -79,10 +81,10 @@ describe('the agent CLIs Moxxy knows', () => {
   it("installs each with the vendor's installer, on Windows through PowerShell", () => {
     expect(installInvocation(CLAUDE_CLI, 'darwin')).toEqual({
       command: '/bin/sh',
-      args: ['-c', 'curl -fsSL https://claude.ai/install.sh | bash'],
+      args: ['-c', expect.stringMatching(/https:\/\/claude\.ai\/install\.sh.*\| bash$/)],
     });
-    expect(installInvocation(CODEX_CLI, 'linux').args[1]).toBe('curl -fsSL https://chatgpt.com/codex/install.sh | sh');
-    expect(installInvocation(OPENCODE_CLI, 'linux').args[1]).toBe('curl -fsSL https://opencode.ai/v2/install | bash');
+    expect(installInvocation(CODEX_CLI, 'linux').args[1]).toMatch(/https:\/\/chatgpt\.com\/codex\/install\.sh.*\| sh$/);
+    expect(installInvocation(OPENCODE_CLI, 'linux').args[1]).toMatch(/https:\/\/opencode\.ai\/v2\/install.*\| bash$/);
     expect(installInvocation(CODEX_CLI, 'win32')).toEqual({
       command: expect.stringMatching(/\\WindowsPowerShell\\v1\.0\\powershell\.exe$/),
       args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://chatgpt.com/codex/install.ps1 | iex'],
@@ -522,6 +524,55 @@ describe('installing and updating a CLI', () => {
     expect(progress).toEqual([0.4, 1]);
    }, INSTALL_TIMEOUT_MS);
 
+  it.skipIf(!posixShell)('reports a refused installer download with the curl diagnostic', async () => {
+    const dir = newHome();
+    writeFileSync(path.join(dir, '.curlrc'), 'unix-socket = "' + path.join(dir, 'offline.sock') + '"\n');
+    const result = await runAgentCliAction({
+      ...CODEX_CLI,
+      installEnv: { ...CODEX_CLI.installEnv, CURL_HOME: dir, no_proxy: '*' },
+    }, 'install', { home: dir, pathEnv: '', versionRetryMs: 0 });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Couldn't download Codex. Check the internet connection and try again.",
+      details: expect.stringMatching(/^curl: \(7\)/),
+    });
+  });
+
+  it.skipIf(!posixShell)('only runs a complete installer, including on a retry after a truncated download', async () => {
+    const dir = newHome();
+    const target = path.join(dir, '.local', 'bin', 'codex');
+    const script = 'mkdir -p "$HOME/.local/bin"\ntouch "$HOME/.local/bin/codex"\nchmod +x "$HOME/.local/bin/codex"\n';
+    let complete = false;
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Length': Buffer.byteLength(script) + (complete ? 0 : 100), Connection: 'close' });
+      response.end(script);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected a local TCP port');
+      const url = `http://127.0.0.1:${address.port}/install.sh`;
+      const vendorUrl = 'https://chatgpt.com/codex/install.sh';
+      expect(CODEX_CLI.install.posix).toContain(vendorUrl);
+      const desc = {
+        ...CODEX_CLI,
+        install: { ...CODEX_CLI.install, posix: CODEX_CLI.install.posix.replace(vendorUrl, url) },
+        installEnv: { ...CODEX_CLI.installEnv, HOME: dir, CURL_HOME: dir, no_proxy: '*' },
+      };
+      const options = { home: dir, pathEnv: '', versionRetryMs: 0 };
+      const failed = await runAgentCliAction(desc, 'install', options);
+      expect(existsSync(target)).toBe(false);
+      expect(failed).toMatchObject({ ok: false, details: expect.stringMatching(/^curl: \(18\)/) });
+
+      complete = true;
+      expect((await runAgentCliAction(desc, 'install', options)).ok).toBe(true);
+      expect(existsSync(target)).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it('says in plain words that an install failed, with what to check for a failure it knows, and keeps the installer’s words apart', async () => {
     newHome();
     const result = await runAgentCliAction(fake("console.log('Downloading'); console.error('curl: (6) Could not resolve host'); process.exit(6);"), 'install', {
@@ -531,7 +582,7 @@ describe('installing and updating a CLI', () => {
 
     expect(result).toEqual({
       ok: false,
-      message: "OpenCode's installer stopped before it finished. Check the internet connection and try again.",
+      message: "Couldn't download OpenCode. Check the internet connection and try again.",
       details: 'curl: (6) Could not resolve host',
     });
    }, INSTALL_TIMEOUT_MS);
