@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess, type StdioOptions } from 'node:child_process';
 import { existsSync, realpathSync, readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -884,6 +884,12 @@ export interface AgentCliActionOptions extends AgentCliSearch, VersionLookup {
   readonly hostPathDirs?: ReadonlyArray<string>;
   /** The vendor's latest version of an npm package (default: the registry, cached). */
   readonly latest?: (pkg: string) => Promise<string | null>;
+  /**
+   * Where to keep what the installer or updater printed and how it ended,
+   * replacing the last run's: the window shows one line at a time and forgets
+   * them. Writing it is best-effort and never changes the result.
+   */
+  readonly logFile?: string;
 }
 
 /** This process's environment with `hostDirs` moved to the end of PATH, unless `file` lies in one of them. */
@@ -950,7 +956,32 @@ export async function runAgentCliAction(
   opts: AgentCliActionOptions = {},
 ): Promise<AgentCliActionResult> {
   const platform = opts.platform ?? process.platform;
-  if (action === 'update') return updateAgentCli(desc, opts, platform);
+  const printed: string[] = [];
+  const watched: AgentCliActionOptions = {
+    ...opts,
+    onLine: (line) => {
+      printed.push(line);
+      if (printed.length > LOG_LINES) printed.shift();
+      opts.onLine?.(line);
+    },
+  };
+  const result = action === 'update' ? await updateAgentCli(desc, watched, platform) : await installAgentCli(desc, watched, platform, printed);
+  if (opts.logFile) await keepRunLog(opts.logFile, desc, action, printed, result);
+  return result;
+}
+
+/**
+ * The vendor's installer, then a look for what it left: its exit code proves
+ * nothing, and a fresh program can be gone a moment later (an antivirus that
+ * removes it). A failure keeps the installer's own words, with what to check
+ * added for the few failures {@link installFailureHint} knows.
+ */
+async function installAgentCli(
+  desc: AgentCliDescriptor,
+  opts: AgentCliActionOptions,
+  platform: NodeJS.Platform,
+  printed: ReadonlyArray<string>,
+): Promise<AgentCliActionResult> {
   const { command, args } = installInvocation(desc, platform);
   const child = spawn(command, [...args], {
     env: { ...process.env, ...desc.installEnv },
@@ -958,9 +989,82 @@ export async function runAgentCliAction(
     detached: platform !== 'win32',
     windowsHide: true,
   });
-  return watch(child, opts, 'the installer');
+  const result = await watch(child, opts, 'the installer');
+  if (!result.ok) {
+    const hint = result.message === STOPPED ? null : installFailureHint([...printed, result.message]);
+    return hint ? { ...result, message: `${result.message} — ${hint}` } : result;
+  }
+  return (await installLeftACopy(desc, opts)) ? result : { ok: false, message: installLeftNothing(desc, platform) };
 }
 
+/** Whether the CLI is where a check looks for it, asked a few times: a scanner can hold a fresh file a moment. */
+async function installLeftACopy(desc: AgentCliDescriptor, opts: AgentCliActionOptions): Promise<boolean> {
+  for (let attempt = 1; ; attempt += 1) {
+    if (findAgentCli(desc, opts)) return true;
+    if (attempt === VERSION_TRIES) return false;
+    await delay(opts.versionRetryMs ?? VERSION_RETRY_MS);
+  }
+}
+
+/** What an install that ended well but left nothing says: what Moxxy saw, and the usual cause as a possibility. */
+export function installLeftNothing(desc: AgentCliDescriptor, platform: NodeJS.Platform = process.platform): string {
+  const history = platform === 'win32' ? 'Windows Security → Protection history' : 'its history';
+  return `${desc.name}'s installer finished, but ${desc.name} is not on this computer afterwards. Antivirus software sometimes removes a program it has just installed: look in ${history}, allow ${desc.name}, and try again.`;
+}
+
+/**
+ * Failures an installer's output names for certain, each with the one thing to
+ * check. Only an addition to the installer's own words: a failure not listed
+ * gets no hint rather than a wrong one.
+ */
+const INSTALL_FAILURES: ReadonlyArray<{ readonly seen: RegExp; readonly hint: string }> = [
+  { seen: /\bENOSPC\b|not enough space|no space left/i, hint: 'Free some disk space and try again.' },
+  {
+    seen: /CERT_|SSL\/TLS|certificate|SELF_SIGNED/i,
+    hint: "Check the computer's date and time. A school or work network can also block the download.",
+  },
+  {
+    seen: /could not (?:be )?resolved?|\bENOTFOUND\b|\bEAI_AGAIN\b|getaddrinfo|\bETIMEDOUT\b|\bECONNREFUSED\b|\bECONNRESET\b|unable to connect to the remote server|network is unreachable|no such host is known/i,
+    hint: 'Check the internet connection and try again.',
+  },
+  {
+    seen: /\bEACCES\b|\bEPERM\b|access (?:to the path .*)?is denied|permission denied|operation not permitted/i,
+    hint: "This account may not be allowed to install programs here. Ask the computer's administrator.",
+  },
+];
+
+/** The one thing to check after a failed install, from everything it printed; null when the failure is not one Moxxy knows. */
+export function installFailureHint(printed: ReadonlyArray<string>): string | null {
+  const text = printed.join('\n');
+  return INSTALL_FAILURES.find((failure) => failure.seen.test(text))?.hint ?? null;
+}
+
+/** How many of the last printed lines a run's log keeps. */
+const LOG_LINES = 2_000;
+
+async function keepRunLog(
+  file: string,
+  desc: AgentCliDescriptor,
+  action: AgentCliAction,
+  printed: ReadonlyArray<string>,
+  result: AgentCliActionResult,
+): Promise<void> {
+  const text = [
+    `Moxxy · ${action} ${desc.name} (${desc.command}) · ${new Date().toISOString()}`,
+    ...printed,
+    `Result: ${result.ok ? 'done' : 'failed'} — ${result.message}`,
+    '',
+  ].join('\n');
+  try {
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, text);
+  } catch {
+    // A log that cannot be written leaves the install as it went.
+  }
+}
+
+/** What a run stopped by its caller ends with. */
+const STOPPED = 'Stopped.';
 const UPDATER_STDIO: StdioOptions = ['ignore', 'pipe', 'pipe'];
 /** How many times a fresh copy is asked its version, and the wait between, in case a scanner holds its first start. */
 const VERSION_TRIES = 3;
@@ -1123,7 +1227,7 @@ function watch(child: ChildProcess, opts: AgentCliActionOptions, runIt: string):
       killTree(child, 'SIGTERM');
       finish({ ok: false, message });
     };
-    const stop = (): void => end('Stopped.');
+    const stop = (): void => end(STOPPED);
     let silence: NodeJS.Timeout | undefined;
     const heard = (): void => {
       clearTimeout(silence);

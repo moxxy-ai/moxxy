@@ -16,6 +16,7 @@ import {
 import type { AgentCliReport } from '@moxxy/sdk';
 import type { AgentCliAction, AgentCliProgress, AgentCliRunResult, ProviderEntry } from '@moxxy/desktop-ipc-contract';
 import { delimiter } from 'node:path';
+import { moxxyPath } from '@moxxy/sdk/server';
 import { fallbackPathDirs, spawnPath } from './cli-resolver';
 import type { RunnerPool } from './runner-pool';
 
@@ -116,6 +117,15 @@ export async function signOutAgent(provider: string, deps: AgentSignOutDeps): Pr
   return result;
 }
 
+/**
+ * Where the last install or update of an agent's CLI is kept, all it printed and
+ * how it ended: the window shows one line at a time, and an install that went
+ * wrong on someone's computer can be read here afterwards.
+ */
+export function agentCliLogFile(desc: Pick<AgentCliDescriptor, 'command'>): string {
+  return moxxyPath('logs', `agent-${desc.command}.log`);
+}
+
 export async function runAgentCli(
   provider: string,
   action: AgentCliAction,
@@ -134,6 +144,7 @@ export async function runAgentCli(
     const result = await runAgentCliAction(desc, action, {
       ...(deps.search ?? runnerSearch()),
       cacheFile: defaultCacheFile(),
+      logFile: agentCliLogFile(desc),
       hostPathDirs: deps.hostPathDirs ?? [],
       onProgress: (next) => {
         fraction = next;
