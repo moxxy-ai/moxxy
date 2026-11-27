@@ -175,6 +175,8 @@ That line always takes its height and is shown for the message under the
 pointer or holding focus, so revealing it moves nothing. On a touch screen it
 is always shown.
 
+When the chat microphone finds no active transcriber, a dismissible setup hint links to Settings → Voice. It stays long enough to use the link. A connection error offers a retry.
+
 The dictation models in Settings → Voice pick where speech becomes text, for
 the chat microphone and Voice Mode's Classic engine. OpenAI runs in the cloud on
 the person's API key. Parakeet TDT 0.6B v3 and Whisper turbo run on this

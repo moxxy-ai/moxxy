@@ -3641,6 +3641,17 @@ button.trigger__chip { text-align: left; cursor: pointer; }
   flex-shrink: 0;
 }
 
+.cmdbar__dictation-setup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-12);
+  color: var(--color-text-muted);
+  font-size: var(--type-row);
+}
+.cmdbar__dictation-setup > span { flex: 1 1 180px; }
+
 .cmdbar__error {
   margin: 0;
   padding: 0 var(--space-12);

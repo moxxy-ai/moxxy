@@ -8,7 +8,8 @@ import {
   type KeyboardEvent,
   type SetStateAction,
 } from 'react';
-import { Icon } from '@moxxy/desktop-ui';
+import { Button, Icon, IconButton } from '@moxxy/desktop-ui';
+import { useShellNav } from '../shell/navigation/ShellNav';
 import { api } from '@moxxy/client-core';
 import { useQueuedTurns } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
@@ -334,6 +335,7 @@ export function Composer({
     });
   }
 
+  const nav = useShellNav();
   const notice = dictation.notice;
   const sendAction = goalArmed ? 'Start goal' : queued.length > 0 ? 'Queue' : 'Send';
 
@@ -450,6 +452,19 @@ export function Composer({
           </div>
         </div>
       </div>
+      {dictation.needsSetup && (
+        <div className="cmdbar__dictation-setup">
+          <span role="status">To dictate, download a voice model or add your OpenAI API key in Voice settings.</span>
+          {nav && (
+            <Button onClick={() => nav.open({ destination: 'settings', section: 'voice' })}>
+              Open voice settings
+            </Button>
+          )}
+          <IconButton aria-label="Dismiss dictation setup" onClick={dictation.dismissSetup}>
+            <Icon name="x" size={13} />
+          </IconButton>
+        </div>
+      )}
       {notice && (
         <p className="cmdbar__error" role="status">
           {notice}
