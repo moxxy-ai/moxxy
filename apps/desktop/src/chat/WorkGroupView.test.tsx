@@ -4,6 +4,7 @@ import { buildRenderNodes, type WorkNode } from '@moxxy/client-core';
 import { asEventId, asTurnId, asSessionId, asToolCallId, type MoxxyEvent } from '@moxxy/sdk';
 import { transcriptNodes } from './transcript-nodes';
 import { WorkGroupView } from './WorkGroupView';
+import { ToolBlock } from './blocks/ToolBlock';
 import { workGroupLabel } from './useWorkGroup';
 
 afterEach(cleanup);
@@ -115,6 +116,49 @@ describe('WorkGroupView', () => {
     expect(screen.getByText('Technical history')).toBeVisible();
   });
 
+  it('shows the working face during a retry and exposes unsuccessful attempts only in the history', () => {
+    const base = { sessionId: asSessionId('retry'), turnId: asTurnId('visit'), seq: 0, ts: 0 };
+    const request = { ...base, id: asEventId('click'), callId: asToolCallId('link'), type: 'tool_call_requested' as const,
+      source: 'model' as const, name: 'browser_click', input: { element: 'Article link' } };
+    const failure = { ...base, id: asEventId('failed'), callId: request.callId, type: 'tool_result' as const,
+      source: 'tool' as const, ok: false, output: 'Link moved' };
+    const attempt = { kind: 'tool-call' as const, id: 'click', request, outcome: failure };
+    const retry = { ...attempt, id: 'retry', request: { ...request, callId: asToolCallId('retry') }, outcome: null };
+    const view = (work: WorkNode) => <WorkGroupView group={work}>
+      {() => work.nodes.map(node => {
+        if (node.kind !== 'block' || node.block.kind !== 'tool-call') return null;
+        const call = node.block;
+        return <ToolBlock key={call.id} name={call.request.name} input={call.request.input} outcome={call.outcome} />;
+      })}
+    </WorkGroupView>;
+    const first = group({ active: true, steps: 1, nodes: [{ kind: 'block', block: attempt }] });
+    const { rerender } = render(view(first));
+    const header = screen.getByRole('button', { expanded: false });
+    expect(header).not.toHaveTextContent(/fail|steps?|calls?|clicked/i);
+    const face = header.querySelector('img[src$="moxxy-mark-eyeless.png"]');
+    expect(face).toBeVisible();
+    expect(face?.closest('[aria-hidden="true"]')).not.toBeNull();
+    rerender(view({ ...first, nodes: [...first.nodes, { kind: 'block', block: retry }], steps: 2 }));
+    expect(header).toHaveTextContent('Clicking Article link');
+    expect(header.querySelector('img')).toBe(face);
+    fireEvent.click(header);
+    expect(screen.getByRole('button', { name: /browser.click.*failed/i })).toBeVisible();
+    fireEvent.click(header);
+    const success = { ...retry, outcome: { ...failure, callId: retry.request.callId, ok: true, output: 'Article opened' } };
+    rerender(view(group({ steps: 2, nodes: [...first.nodes, { kind: 'block', block: success }] })));
+    expect(header).not.toHaveTextContent(/fail|steps?|calls?/i);
+    expect(header.querySelector('img')).toBeNull();
+    fireEvent.click(header);
+    expect(header).toHaveTextContent('1 failed');
+    expect(header).toHaveTextContent('2 steps');
+    const failed = screen.getByRole('button', { name: /browser.click.*failed/i });
+    fireEvent.click(failed);
+    expect(screen.getByText('Link moved')).toBeVisible();
+    const succeeded = screen.getByRole('button', { name: /Ran browser_click/i });
+    fireEvent.click(succeeded);
+    expect(screen.getByText('Article opened')).toBeVisible();
+  });
+
   it('shows the work folded, and all of it when opened', () => {
     render(
       <WorkGroupView group={group()}>
@@ -123,7 +167,7 @@ describe('WorkGroupView', () => {
     );
     const header = screen.getByRole('button', { name: /Worked for 4m 12s/ });
     expect(header).toHaveAttribute('aria-expanded', 'false');
-    expect(header).toHaveTextContent('12 steps');
+    expect(header).not.toHaveTextContent('12 steps');
     expect(screen.queryByText('Found it in server.ts.')).toBeNull();
 
     fireEvent.click(header);

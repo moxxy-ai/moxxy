@@ -36,8 +36,8 @@ export function ToolGroupView({
     >
       <ActivityRow
         icon="wrench"
-        label={current ? currentToolActivity(current.name, current.input) : `Ran ${rows.length} tools`}
-        meta={
+        label={current ? currentToolActivity(current.name, current.input) : 'Tool activity'}
+        detailMeta={
           <>
             <ActivityCount total={rows.length} failed={errors} />
             {stepDuration(rows) !== null && (
@@ -71,7 +71,7 @@ export function LiveToolGroupView({
   const [open, toggle] = useActivityDisclosure();
   const errors = errorCount(rows);
   const completed = block.calls.filter((call) => statusOf(call.outcome) === 'ok');
-  const summary = completed.length ? buildCompactSummary(completed, false) : 'No steps completed';
+  const summary = completed.length ? buildCompactSummary(completed, false) : 'Tool activity';
   const latest = current ?? rows.at(-1);
   const latestIcon = useToolIcon(latest?.name ?? '');
   return (
@@ -83,7 +83,7 @@ export function LiveToolGroupView({
       <ActivityRow
         icon={latest ? iconForTool(latest.name, latestIcon) : 'wrench'}
         label={current ? currentToolActivity(current.name, current.input) : summary}
-        meta={
+        detailMeta={
           <>
             <ActivityCount total={rows.length} failed={errors} />
             {stepDuration(rows) !== null && (

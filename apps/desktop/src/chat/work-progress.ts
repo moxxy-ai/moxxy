@@ -12,23 +12,23 @@ export function workProgress(group: WorkNode, thinking: boolean): { label: strin
 
   function tool(call: ToolCallBlockData | LiveToolCall): void {
     const status = statusOf(call.outcome);
-    if (status === 'error') failed++;
+    if (status === 'error') {
+      failed++;
+      if (fallback === 'Getting started…') fallback = 'Working…';
+      return;
+    }
     if (!group.active) return;
     const { name, input } = call.request;
     if (name === 'execute' || name === 'functions.exec') return;
-    if (status === 'error') {
-      label = call.outcome?.type === 'denied' ? 'Permission declined' : 'The last step failed';
-    } else {
-      const running = status === 'running';
-      const caption = contextualToolCaption(name, input, !running);
-      if (caption) label = caption;
-      else if ('compact' in call) label = buildCompactSummary([call], running);
-      else {
-        const activity = currentToolActivity(name, input);
-        label = running ? activity : `Last step · ${activity}`;
-      }
-      if (running) pending = label;
+    const running = status === 'running';
+    const caption = contextualToolCaption(name, input, !running);
+    if (caption) label = caption;
+    else if ('compact' in call) label = buildCompactSummary([call], running);
+    else {
+      const activity = currentToolActivity(name, input);
+      label = running ? activity : `Last step · ${activity}`;
     }
+    if (running) pending = label;
   }
 
   function block(step: Block): void {
@@ -55,7 +55,10 @@ export function workProgress(group: WorkNode, thinking: boolean): { label: strin
         step.agents.forEach(block);
         break;
       case 'subagent':
-        if (step.error) failed++;
+        if (step.error) {
+          failed++;
+          break;
+        }
         label = step.completedAtMs === null ? 'Working with a helper…' : 'Helper finished';
         break;
     }

@@ -111,6 +111,7 @@ export function iconForTool(name: string, declared?: ToolIcon): IconName {
 
 /** Human-readable line matching the activity-list treatment in the reference. */
 export function toolActivityLabel(tool: Pick<ToolRowData, 'name' | 'input' | 'outcome'>): string {
+  if (statusOf(tool.outcome) === 'error') return tool.name;
   return tool.outcome === null
     ? currentToolActivity(tool.name, tool.input)
     : formatToolActivity(tool.name, tool.input, false);
@@ -177,14 +178,7 @@ export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.E
   const running = scope.loading || current !== undefined;
   const [open, toggle] = useActivityDisclosure();
   const errors = tools.filter((tool) => statusOf(tool.outcome) === 'error').length;
-  // The scope's own status, so a failed skill is MARKED rather than looking
-  // exactly like one that succeeded. Nothing set this before, which is why a
-  // failure was invisible until you expanded the group.
   const status = errors > 0 ? 'error' : running ? 'running' : 'ok';
-  // The failure count never REPLACES the total. It used to: a scope with two
-  // failures out of sixteen calls read as "2 failed" and lost all sense of how
-  // much work had happened. Both facts, failures first, because that is the one
-  // you would act on.
   const meta = (
     <>
       <ActivityCount total={tools.length} failed={errors} />
@@ -205,7 +199,7 @@ export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.E
     <div className="activity-block" data-testid="block-skill" data-status={status}>
       <ActivityRow
         label={current ? currentToolActivity(current.name, current.input) : label}
-        meta={meta}
+        detailMeta={meta}
         active={running}
         open={open}
         onToggle={toggle}
