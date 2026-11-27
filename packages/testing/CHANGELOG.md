@@ -1,5 +1,12 @@
 # @moxxy/testing
 
+## 0.0.89
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.2
+- @moxxy/core@0.50.2
+
 ## 0.0.88
 
 ### Patch Changes

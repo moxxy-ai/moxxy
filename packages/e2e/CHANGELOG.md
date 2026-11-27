@@ -1,5 +1,11 @@
 # @moxxy/e2e
 
+## 0.50.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.2
+
 ## 0.50.1
 
 ### Patch Changes

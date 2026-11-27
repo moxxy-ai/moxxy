@@ -1,5 +1,11 @@
 # @moxxy/compactor-summarize
 
+## 0.0.84
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.2
+
 ## 0.0.83
 
 ### Patch Changes

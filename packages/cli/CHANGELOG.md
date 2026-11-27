@@ -1,5 +1,16 @@
 # @moxxy/cli
 
+## 0.50.2
+
+### Patch Changes
+
+- d220b82: An agent install (Claude Code, Codex, OpenCode) that ends without the program on the computer now says so and offers Try again, instead of quietly showing Install again. A failed install keeps the installer's own message, adds what to check for a few failures Moxxy can tell for certain (no internet, certificate, full disk, permissions), and every install or update keeps its full output in `~/.moxxy/logs/agent-<command>.log`.
+
+  On first launch, Start free waits for the bundled tools before installing OpenCode, so one click is enough even while Moxxy is still setting up.
+
+- c3eb12c: An agent's row in Settings → Providers no longer shows the installer's raw output while it installs: it shows a progress bar with the percentage, or the time so far when the installer gives none, and a word that a slow connection can take a few minutes. After a failed install, Show details gives one diagnostic, such as the name of a missing command. The local log keeps the full output, including for long installs.
+  - @moxxy/sdk@0.50.2
+
 ## 0.50.1
 
 ### Patch Changes

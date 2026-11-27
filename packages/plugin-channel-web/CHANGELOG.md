@@ -1,5 +1,12 @@
 # @moxxy/plugin-channel-web
 
+## 0.50.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.2
+- @moxxy/plugin-tunnel-proxy@0.50.2
+
 ## 0.50.1
 
 ### Patch Changes
