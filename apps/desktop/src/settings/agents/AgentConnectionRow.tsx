@@ -4,6 +4,10 @@ import { PopoverMenu } from '../../shell/menu/PopoverMenu';
 import { usePopover } from '../../shell/menu/usePopover';
 import { Row, Tile } from '../settings-primitives';
 import type { AgentConnectionRowModel } from './useAgentConnections';
+import { formatElapsed, useElapsedSeconds } from './useElapsedSeconds';
+
+/** After this long without an end, the row says a slow network can take longer. */
+export const SLOW_RUN_SECONDS = 45;
 
 const STATE: Record<AgentConnectionState, { readonly label: string; readonly tone?: 'good' | 'bad' | 'warn' }> = {
   checking: { label: 'Checking' },
@@ -36,7 +40,8 @@ function actionLabel(action: AgentConnectionAction, state: AgentConnectionState)
  * One agent connection (Claude, Codex, OpenCode): its state as a chip beside its name, the one
  * action that moves it on, and a menu with its sign-in and settings and, once
  * signed in, a sign-out. Checking for updates sits on the group's heading. While
- * its CLI installs or updates, a bar under the line says how far it got.
+ * its CLI installs or updates, a bar under the line says how far it got; a
+ * failed install says why in a note under it.
  */
 export function AgentConnectionRow({
   row,
@@ -56,6 +61,8 @@ export function AgentConnectionRow({
   const menu = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'end', width: 220 });
   const state = view.state === 'installing' && jobAction === 'update' ? { label: 'Updating' } : STATE[view.state];
   const doing = jobAction === 'update' ? 'Updating' : 'Installing';
+  const elapsed = useElapsedSeconds(view.state === 'installing');
+  const failed = view.state === 'install-failed';
   return (
     <Row
       testId={`agent-row-${entry.name}`}
@@ -65,7 +72,7 @@ export function AgentConnectionRow({
         </Tile>
       }
       title={agent}
-      subtitle={view.detail}
+      subtitle={failed ? `${agent} was not installed` : view.detail}
       badges={
         <>
           <span className="tag" {...(state.tone ? { 'data-tone': state.tone } : {})}>
@@ -76,16 +83,16 @@ export function AgentConnectionRow({
       }
       below={
         view.state === 'installing' ? (
-          <div
-            role="progressbar"
-            aria-label={`${doing} ${agent}`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            {...(view.progress !== null ? { 'aria-valuenow': Math.round(view.progress * 100) } : {})}
-            className="agent-progress"
-            data-indeterminate={view.progress === null || undefined}
-          >
-            <div className="agent-progress__fill" style={view.progress !== null ? { transform: `scaleX(${view.progress})` } : undefined} />
+          <RunProgress label={`${doing} ${agent}`} progress={view.progress} elapsed={elapsed} />
+        ) : failed ? (
+          <div role="note" aria-label={`Why ${agent} was not installed`} className="agent-note" data-tone="bad">
+            <p className="agent-note__text">{view.detail}</p>
+            {view.details && (
+              <details className="agent-note__details">
+                <summary>Show details</summary>
+                <pre>{view.details}</pre>
+              </details>
+            )}
           </div>
         ) : null
       }
@@ -147,5 +154,44 @@ export function AgentConnectionRow({
         </span>
       }
     />
+  );
+}
+
+/**
+ * A run's bar with how far it got beside it: the percentage when the installer
+ * says one, else the time so far, so a long quiet download still shows it moves.
+ */
+function RunProgress({
+  label,
+  progress,
+  elapsed,
+}: {
+  readonly label: string;
+  readonly progress: number | null;
+  readonly elapsed: number | null;
+}): JSX.Element {
+  const percent = progress !== null ? Math.round(progress * 100) : null;
+  return (
+    <div className="agent-run">
+      <div className="agent-run__line">
+        <div
+          role="progressbar"
+          aria-label={label}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          {...(percent !== null ? { 'aria-valuenow': percent } : {})}
+          className="agent-progress"
+          data-indeterminate={percent === null || undefined}
+        >
+          <div className="agent-progress__fill" style={progress !== null ? { transform: `scaleX(${progress})` } : undefined} />
+        </div>
+        <span className="agent-run__amount" aria-hidden="true">
+          {percent !== null ? `${percent}%` : formatElapsed(elapsed ?? 0)}
+        </span>
+      </div>
+      {elapsed !== null && elapsed >= SLOW_RUN_SECONDS && (
+        <div className="agent-run__hint">A slow connection can take a few minutes.</div>
+      )}
+    </div>
   );
 }

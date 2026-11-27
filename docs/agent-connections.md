@@ -23,7 +23,7 @@ The Claude Agent SDK is not part of Moxxy. The first time the Claude connection 
 
 ## Setting one up
 
-**In the desktop.** First-run setup and Settings → Providers show one row per agent: whether its CLI is installed, its version, the account it is signed in with, and one main action (Install, Sign in, Update). Install runs the vendor's installer with a progress bar. Before the agent runtime has started (on a first run it waits for setup) the desktop reads the rows on this computer itself, so an agent can be installed meanwhile; after an install, update or check every view reads them again.
+**In the desktop.** First-run setup and Settings → Providers show one row per agent: whether its CLI is installed, its version, the account it is signed in with, and one main action (Install, Sign in, Update). Install runs the vendor's installer with a progress bar: the row says how far it got as a percentage when the installer prints one, or the time so far when it does not, and after 45 seconds that a slow connection can take a few minutes; the installer's own lines stay out of the row and go to its log. An installer's exit code proves nothing, so afterwards Moxxy looks for the CLI where a check would, with a few tries: an installer that ended well but left no CLI (an antivirus can remove a program it has just been given) is a failed install that says so and offers Try again, instead of a row back at Install with no word. A failed install says so in plain words in a note under the row; for a few failures it can tell for certain (no internet, a certificate, a full disk, no permission) it adds the one thing to check, and for any other it asks to try again rather than guess. Show details gives one diagnostic from the installer. For example, when PowerShell reports a missing command, it names that command. The CLI prints the same diagnostic on the next line. All that the last install or update of each agent printed, and how it ended, is kept in `~/.moxxy/logs/agent-<command>.log` (`agent-claude.log`, `agent-codex.log`, `agent-opencode.log`), replaced by the next run, so an install that went wrong on someone's computer can be read afterwards. Before the agent runtime has started (on a first run it waits for setup) the desktop reads the rows on this computer itself, so an agent can be installed meanwhile; after an install, update or check every view reads them again.
 
 **In the terminal.**
 
@@ -41,9 +41,9 @@ When no shell answers, the app adds the usual GUI folders (`/usr/local/bin`, `/o
 
 | Agent | Installer | Update command | Oldest version Moxxy accepts |
 |---|---|---|---|
-| Claude Code | `curl -fsSL https://claude.ai/install.sh \| bash` (Windows: `irm https://claude.ai/install.ps1 \| iex`) | `claude update` | 2.1.296 |
-| Codex | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` (Windows: `irm https://chatgpt.com/codex/install.ps1 \| iex`) | `codex update` | 0.155.1 |
-| OpenCode | `curl -fsSL https://opencode.ai/v2/install \| bash` (Windows: `npm install -g @opencode/cli`) | `opencode upgrade`; from OpenCode 1 to 2, `opencode upgrade --major` | 1.19.0 |
+| Claude Code | Download `https://claude.ai/install.sh`, then run with `bash` (Windows: `irm https://claude.ai/install.ps1 \| iex`) | `claude update` | 2.1.296 |
+| Codex | Download `https://chatgpt.com/codex/install.sh`, then run with `sh` (Windows: `irm https://chatgpt.com/codex/install.ps1 \| iex`) | `codex update` | 0.155.1 |
+| OpenCode | Download `https://opencode.ai/v2/install`, then run with `bash` (Windows: `npm install -g @opencode/cli`) | `opencode upgrade`; from OpenCode 1 to 2, `opencode upgrade --major` | 1.19.0 |
 
 ## Versions and updates
 

@@ -1,6 +1,7 @@
 import { execFile, spawn, type ChildProcess, type StdioOptions } from 'node:child_process';
 import { existsSync, realpathSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { PassThrough } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -104,6 +105,11 @@ export interface WindowsNativeProgram {
   readonly env?: (root: string) => Readonly<Record<string, string>>;
 }
 
+/** Keep the small bootstrap script on stdin, but only after curl received it in full. */
+function downloadInstaller(url: string, shell: 'bash' | 'sh'): string {
+  return `script=$(curl -fsSL '${url}') && printf '%s\\n' "$script" | ${shell}`;
+}
+
 export const CLAUDE_CLI: AgentCliDescriptor = {
   name: 'Claude Code',
   command: 'claude',
@@ -117,7 +123,7 @@ export const CLAUDE_CLI: AgentCliDescriptor = {
     setting: 'autoUpdatesChannel',
     fallback: 'latest',
   },
-  install: { posix: 'curl -fsSL https://claude.ai/install.sh | bash', windows: 'irm https://claude.ai/install.ps1 | iex' },
+  install: { posix: downloadInstaller('https://claude.ai/install.sh', 'bash'), windows: 'irm https://claude.ai/install.ps1 | iex' },
   installDirs: ['.local/bin'],
   windowsShim: { entry: 'node_modules/@anthropic-ai/claude-code/cli.js', runs: 'node' },
 };
@@ -165,7 +171,7 @@ export const CODEX_CLI: AgentCliDescriptor = {
   minimumVersion: '0.155.1',
   updateArgs: ['update'],
   install: {
-    posix: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
+    posix: downloadInstaller('https://chatgpt.com/codex/install.sh', 'sh'),
     windows: 'irm https://chatgpt.com/codex/install.ps1 | iex',
   },
   // install.ps1 puts it in %LOCALAPPDATA%\Programs\OpenAI\Codex\bin.
@@ -186,7 +192,7 @@ export const OPENCODE_CLI: AgentCliDescriptor = {
   // OpenCode 1's `upgrade` stays on 1; `--major` replaces it with OpenCode 2 the way it was installed.
   majorUpdateArgs: ['upgrade', '--major'],
   // OpenCode's install script is POSIX only; on Windows it ships through npm. `/install` still installs OpenCode 1.
-  install: { posix: 'curl -fsSL https://opencode.ai/v2/install | bash', windows: 'npm install -g @opencode/cli' },
+  install: { posix: downloadInstaller('https://opencode.ai/v2/install', 'bash'), windows: 'npm install -g @opencode/cli' },
   installDirs: ['.opencode/bin'],
   // OpenCode 2 is published as @opencode/cli; OpenCode 1 as opencode-ai.
   windowsShim: {
@@ -884,6 +890,12 @@ export interface AgentCliActionOptions extends AgentCliSearch, VersionLookup {
   readonly hostPathDirs?: ReadonlyArray<string>;
   /** The vendor's latest version of an npm package (default: the registry, cached). */
   readonly latest?: (pkg: string) => Promise<string | null>;
+  /**
+   * Where to keep what the installer or updater printed and how it ended,
+   * replacing the last run's: the window shows one line at a time and forgets
+   * them. Writing it is best-effort and never changes the result.
+   */
+  readonly logFile?: string;
 }
 
 /** This process's environment with `hostDirs` moved to the end of PATH, unless `file` lies in one of them. */
@@ -923,6 +935,8 @@ export interface AgentCliActionResult {
   readonly ok: boolean;
   /** The line that says how it went: the last thing printed, or the error. */
   readonly message: string;
+  /** One diagnostic from a failed install, shown on request. */
+  readonly details?: string;
   /** Set on an update that ended with an exit code of 0. */
   readonly outcome?: AgentCliOutcome;
 }
@@ -950,7 +964,46 @@ export async function runAgentCliAction(
   opts: AgentCliActionOptions = {},
 ): Promise<AgentCliActionResult> {
   const platform = opts.platform ?? process.platform;
-  if (action === 'update') return updateAgentCli(desc, opts, platform);
+  const printed: string[] = [];
+  const log = opts.logFile ? startRunLog(opts.logFile, desc, action) : undefined;
+  const watched: AgentCliActionOptions = {
+    ...opts,
+    onLine: (line) => {
+      if (action === 'install') {
+        printed.push(line);
+        if (printed.length > DIAGNOSTIC_LINES) printed.shift();
+      }
+      log?.line(line);
+      opts.onLine?.(line);
+    },
+  };
+  try {
+    const result = action === 'update' ? await updateAgentCli(desc, watched, platform) : await installAgentCli(desc, watched, platform, printed);
+    log?.line(`Result: ${result.ok ? 'done' : 'failed'} — ${result.message}`);
+    if (result.details) log?.line(`Details: ${result.details}`);
+    return result;
+  } finally {
+    await log?.close();
+  }
+}
+
+/** A failed install in plain words: what to check when {@link installFailureHint} knows it, else to try again. */
+export function installStopped(desc: Pick<AgentCliDescriptor, 'name'>, hint: string | null): string {
+  return `${desc.name}'s installer stopped before it finished. ${hint ?? 'Try again in a moment.'}`;
+}
+
+/**
+ * The vendor's installer, then a look for what it left: its exit code proves
+ * nothing, and a fresh program can be gone a moment later (an antivirus that
+ * removes it). A failure says so in plain words, with what to check for the
+ * few failures {@link installFailureHint} knows, and one diagnostic in `details`.
+ */
+async function installAgentCli(
+  desc: AgentCliDescriptor,
+  opts: AgentCliActionOptions,
+  platform: NodeJS.Platform,
+  printed: ReadonlyArray<string>,
+): Promise<AgentCliActionResult> {
   const { command, args } = installInvocation(desc, platform);
   const child = spawn(command, [...args], {
     env: { ...process.env, ...desc.installEnv },
@@ -958,9 +1011,109 @@ export async function runAgentCliAction(
     detached: platform !== 'win32',
     windowsHide: true,
   });
-  return watch(child, opts, 'the installer');
+  const result = await watch(child, opts, 'the installer');
+  if (!result.ok) {
+    if (result.message === STOPPED) return result;
+    const hint = installFailureHint([...printed, result.message]);
+    return {
+      ok: false,
+      message: /^curl: \(\d+\)/.test(result.message)
+        ? `Couldn't download ${desc.name}. ${hint ?? 'Try again in a moment.'}`
+        : installStopped(desc, hint),
+      details: installFailureDetails(printed, result.message),
+    };
+  }
+  return (await installLeftACopy(desc, opts)) ? result : { ok: false, message: installLeftNothing(desc, platform) };
 }
 
+/** Whether the CLI is where a check looks for it, asked a few times: a scanner can hold a fresh file a moment. */
+async function installLeftACopy(desc: AgentCliDescriptor, opts: AgentCliActionOptions): Promise<boolean> {
+  for (let attempt = 1; ; attempt += 1) {
+    if (findAgentCli(desc, opts)) return true;
+    if (attempt === VERSION_TRIES) return false;
+    await delay(opts.versionRetryMs ?? VERSION_RETRY_MS);
+  }
+}
+
+/** What an install that ended well but left nothing says: what Moxxy saw, and the usual cause as a possibility. */
+export function installLeftNothing(desc: AgentCliDescriptor, platform: NodeJS.Platform = process.platform): string {
+  const history = platform === 'win32' ? 'Windows Security → Protection history' : 'its history';
+  return `${desc.name}'s installer finished, but ${desc.name} is not on this computer afterwards. Antivirus software sometimes removes a program it has just installed: look in ${history}, allow ${desc.name}, and try again.`;
+}
+
+/**
+ * Failures an installer's output names for certain, each with the one thing to
+ * check. Only an addition to the installer's own words: a failure not listed
+ * gets no hint rather than a wrong one.
+ */
+const INSTALL_FAILURES: ReadonlyArray<{ readonly seen: RegExp; readonly hint: string }> = [
+  { seen: /\bENOSPC\b|not enough space|no space left/i, hint: 'Free some disk space and try again.' },
+  {
+    seen: /CERT_|SSL\/TLS|certificate|SELF_SIGNED/i,
+    hint: "Check the computer's date and time. A school or work network can also block the download.",
+  },
+  {
+    seen: /curl: \((?:5|6|7|28)\)|could not (?:be )?resolved?|\bENOTFOUND\b|\bEAI_AGAIN\b|getaddrinfo|\bETIMEDOUT\b|\bECONNREFUSED\b|\bECONNRESET\b|unable to connect to the remote server|network is unreachable|no such host is known/i,
+    hint: 'Check the internet connection and try again.',
+  },
+  {
+    seen: /\bEACCES\b|\bEPERM\b|access (?:to the path .*)?is denied|permission denied|operation not permitted/i,
+    hint: "This account may not be allowed to install programs here. Ask the computer's administrator.",
+  },
+];
+
+/** The one thing to check after a failed install, from everything it printed; null when the failure is not one Moxxy knows. */
+export function installFailureHint(printed: ReadonlyArray<string>): string | null {
+  const text = printed.join('\n');
+  return INSTALL_FAILURES.find((failure) => failure.seen.test(text))?.hint ?? null;
+}
+
+const POWERSHELL_ERROR_ID = /^\+\s*FullyQualifiedErrorId\s*:/i;
+const NPM_LOG_FOOTER = /^npm (?:error|ERR!)\s+A complete log of this run can be found in:/i;
+
+/** PowerShell and npm can print bookkeeping after the error. Look within the last error only. */
+function installFailureDetails(printed: ReadonlyArray<string>, last: string): string {
+  const end = printed.lastIndexOf(last);
+  if (POWERSHELL_ERROR_ID.test(last)) {
+    for (let i = end - 1; i >= 0; i--) {
+      const line = printed[i];
+      if (!line || POWERSHELL_ERROR_ID.test(line)) break;
+      const target = /^\+\s*CategoryInfo\s*:\s*ObjectNotFound:\s*\((.+):String\)\s*\[\],\s*CommandNotFoundException$/i.exec(line);
+      if (target && /:\s*CommandNotFoundException$/i.test(last)) {
+        return `The installer could not find the command '${target[1]}'.`;
+      }
+      if (/^[^+\s]\S*\s+:\s+\S/.test(line)) return line;
+    }
+  } else if (NPM_LOG_FOOTER.test(last)) {
+    for (let i = end - 1; i >= 0; i--) {
+      const line = printed[i];
+      if (!line || NPM_LOG_FOOTER.test(line)) break;
+      if (/^npm (?:error|ERR!)\s+\S/i.test(line)) return line;
+    }
+  }
+  return last;
+}
+
+/** The diagnostic only needs recent output. The file keeps the entire run. */
+const DIAGNOSTIC_LINES = 2_000;
+
+function startRunLog(file: string, desc: AgentCliDescriptor, action: AgentCliAction) {
+  const stream = new PassThrough();
+  const saved = writeFileAtomic(file, stream).catch(() => { stream.destroy(); });
+  stream.write(`Moxxy · ${action} ${desc.name} (${desc.command}) · ${new Date().toISOString()}\n`);
+  return {
+    line(text: string) {
+      if (!stream.destroyed) stream.write(text + '\n');
+    },
+    close() {
+      stream.end();
+      return saved;
+    },
+  };
+}
+
+/** What a run stopped by its caller ends with. */
+const STOPPED = 'Stopped.';
 const UPDATER_STDIO: StdioOptions = ['ignore', 'pipe', 'pipe'];
 /** How many times a fresh copy is asked its version, and the wait between, in case a scanner holds its first start. */
 const VERSION_TRIES = 3;
@@ -1123,7 +1276,7 @@ function watch(child: ChildProcess, opts: AgentCliActionOptions, runIt: string):
       killTree(child, 'SIGTERM');
       finish({ ok: false, message });
     };
-    const stop = (): void => end('Stopped.');
+    const stop = (): void => end(STOPPED);
     let silence: NodeJS.Timeout | undefined;
     const heard = (): void => {
       clearTimeout(silence);

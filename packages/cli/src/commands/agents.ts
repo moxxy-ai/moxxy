@@ -101,6 +101,7 @@ export async function runAgentsCommand(argv: ParsedArgv, deps: AgentsDeps = {}):
   });
   if (!result.ok) {
     err(`${desc.name}: ${result.message}\n`);
+    if (result.details) err(`${colors.dim(result.details)}\n`);
     return 1;
   }
   out(`${desc.name}: ${result.message}\n`);

@@ -78,7 +78,7 @@ export interface IpcEvents {
     /** Omitted by legacy senders and therefore treated as foreground. */
     visibility?: RunTurnVisibility;
   };
-  /** A line from an agent CLI's installer or updater (`agents.run`). */
+  /** An agent CLI installer starting, or a line from the installer or updater (`agents.run`). */
   'agents.progress': AgentCliProgress;
   /** A running interactive provider login (`provider.login.start`) needs a
    *  pasted answer — the out-of-band token or `code#state` claude-code's flow

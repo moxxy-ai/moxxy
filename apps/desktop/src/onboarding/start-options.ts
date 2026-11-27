@@ -104,7 +104,8 @@ export function startOption(
   const progress = view?.progress ?? null;
   const cli = entry?.agentCli;
   const account = cli?.account ?? null;
-  return { provider, name: NAME[provider], state, detail: detailFor(provider, state, progress, account), progress };
+  const detail = state === 'installing' && local.job?.preparing ? 'Preparing…' : detailFor(provider, state, progress, account);
+  return { provider, name: NAME[provider], state, detail, progress };
 }
 
 /** The first plan already signed in on this computer, offered as one press; null when none is. */

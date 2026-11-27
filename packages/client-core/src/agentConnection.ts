@@ -20,12 +20,16 @@ export type AgentConnectionAction = 'install' | 'update' | 'sign-in' | 'check';
 export interface AgentCliJob {
   readonly action: AgentCliAction;
   readonly running: boolean;
+  /** The host has yet to start the installer. */
+  readonly preparing?: boolean;
   /** The last line it printed. */
   readonly line: string | null;
   /** 0–1 when it printed a percentage. */
   readonly fraction: number | null;
   /** Why it failed; null while running or after it worked. */
   readonly error: string | null;
+  /** One diagnostic from a failed install, when available. */
+  readonly details?: string | null;
   /** What to know about one that ended without proof it worked; null otherwise. */
   readonly note: string | null;
   /** What brings it back: the same again, or an install when the update took the copy with it. */
@@ -39,6 +43,8 @@ export interface AgentConnectionView {
   readonly action: AgentConnectionAction | null;
   /** 0–1 while installing or updating and it said how far; null otherwise. */
   readonly progress: number | null;
+  /** The failed install diagnostic for the details disclosure, or null. */
+  readonly details: string | null;
 }
 
 /**
@@ -58,16 +64,19 @@ export function agentConnectionView(
     detail: job?.note ?? (job?.error && action !== null ? job.error : detail),
     action,
     progress: null,
+    details: null,
   });
 
   if (job?.running) {
-    const doing = job.action === 'install' ? `Installing ${agent}…` : `Updating ${agent}…`;
-    return { state: 'installing', detail: job.line ?? doing, action: null, progress: job.fraction };
+    // The chip already says it installs; the installer's own lines go to its log file, as
+    // they read like a console. At 100% the download is in and Moxxy checks the copy it left.
+    const detail = job.fraction === 1 ? 'Almost done…' : 'This usually takes about a minute.';
+    return { state: 'installing', detail, action: null, progress: job.fraction, details: null };
   }
   if (job?.error && job.action === 'install' && report?.state === 'missing') {
-    return view('install-failed', job.error, 'install');
+    return { ...view('install-failed', job.error, 'install'), details: job.details ?? null };
   }
-  if (!report || local.checking) return { state: 'checking', detail: `Checking ${agent}…`, action: null, progress: null };
+  if (!report || local.checking) return { state: 'checking', detail: `Checking ${agent}…`, action: null, progress: null, details: null };
 
   const account = report.account ?? null;
   const notice = agentCliNotice(entry);
