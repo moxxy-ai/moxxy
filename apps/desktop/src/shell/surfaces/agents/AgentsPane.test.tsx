@@ -116,11 +116,15 @@ describe('AgentsPane', () => {
     render(<AgentsPane workspaceId={id} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /Inspect files/ }));
-    fireEvent.click(screen.getByRole('button', { name: '1 tool call', expanded: false }));
+    expect(screen.queryByText('Working…')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Listing \*\.txt/, expanded: false }));
     act(() => seed(id, [helper('subagent_tool_call', { childSessionId: 'sub-1', name: 'Read', input: { path: 'notes.txt' } })]));
 
-    expect(screen.getByRole('button', { name: '2 tool calls', expanded: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reading notes\.txt/, expanded: true })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    act(() => seed(id, [helper('subagent_completed', { childSessionId: 'sub-1', text: 'Found the file.' })]));
+    expect(screen.getByRole('button', { name: '2 tool calls', expanded: true })).toBeInTheDocument();
+    expect(screen.getByText('Found the file.')).toBeVisible();
   });
 
   it('stops a command that runs in the background, and shows what an ended one printed', async () => {

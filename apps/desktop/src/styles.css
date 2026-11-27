@@ -2143,26 +2143,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text-dim);
   font-size: var(--type-label);
 }
-/* Failure is the one thing in an activity row that gets a hue, and it is now
- * marked on the GROUP as well as the individual call — a scope whose children
- * failed used to look exactly like one that succeeded until you expanded it. */
-.activity-block[data-status='error'] > .activity-row .activity-row__label {
-  color: var(--color-red-text);
-}
-.activity-row__fail {
-  flex: 0 0 auto;
-  margin-left: auto;
-  padding: 0 var(--space-4);
-  border: 1px solid var(--color-red-border);
-  border-radius: var(--radius-chip);
-  color: var(--color-red-text);
-  font-size: var(--type-label);
-  background: var(--color-red-wash);
-}
-/* With a failure chip present the count follows it rather than claiming the
- * right edge for itself. */
-.activity-row__fail + span { flex: 0 0 auto; }
-/* The meta pushes to the right edge instead. */
+/* A failed attempt stays legible beside the call count while other work continues. */
+.activity-row__fail { color: var(--color-text-muted); }
 .activity-row__meta { margin-left: auto; }
 .activity-row:hover,
 .activity-detail-row:hover { color: var(--color-text); }
@@ -2207,21 +2189,12 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   margin: var(--space-4) 0 var(--space-8) var(--space-16);
   line-height: 0;
 }
-.activity-preview {
-  overflow: hidden;
-  margin: 1px 0 0 var(--space-16);
-  color: var(--color-text-dim);
-  font-size: var(--type-meta);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* A moving luminance band reads as active work while keeping the row's muted
  * palette. `prefers-reduced-motion` below collapses it to a static color. */
 /* Two class names, so this wins on SPECIFICITY rather than on being declared
  * after `.activity-row__label`'s colour. At equal specificity the shimmer was
- * one rule reorder away from silently becoming plain text. (The error rule above
- * is deliberately higher still: a failed row must read red, not shimmer.) */
+ * one rule reorder away from silently becoming plain text. */
 .activity-shimmer,
 .activity-row__label.activity-shimmer,
 .activity-detail-row__label.activity-shimmer,

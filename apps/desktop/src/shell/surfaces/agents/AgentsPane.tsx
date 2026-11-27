@@ -3,6 +3,7 @@ import { Icon } from '@moxxy/desktop-ui';
 import { showInChat, useAgentWork } from '@moxxy/client-core';
 import type { AgentWorkItem, AgentWorkStep } from '@moxxy/chat-model';
 import { STATUS_TEXT, toolLine, wakeupMeta, workMeta } from './agent-work-view';
+import { currentToolActivity } from '../../../chat/current-tool-activity';
 import { ActivityRow } from '../../../chat/ActivityRow';
 import { MarkdownBody } from '../../../chat/MarkdownBody';
 import { useNow } from './useNow';
@@ -183,14 +184,15 @@ function HelperChat({ item }: { readonly item: AgentWorkItem }): JSX.Element {
       for (let next = item.steps[index]; next?.kind === 'tool'; next = item.steps[++index]) {
         calls.push(next);
       }
-      steps.push(<HelperToolCalls key={start} calls={calls} />);
+      const active = item.status === 'running' && index === item.steps.length;
+      steps.push(<HelperToolCalls key={start} calls={calls} active={active} />);
     }
   }
   return (
     <>
       {item.prompt && <p className="agent-chat__task">{item.prompt}</p>}
       {steps}
-      {item.status === 'running' && <p className="agent-chat__working">Working…</p>}
+      {item.status === 'running' && item.steps.at(-1)?.kind !== 'tool' && <p className="agent-chat__working">Working…</p>}
       {item.answer && (
         <div className="agent-chat__answer">
           <MarkdownBody text={item.answer} streaming={false} />
@@ -201,11 +203,19 @@ function HelperChat({ item }: { readonly item: AgentWorkItem }): JSX.Element {
   );
 }
 
-function HelperToolCalls({ calls }: { readonly calls: ReadonlyArray<Extract<AgentWorkStep, { kind: 'tool' }>> }): JSX.Element {
+function HelperToolCalls({ calls, active }: { readonly calls: ReadonlyArray<Extract<AgentWorkStep, { kind: 'tool' }>>; readonly active: boolean }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const latest = calls.at(-1);
+  const count = `${calls.length} tool ${calls.length === 1 ? 'call' : 'calls'}`;
   return (
     <div>
-      <ActivityRow label={`${calls.length} tool ${calls.length === 1 ? 'call' : 'calls'}`} open={open} onToggle={() => setOpen((value) => !value)} />
+      <ActivityRow
+        label={active && latest ? currentToolActivity(latest.name, latest.input) : count}
+        meta={active ? count : undefined}
+        active={active}
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+      />
       {open && (
         <ul className="activity-list" role="list">
           {calls.map((call, index) => (

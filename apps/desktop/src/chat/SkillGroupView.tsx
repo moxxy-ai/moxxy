@@ -9,9 +9,9 @@ import {
   type ToolCallBlockData,
 } from '@moxxy/chat-model';
 import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
-import { Icon, type IconName } from '@moxxy/desktop-ui';
+import type { IconName } from '@moxxy/desktop-ui';
 import type { ToolIcon } from '@moxxy/sdk';
-import { useToolIcon } from './ToolIconContext';
+import { currentToolActivity } from './current-tool-activity';
 import { ActivityRow } from './ActivityRow';
 import { AnsweredQuestionBlock } from './blocks/AnsweredQuestionBlock';
 import { FileDiffBlock } from './blocks/FileDiffBlock';
@@ -111,7 +111,9 @@ export function iconForTool(name: string, declared?: ToolIcon): IconName {
 
 /** Human-readable line matching the activity-list treatment in the reference. */
 export function toolActivityLabel(tool: Pick<ToolRowData, 'name' | 'input' | 'outcome'>): string {
-  return formatToolActivity(tool.name, tool.input, statusOf(tool.outcome) === 'running');
+  return tool.outcome === null
+    ? currentToolActivity(tool.name, tool.input)
+    : formatToolActivity(tool.name, tool.input, false);
 }
 
 /** Starts expanded while work is live, then quietly collapses when it settles
@@ -171,8 +173,8 @@ export function ActivityCount({
 
 export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.Element {
   const tools = collectTools(scope.children);
-  const runningTools = tools.some((tool) => statusOf(tool.outcome) === 'running');
-  const running = scope.loading || runningTools;
+  const current = tools.findLast((tool) => tool.outcome === null);
+  const running = scope.loading || current !== undefined;
   const [open, toggle] = useActivityDisclosure();
   const errors = tools.filter((tool) => statusOf(tool.outcome) === 'error').length;
   // The scope's own status, so a failed skill is MARKED rather than looking
@@ -202,7 +204,7 @@ export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.E
   return (
     <div className="activity-block" data-testid="block-skill" data-status={status}>
       <ActivityRow
-        label={label}
+        label={current ? currentToolActivity(current.name, current.input) : label}
         meta={meta}
         active={running}
         open={open}
