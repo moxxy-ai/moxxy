@@ -186,7 +186,7 @@ describe('Transcript stick-to-bottom wiring', () => {
     expect(onReachedTop).toHaveBeenCalledTimes(1);
   });
 
-  it('anchors pagination when an older page expands the head tool group', () => {
+  it('anchors pagination when older calls join the live work row', () => {
     const t2 = toolRequest('tool-2', 'call-2');
     const t3 = toolRequest('tool-3', 'call-3');
     const tail = assistantMessage('tail', 'done');
@@ -212,7 +212,8 @@ describe('Transcript stick-to-bottom wiring', () => {
       />,
     );
 
-    expect(captured.props?.firstItemIndex).toBe(before - 2);
+    // Only the prompt is prepended; older work joins the same visible disclosure.
+    expect(captured.props?.firstItemIndex).toBe(before - 1);
   });
 
   it('anchors pagination when an older page folds the head tool group into its turn’s work', () => {

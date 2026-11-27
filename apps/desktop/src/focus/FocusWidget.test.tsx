@@ -1553,7 +1553,9 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
-    expect(await screen.findByRole('status', { name: 'Moxxy is thinking' })).toBeTruthy();
+    const liveRow = await screen.findByRole('button', { name: /Writing report\.pdf/ });
+    expect(liveRow).toHaveAttribute('aria-expanded', 'false');
+    expect(within(liveRow).getByRole('status')).toHaveTextContent('Writing report.pdf');
 
     act(() => {
       spy.emit('runner.event', {
@@ -1573,7 +1575,8 @@ describe('FocusWidget bidirectional sync', () => {
       });
     });
 
-    await waitFor(() => expect(screen.queryByRole('status', { name: 'Moxxy is thinking' })).toBeNull());
+    await waitFor(() => expect(liveRow).not.toBeInTheDocument());
+    expect(screen.getByText('The PDF is ready.')).toBeVisible();
   });
 
   it('renders the latest assistant message as Markdown, not raw text', async () => {

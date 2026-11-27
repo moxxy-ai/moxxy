@@ -66,11 +66,13 @@ export type RenderNode =
   | WorkNode;
 
 /**
- * What an agent did on its way to an answer in one finished turn (thoughts,
+ * What an agent did on its way to an answer in one turn (thoughts,
  * tool runs, the comments in between), folded into one row: see `groupWorkNodes`.
  */
 export interface WorkNode {
   readonly kind: 'work';
+  /** Only the trailing work row of the turn receiving events. */
+  readonly active?: true;
   readonly id: string;
   readonly nodes: ReadonlyArray<RenderNode>;
   /** Tool calls, thoughts and comments the group holds. */
@@ -169,60 +171,82 @@ function endOf(node: RenderNode): number | null {
   return finite.length > 0 ? Math.max(...finite) : null;
 }
 
+function startOfNextOrLastStep(next: RenderNode | undefined, run: ReadonlyArray<RenderNode>): number | null {
+  const nextStart = next ? startOf(next) : null;
+  if (nextStart !== null) return nextStart;
+  return run.reduce<number | null>((latest, node) => {
+    const end = endOf(node);
+    return end === null ? latest : Math.max(end, latest ?? end);
+  }, null);
+}
+
 export interface WorkGroupOptions {
-  /** The last turn is still going: its steps stay in view as they come. */
+  /** The last turn is still receiving events. */
   readonly running?: boolean;
+  /** The visible history can start partway through an older turn. */
+  readonly hasOlder?: boolean;
   /** A row the surface draws as more than a step, such as a plan card: never folded. */
   readonly keep?: (node: RenderNode) => boolean;
 }
 
 /**
- * Fold what an agent did in each finished turn before its answer into one
+ * Fold what an agent does in each turn before its answer into one
  * `work` row, so a long piece of work reads as "worked 4m · 12 steps" over the
  * answer instead of a screen of comments, thoughts and tool runs.
  *
  * A turn runs from one person's (or agent-started) message to the next. Its
  * last message stays in view as the answer; errors, Stopped, notices, answered
  * questions, step lists and whatever `keep` names stay in view too, so the
- * work folds in runs between them, in order. A run of one step stays as it is,
- * and the turn still running is left alone.
+ * work folds in runs between them, in order. A finished single step keeps its own row. A live run gets a
+ * disclosure from its first step so it can grow in place.
  */
 export function groupWorkNodes(nodes: ReadonlyArray<RenderNode>, options: WorkGroupOptions = {}): RenderNode[] {
   const keep = options.keep ?? (() => false);
   const prompts = nodes.flatMap((node, at) => (eventOf(node)?.type === 'user_prompt' ? [at] : []));
+  // The first loaded page may begin inside a turn, even when later prompts are already visible.
+  if (nodes.length > 0 && prompts[0] !== 0 && (options.hasOlder || (options.running && prompts.length === 0))) {
+    prompts.unshift(0);
+  }
   const out: RenderNode[] = [...nodes.slice(0, prompts[0] ?? nodes.length)];
   prompts.forEach((from, index) => {
     const to = prompts[index + 1] ?? nodes.length;
     const turn = nodes.slice(from, to);
-    const isLast = index === prompts.length - 1;
-    if (isLast && options.running) {
-      out.push(...turn);
-      return;
-    }
-    const answerAt = turn.findLastIndex((node) => eventOf(node)?.type === 'assistant_message' && !keep(node));
-    const turnStart = startOf(turn[0]!);
+    const running = index === prompts.length - 1 && options.running;
+    const heading = nodes[from];
+    if (!heading) return;
+    const answerAt = running ? turn.length - 1 : turn.findLastIndex((node) => eventOf(node)?.type === 'assistant_message' && !keep(node));
+    const hasPrompt = eventOf(heading)?.type === 'user_prompt';
+    const turnStart = startOf(heading);
     let run: RenderNode[] = [];
     const flush = (next: RenderNode | undefined): void => {
       const first = run[0];
-      if (first && run.length >= 2) {
-        const startedFirst = out.at(-1) === turn[0];
-        const ends = run.map(endOf).filter((ts): ts is number => ts !== null);
+      const active = running && next === undefined;
+      const afterPrompt = hasPrompt && out.at(-1) === heading;
+      const partialHead = options.hasOlder && !hasPrompt && out.length === 0;
+      if ((first && (run.length >= 2 || partialHead)) || (active && (first || afterPrompt))) {
+        const lastTime = active ? null : startOfNextOrLastStep(next, run);
         out.push({
           kind: 'work',
-          id: `work:${keyOfNode(first)}`,
+          id: afterPrompt ? `work:turn:${keyOfNode(heading)}` : `work:${firstStepId(first ?? heading)}`,
+          ...(active ? { active: true as const } : {}),
           nodes: run,
           steps: run.reduce((sum, node) => sum + stepsIn(node), 0),
-          startedAtMs: (startedFirst ? turnStart : null) ?? startOf(first),
-          endedAtMs: (next ? startOf(next) : null) ?? (ends.length > 0 ? Math.max(...ends) : null),
+          startedAtMs: afterPrompt ? turnStart : startOf(first ?? heading),
+          endedAtMs: lastTime,
         });
       } else {
         out.push(...run);
       }
       run = [];
     };
-    out.push(turn[0]!);
-    turn.slice(1).forEach((node, at) => {
-      if (at + 1 !== answerAt && isWorkStep(node) && !keep(node)) {
+    turn.forEach((node, at) => {
+      if (at === 0 && hasPrompt) {
+        out.push(heading);
+        return;
+      }
+      const event = eventOf(node);
+      const answer = at === answerAt && event?.type === 'assistant_message' && (!running || event.stopReason !== 'tool_use');
+      if (!answer && isWorkStep(node) && !keep(node)) {
         run.push(node);
       } else {
         flush(node);
@@ -232,6 +256,13 @@ export function groupWorkNodes(nodes: ReadonlyArray<RenderNode>, options: WorkGr
     flush(undefined);
   });
   return out;
+}
+
+/** Grouping adjacent thoughts or calls changes their container, but the first step stays the same. */
+function firstStepId(node: RenderNode): string {
+  if (node.kind === 'tool-group') return node.tools[0]?.id ?? node.id;
+  if (node.kind === 'thinking') return node.events[0]?.id ?? node.id;
+  return keyOfNode(node);
 }
 
 /** The id a row is known by, stable while the row stays the same. */

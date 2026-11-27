@@ -498,7 +498,7 @@ describe('groupWorkNodes', () => {
     expect(kinds(out)).toEqual(['block', 'work', 'block']);
     const group = work(out[1]);
     expect(group.nodes).toEqual(steps);
-    expect(group.id).toBe(`work:${(steps[0] as { block: FoldedBlock }).block.id}`);
+    expect(group.id).toBe(`work:turn:${(out[0] as { block: FoldedBlock }).block.id}`);
     expect(group.steps).toBe(6);
     expect(group.startedAtMs).toBe(100);
     expect(group.endedAtMs).toBe(400);
@@ -511,11 +511,31 @@ describe('groupWorkNodes', () => {
     expect(work(out[4]).startedAtMs).toBe(5);
   });
 
-  it('leaves the turn still running as it is, and the turns before it folded', () => {
-    const running = [prompt(5), thought(6), tool(7), said(8)];
-    const out = groupWorkNodes([prompt(1), thought(2), tool(3), said(4), ...running], { running: true });
-    expect(kinds(out)).toEqual(['block', 'work', 'block', ...running.map(() => 'block')]);
-    expect(out.slice(3)).toEqual(running);
+  it('uses the same live row from the initial wait through the first reported thought', () => {
+    const request = prompt(100);
+    const first = work(groupWorkNodes([request], { running: true })[1]);
+    const next = work(groupWorkNodes([request, thought(120)], { running: true })[1]);
+    expect(first).toMatchObject({ active: true, steps: 0, id: next.id });
+  });
+
+  it('updates one live work row as reasoning and tool calls alternate, keeping its identity through completion', () => {
+    const initial = [prompt(1), thought(2)];
+    const next = [...initial, thought(3), tool(4), thought(5), tools(6)];
+    const first = work(groupWorkNodes(initial, { running: true })[1]);
+    const live = groupWorkNodes(groupThinkingNodes(next), { running: true });
+    expect(kinds(live)).toEqual(['block', 'work']);
+    expect(work(live[1])).toMatchObject({ id: first.id, active: true, steps: 7 });
+    const answer = said(7);
+    const done = groupWorkNodes(groupThinkingNodes([...next, answer]));
+    expect(work(done[1]).id).toBe(first.id);
+    expect(done[2]).toBe(answer);
+  });
+
+  it('folds the visible tail of a live turn when the prompt is on an older history page', () => {
+    const visible = [thought(2), tool(3), thought(4), tool(5)];
+    const nodes = groupWorkNodes(visible, { running: true });
+    expect(nodes).toHaveLength(1);
+    expect(work(nodes[0])).toMatchObject({ active: true, steps: 4, nodes: visible });
   });
 
   it('keeps errors, Stopped, notices, answered questions and what the surface asks for in view, in order', () => {
