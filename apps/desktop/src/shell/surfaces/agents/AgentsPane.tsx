@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import { showInChat, useAgentWork } from '@moxxy/client-core';
-import type { AgentWorkItem } from '@moxxy/chat-model';
+import type { AgentWorkItem, AgentWorkStep } from '@moxxy/chat-model';
 import { STATUS_TEXT, toolLine, wakeupMeta, workMeta } from './agent-work-view';
+import { ActivityRow } from '../../../chat/ActivityRow';
 import { MarkdownBody } from '../../../chat/MarkdownBody';
 import { useNow } from './useNow';
 import './agents.css';
@@ -153,7 +154,7 @@ function WorkDetail({
         )}
       </header>
       <div className="agents-pane__body agent-chat">
-        {item.kind === 'agent' ? <HelperChat item={item} /> : <CommandOutput item={item} />}
+        {item.kind === 'agent' ? <HelperChat key={item.id} item={item} /> : <CommandOutput item={item} />}
         {item.continuedBy && onShowInChat && (
           <button type="button" className="agents-pane__link" onClick={() => onShowInChat(item.continuedBy ?? '')}>
             Show in chat
@@ -165,21 +166,30 @@ function WorkDetail({
 }
 
 function HelperChat({ item }: { readonly item: AgentWorkItem }): JSX.Element {
+  const steps: JSX.Element[] = [];
+  for (let index = 0;;) {
+    const step = item.steps[index];
+    if (step === undefined) break;
+    const start = index;
+    index += 1;
+    if (step.kind === 'message') {
+      steps.push(
+        <div key={start} className="agent-chat__said">
+          <MarkdownBody text={step.text} streaming={false} />
+        </div>,
+      );
+    } else {
+      const calls = [step];
+      for (let next = item.steps[index]; next?.kind === 'tool'; next = item.steps[++index]) {
+        calls.push(next);
+      }
+      steps.push(<HelperToolCalls key={start} calls={calls} />);
+    }
+  }
   return (
     <>
       {item.prompt && <p className="agent-chat__task">{item.prompt}</p>}
-      {item.steps.map((step, i) =>
-        step.kind === 'message' ? (
-          <div key={i} className="agent-chat__said">
-            <MarkdownBody text={step.text} streaming={false} />
-          </div>
-        ) : (
-          <div key={i} className="agent-chat__tool">
-            <span className="agent-chat__tool-name">{step.name}</span>
-            <span className="agent-chat__tool-input">{toolLine(step.input)}</span>
-          </div>
-        ),
-      )}
+      {steps}
       {item.status === 'running' && <p className="agent-chat__working">Working…</p>}
       {item.answer && (
         <div className="agent-chat__answer">
@@ -188,6 +198,25 @@ function HelperChat({ item }: { readonly item: AgentWorkItem }): JSX.Element {
       )}
       {item.error && <p className="agent-chat__error">{item.error}</p>}
     </>
+  );
+}
+
+function HelperToolCalls({ calls }: { readonly calls: ReadonlyArray<Extract<AgentWorkStep, { kind: 'tool' }>> }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <ActivityRow label={`${calls.length} tool ${calls.length === 1 ? 'call' : 'calls'}`} open={open} onToggle={() => setOpen((value) => !value)} />
+      {open && (
+        <ul className="activity-list" role="list">
+          {calls.map((call, index) => (
+            <li key={index} className="agent-chat__tool">
+              <span className="agent-chat__tool-name">{call.name}</span>
+              <span className="agent-chat__tool-input">{toolLine(call.input)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
