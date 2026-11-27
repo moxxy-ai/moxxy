@@ -136,13 +136,35 @@ describe('moxxy agents status', () => {
 
 describe('moxxy agents install / update', () => {
   it("installs with the vendor's installer, showing what it prints", async () => {
-    const fake = { ...OPENCODE, install: fakeInstaller(newHome(), "console.log('Installing opencode'); console.log('Installed opencode 1.19.2');") };
+    newHome();
+    const staged = cli('opencode', 'staged/opencode', '1.19.2');
+    const places = `require('fs').cpSync(${JSON.stringify(path.dirname(staged))}, ${JSON.stringify(path.join(home ?? newHome(), '.opencode', 'bin'))}, { recursive: true });`;
+    const fake = { ...OPENCODE, install: fakeInstaller(home ?? newHome(), `console.log('Installing opencode'); ${places} console.log('Installed opencode 1.19.2');`) };
 
     const { code, out } = await run(['install', 'opencode'], { agents: { opencode: fake } });
 
     expect(code).toBe(0);
     expect(out).toContain('Installing opencode');
     expect(out).toContain('OpenCode: Installed opencode 1.19.2');
+  }, 30_000);
+
+  it('fails, saying so, when the installer ended well but left no OpenCode', async () => {
+    const fake = { ...OPENCODE, install: fakeInstaller(newHome(), "console.log('Installed opencode 1.19.2');") };
+
+    const { code, err } = await run(['install', 'opencode'], { agents: { opencode: fake } });
+
+    expect(code).toBe(1);
+    expect(err).toContain("OpenCode: OpenCode's installer finished, but OpenCode is not on this computer afterwards.");
+  }, 30_000);
+
+  it("fails in plain words, with the installer's own words on the next line", async () => {
+    const fake = { ...OPENCODE, install: fakeInstaller(newHome(), "console.error('curl: (6) Could not resolve host'); process.exit(6);") };
+
+    const { code, err } = await run(['install', 'opencode'], { agents: { opencode: fake } });
+
+    expect(code).toBe(1);
+    expect(err).toContain("OpenCode: Couldn't download OpenCode. Check the internet connection and try again.\n");
+    expect(err).toContain('curl: (6) Could not resolve host');
   }, 30_000);
 
   it('updates by the command name or the connection name', async () => {

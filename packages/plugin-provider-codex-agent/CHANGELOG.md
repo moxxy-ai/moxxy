@@ -1,5 +1,12 @@
 # @moxxy/plugin-provider-codex-agent
 
+## 0.50.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.2
+- @moxxy/agent-connection-kit@0.2.5
+
 ## 0.50.1
 
 ### Patch Changes

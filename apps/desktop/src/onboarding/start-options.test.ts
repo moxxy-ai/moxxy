@@ -74,6 +74,12 @@ describe('startOption', () => {
     expect(option.detail).toBe('Installing… 40%');
   });
 
+  it('says it is preparing while the free model installer is waiting to start', () => {
+    const job: AgentCliJob = { action: 'install', running: true, preparing: true, line: null, fraction: null, error: null, note: null, retry: 'install' };
+    const openCode = missing({ ...claude, name: 'opencode', agentName: 'OpenCode' });
+    expect(startOption('opencode', openCode, { job, checking: false }).detail).toBe('Preparing…');
+  });
+
   it('asks to sign in with the account the person already has', () => {
     const option = startOption('codex-agent', signedOut({ ...claude, name: 'codex-agent', agentName: 'Codex' }), idle);
     expect(option.state).toBe('sign-in');

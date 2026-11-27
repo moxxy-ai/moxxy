@@ -1,5 +1,12 @@
 # @moxxy/plugin-computer-control
 
+## 0.50.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.50.2
+- @moxxy/jev@0.2.18
+
 ## 0.50.1
 
 ### Patch Changes

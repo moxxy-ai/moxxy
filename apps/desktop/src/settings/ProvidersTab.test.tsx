@@ -293,8 +293,18 @@ describe('ProvidersTab — agent connections', () => {
 
     const bar = screen.getByRole('progressbar', { name: 'Installing OpenCode' });
     expect(bar).toHaveAttribute('aria-valuenow', '40');
-    await act(async () => h.finish({ ok: false, message: 'curl: (6) Could not resolve host' }));
-    expect(screen.getByTestId('agent-row-opencode')).toHaveTextContent('curl: (6) Could not resolve host');
+    expect(row).toHaveTextContent('This usually takes about a minute.');
+    expect(row).toHaveTextContent('40%');
+    expect(row).not.toHaveTextContent('####');
+    const plain = "OpenCode's installer stopped before it finished. Check the internet connection and try again.";
+    await act(async () => h.finish({ ok: false, message: plain, details: 'curl: (6) Could not resolve host' } as never));
+    expect(screen.getByTestId('agent-row-opencode')).toHaveTextContent('OpenCode was not installed');
+    const note = screen.getByRole('note', { name: 'Why OpenCode was not installed' });
+    expect(note).toHaveTextContent(plain);
+    // The installer's own words wait behind a disclosure, closed until asked for.
+    const disclosure = within(note).getByText('Show details').closest('details');
+    expect(disclosure).not.toHaveAttribute('open');
+    expect(disclosure).toHaveTextContent('curl: (6) Could not resolve host');
     expect(screen.getByRole('button', { name: 'Install OpenCode' })).toHaveTextContent('Try again');
   });
 

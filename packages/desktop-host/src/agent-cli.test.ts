@@ -13,7 +13,8 @@ import { fakeInstaller, writeFakeCli } from '@moxxy/vitest-preset/fake-cli';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import { CODEX_CLI, OPENCODE_CLI, checkAgentCli, type AgentCliDescriptor } from '@moxxy/agent-connection-kit';
 import type { AgentCliProgress } from '@moxxy/desktop-ipc-contract';
-import { agentConnectionsWithoutRunner, checkAgentClis, runAgentCli, signOutAgent, type AgentCliRunner } from './agent-cli';
+import { agentCliLogFile, agentConnectionsWithoutRunner, checkAgentClis, runAgentCli, signOutAgent, type AgentCliRunner } from './agent-cli';
+import { prepareBundledRuntimes } from './seed-runtimes';
 
 let home: string | undefined;
 afterEach(() => {
@@ -51,10 +52,57 @@ const installer = (script: string): Record<string, AgentCliDescriptor> => ({
   opencode: { ...OPENCODE, install: fakeInstaller(home ?? newHome(), script) },
 });
 
+/** A Node script line that puts OpenCode where its installer does, from a copy made beforehand. */
+function placesOpenCode(): string {
+  const staged = path.join(home ?? newHome(), 'staged');
+  writeFakeCli(path.join(staged, 'opencode'), "if (args[0] === '--version') console.log('1.19.0');", { windowsEntry: OPENCODE.windowsShim.entry });
+  return `require('fs').cpSync(${JSON.stringify(staged)}, ${JSON.stringify(path.join(home ?? newHome(), '.opencode', 'bin'))}, { recursive: true });`;
+}
+
 // Windows runs installers through PowerShell, which can take seconds to start on CI.
 const INSTALL_TIMEOUT_MS = 30_000;
 
 describe('installing an agent CLI from the desktop', () => {
+  it('starts an early install only after startup has put the runtimes on PATH', async () => {
+    const dir = newHome();
+    const runtimeDir = path.join(dir, 'runtime-bin');
+    mkdirSync(runtimeDir);
+    const previousPath = process.env.PATH;
+    const previousHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = dir;
+    const terminalPath = Promise.withResolvers<string>();
+    const preparation = prepareBundledRuntimes({
+      resourcesPath: dir,
+      moxxyHome: dir,
+      loginShellPath: () => terminalPath.promise,
+    });
+    try {
+      const install = runAgentCli('opencode', 'install', {
+        runners: () => [],
+        emit: () => undefined,
+        agents: installer(`
+          if (!process.env.PATH.split(require('node:path').delimiter).includes(${JSON.stringify(runtimeDir)})) {
+            console.error('Runtime is missing from PATH');
+            process.exit(1);
+          }
+          ${placesOpenCode()}
+          console.log('Installed');
+        `),
+        search: { home: dir, pathEnv: '' },
+      });
+
+      terminalPath.resolve([runtimeDir, previousPath].filter(Boolean).join(path.delimiter));
+      expect(await install).toEqual({ ok: true, message: 'Installed' });
+    } finally {
+      terminalPath.resolve(runtimeDir);
+      await preparation;
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = previousHome;
+    }
+  }, INSTALL_TIMEOUT_MS);
+
   it('sends each line and how far it got to the window, then has every runner check again', async () => {
     const search = { home: newHome(), pathEnv: '' };
     const runners = [runner(), runner()];
@@ -63,12 +111,13 @@ describe('installing an agent CLI from the desktop', () => {
     const result = await runAgentCli('opencode', 'install', {
       runners: () => runners,
       emit: (p) => progress.push(p),
-      agents: installer("console.log('Installing opencode'); console.log('#### 50.0%'); console.log('Installed');"),
+      agents: installer(`console.log('Installing opencode'); console.log('#### 50.0%'); ${placesOpenCode()} console.log('Installed');`),
       search,
     });
 
     expect(result).toEqual({ ok: true, message: 'Installed' });
     expect(progress).toEqual([
+      { provider: 'opencode', action: 'install' },
       { provider: 'opencode', action: 'install', line: 'Installing opencode' },
       { provider: 'opencode', action: 'install', line: '#### 50.0%', fraction: 0.5 },
       { provider: 'opencode', action: 'install', line: 'Installed' },
@@ -86,16 +135,39 @@ describe('installing an agent CLI from the desktop', () => {
       search: { home: newHome(), pathEnv: '' },
     });
 
-    expect(result).toEqual({ ok: false, message: 'curl: (6) Could not resolve host' });
+    expect(result).toEqual({
+      ok: false,
+      message: "Couldn't download OpenCode. Check the internet connection and try again.",
+      details: 'curl: (6) Could not resolve host',
+    });
     expect(runners[0]?.checks).toBe(1);
    }, INSTALL_TIMEOUT_MS);
 
+  it('says the install did not stay when the installer ended well but left no CLI, and keeps its output in the log', async () => {
+    const runners = [runner()];
+
+    const result = await runAgentCli('opencode', 'install', {
+      runners: () => runners,
+      emit: () => undefined,
+      agents: installer("console.log('Installation complete!');"),
+      search: { home: newHome(), pathEnv: '' },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/^OpenCode's installer finished, but OpenCode is not on this computer afterwards\./);
+    expect(runners[0]?.checks).toBe(1);
+    const log = readFileSync(agentCliLogFile(OPENCODE), 'utf8');
+    expect(log).toContain('Installation complete!');
+    expect(log).toContain(`Result: failed — ${result.message}`);
+   }, INSTALL_TIMEOUT_MS);
+
   it('runs one install of a CLI at a time', async () => {
+    const search = { home: newHome(), pathEnv: '' };
     const deps = {
       runners: () => [],
       emit: () => undefined,
-      agents: installer("setTimeout(() => console.log('done'), 1000);"),
-      search: { home: newHome(), pathEnv: '' },
+      agents: installer(`setTimeout(() => { ${placesOpenCode()} console.log('done'); }, 1000);`),
+      search,
     };
 
     const first = runAgentCli('opencode', 'install', deps);

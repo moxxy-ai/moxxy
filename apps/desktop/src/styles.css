@@ -3828,10 +3828,83 @@ button.trigger__chip { text-align: left; cursor: pointer; }
 .tag--press { border: 0; cursor: pointer; }
 .tag--press:active:not(:disabled) { transform: scale(0.96); }
 
-/* How far an agent CLI's install or update got, under its row. The fill
- * scales instead of growing, so only `transform` moves. */
-.agent-progress {
+/* An agent CLI's install or update under its row: the bar, and beside it the
+ * percentage or the time so far. It fades in once per run, so it may move. */
+.agent-run {
   margin-top: var(--space-8);
+  transition: opacity var(--motion-shift) var(--ease-out), transform var(--motion-shift) var(--ease-out);
+  @starting-style { opacity: 0; transform: translateY(-2px); }
+}
+.agent-run__line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+}
+.agent-run__amount {
+  min-width: 4ch;
+  text-align: right;
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-dim);
+}
+.agent-run__hint {
+  margin-top: 4px;
+  font-size: var(--type-meta);
+  color: var(--color-text-dim);
+}
+/* Why an install did not finish, set apart from the row's one line so a long
+ * reason wraps calmly instead of stretching it. */
+.agent-note {
+  margin-top: var(--space-8);
+  max-width: 640px;
+  padding: 8px 10px;
+  border-radius: var(--radius-tag);
+  font-size: var(--type-meta);
+  line-height: 1.45;
+  color: var(--color-text-muted);
+  background: var(--color-input-soft);
+  overflow-wrap: anywhere;
+  transition: opacity var(--motion-shift) var(--ease-out);
+  @starting-style { opacity: 0; }
+}
+.agent-note[data-tone='bad'] { background: var(--color-red-soft); }
+.agent-note__text { margin: 0; }
+/* The installer's own words: closed until asked for, then small and monospace
+ * so they read as a quote from it rather than as Moxxy talking. */
+.agent-note__details { margin-top: 6px; }
+.agent-note__details > summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--color-text-dim);
+  list-style: none;
+  border-radius: var(--radius-tag);
+  transition: color var(--motion-press) ease;
+}
+.agent-note__details > summary::-webkit-details-marker { display: none; }
+.agent-note__details > summary::after { content: '›'; display: inline-block; margin-left: 5px; transition: transform var(--motion-press) var(--ease-out); }
+.agent-note__details[open] > summary::after { transform: rotate(90deg); }
+@media (hover: hover) and (pointer: fine) {
+  .agent-note__details > summary:hover { color: var(--color-text); }
+}
+.agent-note__details > pre {
+  margin: 6px 0 0;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--type-micro);
+  color: var(--color-text-dim);
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-run { transform: none; }
+}
+
+/* The fill scales instead of growing, so only `transform` moves. */
+.agent-progress {
+  flex: 1;
+  min-width: 0;
   height: 4px;
   border-radius: var(--radius-pill);
   background: var(--color-card-border);

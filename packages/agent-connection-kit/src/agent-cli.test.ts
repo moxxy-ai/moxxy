@@ -5,10 +5,12 @@
  * is stood in for.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fakeInstaller, writeFakeCli } from '@moxxy/vitest-preset/fake-cli';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import {
   AGENT_CLIS,
@@ -22,7 +24,9 @@ import {
   agentVersionSource,
   checkAgentCli,
   findAgentCli,
+  installFailureHint,
   installInvocation,
+  installLeftNothing,
   latestAgentVersion,
   runAgentCliAction,
   updaterEnv,
@@ -77,10 +81,10 @@ describe('the agent CLIs Moxxy knows', () => {
   it("installs each with the vendor's installer, on Windows through PowerShell", () => {
     expect(installInvocation(CLAUDE_CLI, 'darwin')).toEqual({
       command: '/bin/sh',
-      args: ['-c', 'curl -fsSL https://claude.ai/install.sh | bash'],
+      args: ['-c', expect.stringMatching(/https:\/\/claude\.ai\/install\.sh.*\| bash$/)],
     });
-    expect(installInvocation(CODEX_CLI, 'linux').args[1]).toBe('curl -fsSL https://chatgpt.com/codex/install.sh | sh');
-    expect(installInvocation(OPENCODE_CLI, 'linux').args[1]).toBe('curl -fsSL https://opencode.ai/v2/install | bash');
+    expect(installInvocation(CODEX_CLI, 'linux').args[1]).toMatch(/https:\/\/chatgpt\.com\/codex\/install\.sh.*\| sh$/);
+    expect(installInvocation(OPENCODE_CLI, 'linux').args[1]).toMatch(/https:\/\/opencode\.ai\/v2\/install.*\| bash$/);
     expect(installInvocation(CODEX_CLI, 'win32')).toEqual({
       command: expect.stringMatching(/\\WindowsPowerShell\\v1\.0\\powershell\.exe$/),
       args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://chatgpt.com/codex/install.ps1 | iex'],
@@ -488,6 +492,14 @@ describe('installing and updating a CLI', () => {
     install: fakeInstaller(home ?? newHome(), installer),
   });
 
+  /** A Node script line that puts an OpenCode where its installer does, from a copy made beforehand. */
+  const placesOpenCode = (): string => {
+    const staged = path.join(home ?? newHome(), 'staged');
+    cli(OPENCODE_CLI, 'staged/opencode', '1.19.0');
+    const target = path.join(home ?? newHome(), '.opencode', 'bin');
+    return `require('fs').cpSync(${JSON.stringify(staged)}, ${JSON.stringify(target)}, { recursive: true });`;
+  };
+
   it("runs the vendor's installer, reporting each line and how far it got", async () => {
     newHome();
     const lines: string[] = [];
@@ -496,11 +508,13 @@ describe('installing and updating a CLI', () => {
       "process.stdout.write('Installing opencode\\n');",
       "process.stdout.write('\\x1b[0;2m####   40.0%\\r');",
       "process.stdout.write('######## 100.0%\\n');",
+      placesOpenCode(),
       "console.log('Installed');",
     ].join('\n');
 
     const result = await runAgentCliAction(fake(script), 'install', {
       home,
+      pathEnv: '',
       onLine: (line) => lines.push(line),
       onProgress: (fraction) => progress.push(fraction),
     });
@@ -510,13 +524,181 @@ describe('installing and updating a CLI', () => {
     expect(progress).toEqual([0.4, 1]);
    }, INSTALL_TIMEOUT_MS);
 
-  it('says why an install failed', async () => {
+  it.skipIf(!posixShell)('reports a refused installer download with the curl diagnostic', async () => {
+    const dir = newHome();
+    writeFileSync(path.join(dir, '.curlrc'), 'unix-socket = "' + path.join(dir, 'offline.sock') + '"\n');
+    const result = await runAgentCliAction({
+      ...CODEX_CLI,
+      installEnv: { ...CODEX_CLI.installEnv, CURL_HOME: dir, no_proxy: '*' },
+    }, 'install', { home: dir, pathEnv: '', versionRetryMs: 0 });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Couldn't download Codex. Check the internet connection and try again.",
+      details: expect.stringMatching(/^curl: \(7\)/),
+    });
+  });
+
+  it.skipIf(!posixShell)('only runs a complete installer, including on a retry after a truncated download', async () => {
+    const dir = newHome();
+    const target = path.join(dir, '.local', 'bin', 'codex');
+    const script = 'mkdir -p "$HOME/.local/bin"\ntouch "$HOME/.local/bin/codex"\nchmod +x "$HOME/.local/bin/codex"\n';
+    let complete = false;
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Length': Buffer.byteLength(script) + (complete ? 0 : 100), Connection: 'close' });
+      response.end(script);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected a local TCP port');
+      const url = `http://127.0.0.1:${address.port}/install.sh`;
+      const vendorUrl = 'https://chatgpt.com/codex/install.sh';
+      expect(CODEX_CLI.install.posix).toContain(vendorUrl);
+      const desc = {
+        ...CODEX_CLI,
+        install: { ...CODEX_CLI.install, posix: CODEX_CLI.install.posix.replace(vendorUrl, url) },
+        installEnv: { ...CODEX_CLI.installEnv, HOME: dir, CURL_HOME: dir, no_proxy: '*' },
+      };
+      const options = { home: dir, pathEnv: '', versionRetryMs: 0 };
+      const failed = await runAgentCliAction(desc, 'install', options);
+      expect(existsSync(target)).toBe(false);
+      expect(failed).toMatchObject({ ok: false, details: expect.stringMatching(/^curl: \(18\)/) });
+
+      complete = true;
+      expect((await runAgentCliAction(desc, 'install', options)).ok).toBe(true);
+      expect(existsSync(target)).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('says in plain words that an install failed, with what to check for a failure it knows, and keeps the installer’s words apart', async () => {
     newHome();
     const result = await runAgentCliAction(fake("console.log('Downloading'); console.error('curl: (6) Could not resolve host'); process.exit(6);"), 'install', {
       home,
+      pathEnv: '',
     });
 
-    expect(result).toEqual({ ok: false, message: 'curl: (6) Could not resolve host' });
+    expect(result).toEqual({
+      ok: false,
+      message: "Couldn't download OpenCode. Check the internet connection and try again.",
+      details: 'curl: (6) Could not resolve host',
+    });
+   }, INSTALL_TIMEOUT_MS);
+
+  it("passes on the installer's own words, apart, for a failure it does not know", async () => {
+    newHome();
+    const result = await runAgentCliAction(fake("console.error('Unexpected token in manifest'); process.exit(3);"), 'install', {
+      home,
+      pathEnv: '',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "OpenCode's installer stopped before it finished. Try again in a moment.",
+      details: 'Unexpected token in manifest',
+    });
+   }, INSTALL_TIMEOUT_MS);
+
+  it.each([
+    {
+      source: 'a missing command in Windows PowerShell',
+      lines: [
+        "npm : The term 'npm' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the",
+        'spelling of the name, or if a path was included, verify that the path is correct and try again.',
+        'At line:1 char:1',
+        '+ npm install -g @opencode/cli',
+        '+ ~~~',
+        '+ CategoryInfo          : ObjectNotFound: (npm:String) [], CommandNotFoundException',
+        '+ FullyQualifiedErrorId : CommandNotFoundException',
+      ],
+      details: "The installer could not find the command 'npm'.",
+    },
+    {
+      source: 'a wrapped PowerShell missing-command header',
+      lines: [
+        "npm : The term 'npm' is not",
+        'recognized as the name of a cmdlet, function, script file, or operable program.',
+        '+ CategoryInfo          : ObjectNotFound: (npm:String) [], CommandNotFoundException',
+        '+ FullyQualifiedErrorId : CommandNotFoundException',
+      ],
+      details: "The installer could not find the command 'npm'.",
+    },
+    {
+      source: 'an unfamiliar PowerShell error',
+      lines: [
+        'Expand-Archive : The archive has an invalid header.',
+        'At line:2 char:1',
+        '+ Expand-Archive agent.zip',
+        '+ FullyQualifiedErrorId : InvalidData',
+      ],
+      details: 'Expand-Archive : The archive has an invalid header.',
+    },
+    {
+      source: 'npm with a log-file footer',
+      lines: ['npm error Invalid package manifest', 'npm error A complete log of this run can be found in: npm-debug.log'],
+      details: 'npm error Invalid package manifest',
+    },
+  ])('shows one diagnostic from $source and keeps the transcript in the log', async ({ lines, details }) => {
+    const logFile = path.join(newHome(), 'logs', 'agent-opencode.log');
+    const script = `console.error(${JSON.stringify(lines.join('\r\n'))}); process.exitCode = 1;`;
+    const result = await runAgentCliAction(fake(script), 'install', { home, pathEnv: '', logFile });
+
+    expect(result.details).toBe(details);
+    expect(result.ok).toBe(false);
+    expect(readFileSync(logFile, 'utf8')).toContain(lines.join('\n'));
+  }, INSTALL_TIMEOUT_MS);
+
+  it('says so when the installer ended well but left no CLI on the computer', async () => {
+    newHome();
+    const result = await runAgentCliAction(fake("console.log('Installation complete!');"), 'install', {
+      home,
+      pathEnv: '',
+      versionRetryMs: 0,
+    });
+
+    expect(result).toEqual({ ok: false, message: installLeftNothing(OPENCODE_CLI, process.platform) });
+   }, INSTALL_TIMEOUT_MS);
+
+  it('keeps what the installer printed and how it ended in a log file, replacing the last one', async () => {
+    const log = path.join(newHome(), 'logs', 'agent-opencode.log');
+    await runAgentCliAction(fake("console.log('first run');"), 'install', { home, pathEnv: '', versionRetryMs: 0, logFile: log });
+    await runAgentCliAction(fake(`console.log('Downloading'); ${placesOpenCode()} console.log('Installed');`), 'install', {
+      home,
+      pathEnv: '',
+      logFile: log,
+    });
+
+    const text = readFileSync(log, 'utf8');
+    expect(text).toContain('install OpenCode');
+    expect(text).toContain('Downloading\nInstalled\n');
+    expect(text).toContain('Result: done — Installed');
+    expect(text).not.toContain('first run');
+   }, INSTALL_TIMEOUT_MS);
+
+  it('keeps every line of a long install in the log while showing just the diagnostic', async () => {
+    const logFile = path.join(newHome(), 'logs', 'agent-opencode.log');
+    const script = "for (let i = 0; i < 2100; i++) console.log('step ' + i); console.log('Invalid archive'); process.exitCode = 1;";
+    const result = await runAgentCliAction(fake(script), 'install', { home, pathEnv: '', logFile });
+
+    expect(result.details).toBe('Invalid archive');
+    const steps = readFileSync(logFile, 'utf8').split('\n').filter((line) => line.startsWith('step '));
+    expect(steps).toEqual(Array.from({ length: 2100 }, (_, i) => `step ${i}`));
+  }, INSTALL_TIMEOUT_MS);
+
+  it('installs as before when the log file cannot be written', async () => {
+    newHome();
+    const blocker = path.join(home ?? newHome(), 'a-file');
+    writeFileSync(blocker, '');
+
+    const result = await runAgentCliAction(fake(`${placesOpenCode()} console.log('Installed');`), 'install', {
+      home,
+      pathEnv: '',
+      logFile: path.join(blocker, 'logs', 'agent-opencode.log'),
+    });
+
+    expect(result).toEqual({ ok: true, message: 'Installed' });
    }, INSTALL_TIMEOUT_MS);
 
   it("updates through the agent's own command, wherever it was found", async () => {
@@ -719,6 +901,37 @@ describe('installing and updating a CLI', () => {
 
     expect(await running).toEqual({ ok: false, message: 'Stopped.' });
    }, INSTALL_TIMEOUT_MS);
+});
+
+describe('what to check after a failed install', () => {
+  it.each([
+    ['curl: (6) Could not resolve host: claude.ai', 'Check the internet connection and try again.'],
+    ['npm error network request to https://registry.npmjs.org/@opencode%2fcli failed, reason: getaddrinfo ENOTFOUND registry.npmjs.org', 'Check the internet connection and try again.'],
+    ["Invoke-RestMethod : The remote name could not be resolved: 'claude.ai'", 'Check the internet connection and try again.'],
+    ['npm error code ETIMEDOUT', 'Check the internet connection and try again.'],
+    ['The request was aborted: Could not create SSL/TLS secure channel.', "Check the computer's date and time. A school or work network can also block the download."],
+    ['npm error code UNABLE_TO_GET_ISSUER_CERT_LOCALLY', "Check the computer's date and time. A school or work network can also block the download."],
+    ['npm error request to https://registry.npmjs.org/ failed, reason: unable to get local issuer certificate', "Check the computer's date and time. A school or work network can also block the download."],
+    ['npm error code ENOSPC', 'Free some disk space and try again.'],
+    ['There is not enough space on the disk.', 'Free some disk space and try again.'],
+    ['npm error code EPERM', "This account may not be allowed to install programs here. Ask the computer's administrator."],
+    ["Access to the path 'C:\\Users\\pupil\\.local\\bin\\claude.exe' is denied.", "This account may not be allowed to install programs here. Ask the computer's administrator."],
+  ])('knows %s', (line, hint) => {
+    expect(installFailureHint(['Installing…', line, 'npm error A complete log of this run can be found in: C:\\logs\\x.log'])).toBe(hint);
+  });
+
+  it('adds nothing for a failure it does not know', () => {
+    expect(installFailureHint(['Unexpected token in manifest', 'It ended with exit code 3.'])).toBeNull();
+  });
+
+  it('names the antivirus history where Windows keeps it', () => {
+    expect(installLeftNothing(CLAUDE_CLI, 'win32')).toBe(
+      "Claude Code's installer finished, but Claude Code is not on this computer afterwards. Antivirus software sometimes removes a program it has just installed: look in Windows Security → Protection history, allow Claude Code, and try again.",
+    );
+    expect(installLeftNothing(CLAUDE_CLI, 'darwin')).toBe(
+      "Claude Code's installer finished, but Claude Code is not on this computer afterwards. Antivirus software sometimes removes a program it has just installed: look in its history, allow Claude Code, and try again.",
+    );
+  });
 });
 
 describe('the source of the newest version an install can get', () => {
