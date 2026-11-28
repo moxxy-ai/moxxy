@@ -32,7 +32,7 @@ export function ToolBlock({ name, input, outcome }: {
       <ActivityRow
         icon={iconForTool(name, declared)}
         label={toolActivityLabel({ name, input, outcome })}
-        meta={status === 'error' ? 'failed' : undefined}
+        detailMeta={status === 'error' ? 'failed' : undefined}
         active={status === 'running'}
         open={open}
         onToggle={() => setOpen((value) => !value)}

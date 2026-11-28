@@ -102,6 +102,7 @@ function findAnchoredIndex(nodes: ReadonlyArray<RenderNode>, previousHead: Rende
 }
 
 interface RowProps {
+  readonly streamingReasoning?: string;
   readonly node: RenderNode;
   readonly workspaceId?: string;
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
@@ -116,16 +117,19 @@ function Row(props: RowProps): JSX.Element {
   );
 }
 
-function NodeView({ node, workspaceId, onPreviewImage, foldVersion }: RowProps): JSX.Element {
+function NodeView({ node, workspaceId, onPreviewImage, foldVersion, streamingReasoning }: RowProps): JSX.Element {
+  const renderStep = (step: RenderNode) => (
+    <NodeView node={step} workspaceId={workspaceId} onPreviewImage={onPreviewImage} foldVersion={foldVersion} />
+  );
   return (
     <>
       {node.kind === 'ext' ? (
         <ExtensionCard ext={node.ext} workspaceId={workspaceId} />
       ) : node.kind === 'work' ? (
-        <WorkGroupView group={node}>
-          {node.nodes.map((inner) => (
+        <WorkGroupView group={node} streamingReasoning={streamingReasoning} compact={node.compactStep && renderStep(node.compactStep)}>
+          {() => node.nodes.map((inner) => (
             <div key={keyOf(inner)} className="work-group__step">
-              <NodeView node={inner} workspaceId={workspaceId} onPreviewImage={onPreviewImage} foldVersion={foldVersion} />
+              {renderStep(inner)}
             </div>
           ))}
         </WorkGroupView>
@@ -196,15 +200,16 @@ export function Transcript({
   }
   // What the plan, goal and research modes reported about these turns.
   const modes = useMemo(() => readModeEvents(events), [events]);
-  // The turn still going stays unfolded; once it ends, its work folds under the answer.
+  // The active work row receives steps in place; the final answer stays separate.
   const running = sending === true;
   const nodes = useMemo(
     () => transcriptNodes(
       buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools),
       modes,
       running,
+      hasOlder,
     ),
-    [events, extensions, compactTools, modes, running],
+    [events, extensions, compactTools, modes, running, hasOlder],
   );
   const foldVersion = foldRef.current?.version ?? events.length;
 
@@ -220,8 +225,9 @@ export function Transcript({
   // across upward-pagination prepends, so paging in history never fakes an
   // unread hint or flickers the jump button.
   const lastNode = nodes.length > 0 ? nodes[nodes.length - 1] : undefined;
+  const liveWork = lastNode?.kind === 'work' && lastNode.active ? lastNode : undefined;
   const lastKey = lastNode ? keyOf(lastNode) : '';
-  const newBelow = useNewContentBelow(atBottom, `${lastKey}:${streamingText.length}`);
+  const newBelow = useNewContentBelow(atBottom, `${lastKey}:${liveWork?.steps ?? 0}:${streamingText.length}`);
 
   const jumpToLatest = useCallback(() => {
     // `align: 'end'` on the LAST index also accounts for the Footer (the
@@ -314,6 +320,7 @@ export function Transcript({
         itemContent={(_i, node) => (
           <Row
             node={node}
+            streamingReasoning={node === liveWork && !streamingText ? streamingReasoning : undefined}
             workspaceId={workspaceId}
             onPreviewImage={onPreviewImage}
             foldVersion={foldVersion}
@@ -327,11 +334,11 @@ export function Transcript({
                 <TraceEntry kind="agent">
                   <StreamingAssistant text={streamingText} />
                 </TraceEntry>
-              ) : streamingReasoning ? (
+              ) : streamingReasoning && !liveWork ? (
                 <TraceEntry kind="reasoning">
                   <StreamingReasoning text={streamingReasoning} />
                 </TraceEntry>
-              ) : sending ? (
+              ) : sending && !liveWork ? (
                 <TraceEntry kind="agent">
                   <ThinkingIndicator />
                 </TraceEntry>

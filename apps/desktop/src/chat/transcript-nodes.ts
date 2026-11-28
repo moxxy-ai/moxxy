@@ -50,16 +50,18 @@ function isUsedUpLimit(event: MoxxyEvent): boolean {
 /**
  * The rows the conversation draws: what renders, tool runs and thoughts folded
  * into groups, and each finished turn's work folded under its answer. A mode's
- * card (a plan, a goal's end) is never folded away; the turn still `running`
- * stays open so its steps show as they come.
+ * card (a plan, a goal's end) stays visible alongside the live disclosure.
  */
 export function transcriptNodes(
   nodes: ReadonlyArray<RenderNode>,
   modes: Pick<ModeTranscript, 'notes' | 'outcomes'>,
   running: boolean,
+  hasOlder = false,
 ): RenderNode[] {
   return groupWorkNodes(groupThinkingNodes(groupToolNodes(visibleTranscriptNodes(nodes, modes.notes))), {
     running,
+    hasOlder,
+    wrapSingleSteps: true,
     keep: (node) => node.kind === 'block' && modes.outcomes.has(node.block.id),
   });
 }

@@ -1,24 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, useVoiceRecorder, type VoicePhase } from '@moxxy/client-core';
 
-const NO_TRANSCRIBER = 'No transcriber configured on the runner.';
-const NOTICE_MS = 2500;
+type Feedback = 'setup' | 'unavailable' | null;
 
 export interface Dictation {
   readonly phase: VoicePhase;
-  /** Why the last press did nothing, or why a recording failed. */
   readonly notice: string | null;
-  /** Start a recording, or stop the one in flight. */
+  readonly needsSetup: boolean;
+  readonly dismissSetup: () => void;
   readonly press: () => void;
 }
 
-/**
- * One-shot dictation for the composer: record, transcribe, hand the text back.
- *
- * `suspended` is set while a voice conversation owns the microphone. A
- * dictation in flight lets go then, because two capture leases on one device
- * is how a recording ends up never resolving.
- */
+/** One-shot dictation for the composer: record, transcribe, hand the text back. */
 export function useDictation({
   workspaceId,
   ready,
@@ -30,49 +23,53 @@ export function useDictation({
   readonly suspended: boolean;
   readonly onTranscript: (text: string) => void;
 }): Dictation {
-  const voice = useVoiceRecorder({ workspaceId, onTranscript });
-  const [hasTranscriber, setHasTranscriber] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const noticeTimer = useRef<number | undefined>(undefined);
+  const { phase, errorReason, start, stop, cancel } = useVoiceRecorder({ workspaceId, onTranscript });
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const pending = useRef<symbol | null>(null);
+  const dismissSetup = useCallback(() => setFeedback(null), []);
 
   useEffect(() => {
-    if (!ready) return;
-    let cancelled = false;
-    void api()
-      .invoke('session.hasTranscriber')
-      .then((has) => {
-        if (!cancelled) setHasTranscriber(has === true);
-      })
-      .catch(() => {
-        if (!cancelled) setHasTranscriber(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [ready]);
+    setFeedback(null);
+    // A late reply must not start the mic after leaving this chat or entering Voice Mode.
+    return () => { pending.current = null; };
+  }, [ready, suspended, workspaceId]);
 
-  const { cancel, toggle, phase } = voice;
   const busy = phase === 'recording' || phase === 'transcribing';
   useEffect(() => {
     if (suspended && busy) cancel();
   }, [suspended, busy, cancel]);
 
-  useEffect(
-    () => () => {
-      if (noticeTimer.current !== undefined) window.clearTimeout(noticeTimer.current);
-    },
-    [],
-  );
-
-  const press = useCallback(() => {
-    if (phase !== 'recording' && !hasTranscriber) {
-      setNotice(NO_TRANSCRIBER);
-      if (noticeTimer.current !== undefined) window.clearTimeout(noticeTimer.current);
-      noticeTimer.current = window.setTimeout(() => setNotice(null), NOTICE_MS);
+  const press = useCallback(async () => {
+    if (suspended || phase === 'transcribing') return;
+    if (phase === 'recording') {
+      stop();
       return;
     }
-    toggle();
-  }, [hasTranscriber, phase, toggle]);
+    if (!ready) {
+      setFeedback('unavailable');
+      return;
+    }
+    if (pending.current !== null) return;
+    const request = Symbol();
+    pending.current = request;
+    setFeedback(null);
+    try {
+      const available = await api().invoke('session.hasTranscriber');
+      if (pending.current !== request) return;
+      if (available) start();
+      else setFeedback('setup');
+    } catch {
+      if (pending.current === request) setFeedback('unavailable');
+    } finally {
+      if (pending.current === request) pending.current = null;
+    }
+  }, [ready, suspended, phase, start, stop]);
 
-  return { phase, notice: voice.errorReason ?? notice, press };
+  return {
+    phase,
+    notice: errorReason ?? (feedback === 'unavailable' ? 'Couldn’t check dictation. Try again in a moment.' : null),
+    needsSetup: feedback === 'setup',
+    dismissSetup,
+    press,
+  };
 }

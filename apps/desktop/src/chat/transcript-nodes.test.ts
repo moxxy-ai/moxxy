@@ -82,9 +82,17 @@ describe('transcriptNodes', () => {
     expect(ids(transcriptNodes(buildRenderNodes(turn(1), []), noModes, false))).toEqual(['event-1', 'work', 'event-6']);
   });
 
-  it('leaves the turn that is still going unfolded', () => {
+  it('also folds the current turn and keeps its latest reply visible', () => {
     const nodes = transcriptNodes(buildRenderNodes([...turn(1), ...turn(11)], []), noModes, true);
-    expect(ids(nodes)).toEqual(['event-1', 'work', 'event-6', 'event-11', 'event-12', 'event-13', 'event-15', 'event-16']);
+    expect(ids(nodes)).toEqual(['event-1', 'work', 'event-6', 'event-11', 'work', 'event-16']);
+  });
+
+  it('keeps work collapsed while reopening history whose first prompt is still on an older page', () => {
+    const tail = turn(1).slice(1);
+    const partial = (events: MoxxyEvent[]) => ids(transcriptNodes(buildRenderNodes(events, []), noModes, false, true));
+    expect(partial(turn(1).slice(2, 4))).toEqual(['work']);
+    expect(partial(tail)).toEqual(['work', 'event-6']);
+    expect(partial([...tail, ...turn(11)])).toEqual(['work', 'event-6', 'event-11', 'work', 'event-16']);
   });
 
   it("keeps a mode's card in view", () => {

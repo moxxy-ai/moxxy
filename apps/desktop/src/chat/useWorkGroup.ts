@@ -1,4 +1,5 @@
 import type { WorkNode } from '@moxxy/client-core';
+import { workProgress } from './work-progress';
 import { useActivityDisclosure } from './SkillGroupView';
 
 function spent(ms: number): string | null {
@@ -20,12 +21,15 @@ export function workGroupLabel(group: WorkNode): { readonly label: string; reado
 }
 
 /** A turn's folded work: closed until the person opens it. */
-export function useWorkGroup(group: WorkNode): {
+export function useWorkGroup(group: WorkNode, thinking: boolean): {
   readonly label: string;
   readonly steps: string;
+  readonly failed: number;
   readonly open: boolean;
   readonly toggle: () => void;
 } {
   const [open, toggle] = useActivityDisclosure();
-  return { ...workGroupLabel(group), open, toggle };
+  const history = workGroupLabel(group);
+  const progress = workProgress(group, thinking);
+  return { ...history, label: group.active ? progress.label : history.label, failed: progress.failed, open, toggle };
 }

@@ -1,6 +1,10 @@
+import type { PropsWithChildren } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { __setApiOverride, chatStore } from '@moxxy/client-core';
+import { ShellNavProvider } from '../shell/navigation/ShellNav';
+import { useShellNavigation } from '../shell/navigation/useShellNavigation';
+import { useSections } from '../shell/navigation/useSections';
 import { Composer } from './Composer';
 import type { AgentSession } from './agent-picker/useAgentSession';
 import type { SessionInfo } from './agent-picker/types';
@@ -23,7 +27,7 @@ const agent: AgentSession = {
 
 beforeEach(() => {
   // The IPC boundary is the one thing replaced: there is no Electron main here.
-  __setApiOverride({ invoke: async () => undefined, subscribe: () => () => {} } as never);
+  __setApiOverride({ invoke: async (cmd: string) => cmd === 'session.hasTranscriber' ? false : undefined, subscribe: () => () => {} } as never);
 });
 
 afterEach(() => {
@@ -32,7 +36,16 @@ afterEach(() => {
   __setApiOverride(null);
 });
 
-function renderComposer(props: Partial<Parameters<typeof Composer>[0]> = {}) {
+function ComposerShell({ children }: PropsWithChildren) {
+  const sections = useSections();
+  const nav = useShellNavigation({ sessionLoading: false, onSection: sections.show,
+    onShowShortcuts: () => {}, onOpenPalette: () => {} });
+  return <ShellNavProvider value={nav}>
+    {nav.view === 'chat' ? children : <h1>{nav.view} / {sections.settingsTab}</h1>}
+  </ShellNavProvider>;
+}
+
+function renderComposer(props: Partial<Parameters<typeof Composer>[0]> = {}, withShell = false) {
   const onOpenVoiceCall = vi.fn();
   const onSend = vi.fn();
   const view = render(
@@ -48,6 +61,7 @@ function renderComposer(props: Partial<Parameters<typeof Composer>[0]> = {}) {
       onAbort={() => {}}
       {...props}
     />,
+    withShell ? { wrapper: ComposerShell } : undefined,
   );
   const input = screen.getByTestId('composer-input') as HTMLTextAreaElement;
   return { ...view, input, onOpenVoiceCall, onSend };
@@ -122,6 +136,21 @@ describe('Composer layout', () => {
     openTools();
     expect(screen.queryByRole('menuitem', { name: 'Voice conversation' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Voice input' })).toBeNull();
+  });
+
+  it('takes a person without dictation from the microphone straight to Voice settings without sending their draft', async () => {
+    const { input, onSend } = renderComposer({}, true);
+    fireEvent.change(input, { target: { value: 'Unsent draft' } });
+    const mic = screen.getByRole('button', { name: 'Voice input' });
+    fireEvent.click(mic);
+    expect(await screen.findByText(/download a voice model or add your OpenAI API key/i)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss dictation setup' }));
+    expect(screen.queryByRole('button', { name: 'Open voice settings' })).toBeNull();
+    expect(input.value).toBe('Unsent draft');
+    fireEvent.click(mic);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open voice settings' }));
+    expect(screen.getByRole('heading', { name: 'settings / voice' })).toBeVisible();
+    expect(onSend).not.toHaveBeenCalled();
   });
 
   it('keeps dictation one press away', () => {

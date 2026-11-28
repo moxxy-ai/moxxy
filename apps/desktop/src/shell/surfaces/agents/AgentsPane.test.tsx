@@ -66,13 +66,16 @@ describe('AgentsPane', () => {
     expect(screen.getByText('No background work in this chat yet')).toBeTruthy();
   });
 
-  it("opens a helper's mini chat: its task, what it said and did, and its answer", async () => {
+  it("folds consecutive tool calls in a helper's mini chat without hiding its messages or answer", async () => {
     const id = ws();
     host([]);
     seed(id, [
       helper('subagent_started', { childSessionId: 'sub-1', label: 'List files', agentType: 'Explore', prompt: 'list the files' }),
       helper('subagent_message', { childSessionId: 'sub-1', text: 'Listing the folder.' }),
       helper('subagent_tool_call', { childSessionId: 'sub-1', name: 'Bash', input: { command: 'ls' } }),
+      helper('subagent_tool_call', { childSessionId: 'sub-1', name: 'Glob', input: { pattern: '*.txt' } }),
+      helper('subagent_message', { childSessionId: 'sub-1', text: 'Checking the file.' }),
+      helper('subagent_tool_call', { childSessionId: 'sub-1', name: 'Read', input: { path: 'notes.txt' } }),
       helper('subagent_completed', { childSessionId: 'sub-1', text: 'Two files.', stopReason: 'end_turn' }),
     ]);
     render(<AgentsPane workspaceId={id} />);
@@ -81,12 +84,47 @@ describe('AgentsPane', () => {
 
     const detail = screen.getByRole('region', { name: 'List files' });
     expect(within(detail).getByText('list the files')).toBeTruthy();
-    expect(within(detail).getByText('Listing the folder.')).toBeTruthy();
-    expect(within(detail).getByText('Bash')).toBeTruthy();
-    expect(within(detail).getByText('Two files.')).toBeTruthy();
+    const firstGroup = within(detail).getByRole('button', { name: '2 tool calls', expanded: false });
+    const secondGroup = within(detail).getByRole('button', { name: '1 tool call', expanded: false });
+    expect(detail).toHaveTextContent(/Listing the folder\.\s*2 tool calls\s*Checking the file\.\s*1 tool call\s*Two files\./);
+    expect(within(detail).queryByRole('list')).toBeNull();
+
+    fireEvent.click(firstGroup);
+    expect(firstGroup).toHaveAttribute('aria-expanded', 'true');
+    const calls = within(detail).getByRole('list');
+    expect(within(calls).getAllByRole('listitem').map((row) => row.textContent)).toEqual(['Bashcommand="ls"', 'Globpattern="*.txt"']);
+    expect(secondGroup).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(secondGroup);
+    expect(within(detail).getByText('Read')).toBeInTheDocument();
+    fireEvent.click(firstGroup);
+    expect(firstGroup).toHaveAttribute('aria-expanded', 'false');
+    expect(within(detail).queryByText('Bash')).toBeNull();
+    expect(within(detail).getByText('Read')).toBeInTheDocument();
     expect(within(detail).queryByRole('button', { name: 'Stop' })).toBeNull();
     fireEvent.click(within(detail).getByRole('button', { name: 'All work' }));
     expect(screen.queryByRole('region', { name: 'List files' })).toBeNull();
+  });
+
+  it('keeps an open call group expanded as a running helper adds to it', async () => {
+    const id = ws();
+    host([]);
+    seed(id, [
+      helper('subagent_started', { childSessionId: 'sub-1', label: 'Inspect files' }),
+      helper('subagent_tool_call', { childSessionId: 'sub-1', name: 'Glob', input: { pattern: '*.txt' } }),
+    ]);
+    render(<AgentsPane workspaceId={id} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Inspect files/ }));
+    expect(screen.queryByText('Working…')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Listing \*\.txt/, expanded: false }));
+    act(() => seed(id, [helper('subagent_tool_call', { childSessionId: 'sub-1', name: 'Read', input: { path: 'notes.txt' } })]));
+
+    expect(screen.getByRole('button', { name: /Reading notes\.txt/, expanded: true })).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    act(() => seed(id, [helper('subagent_completed', { childSessionId: 'sub-1', text: 'Found the file.' })]));
+    expect(screen.getByRole('button', { name: '2 tool calls', expanded: true })).toBeInTheDocument();
+    expect(screen.getByText('Found the file.')).toBeVisible();
   });
 
   it('stops a command that runs in the background, and shows what an ended one printed', async () => {

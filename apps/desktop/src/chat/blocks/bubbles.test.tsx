@@ -121,6 +121,7 @@ describe('waiting on the agent', () => {
     render(<ThinkingIndicator />);
     const status = screen.getByRole('status', { name: 'Moxxy is thinking' });
     expect(status).toHaveClass('bubble', 'bubble--agent');
+    expect(status.querySelector('img[src$="moxxy-mark-eyeless.png"]')).toBeVisible();
     expect(status).not.toHaveAttribute('style');
   });
 
