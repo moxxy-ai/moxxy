@@ -118,15 +118,18 @@ function Row(props: RowProps): JSX.Element {
 }
 
 function NodeView({ node, workspaceId, onPreviewImage, foldVersion, streamingReasoning }: RowProps): JSX.Element {
+  const renderStep = (step: RenderNode) => (
+    <NodeView node={step} workspaceId={workspaceId} onPreviewImage={onPreviewImage} foldVersion={foldVersion} />
+  );
   return (
     <>
       {node.kind === 'ext' ? (
         <ExtensionCard ext={node.ext} workspaceId={workspaceId} />
       ) : node.kind === 'work' ? (
-        <WorkGroupView group={node} streamingReasoning={streamingReasoning}>
+        <WorkGroupView group={node} streamingReasoning={streamingReasoning} compact={node.compactStep && renderStep(node.compactStep)}>
           {() => node.nodes.map((inner) => (
             <div key={keyOf(inner)} className="work-group__step">
-              <NodeView node={inner} workspaceId={workspaceId} onPreviewImage={onPreviewImage} foldVersion={foldVersion} />
+              {renderStep(inner)}
             </div>
           ))}
         </WorkGroupView>

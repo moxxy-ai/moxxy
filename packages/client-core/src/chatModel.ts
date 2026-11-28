@@ -71,6 +71,8 @@ export type RenderNode =
  */
 export interface WorkNode {
   readonly kind: 'work';
+  /** A lone finished step can supply its own compact view while the disclosure is closed. */
+  readonly compactStep?: RenderNode;
   /** Only the trailing work row of the turn receiving events. */
   readonly active?: true;
   readonly id: string;
@@ -181,6 +183,8 @@ function startOfNextOrLastStep(next: RenderNode | undefined, run: ReadonlyArray<
 }
 
 export interface WorkGroupOptions {
+  /** Keep the keyed work row around a lone finished step so its open details stay mounted. */
+  readonly wrapSingleSteps?: boolean;
   /** The last turn is still receiving events. */
   readonly running?: boolean;
   /** The visible history can start partway through an older turn. */
@@ -223,12 +227,14 @@ export function groupWorkNodes(nodes: ReadonlyArray<RenderNode>, options: WorkGr
       const active = running && next === undefined;
       const afterPrompt = hasPrompt && out.at(-1) === heading;
       const partialHead = options.hasOlder && !hasPrompt && out.length === 0;
-      if ((first && (run.length >= 2 || partialHead)) || (active && (first || afterPrompt))) {
+      const compactStep = !active && !partialHead && run.length === 1 && options.wrapSingleSteps ? first : undefined;
+      if (compactStep || (first && (run.length >= 2 || partialHead)) || (active && (first || afterPrompt))) {
         const lastTime = active ? null : startOfNextOrLastStep(next, run);
         out.push({
           kind: 'work',
           id: afterPrompt ? `work:turn:${keyOfNode(heading)}` : `work:${firstStepId(first ?? heading)}`,
           ...(active ? { active: true as const } : {}),
+          ...(compactStep ? { compactStep } : {}),
           nodes: run,
           steps: run.reduce((sum, node) => sum + stepsIn(node), 0),
           startedAtMs: afterPrompt ? turnStart : startOf(first ?? heading),

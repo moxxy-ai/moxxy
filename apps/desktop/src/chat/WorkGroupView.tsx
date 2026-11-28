@@ -14,13 +14,16 @@ import { useWorkGroup } from './useWorkGroup';
 export function WorkGroupView({
   group,
   children,
+  compact,
   streamingReasoning,
 }: {
   readonly group: WorkNode;
   readonly children: () => ReactNode;
+  readonly compact?: ReactNode;
   readonly streamingReasoning?: string;
 }): JSX.Element {
   const { label, steps, failed, open, toggle } = useWorkGroup(group, Boolean(streamingReasoning));
+  if (!open && compact) return <>{compact}</>;
   return (
     <div className="activity-block work-group" data-testid="block-work-group" data-open={open ? 'true' : 'false'}>
       <ActivityRow

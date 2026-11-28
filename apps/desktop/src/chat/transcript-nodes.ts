@@ -61,6 +61,7 @@ export function transcriptNodes(
   return groupWorkNodes(groupThinkingNodes(groupToolNodes(visibleTranscriptNodes(nodes, modes.notes))), {
     running,
     hasOlder,
+    wrapSingleSteps: true,
     keep: (node) => node.kind === 'block' && modes.outcomes.has(node.block.id),
   });
 }
